@@ -4,12 +4,6 @@ use candle_core::Tensor;
 use subsume_core::{Box, BoxError, GumbelBox, gumbel_membership_prob, sample_gumbel, map_gumbel_to_bounds};
 use crate::candle_box::CandleBox;
 
-impl From<candle_core::Error> for BoxError {
-    fn from(err: candle_core::Error) -> Self {
-        BoxError::Internal(err.to_string())
-    }
-}
-
 /// A Gumbel box embedding implemented using `candle_core::Tensor`.
 #[derive(Debug, Clone)]
 pub struct CandleGumbelBox {
@@ -41,11 +35,11 @@ impl Box for CandleGumbelBox {
         self.inner.dim()
     }
 
-    fn volume(&self, temperature: Self::Scalar) -> Result<Self::Scalar, BoxError> {
+    fn volume(&self, temperature: Self::Scalar) -> std::result::Result<Self::Scalar, BoxError> {
         self.inner.volume(temperature)
     }
 
-    fn intersection(&self, other: &Self) -> Result<Self, BoxError> {
+    fn intersection(&self, other: &Self) -> std::result::Result<Self, BoxError> {
         Ok(Self {
             inner: self.inner.intersection(&other.inner)?,
         })
@@ -55,7 +49,7 @@ impl Box for CandleGumbelBox {
         &self,
         other: &Self,
         temperature: Self::Scalar,
-    ) -> Result<Self::Scalar, BoxError> {
+    ) -> std::result::Result<Self::Scalar, BoxError> {
         self.inner.containment_prob(&other.inner, temperature)
     }
 
@@ -63,21 +57,21 @@ impl Box for CandleGumbelBox {
         &self,
         other: &Self,
         temperature: Self::Scalar,
-    ) -> Result<Self::Scalar, BoxError> {
+    ) -> std::result::Result<Self::Scalar, BoxError> {
         self.inner.overlap_prob(&other.inner, temperature)
     }
 
-    fn union(&self, other: &Self) -> Result<Self, BoxError> {
+    fn union(&self, other: &Self) -> std::result::Result<Self, BoxError> {
         Ok(Self {
             inner: self.inner.union(&other.inner)?,
         })
     }
 
-    fn center(&self) -> Result<Self::Vector, BoxError> {
+    fn center(&self) -> std::result::Result<Self::Vector, BoxError> {
         self.inner.center()
     }
 
-    fn distance(&self, other: &Self) -> Result<Self::Scalar, BoxError> {
+    fn distance(&self, other: &Self) -> std::result::Result<Self::Scalar, BoxError> {
         self.inner.distance(&other.inner)
     }
 }
