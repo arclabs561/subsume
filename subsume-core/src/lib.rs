@@ -65,5 +65,7 @@ pub use utils::{
 pub use training::{
     metrics::{mean_reciprocal_rank, hits_at_k, mean_rank, ndcg},
     diagnostics::{TrainingStats, LossComponents},
+    quality::{VolumeDistribution, ContainmentAccuracy, IntersectionTopology},
+    calibration::{expected_calibration_error, brier_score},
 };
 

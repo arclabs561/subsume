@@ -11,8 +11,8 @@ Framework-agnostic geometric box embeddings for containment, entailment, and hie
 This workspace contains three crates:
 
 - **`subsume-core`**: Framework-agnostic traits (`Box`, `GumbelBox`, `BoxEmbedding`)
-- **`subsume-candle`**: Implementation using `candle_core::Tensor`
-- **`subsume-ndarray`**: Implementation using `ndarray::Array1<f32>`
+- **`subsume-candle`**: Implementation using `candle_core::Tensor` (⚠️ currently disabled due to dependency conflicts)
+- **`subsume-ndarray`**: Implementation using `ndarray::Array1<f32>` (✅ fully functional)
 
 ## Key Features
 
@@ -24,6 +24,8 @@ This workspace contains three crates:
 - **Training utilities**: Log-space volume computation, volume regularization, temperature scheduling, and loss functions
 - **Training quality metrics**: MRR, Hits@K, Mean Rank, nDCG for evaluating embedding quality
 - **Training diagnostics**: Convergence detection, gradient monitoring, volume tracking, loss component analysis
+- **Embedding quality assessment**: Volume distribution analysis, containment accuracy verification, hierarchy detection
+- **Calibration metrics**: Expected Calibration Error (ECE) and Brier score for probabilistic predictions
 - **Property-based testing**: Property tests using `proptest` to verify mathematical invariants
 - **Performance benchmarks**: Benchmarks with `criterion` across multiple dimensions
 - **Serialization**: `serde` support for model persistence (JSON, bincode, etc.)
@@ -88,7 +90,7 @@ Based on:
   - Enriched methods tests (16 tests) for new geometric operations
 - Benchmarks with `criterion`
 - Serialization support with `serde` (ndarray backend)
-- Examples for knowledge graphs, serialization, training utilities, and training diagnostics
+- Examples for knowledge graphs, serialization, training utilities, training diagnostics, and embedding quality assessment
 
 ### Next Steps
 

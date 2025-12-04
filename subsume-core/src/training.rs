@@ -408,6 +408,350 @@ pub mod diagnostics {
     }
 }
 
+/// Embedding quality assessment utilities for box embeddings.
+pub mod quality {
+
+    /// Volume distribution statistics for analyzing box embedding quality.
+    #[derive(Debug, Clone)]
+    pub struct VolumeDistribution {
+        /// Minimum volume
+        pub min: f32,
+        /// Maximum volume
+        pub max: f32,
+        /// Mean volume
+        pub mean: f32,
+        /// Median volume
+        pub median: f32,
+        /// Standard deviation of volumes
+        pub std_dev: f32,
+        /// Coefficient of variation (std_dev / mean)
+        pub cv: f32,
+    }
+
+    impl VolumeDistribution {
+        /// Compute volume distribution statistics from a collection of volumes.
+        pub fn from_volumes<I>(volumes: I) -> Self
+        where
+            I: Iterator<Item = f32>,
+        {
+            let mut vols: Vec<f32> = volumes.collect();
+            if vols.is_empty() {
+                return Self {
+                    min: 0.0,
+                    max: 0.0,
+                    mean: 0.0,
+                    median: 0.0,
+                    std_dev: 0.0,
+                    cv: 0.0,
+                };
+            }
+
+            vols.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            
+            let min = vols[0];
+            let max = vols[vols.len() - 1];
+            let mean = vols.iter().sum::<f32>() / vols.len() as f32;
+            
+            let median = if vols.len() % 2 == 0 {
+                (vols[vols.len() / 2 - 1] + vols[vols.len() / 2]) / 2.0
+            } else {
+                vols[vols.len() / 2]
+            };
+            
+            let variance = vols.iter()
+                .map(|&v| (v - mean).powi(2))
+                .sum::<f32>() / vols.len() as f32;
+            let std_dev = variance.sqrt();
+            
+            let cv = if mean > 0.0 {
+                std_dev / mean
+            } else {
+                0.0
+            };
+
+            Self {
+                min,
+                max,
+                mean,
+                median,
+                std_dev,
+                cv,
+            }
+        }
+
+        /// Check if volume distribution indicates collapse (all volumes too small).
+        pub fn is_collapsed(&self, threshold: f32) -> bool {
+            self.max < threshold
+        }
+
+        /// Check if volume distribution is degenerate (all volumes identical).
+        pub fn is_degenerate(&self, tolerance: f32) -> bool {
+            (self.max - self.min) < tolerance
+        }
+
+        /// Check if volume distribution has useful hierarchy (high variance).
+        pub fn has_hierarchy(&self, min_cv: f32) -> bool {
+            self.cv >= min_cv
+        }
+    }
+
+    /// Containment accuracy statistics.
+    #[derive(Debug, Clone)]
+    pub struct ContainmentAccuracy {
+        /// True positives (correctly predicted containments)
+        pub true_positives: usize,
+        /// False positives (incorrectly predicted containments)
+        pub false_positives: usize,
+        /// True negatives (correctly predicted non-containments)
+        pub true_negatives: usize,
+        /// False negatives (missed containments)
+        pub false_negatives: usize,
+    }
+
+    impl ContainmentAccuracy {
+        /// Create new containment accuracy tracker.
+        pub fn new() -> Self {
+            Self {
+                true_positives: 0,
+                false_positives: 0,
+                true_negatives: 0,
+                false_negatives: 0,
+            }
+        }
+
+        /// Record a containment prediction.
+        pub fn record(&mut self, predicted: bool, actual: bool) {
+            match (predicted, actual) {
+                (true, true) => self.true_positives += 1,
+                (true, false) => self.false_positives += 1,
+                (false, true) => self.false_negatives += 1,
+                (false, false) => self.true_negatives += 1,
+            }
+        }
+
+        /// Precision: TP / (TP + FP)
+        pub fn precision(&self) -> f32 {
+            let total_positive = self.true_positives + self.false_positives;
+            if total_positive == 0 {
+                0.0
+            } else {
+                self.true_positives as f32 / total_positive as f32
+            }
+        }
+
+        /// Recall: TP / (TP + FN)
+        pub fn recall(&self) -> f32 {
+            let total_actual_positive = self.true_positives + self.false_negatives;
+            if total_actual_positive == 0 {
+                0.0
+            } else {
+                self.true_positives as f32 / total_actual_positive as f32
+            }
+        }
+
+        /// F1 score: 2 * (precision * recall) / (precision + recall)
+        pub fn f1(&self) -> f32 {
+            let prec = self.precision();
+            let rec = self.recall();
+            if prec + rec == 0.0 {
+                0.0
+            } else {
+                2.0 * prec * rec / (prec + rec)
+            }
+        }
+
+        /// Accuracy: (TP + TN) / (TP + FP + TN + FN)
+        pub fn accuracy(&self) -> f32 {
+            let total = self.true_positives + self.false_positives
+                + self.true_negatives + self.false_negatives;
+            if total == 0 {
+                0.0
+            } else {
+                (self.true_positives + self.true_negatives) as f32 / total as f32
+            }
+        }
+    }
+
+    impl Default for ContainmentAccuracy {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    /// Intersection topology statistics for analyzing box relationships.
+    #[derive(Debug, Clone)]
+    pub struct IntersectionTopology {
+        /// Total number of box pairs analyzed
+        pub total_pairs: usize,
+        /// Number of pairs with non-empty intersection
+        pub intersecting_pairs: usize,
+        /// Number of pairs with containment relationship
+        pub containment_pairs: usize,
+        /// Number of pairs that are disjoint
+        pub disjoint_pairs: usize,
+    }
+
+    impl IntersectionTopology {
+        /// Create new intersection topology tracker.
+        pub fn new() -> Self {
+            Self {
+                total_pairs: 0,
+                intersecting_pairs: 0,
+                containment_pairs: 0,
+                disjoint_pairs: 0,
+            }
+        }
+
+        /// Record an intersection relationship.
+        pub fn record_intersection(&mut self, has_intersection: bool) {
+            self.total_pairs += 1;
+            if has_intersection {
+                self.intersecting_pairs += 1;
+            } else {
+                self.disjoint_pairs += 1;
+            }
+        }
+
+        /// Record a containment relationship.
+        pub fn record_containment(&mut self, has_containment: bool) {
+            if has_containment {
+                self.containment_pairs += 1;
+            }
+        }
+
+        /// Fraction of pairs that intersect.
+        pub fn intersection_rate(&self) -> f32 {
+            if self.total_pairs == 0 {
+                0.0
+            } else {
+                self.intersecting_pairs as f32 / self.total_pairs as f32
+            }
+        }
+
+        /// Fraction of pairs with containment.
+        pub fn containment_rate(&self) -> f32 {
+            if self.total_pairs == 0 {
+                0.0
+            } else {
+                self.containment_pairs as f32 / self.total_pairs as f32
+            }
+        }
+
+        /// Fraction of pairs that are disjoint.
+        pub fn disjoint_rate(&self) -> f32 {
+            if self.total_pairs == 0 {
+                0.0
+            } else {
+                self.disjoint_pairs as f32 / self.total_pairs as f32
+            }
+        }
+    }
+
+    impl Default for IntersectionTopology {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+}
+
+/// Calibration metrics for probabilistic box embeddings.
+pub mod calibration {
+    /// Expected Calibration Error (ECE) for box embedding predictions.
+    ///
+    /// Measures how well predicted probabilities match empirical frequencies.
+    /// Lower ECE indicates better calibration.
+    ///
+    /// # Parameters
+    ///
+    /// - `predictions`: Iterator of predicted probabilities
+    /// - `actuals`: Iterator of actual binary outcomes (true/false)
+    /// - `n_bins`: Number of bins for probability discretization
+    ///
+    /// # Returns
+    ///
+    /// ECE value in [0, 1], where lower is better
+    pub fn expected_calibration_error<I, J>(
+        predictions: I,
+        actuals: J,
+        n_bins: usize,
+    ) -> f32
+    where
+        I: Iterator<Item = f32>,
+        J: Iterator<Item = bool>,
+    {
+        let mut bins: Vec<Vec<(f32, bool)>> = vec![Vec::new(); n_bins];
+        
+        // Collect predictions and actuals into bins
+        for (pred, actual) in predictions.zip(actuals) {
+            let pred_clamped = pred.clamp(0.0, 1.0);
+            let bin_idx = ((pred_clamped * n_bins as f32) as usize).min(n_bins - 1);
+            bins[bin_idx].push((pred_clamped, actual));
+        }
+        
+        let mut ece = 0.0;
+        let mut total_samples = 0;
+        
+        for bin in bins.iter() {
+            if bin.is_empty() {
+                continue;
+            }
+            
+            let bin_size = bin.len();
+            total_samples += bin_size;
+            
+            // Average predicted probability in this bin
+            let avg_pred = bin.iter().map(|(p, _)| p).sum::<f32>() / bin_size as f32;
+            
+            // Empirical accuracy in this bin
+            let empirical_acc = bin.iter().filter(|(_, a)| *a).count() as f32 / bin_size as f32;
+            
+            // Weighted absolute difference
+            ece += (avg_pred - empirical_acc).abs() * bin_size as f32;
+        }
+        
+        if total_samples > 0 {
+            ece / total_samples as f32
+        } else {
+            0.0
+        }
+    }
+
+    /// Brier score for probabilistic predictions.
+    ///
+    /// Measures the mean squared difference between predicted probabilities
+    /// and actual binary outcomes. Lower is better.
+    ///
+    /// # Parameters
+    ///
+    /// - `predictions`: Iterator of predicted probabilities
+    /// - `actuals`: Iterator of actual binary outcomes (true/false)
+    ///
+    /// # Returns
+    ///
+    /// Brier score in [0, 1], where lower is better
+    pub fn brier_score<I, J>(predictions: I, actuals: J) -> f32
+    where
+        I: Iterator<Item = f32>,
+        J: Iterator<Item = bool>,
+    {
+        let mut sum_squared_error = 0.0;
+        let mut count = 0;
+        
+        for (pred, actual) in predictions.zip(actuals) {
+            let pred_clamped = pred.clamp(0.0, 1.0);
+            let actual_val = if actual { 1.0 } else { 0.0 };
+            sum_squared_error += (pred_clamped - actual_val).powi(2);
+            count += 1;
+        }
+        
+        if count > 0 {
+            sum_squared_error / count as f32
+        } else {
+            0.0
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -469,6 +813,93 @@ mod tests {
         let balanced = diagnostics::LossComponents::new(0.4, 0.3, 0.3);
         assert!(!balanced.is_imbalanced());
         assert_eq!(balanced.dominant_component(), None);
+    }
+
+    #[test]
+    fn test_volume_distribution() {
+        let volumes = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
+        let dist = quality::VolumeDistribution::from_volumes(volumes.iter().copied());
+        
+        assert!((dist.min - 0.1).abs() < 1e-6);
+        assert!((dist.max - 1.0).abs() < 1e-6);
+        assert!((dist.mean - 0.55).abs() < 1e-6);
+        assert!(!dist.is_collapsed(0.05));
+        assert!(!dist.is_degenerate(0.01));
+        assert!(dist.has_hierarchy(0.1));
+    }
+
+    #[test]
+    fn test_containment_accuracy() {
+        let mut acc = quality::ContainmentAccuracy::new();
+        
+        // Record some predictions
+        acc.record(true, true);   // TP
+        acc.record(true, true);   // TP
+        acc.record(true, false);  // FP
+        acc.record(false, true); // FN
+        acc.record(false, false); // TN
+        acc.record(false, false); // TN
+        
+        assert_eq!(acc.true_positives, 2);
+        assert_eq!(acc.false_positives, 1);
+        assert_eq!(acc.false_negatives, 1);
+        assert_eq!(acc.true_negatives, 2);
+        
+        // Precision = 2 / (2 + 1) = 2/3 ≈ 0.667
+        assert!((acc.precision() - 0.6667).abs() < 1e-3);
+        // Recall = 2 / (2 + 1) = 2/3 ≈ 0.667
+        assert!((acc.recall() - 0.6667).abs() < 1e-3);
+        // Accuracy = (2 + 2) / 6 = 4/6 ≈ 0.667
+        assert!((acc.accuracy() - 0.6667).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_expected_calibration_error() {
+        // Well-calibrated predictions
+        let preds = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9];
+        let actuals = vec![false, false, false, false, true, true, true, true, true];
+        let ece = calibration::expected_calibration_error(
+            preds.iter().copied(),
+            actuals.iter().copied(),
+            10,
+        );
+        // Should be relatively low for well-calibrated predictions
+        assert!(ece < 0.3);
+    }
+
+    #[test]
+    fn test_brier_score() {
+        // Perfect predictions
+        let preds = vec![0.0, 0.0, 1.0, 1.0];
+        let actuals = vec![false, false, true, true];
+        let brier = calibration::brier_score(preds.iter().copied(), actuals.iter().copied());
+        assert_eq!(brier, 0.0);
+        
+        // Random predictions (should have higher Brier score)
+        let preds2 = vec![0.5, 0.5, 0.5, 0.5];
+        let actuals2 = vec![false, true, false, true];
+        let brier2 = calibration::brier_score(preds2.iter().copied(), actuals2.iter().copied());
+        assert!(brier2 > 0.0);
+    }
+
+    #[test]
+    fn test_intersection_topology() {
+        let mut topology = quality::IntersectionTopology::new();
+        
+        topology.record_intersection(true);   // Intersecting
+        topology.record_intersection(true);   // Intersecting
+        topology.record_intersection(false);  // Disjoint
+        topology.record_containment(true);    // Has containment
+        topology.record_containment(false);   // No containment
+        
+        assert_eq!(topology.total_pairs, 3);
+        assert_eq!(topology.intersecting_pairs, 2);
+        assert_eq!(topology.disjoint_pairs, 1);
+        assert_eq!(topology.containment_pairs, 1);
+        
+        assert!((topology.intersection_rate() - 0.6667).abs() < 1e-3);
+        assert!((topology.containment_rate() - 0.3333).abs() < 1e-3);
+        assert!((topology.disjoint_rate() - 0.3333).abs() < 1e-3);
     }
 }
 

@@ -18,6 +18,10 @@ subsume-core = { path = "../subsume-core" }
 candle-core = "0.4"
 serde = { workspace = true }
 thiserror = { workspace = true }
+# Force consistent versions to avoid conflicts
+rand = { workspace = true }
+rand_distr = { workspace = true }
+half = { workspace = true }
 
 [dev-dependencies]
 criterion = "0.5"
