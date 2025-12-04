@@ -44,20 +44,52 @@ pub trait GumbelBox: Box {
 
     /// Compute membership probability for a point.
     ///
-    /// P(point ∈ self) using Gumbel-Softmax.
+    /// This computes P(point ∈ self) using the Gumbel-Softmax framework.
+    ///
+    /// ## Mathematical Formulation
+    ///
+    /// For a point x and box with bounds [min, max] at temperature τ:
+    ///
+    /// \[
+    /// P(\text{point} \in \text{self}) = \sigma\left(\frac{x - \text{min}}{\tau}\right) \cdot \sigma\left(\frac{\text{max} - x}{\tau}\right)
+    /// \]
+    ///
+    /// where σ is the sigmoid function. This is the product of:
+    /// - P(x > min): Probability that point is above minimum bound
+    /// - P(x < max): Probability that point is below maximum bound
+    ///
+    /// ## Interpretation
+    ///
+    /// - **1.0**: Point is definitely inside the box (high confidence)
+    /// - **0.0**: Point is definitely outside the box (high confidence)
+    /// - **0.5**: Point is on the boundary (uncertain)
+    ///
+    /// As temperature decreases, the probability becomes sharper (more like hard membership).
     ///
     /// # Errors
     ///
     /// Returns `BoxError::DimensionMismatch` if point dimension doesn't match box dimension.
-    fn membership_probability(
-        &self,
-        point: &Self::Vector,
-    ) -> Result<Self::Scalar, BoxError>;
+    fn membership_probability(&self, point: &Self::Vector) -> Result<Self::Scalar, BoxError>;
 
     /// Sample a point from the box distribution.
     ///
-    /// Uses Gumbel-Softmax to sample a point that lies within the box
-    /// with probability proportional to the box's volume.
+    /// Uses Gumbel-Softmax to sample a point that lies within the box bounds.
+    /// The sampling is uniform within the box (all points equally likely), but the
+    /// Gumbel distribution ensures the sampling is differentiable with respect to
+    /// the box parameters.
+    ///
+    /// ## Sampling Process
+    ///
+    /// 1. Sample Gumbel noise for each dimension
+    /// 2. Transform Gumbel samples to [0, 1] using tanh and temperature scaling
+    /// 3. Map to box bounds [min, max] in each dimension
+    ///
+    /// This ensures samples are always within bounds while maintaining differentiability.
+    ///
+    /// ## Use Cases
+    ///
+    /// - **Training**: Sampling enables stochastic gradient estimation
+    /// - **Inference**: Can sample multiple points to estimate box properties
+    /// - **Visualization**: Sample points to visualize box shape and location
     fn sample(&self) -> Self::Vector;
 }
-

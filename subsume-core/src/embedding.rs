@@ -29,10 +29,7 @@ pub trait BoxEmbedding<B: Box> {
     /// # Errors
     ///
     /// Returns `BoxError` if any boxes have dimension mismatches.
-    fn containment_matrix(
-        &self,
-        temperature: B::Scalar,
-    ) -> Result<Vec<Vec<B::Scalar>>, BoxError>;
+    fn containment_matrix(&self, temperature: B::Scalar) -> Result<Vec<Vec<B::Scalar>>, BoxError>;
 
     /// Find boxes that contain a given box.
     ///
@@ -69,10 +66,7 @@ pub trait BoxEmbedding<B: Box> {
     /// # Errors
     ///
     /// Returns `BoxError` if any boxes have dimension mismatches.
-    fn overlap_matrix(
-        &self,
-        temperature: B::Scalar,
-    ) -> Result<Vec<Vec<B::Scalar>>, BoxError>;
+    fn overlap_matrix(&self, temperature: B::Scalar) -> Result<Vec<Vec<B::Scalar>>, BoxError>;
 
     /// Find boxes that overlap with a given box.
     ///
@@ -95,11 +89,7 @@ pub trait BoxEmbedding<B: Box> {
     /// # Errors
     ///
     /// Returns `BoxError` if query has dimension mismatch with any box.
-    fn nearest_boxes(
-        &self,
-        query: &B,
-        k: usize,
-    ) -> Result<Vec<usize>, BoxError>;
+    fn nearest_boxes(&self, query: &B, k: usize) -> Result<Vec<usize>, BoxError>;
 
     /// Compute the bounding box of all boxes in the collection.
     ///
@@ -183,29 +173,28 @@ impl<B: Box> BoxEmbedding<B> for BoxCollection<B> {
     }
 
     fn get(&self, index: usize) -> Result<&B, BoxError> {
-        self.boxes.get(index).ok_or_else(|| BoxError::Internal(format!("Index {index} out of bounds")))
+        self.boxes
+            .get(index)
+            .ok_or_else(|| BoxError::Internal(format!("Index {index} out of bounds")))
     }
 
-    fn containment_matrix(
-        &self,
-        temperature: B::Scalar,
-    ) -> Result<Vec<Vec<B::Scalar>>, BoxError> {
+    fn containment_matrix(&self, temperature: B::Scalar) -> Result<Vec<Vec<B::Scalar>>, BoxError> {
         let n = self.len();
         let mut matrix = Vec::with_capacity(n);
-        
+
         for i in 0..n {
             let mut row = Vec::with_capacity(n);
             let box_i = self.get(i)?;
-            
+
             for j in 0..n {
                 let box_j = self.get(j)?;
                 let prob = box_i.containment_prob(box_j, temperature)?;
                 row.push(prob);
             }
-            
+
             matrix.push(row);
         }
-        
+
         Ok(matrix)
     }
 
@@ -216,14 +205,14 @@ impl<B: Box> BoxEmbedding<B> for BoxCollection<B> {
         temperature: B::Scalar,
     ) -> Result<Vec<usize>, BoxError> {
         let mut results = Vec::new();
-        
+
         for (i, box_) in self.boxes.iter().enumerate() {
             let prob = box_.containment_prob(query, temperature)?;
             if prob > threshold {
                 results.push(i);
             }
         }
-        
+
         Ok(results)
     }
 
@@ -234,37 +223,34 @@ impl<B: Box> BoxEmbedding<B> for BoxCollection<B> {
         temperature: B::Scalar,
     ) -> Result<Vec<usize>, BoxError> {
         let mut results = Vec::new();
-        
+
         for (i, box_) in self.boxes.iter().enumerate() {
             let prob = query.containment_prob(box_, temperature)?;
             if prob > threshold {
                 results.push(i);
             }
         }
-        
+
         Ok(results)
     }
 
-    fn overlap_matrix(
-        &self,
-        temperature: B::Scalar,
-    ) -> Result<Vec<Vec<B::Scalar>>, BoxError> {
+    fn overlap_matrix(&self, temperature: B::Scalar) -> Result<Vec<Vec<B::Scalar>>, BoxError> {
         let n = self.len();
         let mut matrix = Vec::with_capacity(n);
-        
+
         for i in 0..n {
             let mut row = Vec::with_capacity(n);
             let box_i = self.get(i)?;
-            
+
             for j in 0..n {
                 let box_j = self.get(j)?;
                 let prob = box_i.overlap_prob(box_j, temperature)?;
                 row.push(prob);
             }
-            
+
             matrix.push(row);
         }
-        
+
         Ok(matrix)
     }
 
@@ -275,42 +261,33 @@ impl<B: Box> BoxEmbedding<B> for BoxCollection<B> {
         temperature: B::Scalar,
     ) -> Result<Vec<usize>, BoxError> {
         let mut results = Vec::new();
-        
+
         for (i, box_) in self.boxes.iter().enumerate() {
             let prob = box_.overlap_prob(query, temperature)?;
             if prob > threshold {
                 results.push(i);
             }
         }
-        
+
         Ok(results)
     }
 
-    fn nearest_boxes(
-        &self,
-        query: &B,
-        k: usize,
-    ) -> Result<Vec<usize>, BoxError> {
+    fn nearest_boxes(&self, query: &B, k: usize) -> Result<Vec<usize>, BoxError> {
         if k == 0 {
             return Ok(Vec::new());
         }
 
         let mut distances: Vec<(usize, B::Scalar)> = Vec::new();
-        
+
         for (i, box_) in self.boxes.iter().enumerate() {
             let dist = box_.distance(query)?;
             distances.push((i, dist));
         }
-        
+
         // Sort by distance and take k nearest
-        distances.sort_by(|a, b| {
-            a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
-        });
-        
-        Ok(distances.into_iter()
-            .take(k)
-            .map(|(idx, _)| idx)
-            .collect())
+        distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        Ok(distances.into_iter().take(k).map(|(idx, _)| idx).collect())
     }
 
     fn bounding_box(&self) -> Result<B, BoxError>
@@ -318,17 +295,19 @@ impl<B: Box> BoxEmbedding<B> for BoxCollection<B> {
         B: Clone,
     {
         if self.is_empty() {
-            return Err(BoxError::Internal("Cannot compute bounding box of empty collection".to_string()));
+            return Err(BoxError::Internal(
+                "Cannot compute bounding box of empty collection".to_string(),
+            ));
         }
 
         let first_box = self.get(0)?;
         let mut bbox = first_box.clone();
-        
+
         for i in 1..self.len() {
             let box_i = self.get(i)?;
             bbox = bbox.union(box_i)?;
         }
-        
+
         Ok(bbox)
     }
 }
@@ -338,4 +317,3 @@ impl<B: Box> From<Vec<B>> for BoxCollection<B> {
         Self::from_vec(boxes)
     }
 }
-

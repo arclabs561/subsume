@@ -37,6 +37,10 @@ name = "geometric_operations"
 path = "examples/geometric_operations.rs"
 
 [[example]]
+name = "recent_research_metrics"
+path = "examples/recent_research_metrics.rs"
+
+[[example]]
 name = "complete_training_loop"
 path = "examples/complete_training_loop.rs"
 

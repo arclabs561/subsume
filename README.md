@@ -2,6 +2,8 @@
 
 Framework-agnostic geometric box embeddings for containment, entailment, and hierarchical relationships.
 
+**Subsume** models logical subsumption relationships through geometric containment: when box A contains box B, we say that A **subsumes** B. This directly corresponds to entailment in formal logic, hierarchical relationships in knowledge graphs, and hyponym-hypernym relationships in natural language.
+
 ## Why "subsume"?
 
 The name **subsume** is the precise mathematical and logical term for the containment relationship that box embeddings model. In formal logic and automated reasoning, **subsumption** means that one statement is more general than another and covers all cases that the more specific statement would cover.
@@ -33,6 +35,27 @@ For detailed mathematical formulations, see [`docs/MATHEMATICAL_FOUNDATIONS.md`]
 - Gumbel-Softmax framework and local identifiability solutions
 - Theoretical guarantees (expressiveness, closure properties, idempotency)
 - Training dynamics and optimization considerations
+
+For practical guidance on using box embeddings effectively, see [`docs/PRACTICAL_GUIDE.md`](docs/PRACTICAL_GUIDE.md), which covers:
+- Understanding and working around the local identifiability problem
+- Temperature scheduling strategies and hyperparameter selection
+- Volume regularization to prevent "cheating" (boxes becoming arbitrarily large)
+- Initialization strategies for successful training
+- Numerical stability considerations and common pitfalls
+- Training diagnostics: what to monitor and when
+- Debugging common training issues
+
+For recent developments (2023-2025), see [`docs/RECENT_RESEARCH.md`](docs/RECENT_RESEARCH.md), which covers:
+- RegD: Hyperbolic-like expressiveness with Euclidean regions
+- Concept2Box: Joint box+vector embeddings for two-view knowledge graphs
+- TransBox: EL++-closed ontology embeddings
+- Uncertainty quantification in embeddings
+
+For a conceptual overview of why box embeddings are useful, see [`docs/CONCEPTUAL_OVERVIEW.md`](docs/CONCEPTUAL_OVERVIEW.md), which explains:
+- The fundamental insight: regions vs. points
+- Geometric intuition and volume semantics
+- Comparison to other embedding methods
+- When to use (and not use) box embeddings
 
 ## Overview
 
@@ -110,7 +133,7 @@ fn main() -> Result<(), subsume_core::BoxError> {
 - **Yang, Chen & Sattler (2024)**: "TransBox: EL++-closed Ontology Embedding" — Box embeddings for formal ontologies
 - **Xiao, He & Cao (2024)**: "Knowledge Graph Embedding by Normalizing Flows" — Uncertainty quantification in embeddings
 
-See [`docs/MATHEMATICAL_FOUNDATIONS.md`](docs/MATHEMATICAL_FOUNDATIONS.md) for detailed mathematical formulations and [`docs/RECENT_RESEARCH.md`](docs/RECENT_RESEARCH.md) for recent developments.
+See [`docs/MATHEMATICAL_FOUNDATIONS.md`](docs/MATHEMATICAL_FOUNDATIONS.md) for detailed mathematical formulations, [`docs/RECENT_RESEARCH.md`](docs/RECENT_RESEARCH.md) for recent developments, and [`docs/PAPER_VERIFICATION.md`](docs/PAPER_VERIFICATION.md) for verification of paper claims.
 
 ## Status
 
@@ -127,6 +150,11 @@ See [`docs/MATHEMATICAL_FOUNDATIONS.md`](docs/MATHEMATICAL_FOUNDATIONS.md) for d
   - Volume-based loss functions for containment and overlap relationships
 - **Geometric operations**: Union, center, distance calculations
 - **Batch operations**: Overlap matrix, overlapping boxes queries, k-nearest neighbors, bounding box computation
+- **Recent research metrics** (2023-2025):
+  - **Depth distance** (RegD 2025): Hyperbolic-like expressiveness with Euclidean boxes
+  - **Boundary distance** (RegD 2025): Discrimination in inclusion chains
+  - **Vector-to-box distance** (Concept2Box 2023): Hybrid representations (concepts as boxes, entities as vectors)
+  - **Depth similarity**: Similarity metric based on depth distance
 - **Training quality and diagnostics** (based on research from Box Embeddings library, BEUrRE, BoxE):
   - Rank-based metrics: MRR, Hits@K, Mean Rank, nDCG for link prediction evaluation
   - **Advanced training diagnostics**: 

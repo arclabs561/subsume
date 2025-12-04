@@ -6,18 +6,10 @@ use subsume_ndarray::NdarrayBox;
 
 fn main() -> Result<(), subsume_core::BoxError> {
     // Create a premise box (larger)
-    let premise = NdarrayBox::new(
-        array![0.0, 0.0, 0.0],
-        array![1.0, 1.0, 1.0],
-        1.0,
-    )?;
+    let premise = NdarrayBox::new(array![0.0, 0.0, 0.0], array![1.0, 1.0, 1.0], 1.0)?;
 
     // Create a hypothesis box (contained within premise)
-    let hypothesis = NdarrayBox::new(
-        array![0.2, 0.2, 0.2],
-        array![0.8, 0.8, 0.8],
-        1.0,
-    )?;
+    let hypothesis = NdarrayBox::new(array![0.2, 0.2, 0.2], array![0.8, 0.8, 0.8], 1.0)?;
 
     // Compute entailment: P(hypothesis ⊆ premise)
     let entailment = premise.containment_prob(&hypothesis, 1.0)?;
@@ -36,4 +28,3 @@ fn main() -> Result<(), subsume_core::BoxError> {
 
     Ok(())
 }
-

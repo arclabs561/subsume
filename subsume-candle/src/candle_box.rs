@@ -30,8 +30,12 @@ impl CandleBox {
         }
 
         // Validate bounds
-        let min_data = min.to_vec1::<f32>().map_err(|e| BoxError::Internal(e.to_string()))?;
-        let max_data = max.to_vec1::<f32>().map_err(|e| BoxError::Internal(e.to_string()))?;
+        let min_data = min
+            .to_vec1::<f32>()
+            .map_err(|e| BoxError::Internal(e.to_string()))?;
+        let max_data = max
+            .to_vec1::<f32>()
+            .map_err(|e| BoxError::Internal(e.to_string()))?;
         for (i, (&m, &max_val)) in min_data.iter().zip(max_data.iter()).enumerate() {
             if m > max_val {
                 return Err(BoxError::InvalidBounds {
@@ -68,9 +72,14 @@ impl Box for CandleBox {
 
     fn volume(&self, _temperature: Self::Scalar) -> std::result::Result<Self::Scalar, BoxError> {
         // Volume = ∏(max[i] - min[i])
-        let diff = self.max.sub(&self.min).map_err(|e| BoxError::Internal(e.to_string()))?;
+        let diff = self
+            .max
+            .sub(&self.min)
+            .map_err(|e| BoxError::Internal(e.to_string()))?;
         // Compute product by iterating over elements
-        let diff_data = diff.to_vec1::<f32>().map_err(|e| BoxError::Internal(e.to_string()))?;
+        let diff_data = diff
+            .to_vec1::<f32>()
+            .map_err(|e| BoxError::Internal(e.to_string()))?;
         let volume = diff_data.iter().product::<f32>();
         Ok(volume)
     }
@@ -83,17 +92,31 @@ impl Box for CandleBox {
             });
         }
 
-        let intersection_min = self.min.maximum(&other.min).map_err(|e| BoxError::Internal(e.to_string()))?;
-        let intersection_max = self.max.minimum(&other.max).map_err(|e| BoxError::Internal(e.to_string()))?;
+        let intersection_min = self
+            .min
+            .maximum(&other.min)
+            .map_err(|e| BoxError::Internal(e.to_string()))?;
+        let intersection_max = self
+            .max
+            .minimum(&other.max)
+            .map_err(|e| BoxError::Internal(e.to_string()))?;
 
         // Check if intersection is valid (not disjoint)
         // If min > max in any dimension, boxes are disjoint
-        let min_data = intersection_min.to_vec1::<f32>().map_err(|e| BoxError::Internal(e.to_string()))?;
-        let max_data = intersection_max.to_vec1::<f32>().map_err(|e| BoxError::Internal(e.to_string()))?;
+        let min_data = intersection_min
+            .to_vec1::<f32>()
+            .map_err(|e| BoxError::Internal(e.to_string()))?;
+        let max_data = intersection_max
+            .to_vec1::<f32>()
+            .map_err(|e| BoxError::Internal(e.to_string()))?;
         for (min_val, max_val) in min_data.iter().zip(max_data.iter()) {
             if min_val > max_val {
                 // Boxes are disjoint - return a zero-volume box
-                return Self::new(intersection_min.clone(), intersection_min.clone(), self.temperature);
+                return Self::new(
+                    intersection_min.clone(),
+                    intersection_min.clone(),
+                    self.temperature,
+                );
             }
         }
 
@@ -133,16 +156,16 @@ impl Box for CandleBox {
         // Using inclusion-exclusion: P(A ∩ B ≠ ∅) = intersection_vol(A, B) / union_vol(A, B)
         let intersection = self.intersection(other)?;
         let intersection_vol = intersection.volume(temperature)?;
-        
+
         // Union volume = vol(A) + vol(B) - intersection_vol(A, B)
         let vol_a = self.volume(temperature)?;
         let vol_b = other.volume(temperature)?;
         let union_vol = vol_a + vol_b - intersection_vol;
-        
+
         if union_vol <= 0.0 {
             return Ok(0.0);
         }
-        
+
         Ok((intersection_vol / union_vol).clamp(0.0, 1.0))
     }
 
@@ -154,17 +177,29 @@ impl Box for CandleBox {
             });
         }
 
-        let union_min = self.min.minimum(&other.min).map_err(|e| BoxError::Internal(e.to_string()))?;
-        let union_max = self.max.maximum(&other.max).map_err(|e| BoxError::Internal(e.to_string()))?;
+        let union_min = self
+            .min
+            .minimum(&other.min)
+            .map_err(|e| BoxError::Internal(e.to_string()))?;
+        let union_max = self
+            .max
+            .maximum(&other.max)
+            .map_err(|e| BoxError::Internal(e.to_string()))?;
 
         Self::new(union_min, union_max, self.temperature)
     }
 
     fn center(&self) -> std::result::Result<Self::Vector, BoxError> {
         // Center = (min + max) / 2
-        let sum = self.min.add(&self.max).map_err(|e| BoxError::Internal(e.to_string()))?;
-        let two = Tensor::new(&[2.0f32], self.min.device()).map_err(|e| BoxError::Internal(e.to_string()))?;
-        let center = sum.broadcast_div(&two).map_err(|e| BoxError::Internal(e.to_string()))?;
+        let sum = self
+            .min
+            .add(&self.max)
+            .map_err(|e| BoxError::Internal(e.to_string()))?;
+        let two = Tensor::new(&[2.0f32], self.min.device())
+            .map_err(|e| BoxError::Internal(e.to_string()))?;
+        let center = sum
+            .broadcast_div(&two)
+            .map_err(|e| BoxError::Internal(e.to_string()))?;
         Ok(center)
     }
 
@@ -186,11 +221,23 @@ impl Box for CandleBox {
         // Compute minimum distance between two axis-aligned boxes
         // For each dimension, compute the gap (or 0 if overlapping)
         // Use element-wise operations on tensors
-        let self_min_data = self.min.to_vec1::<f32>().map_err(|e| BoxError::Internal(e.to_string()))?;
-        let self_max_data = self.max.to_vec1::<f32>().map_err(|e| BoxError::Internal(e.to_string()))?;
-        let other_min_data = other.min.to_vec1::<f32>().map_err(|e| BoxError::Internal(e.to_string()))?;
-        let other_max_data = other.max.to_vec1::<f32>().map_err(|e| BoxError::Internal(e.to_string()))?;
-        
+        let self_min_data = self
+            .min
+            .to_vec1::<f32>()
+            .map_err(|e| BoxError::Internal(e.to_string()))?;
+        let self_max_data = self
+            .max
+            .to_vec1::<f32>()
+            .map_err(|e| BoxError::Internal(e.to_string()))?;
+        let other_min_data = other
+            .min
+            .to_vec1::<f32>()
+            .map_err(|e| BoxError::Internal(e.to_string()))?;
+        let other_max_data = other
+            .max
+            .to_vec1::<f32>()
+            .map_err(|e| BoxError::Internal(e.to_string()))?;
+
         let mut dist_sq = 0.0;
         for i in 0..self.dim() {
             let gap = if self_max_data[i] < other_min_data[i] {
@@ -202,7 +249,7 @@ impl Box for CandleBox {
             };
             dist_sq += gap * gap;
         }
-        
+
         Ok(dist_sq.sqrt())
     }
 }
@@ -214,13 +261,15 @@ impl Serialize for CandleBox {
     {
         use serde::ser::SerializeStruct;
         let mut state = serializer.serialize_struct("CandleBox", 3)?;
-        
+
         // Convert tensors to Vec<f32> for serialization
-        let min_vec = self.min.to_vec1::<f32>()
-            .map_err(|e| serde::ser::Error::custom(format!("Failed to serialize min tensor: {}", e)))?;
-        let max_vec = self.max.to_vec1::<f32>()
-            .map_err(|e| serde::ser::Error::custom(format!("Failed to serialize max tensor: {}", e)))?;
-        
+        let min_vec = self.min.to_vec1::<f32>().map_err(|e| {
+            serde::ser::Error::custom(format!("Failed to serialize min tensor: {}", e))
+        })?;
+        let max_vec = self.max.to_vec1::<f32>().map_err(|e| {
+            serde::ser::Error::custom(format!("Failed to serialize max tensor: {}", e))
+        })?;
+
         state.serialize_field("min", &min_vec)?;
         state.serialize_field("max", &max_vec)?;
         state.serialize_field("temperature", &self.temperature)?;
@@ -292,10 +341,12 @@ impl<'de> Deserialize<'de> for CandleBox {
                 // Note: We use CPU device by default during deserialization
                 // Users can move tensors to GPU after deserialization if needed
                 let device = candle_core::Device::Cpu;
-                let min_tensor = Tensor::new(&min_vec[..], &device)
-                    .map_err(|e| de::Error::custom(format!("Failed to create min tensor: {}", e)))?;
-                let max_tensor = Tensor::new(&max_vec[..], &device)
-                    .map_err(|e| de::Error::custom(format!("Failed to create max tensor: {}", e)))?;
+                let min_tensor = Tensor::new(&min_vec[..], &device).map_err(|e| {
+                    de::Error::custom(format!("Failed to create min tensor: {}", e))
+                })?;
+                let max_tensor = Tensor::new(&max_vec[..], &device).map_err(|e| {
+                    de::Error::custom(format!("Failed to create max tensor: {}", e))
+                })?;
 
                 CandleBox::new(min_tensor, max_tensor, temperature)
                     .map_err(|e| de::Error::custom(format!("Failed to create CandleBox: {}", e)))
@@ -306,4 +357,3 @@ impl<'de> Deserialize<'de> for CandleBox {
         deserializer.deserialize_struct("CandleBox", FIELDS, CandleBoxVisitor)
     }
 }
-

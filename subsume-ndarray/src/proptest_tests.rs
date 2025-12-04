@@ -2,47 +2,39 @@
 
 #[cfg(test)]
 mod proptest_tests {
-use crate::{NdarrayBox, NdarrayGumbelBox};
-use ndarray::Array1;
-use proptest::prelude::*;
-use subsume_core::{
-    Box, GumbelBox,
-    volume_regularization, temperature_scheduler,
-    volume_containment_loss, volume_overlap_loss,
-    log_space_volume,
-    MIN_TEMPERATURE,
-};
-
+    use crate::{NdarrayBox, NdarrayGumbelBox};
+    use ndarray::Array1;
+    use proptest::prelude::*;
+    use subsume_core::{
+        log_space_volume, temperature_scheduler, volume_containment_loss, volume_overlap_loss,
+        volume_regularization, Box, GumbelBox, MIN_TEMPERATURE,
+    };
 
     /// Strategy for generating valid box bounds (min <= max for all dimensions).
-    fn valid_box_strategy(dim: usize, min_val: f32, max_val: f32) -> impl Strategy<Value = (Vec<f32>, Vec<f32>)> {
-        prop::collection::vec(min_val..max_val, dim)
-            .prop_flat_map(move |min_vec| {
-                let min_vec_clone = min_vec.clone();
-                prop::collection::vec(min_val..max_val, dim)
-                    .prop_map(move |max_vec| {
-                        // Ensure min[i] <= max[i] for all i
-                        let adjusted_max: Vec<f32> = min_vec_clone
-                            .iter()
-                            .zip(max_vec.iter())
-                            .map(|(&m, &mx)| m.max(mx).max(m)) // Ensure max >= min
-                            .collect();
-                        (min_vec.clone(), adjusted_max)
-                    })
+    fn valid_box_strategy(
+        dim: usize,
+        min_val: f32,
+        max_val: f32,
+    ) -> impl Strategy<Value = (Vec<f32>, Vec<f32>)> {
+        prop::collection::vec(min_val..max_val, dim).prop_flat_map(move |min_vec| {
+            let min_vec_clone = min_vec.clone();
+            prop::collection::vec(min_val..max_val, dim).prop_map(move |max_vec| {
+                // Ensure min[i] <= max[i] for all i
+                let adjusted_max: Vec<f32> = min_vec_clone
+                    .iter()
+                    .zip(max_vec.iter())
+                    .map(|(&m, &mx)| m.max(mx).max(m)) // Ensure max >= min
+                    .collect();
+                (min_vec.clone(), adjusted_max)
             })
+        })
     }
 
     /// Strategy for generating a valid NdarrayBox.
     fn ndarray_box_strategy(dim: usize) -> impl Strategy<Value = NdarrayBox> {
-        valid_box_strategy(dim, -10.0, 10.0)
-            .prop_map(|(min_vec, max_vec)| {
-                NdarrayBox::new(
-                    Array1::from(min_vec),
-                    Array1::from(max_vec),
-                    1.0,
-                )
-                .unwrap()
-            })
+        valid_box_strategy(dim, -10.0, 10.0).prop_map(|(min_vec, max_vec)| {
+            NdarrayBox::new(Array1::from(min_vec), Array1::from(max_vec), 1.0).unwrap()
+        })
     }
 
     proptest! {
@@ -61,7 +53,7 @@ use subsume_core::{
                 Array1::from(max_vec.clone()),
                 1.0,
             ).unwrap();
-            
+
             // Create a larger box by scaling
             let scaled_max: Vec<f32> = max_vec.iter().map(|&x| x * 2.0).collect();
             let box2 = NdarrayBox::new(
@@ -69,10 +61,10 @@ use subsume_core::{
                 Array1::from(scaled_max),
                 1.0,
             ).unwrap();
-            
+
             let vol1 = box1.volume(1.0).unwrap();
             let vol2 = box2.volume(1.0).unwrap();
-            
+
             // Volume should increase (or stay same if zero volume)
             prop_assert!(vol2 >= vol1, "Larger box should have larger or equal volume");
         }
@@ -113,7 +105,7 @@ use subsume_core::{
             let vol_a = box_a.volume(1.0).unwrap();
             let vol_b = box_b.volume(1.0).unwrap();
             let vol_c = box_c.volume(1.0).unwrap();
-            
+
             if vol_a > 1e-6 && vol_b > 1e-6 && vol_c > 1e-6 {
                 if let (Ok(p_ab), Ok(p_bc), Ok(p_ac)) = (
                     box_a.containment_prob(&box_b, 1.0),
@@ -155,7 +147,7 @@ use subsume_core::{
             let vol_a = box_a.volume(1.0).unwrap();
             let vol_b = box_b.volume(1.0).unwrap();
             let vol_intersection = intersection.volume(1.0).unwrap();
-            
+
             prop_assert!(
                 vol_intersection <= vol_a && vol_intersection <= vol_b,
                 "Intersection volume {} must be <= both volumes ({} and {})",
@@ -205,11 +197,11 @@ use subsume_core::{
                 Array1::from(max_vec.clone()),
                 1.0,
             ).unwrap();
-            
+
             let volume = box_.volume(1.0).unwrap();
             let has_zero_dim = min_vec.iter().zip(max_vec.iter())
                 .any(|(&m, &mx)| (mx - m).abs() < 1e-6);
-            
+
             if has_zero_dim {
                 prop_assert!(
                     volume.abs() < 1e-5,
@@ -223,7 +215,7 @@ use subsume_core::{
         fn serialization_round_trip(box_ in ndarray_box_strategy(3)) {
             let serialized = serde_json::to_string(&box_).unwrap();
             let deserialized: NdarrayBox = serde_json::from_str(&serialized).unwrap();
-            
+
             prop_assert_eq!(box_.dim(), deserialized.dim());
             prop_assert_eq!(box_.temperature, deserialized.temperature);
             // Compare volumes to verify correctness
@@ -323,7 +315,7 @@ use subsume_core::{
             side_lengths in prop::collection::vec(0.001f32..10.0f32, 2..10)
         ) {
             let (log_vol, vol) = log_space_volume(side_lengths.iter().copied());
-            
+
             // If any side is <= 0, should return (NEG_INFINITY, 0.0)
             let has_zero = side_lengths.iter().any(|&s| s <= 1e-10);
             if has_zero {
@@ -341,4 +333,3 @@ use subsume_core::{
         }
     }
 }
-

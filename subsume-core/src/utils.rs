@@ -56,7 +56,7 @@ pub fn stable_sigmoid(x: f32) -> f32 {
 /// - `temp`: Temperature (will be clamped for stability)
 pub fn gumbel_membership_prob(x: f32, min: f32, max: f32, temp: f32) -> f32 {
     let temp_safe = clamp_temperature_default(temp);
-    
+
     // Avoid division by zero and handle edge cases
     if temp_safe < MIN_TEMPERATURE {
         // Hard bounds: return 1.0 if in bounds, 0.0 otherwise
@@ -66,18 +66,32 @@ pub fn gumbel_membership_prob(x: f32, min: f32, max: f32, temp: f32) -> f32 {
             return 0.0;
         }
     }
-    
+
     // P(x > min) using stable sigmoid
     let min_prob = stable_sigmoid((x - min) / temp_safe);
     // P(x < max) using stable sigmoid
     let max_prob = stable_sigmoid((max - x) / temp_safe);
-    
+
     min_prob * max_prob
 }
 
 /// Sample from Gumbel distribution with numerical stability.
 ///
-/// G = -ln(-ln(U)) where U ~ Uniform(0, 1)
+/// The Gumbel distribution is used in the Gumbel-max trick for differentiable sampling.
+/// For a uniform random variable U ~ Uniform(0, 1), the Gumbel sample is:
+///
+/// G = -ln(-ln(U))
+///
+/// **Why this matters**: The Gumbel distribution is max-stable, meaning the maximum
+/// of independent Gumbel random variables is itself Gumbel-distributed. This property
+/// is crucial for maintaining the algebraic structure of box embeddings when computing
+/// intersections (max of minimums, min of maximums).
+///
+/// # Numerical Stability
+///
+/// This function clamps U to [ε, 1-ε] to avoid:
+/// - `ln(0)` when U ≈ 0 (would give -∞)
+/// - `ln(1)` when U ≈ 1 (would give 0, then -ln(0) = ∞)
 ///
 /// # Parameters
 ///
@@ -86,7 +100,7 @@ pub fn gumbel_membership_prob(x: f32, min: f32, max: f32, temp: f32) -> f32 {
 ///
 /// # Returns
 ///
-/// Gumbel sample
+/// Gumbel sample G ~ Gumbel(0, 1)
 pub fn sample_gumbel(u: f32, epsilon: f32) -> f32 {
     let u_clamped = u.clamp(epsilon, 1.0 - epsilon);
     -(-u_clamped.ln()).ln()
@@ -94,28 +108,74 @@ pub fn sample_gumbel(u: f32, epsilon: f32) -> f32 {
 
 /// Map Gumbel sample to box bounds using temperature-scaled transformation.
 ///
-/// This ensures samples are within bounds with probability proportional to volume.
+/// This function transforms a Gumbel-distributed sample into a point within the box bounds.
+/// The temperature parameter controls how "concentrated" the sampling is:
+///
+/// - **Low temperature**: Samples cluster near the center (more deterministic)
+/// - **High temperature**: Samples spread throughout the box (more uniform)
+///
+/// **Why tanh?**: The tanh function maps the unbounded Gumbel distribution to [-1, 1],
+/// which is then scaled to [0, 1] and mapped to [min, max]. This ensures:
+/// 1. All samples are within bounds
+/// 2. The distribution is smooth and differentiable
+/// 3. Temperature controls the concentration
 ///
 /// # Parameters
 ///
-/// - `gumbel`: Gumbel-distributed sample
-/// - `min`: Minimum bound
-/// - `max`: Maximum bound
-/// - `temp`: Temperature parameter
+/// - `gumbel`: Gumbel-distributed sample (from `sample_gumbel()`)
+/// - `min`: Minimum bound of the box
+/// - `max`: Maximum bound of the box
+/// - `temp`: Temperature parameter (controls concentration, clamped to safe range)
+///
+/// # Returns
+///
+/// A point in [min, max] sampled according to the Gumbel distribution scaled by temperature
 pub fn map_gumbel_to_bounds(gumbel: f32, min: f32, max: f32, temp: f32) -> f32 {
     let temp_safe = clamp_temperature_default(temp);
-    
+
     // Use tanh to map Gumbel to [-1, 1], then scale to [0, 1]
     let normalized = (gumbel / temp_safe).tanh();
     let t = (normalized + 1.0) / 2.0;
-    
+
     min + (max - min) * t.clamp(0.0, 1.0)
 }
 
 /// Compute volume in log-space to avoid numerical underflow/overflow.
 ///
-/// For high-dimensional boxes, direct multiplication can underflow to 0 or overflow to inf.
-/// This function computes log(volume) = Σ log(max[i] - min[i]), which is numerically stable.
+/// ## The Problem
+///
+/// For high-dimensional boxes, direct volume computation can fail:
+///
+/// ```rust
+/// // This can underflow in high dimensions!
+/// let volume = side_lengths.iter().product::<f32>();
+/// // For 20 dimensions with side length 0.5: 0.5^20 ≈ 9.5×10^-7
+/// // This can underflow to 0.0 in f32!
+/// ```
+///
+/// ## The Solution
+///
+/// Compute volume in log-space, then exponentiate:
+///
+/// \[
+/// \log(\text{Vol}) = \sum_{i=1}^{d} \log(\text{side}[i])
+/// \]
+///
+/// \[
+/// \text{Vol} = \exp\left(\sum_{i=1}^{d} \log(\text{side}[i])\right)
+/// \]
+///
+/// This is numerically stable because:
+/// - Log of small numbers is a large negative number (no underflow)
+/// - Sum of logs is stable (no intermediate products)
+/// - Exp of the sum recovers the volume
+///
+/// ## When to Use
+///
+/// Use this function when:
+/// - Dimension > 10 (high-dimensional boxes)
+/// - Side lengths < 1.0 (small boxes in unit hypercube)
+/// - Computing many volumes in a loop (accumulated numerical error)
 ///
 /// # Parameters
 ///
@@ -131,19 +191,25 @@ pub fn map_gumbel_to_bounds(gumbel: f32, min: f32, max: f32, temp: f32) -> f32 {
 /// ```rust
 /// use subsume_core::utils::log_space_volume;
 ///
+/// // Low-dimensional: both methods work
 /// let side_lengths = vec![1.0, 2.0, 0.5, 0.1];
 /// let (log_vol, vol) = log_space_volume(side_lengths.iter().copied());
 /// assert!((vol - 0.1).abs() < 1e-6); // 1.0 * 2.0 * 0.5 * 0.1 = 0.1
+///
+/// // High-dimensional: log-space is essential
+/// let many_small = vec![0.5; 20];
+/// let (log_vol_hd, vol_hd) = log_space_volume(many_small.iter().copied());
+/// assert!(vol_hd > 0.0); // Would underflow with direct multiplication!
 /// ```
 pub fn log_space_volume<I>(side_lengths: I) -> (f32, f32)
 where
     I: Iterator<Item = f32>,
 {
     const EPSILON: f32 = 1e-10;
-    
+
     let mut log_sum = 0.0;
     let mut has_zero = false;
-    
+
     for side_len in side_lengths {
         if side_len <= EPSILON {
             has_zero = true;
@@ -151,7 +217,7 @@ where
         }
         log_sum += side_len.ln();
     }
-    
+
     if has_zero {
         (f32::NEG_INFINITY, 0.0)
     } else {
@@ -341,19 +407,17 @@ pub fn safe_init_bounds(
 ) -> (f32, f32) {
     let (center_min, center_max) = center_range;
     let (size_min, size_max) = size_range;
-    
+
     // Use different strategies per dimension to avoid cross patterns
     let dim_offset = dimension as f32 * 0.5;
     let box_offset = (box_index as f32) / (num_boxes as f32);
-    
+
     // Create well-separated centers using a combination of dimension and box index
-    let center = center_min + (center_max - center_min) * 
-        ((box_offset + dim_offset * 0.3) % 1.0);
-    
+    let center = center_min + (center_max - center_min) * ((box_offset + dim_offset * 0.3) % 1.0);
+
     // Vary box sizes to avoid perfect nesting
-    let size = size_min + (size_max - size_min) * 
-        (0.5 + 0.3 * (box_index as f32 * 1.618).sin()); // Golden ratio for variety
-    
+    let size = size_min + (size_max - size_min) * (0.5 + 0.3 * (box_index as f32 * 1.618).sin()); // Golden ratio for variety
+
     let half_size = size / 2.0;
     (center - half_size, center + half_size)
 }
@@ -380,9 +444,7 @@ pub fn is_cross_pattern(
     threshold: f32,
 ) -> bool {
     // Cross pattern: high overlap but neither box contains the other
-    overlap_prob > threshold &&
-    containment_prob_a_b < threshold &&
-    containment_prob_b_a < threshold
+    overlap_prob > threshold && containment_prob_a_b < threshold && containment_prob_b_a < threshold
 }
 
 /// Check if boxes are perfectly nested (one fully contains the other).
@@ -505,20 +567,17 @@ pub mod validation {
     ///
     /// - `Ok(())` if dimensions match
     /// - `Err(BoxError::DimensionMismatch)` if dimensions differ
-    pub fn validate_compatible_dimensions<B: Box>(
-        box1: &B,
-        box2: &B,
-    ) -> Result<(), BoxError> {
+    pub fn validate_compatible_dimensions<B: Box>(box1: &B, box2: &B) -> Result<(), BoxError> {
         let dim1 = box1.dim();
         let dim2 = box2.dim();
-        
+
         if dim1 != dim2 {
             return Err(BoxError::DimensionMismatch {
                 expected: dim1,
                 actual: dim2,
             });
         }
-        
+
         Ok(())
     }
 }
@@ -548,11 +607,11 @@ mod tests {
         // Point inside bounds
         let prob = gumbel_membership_prob(0.5, 0.0, 1.0, 1.0);
         assert!(prob > 0.0 && prob <= 1.0);
-        
+
         // Point outside bounds
         let prob_out = gumbel_membership_prob(2.0, 0.0, 1.0, 0.001);
         assert!(prob_out < 0.5);
-        
+
         // Hard bounds (low temperature)
         let prob_hard = gumbel_membership_prob(0.5, 0.0, 1.0, 0.0001);
         assert!((prob_hard - 1.0).abs() < 1e-3);
@@ -562,11 +621,11 @@ mod tests {
     fn test_sample_gumbel() {
         let g = sample_gumbel(0.5, 1e-7);
         assert!(g.is_finite());
-        
+
         // Test edge cases
         let g0 = sample_gumbel(0.0, 1e-7);
         assert!(g0.is_finite());
-        
+
         let g1 = sample_gumbel(1.0, 1e-7);
         assert!(g1.is_finite());
     }
@@ -674,13 +733,13 @@ mod tests {
         let (min, max) = safe_init_bounds(0, 10, 0, (-2.0, 2.0), (0.1, 1.0));
         assert!(min < max);
         assert!(max - min >= 0.1); // At least minimum size
-        
+
         // Test that different boxes get different bounds
         let (min1, max1) = safe_init_bounds(0, 10, 0, (-2.0, 2.0), (0.1, 1.0));
         let (min2, max2) = safe_init_bounds(0, 10, 1, (-2.0, 2.0), (0.1, 1.0));
         // They should be different (not identical)
         assert!(min1 != min2 || max1 != max2);
-        
+
         // Test that different dimensions get different bounds
         let (min_dim0, max_dim0) = safe_init_bounds(0, 10, 5, (-2.0, 2.0), (0.1, 1.0));
         let (min_dim1, max_dim1) = safe_init_bounds(1, 10, 5, (-2.0, 2.0), (0.1, 1.0));
@@ -692,10 +751,10 @@ mod tests {
     fn test_is_cross_pattern() {
         // High overlap, low containment in both directions = cross pattern
         assert!(is_cross_pattern(0.8, 0.2, 0.1, 0.3));
-        
+
         // High overlap with high containment = not cross pattern
         assert!(!is_cross_pattern(0.8, 0.9, 0.1, 0.3));
-        
+
         // Low overlap = not cross pattern
         assert!(!is_cross_pattern(0.2, 0.1, 0.1, 0.3));
     }
@@ -705,10 +764,10 @@ mod tests {
         // One box perfectly contains the other
         assert!(is_perfectly_nested(0.98, 0.1, 0.95));
         assert!(is_perfectly_nested(0.1, 0.98, 0.95));
-        
+
         // Neither box contains the other
         assert!(!is_perfectly_nested(0.5, 0.3, 0.95));
-        
+
         // Both boxes contain each other (should still be detected)
         assert!(is_perfectly_nested(0.98, 0.97, 0.95));
     }
@@ -718,19 +777,18 @@ mod tests {
         // For 2D boxes with volume range [0.1, 1.0]
         let sep_2d = suggested_min_separation(2, (0.1, 1.0));
         assert!(sep_2d > 0.0);
-        
+
         // For 3D boxes
         let sep_3d = suggested_min_separation(3, (0.1, 1.0));
         assert!(sep_3d > 0.0);
-        
+
         // For 10D boxes
         let sep_10d = suggested_min_separation(10, (0.1, 1.0));
         assert!(sep_10d > 0.0);
-        
+
         // All separations should be positive and reasonable
         assert!(sep_2d < 10.0); // Reasonable upper bound
         assert!(sep_3d < 10.0);
         assert!(sep_10d < 10.0);
     }
 }
-

@@ -1,8 +1,8 @@
 //! Basic example demonstrating box embeddings with Candle.
 
 use candle_core::{Device, Tensor};
-use subsume_core::Box;
 use subsume_candle::CandleBox;
+use subsume_core::Box;
 
 fn main() -> Result<(), subsume_core::BoxError> {
     let device = Device::Cpu;
@@ -38,4 +38,3 @@ fn main() -> Result<(), subsume_core::BoxError> {
 
     Ok(())
 }
-

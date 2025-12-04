@@ -141,16 +141,85 @@ pub trait Box: Sized {
     /// # Errors
     ///
     /// Returns `BoxError::DimensionMismatch` if boxes have different dimensions.
-    fn containment_prob(&self, other: &Self, temperature: Self::Scalar) -> Result<Self::Scalar, BoxError>;
+    fn containment_prob(
+        &self,
+        other: &Self,
+        temperature: Self::Scalar,
+    ) -> Result<Self::Scalar, BoxError>;
 
     /// Compute the probability that two boxes overlap (non-empty intersection).
     ///
-    /// P(self ∩ other ≠ ∅) = intersection_volume / union_volume
+    /// This measures whether two boxes represent related but distinct entities (e.g.,
+    /// "dog" and "cat" are both animals but distinct species).
+    ///
+    /// ## Mathematical Definition
+    ///
+    /// Using the inclusion-exclusion principle:
+    ///
+    /// \[
+    /// P(\text{self} \cap \text{other} \neq \emptyset) = \frac{\text{Vol}(\text{self} \cap \text{other})}{\text{Vol}(\text{self} \cup \text{other})}
+    /// \]
+    ///
+    /// Where the union volume is computed as:
+    ///
+    /// \[
+    /// \text{Vol}(\text{self} \cup \text{other}) = \text{Vol}(\text{self}) + \text{Vol}(\text{other}) - \text{Vol}(\text{self} \cap \text{other})
+    /// \]
+    ///
+    /// ## Interpretation
+    ///
+    /// - **1.0**: Complete overlap (boxes are identical or one contains the other)
+    /// - **0.0**: Complete disjointness (boxes don't intersect)
+    /// - **0.5**: Partial overlap (half the union is intersection)
+    ///
+    /// ## Use Cases
+    ///
+    /// - **Entity resolution**: High overlap probability suggests two boxes represent the same entity
+    /// - **Relatedness**: Moderate overlap suggests related but distinct concepts
+    /// - **Disjointness**: Low overlap suggests mutually exclusive concepts
     ///
     /// # Errors
     ///
     /// Returns `BoxError::DimensionMismatch` if boxes have different dimensions.
-    fn overlap_prob(&self, other: &Self, temperature: Self::Scalar) -> Result<Self::Scalar, BoxError>;
+    /// Compute the probability that two boxes overlap (non-empty intersection).
+    ///
+    /// This measures whether two boxes represent related but distinct entities (e.g.,
+    /// "dog" and "cat" are both animals but distinct species).
+    ///
+    /// ## Mathematical Definition
+    ///
+    /// Using the inclusion-exclusion principle:
+    ///
+    /// \[
+    /// P(\text{self} \cap \text{other} \neq \emptyset) = \frac{\text{Vol}(\text{self} \cap \text{other})}{\text{Vol}(\text{self} \cup \text{other})}
+    /// \]
+    ///
+    /// Where the union volume is computed as:
+    ///
+    /// \[
+    /// \text{Vol}(\text{self} \cup \text{other}) = \text{Vol}(\text{self}) + \text{Vol}(\text{other}) - \text{Vol}(\text{self} \cap \text{other})
+    /// \]
+    ///
+    /// ## Interpretation
+    ///
+    /// - **1.0**: Complete overlap (boxes are identical or one contains the other)
+    /// - **0.0**: Complete disjointness (boxes don't intersect)
+    /// - **0.5**: Partial overlap (half the union is intersection)
+    ///
+    /// ## Use Cases
+    ///
+    /// - **Entity resolution**: High overlap probability suggests two boxes represent the same entity
+    /// - **Relatedness**: Moderate overlap suggests related but distinct concepts
+    /// - **Disjointness**: Low overlap suggests mutually exclusive concepts
+    ///
+    /// # Errors
+    ///
+    /// Returns `BoxError::DimensionMismatch` if boxes have different dimensions.
+    fn overlap_prob(
+        &self,
+        other: &Self,
+        temperature: Self::Scalar,
+    ) -> Result<Self::Scalar, BoxError>;
 
     /// Compute the union of two boxes.
     ///

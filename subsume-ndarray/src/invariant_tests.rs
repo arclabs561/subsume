@@ -11,27 +11,28 @@ mod invariant_tests {
     use subsume_core::{Box, GumbelBox};
 
     /// Strategy for generating valid box bounds.
-    fn valid_box_strategy(dim: usize, min_val: f32, max_val: f32) -> impl Strategy<Value = (Vec<f32>, Vec<f32>)> {
-        prop::collection::vec(min_val..max_val, dim)
-            .prop_flat_map(move |min_vec| {
-                let min_vec_clone = min_vec.clone();
-                prop::collection::vec(min_val..max_val, dim)
-                    .prop_map(move |max_vec| {
-                        let adjusted_max: Vec<f32> = min_vec_clone
-                            .iter()
-                            .zip(max_vec.iter())
-                            .map(|(&m, &mx)| m.max(mx).max(m))
-                            .collect();
-                        (min_vec.clone(), adjusted_max)
-                    })
+    fn valid_box_strategy(
+        dim: usize,
+        min_val: f32,
+        max_val: f32,
+    ) -> impl Strategy<Value = (Vec<f32>, Vec<f32>)> {
+        prop::collection::vec(min_val..max_val, dim).prop_flat_map(move |min_vec| {
+            let min_vec_clone = min_vec.clone();
+            prop::collection::vec(min_val..max_val, dim).prop_map(move |max_vec| {
+                let adjusted_max: Vec<f32> = min_vec_clone
+                    .iter()
+                    .zip(max_vec.iter())
+                    .map(|(&m, &mx)| m.max(mx).max(m))
+                    .collect();
+                (min_vec.clone(), adjusted_max)
             })
+        })
     }
 
     fn ndarray_box_strategy(dim: usize) -> impl Strategy<Value = NdarrayBox> {
-        valid_box_strategy(dim, -10.0, 10.0)
-            .prop_map(|(min_vec, max_vec)| {
-                NdarrayBox::new(Array1::from(min_vec), Array1::from(max_vec), 1.0).unwrap()
-            })
+        valid_box_strategy(dim, -10.0, 10.0).prop_map(|(min_vec, max_vec)| {
+            NdarrayBox::new(Array1::from(min_vec), Array1::from(max_vec), 1.0).unwrap()
+        })
     }
 
     proptest! {
@@ -63,7 +64,7 @@ mod invariant_tests {
             let vol_a = box_a.volume(1.0).unwrap();
             let vol_b = box_b.volume(1.0).unwrap();
             let vol_c = box_c.volume(1.0).unwrap();
-            
+
             if vol_a > 1e-6 && vol_b > 1e-6 && vol_c > 1e-6 {
                 if let (Ok(p_ab), Ok(p_bc), Ok(p_ac)) = (
                     box_a.containment_prob(&box_b, 1.0),
@@ -90,7 +91,7 @@ mod invariant_tests {
         ) {
             let vol_a = box_a.volume(1.0).unwrap();
             let vol_b = box_b.volume(1.0).unwrap();
-            
+
             if vol_a > 1e-6 && vol_b > 1e-6 {
                 if let (Ok(p_ab), Ok(p_ba)) = (
                     box_a.containment_prob(&box_b, 1.0),
@@ -122,7 +123,7 @@ mod invariant_tests {
         ) {
             let vol_a = box_a.volume(1.0).unwrap();
             let vol_b = box_b.volume(1.0).unwrap();
-            
+
             if vol_a > 1e-6 && vol_b > 1e-6 {
                 // Check if A is geometrically contained in B
                 // A ⊆ B if min_A[i] >= min_B[i] and max_A[i] <= max_B[i] for all i
@@ -133,7 +134,7 @@ mod invariant_tests {
                         break;
                     }
                 }
-                
+
                 if is_contained {
                     // If A is geometrically contained in B, then vol(A) should be ≤ vol(B)
                     prop_assert!(
@@ -155,7 +156,7 @@ mod invariant_tests {
             let vol_b = box_b.volume(1.0).unwrap();
             let intersection = box_a.intersection(&box_b).unwrap();
             let vol_intersection = intersection.volume(1.0).unwrap();
-            
+
             // Volume of union: vol(A ∪ B) = vol(A) + vol(B) - vol(A ∩ B)
             // So: vol(A) + vol(B) ≥ vol(A ∩ B)
             prop_assert!(
@@ -177,10 +178,10 @@ mod invariant_tests {
         ) {
             let intersection_ab = box_a.intersection(&box_b).unwrap();
             let intersection_ba = box_b.intersection(&box_a).unwrap();
-            
+
             let vol_ab = intersection_ab.volume(1.0).unwrap();
             let vol_ba = intersection_ba.volume(1.0).unwrap();
-            
+
             prop_assert!(
                 (vol_ab - vol_ba).abs() < 1e-5,
                 "Intersection not commutative: vol(A∩B)={} != vol(B∩A)={}",
@@ -194,7 +195,7 @@ mod invariant_tests {
             let intersection = box_.intersection(&box_).unwrap();
             let vol_original = box_.volume(1.0).unwrap();
             let vol_intersection = intersection.volume(1.0).unwrap();
-            
+
             prop_assert!(
                 (vol_original - vol_intersection).abs() < 1e-5,
                 "Intersection not idempotent: vol(A∩A)={} != vol(A)={}",
@@ -211,13 +212,13 @@ mod invariant_tests {
         ) {
             let intersection_ab = box_a.intersection(&box_b).unwrap();
             let intersection_abc = intersection_ab.intersection(&box_c).unwrap();
-            
+
             let intersection_bc = box_b.intersection(&box_c).unwrap();
             let intersection_abc2 = box_a.intersection(&intersection_bc).unwrap();
-            
+
             let vol1 = intersection_abc.volume(1.0).unwrap();
             let vol2 = intersection_abc2.volume(1.0).unwrap();
-            
+
             prop_assert!(
                 (vol1 - vol2).abs() < 1e-5,
                 "Intersection not associative: vol((A∩B)∩C)={} != vol(A∩(B∩C))={}",
@@ -235,7 +236,7 @@ mod invariant_tests {
             let vol_b = box_b.volume(1.0).unwrap();
             let intersection = box_a.intersection(&box_b).unwrap();
             let vol_intersection = intersection.volume(1.0).unwrap();
-            
+
             let min_vol = vol_a.min(vol_b);
             prop_assert!(
                 vol_intersection <= min_vol + 1e-5,
@@ -253,7 +254,7 @@ mod invariant_tests {
         fn overlap_reflexivity(box_ in ndarray_box_strategy(3)) {
             let vol = box_.volume(1.0).unwrap();
             let prob = box_.overlap_prob(&box_, 1.0).unwrap();
-            
+
             if vol > 1e-6 {
                 // Non-zero volume: should overlap with itself
                 prop_assert!(
@@ -279,7 +280,7 @@ mod invariant_tests {
         ) {
             let prob_ab = box_a.overlap_prob(&box_b, 1.0).unwrap();
             let prob_ba = box_b.overlap_prob(&box_a, 1.0).unwrap();
-            
+
             prop_assert!(
                 (prob_ab - prob_ba).abs() < 1e-5,
                 "Overlap not symmetric: P(A∩B≠∅)={} != P(B∩A≠∅)={}",
@@ -295,7 +296,7 @@ mod invariant_tests {
         ) {
             let vol_a = box_a.volume(1.0).unwrap();
             let vol_b = box_b.volume(1.0).unwrap();
-            
+
             if vol_a > 1e-6 && vol_b > 1e-6 {
                 // Check if A is geometrically contained in B
                 let mut is_contained = true;
@@ -305,7 +306,7 @@ mod invariant_tests {
                         break;
                     }
                 }
-                
+
                 if is_contained {
                     let overlap = box_a.overlap_prob(&box_b, 1.0).unwrap();
                     // If A is contained in B, overlap should be high (close to 1.0)
@@ -388,7 +389,7 @@ mod invariant_tests {
                 for i in 0..gumbel_box.dim() {
                     // Allow small floating point errors, but sample should be very close to bounds
                     prop_assert!(
-                        sample[i] >= gumbel_box.min()[i] - 1e-5 && 
+                        sample[i] >= gumbel_box.min()[i] - 1e-5 &&
                         sample[i] <= gumbel_box.max()[i] + 1e-5,
                         "Sample[{}]={} out of bounds [{}, {}]",
                         i, sample[i], gumbel_box.min()[i], gumbel_box.max()[i]
@@ -409,13 +410,13 @@ mod invariant_tests {
                 .map(|i| (gumbel_box.min()[i] + gumbel_box.max()[i]) / 2.0)
                 .collect();
             let point_inside = Array1::from(center);
-            
+
             // Point far outside box
             let point_outside: Vec<f32> = (0..gumbel_box.dim())
                 .map(|i| gumbel_box.max()[i] + 10.0)
                 .collect();
             let point_outside = Array1::from(point_outside);
-            
+
             if let (Ok(prob_inside), Ok(prob_outside)) = (
                 gumbel_box.membership_probability(&point_inside),
                 gumbel_box.membership_probability(&point_outside),
@@ -442,22 +443,22 @@ mod invariant_tests {
                 Array1::from(max_vec.clone()),
                 1.0,
             ).unwrap();
-            
+
             // Create 3D box with same intervals + one more dimension
             let mut min_3d = min_vec.clone();
             let mut max_3d = max_vec.clone();
             min_3d.push(0.0);
             max_3d.push(1.0);
-            
+
             let box_3d = NdarrayBox::new(
                 Array1::from(min_3d),
                 Array1::from(max_3d),
                 1.0,
             ).unwrap();
-            
+
             let vol_2d = box_2d.volume(1.0).unwrap();
             let vol_3d = box_3d.volume(1.0).unwrap();
-            
+
             // 3D volume should be 2D volume * width of 3rd dimension
             // Since 3rd dimension is [0, 1], width = 1
             prop_assert!(
@@ -482,14 +483,14 @@ mod invariant_tests {
                 Array1::from(min_vec.clone()), // min == max
                 1.0,
             ).unwrap();
-            
+
             // Create a normal box
             let normal_box = NdarrayBox::new(
                 Array1::from(min_vec.clone()),
                 Array1::from(max_vec),
                 1.0,
             ).unwrap();
-            
+
             // Point should be contained in normal box if point is within bounds
             if let Ok(prob) = normal_box.containment_prob(&point_box, 1.0) {
                 prop_assert!(
@@ -509,13 +510,13 @@ mod invariant_tests {
             let small_max: Vec<f32> = min_vec.iter().zip(max_vec.iter())
                 .map(|(&m, &mx)| m + (mx - m) * 0.001) // Very small width
                 .collect();
-            
+
             let small_box = NdarrayBox::new(
                 Array1::from(min_vec),
                 Array1::from(small_max),
                 1.0,
             ).unwrap();
-            
+
             let volume = small_box.volume(1.0).unwrap();
             prop_assert!(
                 volume >= 0.0,
@@ -534,7 +535,7 @@ mod invariant_tests {
                 Array1::from(max_vec),
                 1.0,
             ).unwrap();
-            
+
             let volume = large_box.volume(1.0).unwrap();
             prop_assert!(
                 volume >= 0.0 && volume.is_finite(),
@@ -544,4 +545,3 @@ mod invariant_tests {
         }
     }
 }
-

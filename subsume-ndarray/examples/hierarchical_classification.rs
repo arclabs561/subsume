@@ -1,24 +1,21 @@
 //! Hierarchical classification example using box embeddings.
 //!
 //! This example demonstrates how to use box embeddings for hierarchical
-//! classification tasks, where classes form a tree structure (e.g., 
+//! classification tasks, where classes form a tree structure (e.g.,
 //! Animal -> Mammal -> Cat, or Product -> Electronics -> Computer).
 //!
 //! Box embeddings naturally model hierarchical relationships through
 //! containment: if "Animal" contains "Mammal", then P(Mammal ⊆ Animal) ≈ 1.0.
 
 use ndarray::Array1;
+use subsume_core::BoxCollection;
 use subsume_core::{
-    Box, BoxEmbedding,
-    training::{
-        quality::{
-            ContainmentHierarchy, VolumeConservation, ContainmentAccuracy,
-            VolumeDistribution,
-        },
+    training::quality::{
+        ContainmentAccuracy, ContainmentHierarchy, VolumeConservation, VolumeDistribution,
     },
+    Box, BoxEmbedding,
 };
 use subsume_ndarray::NdarrayBox;
-use subsume_core::BoxCollection;
 
 fn main() -> Result<(), subsume_core::BoxError> {
     println!("=== Hierarchical Classification with Box Embeddings ===\n");
@@ -26,7 +23,7 @@ fn main() -> Result<(), subsume_core::BoxError> {
     // Define a hierarchical taxonomy: Product -> Electronics -> Computer -> Laptop
     //                              Product -> Clothing -> Shirt
     //                              Product -> Food -> Fruit -> Apple
-    
+
     let mut boxes: BoxCollection<NdarrayBox> = BoxCollection::new();
     let mut hierarchy = ContainmentHierarchy::new();
     let mut volume_conservation = VolumeConservation::new();
@@ -99,19 +96,19 @@ fn main() -> Result<(), subsume_core::BoxError> {
     hierarchy.add_containment(0, 1); // Product -> Electronics
     hierarchy.add_containment(0, 2); // Product -> Clothing
     hierarchy.add_containment(0, 3); // Product -> Food
-    
+
     // Electronics -> Computer
     hierarchy.add_containment(1, 4); // Electronics -> Computer
-    
+
     // Clothing -> Shirt
     hierarchy.add_containment(2, 5); // Clothing -> Shirt
-    
+
     // Food -> Fruit
     hierarchy.add_containment(3, 6); // Food -> Fruit
-    
+
     // Computer -> Laptop
     hierarchy.add_containment(4, 7); // Computer -> Laptop
-    
+
     // Fruit -> Apple
     hierarchy.add_containment(6, 8); // Fruit -> Apple
 
@@ -138,21 +135,30 @@ fn main() -> Result<(), subsume_core::BoxError> {
 
     // Verify containment probabilities
     println!("2. Containment Probabilities:");
-    
+
     // Direct containments
     let p_electronics_in_product = product.containment_prob(&electronics, 1.0)?;
-    println!("  P(Electronics ⊆ Product) = {:.4}", p_electronics_in_product);
-    
+    println!(
+        "  P(Electronics ⊆ Product) = {:.4}",
+        p_electronics_in_product
+    );
+
     let p_computer_in_electronics = electronics.containment_prob(&computer, 1.0)?;
-    println!("  P(Computer ⊆ Electronics) = {:.4}", p_computer_in_electronics);
-    
+    println!(
+        "  P(Computer ⊆ Electronics) = {:.4}",
+        p_computer_in_electronics
+    );
+
     let p_laptop_in_computer = computer.containment_prob(&laptop, 1.0)?;
     println!("  P(Laptop ⊆ Computer) = {:.4}", p_laptop_in_computer);
-    
+
     // Transitive containments (should also be high)
     let p_laptop_in_product = product.containment_prob(&laptop, 1.0)?;
-    println!("  P(Laptop ⊆ Product) [transitive] = {:.4}", p_laptop_in_product);
-    
+    println!(
+        "  P(Laptop ⊆ Product) [transitive] = {:.4}",
+        p_laptop_in_product
+    );
+
     let p_apple_in_food = food.containment_prob(&apple, 1.0)?;
     println!("  P(Apple ⊆ Food) [transitive] = {:.4}", p_apple_in_food);
     println!();
@@ -160,14 +166,14 @@ fn main() -> Result<(), subsume_core::BoxError> {
     // Classification example: Given a new item, classify it hierarchically
     println!("3. Hierarchical Classification Example:");
     println!("   Classifying a new 'MacBook' item.\n");
-    
+
     // Create a new item that should be classified as Laptop -> Computer -> Electronics -> Product
     let macbook = NdarrayBox::new(
         Array1::from(vec![3.2, 3.2, 3.2]),
         Array1::from(vec![3.8, 3.8, 3.8]),
         1.0,
     )?;
-    
+
     // Find best matching class at each level
     let candidates = vec![
         ("Product", &product),
@@ -180,36 +186,38 @@ fn main() -> Result<(), subsume_core::BoxError> {
         ("Laptop", &laptop),
         ("Apple", &apple),
     ];
-    
+
     // Sort by containment probability (descending)
-    let mut scores: Vec<(&str, f32)> = candidates.iter()
+    let mut scores: Vec<(&str, f32)> = candidates
+        .iter()
         .map(|(name, candidate)| {
             let prob = macbook.containment_prob(candidate, 1.0).unwrap_or(0.0);
             (*name, prob)
         })
         .collect();
     scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-    
+
     println!("   Classification scores (containment probabilities):");
     for (name, score) in &scores {
         println!("     {}: {:.4}", name, score);
     }
-    
+
     // Hierarchical classification: find best path through hierarchy
     println!("\n   Hierarchical classification path:");
-    let mut current_level = 0;
+    let _current_level = 0;
     let mut path = Vec::new();
-    
+
     // Start at root
     path.push(("Product", 0));
-    
+
     // Level 1: Find best category
     let level1_candidates = vec![
         ("Electronics", 1, &electronics),
         ("Clothing", 2, &clothing),
         ("Food", 3, &food),
     ];
-    let (best_level1, _, _) = level1_candidates.iter()
+    let (best_level1, _, _) = level1_candidates
+        .iter()
         .max_by(|(_, _, a), (_, _, b)| {
             let prob_a = macbook.containment_prob(a, 1.0).unwrap_or(0.0);
             let prob_b = macbook.containment_prob(b, 1.0).unwrap_or(0.0);
@@ -217,13 +225,12 @@ fn main() -> Result<(), subsume_core::BoxError> {
         })
         .unwrap();
     path.push((best_level1, 1));
-    
+
     // Level 2: Find best subcategory under Electronics
     if *best_level1 == "Electronics" {
-        let level2_candidates = vec![
-            ("Computer", 4, &computer),
-        ];
-        let (best_level2, _, _) = level2_candidates.iter()
+        let level2_candidates = vec![("Computer", 4, &computer)];
+        let (best_level2, _, _) = level2_candidates
+            .iter()
             .max_by(|(_, _, a), (_, _, b)| {
                 let prob_a = macbook.containment_prob(a, 1.0).unwrap_or(0.0);
                 let prob_b = macbook.containment_prob(b, 1.0).unwrap_or(0.0);
@@ -231,12 +238,11 @@ fn main() -> Result<(), subsume_core::BoxError> {
             })
             .unwrap();
         path.push((best_level2, 2));
-        
+
         // Level 3: Find best specific item
-        let level3_candidates = vec![
-            ("Laptop", 7, &laptop),
-        ];
-        let (best_level3, _, _) = level3_candidates.iter()
+        let level3_candidates = vec![("Laptop", 7, &laptop)];
+        let (best_level3, _, _) = level3_candidates
+            .iter()
             .max_by(|(_, _, a), (_, _, b)| {
                 let prob_a = macbook.containment_prob(a, 1.0).unwrap_or(0.0);
                 let prob_b = macbook.containment_prob(b, 1.0).unwrap_or(0.0);
@@ -245,7 +251,7 @@ fn main() -> Result<(), subsume_core::BoxError> {
             .unwrap();
         path.push((best_level3, 3));
     }
-    
+
     for (name, depth) in &path {
         println!("     {} {}", "  ".repeat(*depth), name);
     }
@@ -257,30 +263,38 @@ fn main() -> Result<(), subsume_core::BoxError> {
     let categories_vol = electronics.volume(1.0)? + clothing.volume(1.0)? + food.volume(1.0)?;
     volume_conservation.record_parent_children(
         product_vol,
-        vec![electronics.volume(1.0)?, clothing.volume(1.0)?, food.volume(1.0)?].into_iter(),
+        vec![
+            electronics.volume(1.0)?,
+            clothing.volume(1.0)?,
+            food.volume(1.0)?,
+        ]
+        .into_iter(),
         0.1,
     );
-    
+
     println!("  Product volume: {:.4}", product_vol);
     println!("  Sum of categories: {:.4}", categories_vol);
     println!("  Conservation ratio: {:.4}", categories_vol / product_vol);
     let mean_ratio = volume_conservation.mean_ratio();
-    println!("  Mean conservation ratio: {:.4} (should be <= 1.0)", mean_ratio);
+    println!(
+        "  Mean conservation ratio: {:.4} (should be <= 1.0)",
+        mean_ratio
+    );
     println!();
 
     // Evaluate classification accuracy
     println!("5. Classification Accuracy Evaluation:");
-    
+
     // Simulate test cases
     let test_cases = vec![
-        (macbook.clone(), "Laptop", true),  // Correct
-        (laptop.clone(), "Laptop", true),   // Correct
-        (apple.clone(), "Apple", true),     // Correct
-        (shirt.clone(), "Shirt", true),     // Correct
-        (macbook.clone(), "Apple", false),  // Incorrect
-        (apple.clone(), "Laptop", false),   // Incorrect
+        (macbook.clone(), "Laptop", true), // Correct
+        (laptop.clone(), "Laptop", true),  // Correct
+        (apple.clone(), "Apple", true),    // Correct
+        (shirt.clone(), "Shirt", true),    // Correct
+        (macbook.clone(), "Apple", false), // Incorrect
+        (apple.clone(), "Laptop", false),  // Incorrect
     ];
-    
+
     for (item, expected_class, should_contain) in test_cases {
         let class_box = boxes.get(match expected_class {
             "Laptop" => 7,
@@ -292,7 +306,7 @@ fn main() -> Result<(), subsume_core::BoxError> {
         let predicted = prob > 0.5;
         containment_accuracy.record(predicted, should_contain);
     }
-    
+
     println!("  Precision: {:.4}", containment_accuracy.precision());
     println!("  Recall: {:.4}", containment_accuracy.recall());
     println!("  F1: {:.4}", containment_accuracy.f1());
@@ -329,4 +343,3 @@ fn main() -> Result<(), subsume_core::BoxError> {
 
     Ok(())
 }
-

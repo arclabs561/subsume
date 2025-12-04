@@ -1,9 +1,11 @@
 //! Candle implementation of GumbelBox trait.
 
+use crate::candle_box::CandleBox;
 use candle_core::Tensor;
 use serde::{Deserialize, Serialize};
-use subsume_core::{Box, BoxError, GumbelBox, gumbel_membership_prob, sample_gumbel, map_gumbel_to_bounds};
-use crate::candle_box::CandleBox;
+use subsume_core::{
+    gumbel_membership_prob, map_gumbel_to_bounds, sample_gumbel, Box, BoxError, GumbelBox,
+};
 
 /// A Gumbel box embedding implemented using `candle_core::Tensor`.
 #[derive(Debug, Clone)]
@@ -82,7 +84,10 @@ impl GumbelBox for CandleGumbelBox {
         self.inner.temperature
     }
 
-    fn membership_probability(&self, point: &Self::Vector) -> std::result::Result<Self::Scalar, BoxError> {
+    fn membership_probability(
+        &self,
+        point: &Self::Vector,
+    ) -> std::result::Result<Self::Scalar, BoxError> {
         if point.dims() != &[self.dim()] {
             return Err(BoxError::DimensionMismatch {
                 expected: self.dim(),
@@ -95,19 +100,22 @@ impl GumbelBox for CandleGumbelBox {
         let temp = self.temperature();
 
         // For each dimension: P(min[i] <= point[i] <= max[i])
-        let point_data = point.to_vec1::<f32>().map_err(|e| BoxError::Internal(e.to_string()))?;
-        let min_data = self.min().to_vec1::<f32>().map_err(|e| BoxError::Internal(e.to_string()))?;
-        let max_data = self.max().to_vec1::<f32>().map_err(|e| BoxError::Internal(e.to_string()))?;
+        let point_data = point
+            .to_vec1::<f32>()
+            .map_err(|e| BoxError::Internal(e.to_string()))?;
+        let min_data = self
+            .min()
+            .to_vec1::<f32>()
+            .map_err(|e| BoxError::Internal(e.to_string()))?;
+        let max_data = self
+            .max()
+            .to_vec1::<f32>()
+            .map_err(|e| BoxError::Internal(e.to_string()))?;
 
         let mut prob = 1.0;
         for (i, &coord) in point_data.iter().enumerate() {
             // Use numerically stable Gumbel-Softmax probability calculation
-            let dim_prob = gumbel_membership_prob(
-                coord,
-                min_data[i],
-                max_data[i],
-                temp,
-            );
+            let dim_prob = gumbel_membership_prob(coord, min_data[i], max_data[i], temp);
             prob *= dim_prob;
         }
 
@@ -116,39 +124,34 @@ impl GumbelBox for CandleGumbelBox {
 
     fn sample(&self) -> Self::Vector {
         use candle_core::Tensor;
-        
+
         // Use LCG for pseudo-random sampling to avoid rand dependency conflicts.
         // Note: LCG has known limitations but is sufficient for non-cryptographic use.
         let device = self.min().device();
         let dim = self.dim();
-        
+
         let min_data = self.min().to_vec1::<f32>().unwrap_or_default();
         let max_data = self.max().to_vec1::<f32>().unwrap_or_default();
-        
+
         let mut seed = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos() as u64;
-        
+
         const A: u64 = 1664525;
         const C: u64 = 1013904223;
         const M: u64 = 1u64 << 32;
-        
+
         let temp = self.temperature();
         let mut samples: Vec<f32> = Vec::with_capacity(dim);
         for i in 0..dim {
             seed = (A.wrapping_mul(seed).wrapping_add(C)) % M;
             let u = (seed as f32) / (M as f32);
             let gumbel = sample_gumbel(u, 1e-7);
-            let value = map_gumbel_to_bounds(
-                gumbel,
-                min_data[i],
-                max_data[i],
-                temp,
-            );
+            let value = map_gumbel_to_bounds(gumbel, min_data[i], max_data[i], temp);
             samples.push(value);
         }
-        
+
         Tensor::new(&*samples, device).unwrap_or_else(|e| {
             // Fallback: return center point if tensor creation fails
             // This should be rare - only occurs if device allocation fails
@@ -156,7 +159,10 @@ impl GumbelBox for CandleGumbelBox {
                 .map(|i| (min_data[i] + max_data[i]) / 2.0)
                 .collect();
             Tensor::new(&*center, device).unwrap_or_else(|_| {
-                panic!("Failed to create sample tensor: original error: {}, fallback also failed", e)
+                panic!(
+                    "Failed to create sample tensor: original error: {}, fallback also failed",
+                    e
+                )
             })
         })
     }
@@ -181,4 +187,3 @@ impl<'de> Deserialize<'de> for CandleGumbelBox {
         Ok(Self { inner })
     }
 }
-

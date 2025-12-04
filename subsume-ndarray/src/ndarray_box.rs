@@ -85,7 +85,8 @@ impl<'de> Deserialize<'de> for NdarrayBox {
                 }
                 let min = min.ok_or_else(|| de::Error::missing_field("min"))?;
                 let max = max.ok_or_else(|| de::Error::missing_field("max"))?;
-                let temperature = temperature.ok_or_else(|| de::Error::missing_field("temperature"))?;
+                let temperature =
+                    temperature.ok_or_else(|| de::Error::missing_field("temperature"))?;
                 NdarrayBox::new(Array1::from(min), Array1::from(max), temperature)
                     .map_err(|e| de::Error::custom(format!("Invalid box: {}", e)))
             }
@@ -147,11 +148,11 @@ impl Box for NdarrayBox {
 
     fn volume(&self, _temperature: Self::Scalar) -> Result<Self::Scalar, BoxError> {
         use subsume_core::log_space_volume;
-        
+
         // For high-dimensional boxes, use log-space computation to avoid underflow/overflow
         let diff = &self.max - &self.min;
         let dim = self.dim();
-        
+
         if dim > 10 {
             // High-dimensional: use log-space
             let (_, volume) = log_space_volume(diff.iter().copied());
@@ -171,8 +172,18 @@ impl Box for NdarrayBox {
             });
         }
 
-        let intersection_min: Vec<f32> = self.min.iter().zip(other.min.iter()).map(|(a, b)| a.max(*b)).collect();
-        let intersection_max: Vec<f32> = self.max.iter().zip(other.max.iter()).map(|(a, b)| a.min(*b)).collect();
+        let intersection_min: Vec<f32> = self
+            .min
+            .iter()
+            .zip(other.min.iter())
+            .map(|(a, b)| a.max(*b))
+            .collect();
+        let intersection_max: Vec<f32> = self
+            .max
+            .iter()
+            .zip(other.max.iter())
+            .map(|(a, b)| a.min(*b))
+            .collect();
 
         // Check if intersection is valid (not disjoint)
         for (min_val, max_val) in intersection_min.iter().zip(intersection_max.iter()) {
@@ -224,16 +235,16 @@ impl Box for NdarrayBox {
         // Using inclusion-exclusion: P(A ∩ B ≠ ∅) = intersection_vol(A, B) / union_vol(A, B)
         let intersection = self.intersection(other)?;
         let intersection_vol = intersection.volume(temperature)?;
-        
+
         // Union volume = vol(A) + vol(B) - intersection_vol(A, B)
         let vol_a = self.volume(temperature)?;
         let vol_b = other.volume(temperature)?;
         let union_vol = vol_a + vol_b - intersection_vol;
-        
+
         if union_vol <= 0.0 {
             return Ok(0.0);
         }
-        
+
         Ok((intersection_vol / union_vol).clamp(0.0, 1.0))
     }
 
@@ -245,11 +256,15 @@ impl Box for NdarrayBox {
             });
         }
 
-        let union_min: Array1<f32> = self.min.iter()
+        let union_min: Array1<f32> = self
+            .min
+            .iter()
             .zip(other.min.iter())
             .map(|(a, b)| a.min(*b))
             .collect();
-        let union_max: Array1<f32> = self.max.iter()
+        let union_max: Array1<f32> = self
+            .max
+            .iter()
             .zip(other.max.iter())
             .map(|(a, b)| a.max(*b))
             .collect();
@@ -258,7 +273,9 @@ impl Box for NdarrayBox {
     }
 
     fn center(&self) -> Result<Self::Vector, BoxError> {
-        let center: Array1<f32> = self.min.iter()
+        let center: Array1<f32> = self
+            .min
+            .iter()
             .zip(self.max.iter())
             .map(|(min_val, max_val)| (min_val + max_val) / 2.0)
             .collect();
@@ -297,4 +314,3 @@ impl Box for NdarrayBox {
         Ok(dist_sq.sqrt())
     }
 }
-

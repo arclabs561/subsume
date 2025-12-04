@@ -8,12 +8,24 @@
 //!
 //! # Key Concepts
 //!
-//! - **Box Embeddings**: Axis-aligned hyperrectangles that encode containment relationships
-//! - **Gumbel Boxes**: Probabilistic boxes with Gumbel noise for training stability
+//! - **Box Embeddings**: Axis-aligned hyperrectangles that encode containment relationships.
+//!   Unlike vector embeddings, boxes naturally model hierarchical structures through geometric
+//!   containment. The volume of a box represents the "scope" or "granularity" of the concept.
+//!
+//! - **Gumbel Boxes**: Probabilistic boxes that solve the **local identifiability problem**.
+//!   By modeling coordinates as Gumbel random variables, Gumbel boxes ensure that every parameter
+//!   contributes to the loss, providing dense gradients throughout training. This is essential
+//!   for learning, as hard boxes create "flat regions" where gradients vanish.
+//!
 //! - **Containment/Subsumption**: One box "subsumes" another when it contains it
-//!   (entailment, hierarchical relationships). The term "subsume" means to include
-//!   something in a more general category — if box A contains box B, A subsumes B.
-//! - **Overlap**: Mutual probability of two boxes representing the same entity
+//!   (entailment, hierarchical relationships). The term "subsume" comes from formal logic,
+//!   where subsumption means one statement is more general than another. If box A contains
+//!   box B (B ⊆ A), then A subsumes B — the more general concept contains the more specific one.
+//!
+//! - **Overlap**: The probability that two boxes have non-empty intersection. This measures
+//!   whether two boxes represent related but distinct entities (e.g., "dog" and "cat" are
+//!   both animals but distinct species). High overlap suggests relatedness; low overlap
+//!   suggests disjointness or mutual exclusivity.
 //!
 //! # Design Philosophy
 //!
@@ -47,45 +59,39 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 pub mod box_trait;
-pub mod gumbel;
+pub mod distance;
 pub mod embedding;
-pub mod utils;
+pub mod gumbel;
 pub mod training;
+pub mod utils;
 
 pub use box_trait::{Box, BoxError};
+pub use distance::{boundary_distance, depth_distance, depth_similarity, vector_to_box_distance};
+pub use embedding::{BoxCollection, BoxEmbedding};
 pub use gumbel::GumbelBox;
-pub use embedding::{BoxEmbedding, BoxCollection};
-pub use utils::{
-    clamp_temperature, clamp_temperature_default,
-    MIN_TEMPERATURE, MAX_TEMPERATURE,
-    stable_sigmoid, gumbel_membership_prob,
-    sample_gumbel, map_gumbel_to_bounds,
-    log_space_volume, volume_regularization,
-    temperature_scheduler, volume_containment_loss,
-    volume_overlap_loss,
-    safe_init_bounds, is_cross_pattern, is_perfectly_nested,
-    suggested_min_separation,
-};
-pub use utils::validation;
 pub use training::{
-    metrics::{
-        mean_reciprocal_rank, hits_at_k, mean_rank, ndcg,
-        StratifiedMetrics, RelationMetrics, DepthMetrics, FrequencyMetrics,
+    calibration::{
+        adaptive_calibration_error, brier_score, expected_calibration_error, reliability_diagram,
+        ReliabilityDiagram,
     },
     diagnostics::{
-        TrainingStats, LossComponents, GradientFlowAnalysis,
-        DepthStratifiedGradientFlow, PhaseDetector, TrainingPhase,
-        RelationStratifiedTrainingStats,
+        DepthStratifiedGradientFlow, GradientFlowAnalysis, LossComponents, PhaseDetector,
+        RelationStratifiedTrainingStats, TrainingPhase, TrainingStats,
+    },
+    metrics::{
+        hits_at_k, mean_rank, mean_reciprocal_rank, ndcg, DepthMetrics, FrequencyMetrics,
+        RelationMetrics, StratifiedMetrics,
     },
     quality::{
-        VolumeDistribution, ContainmentAccuracy, IntersectionTopology,
-        ContainmentHierarchy, AsymmetryMetrics, TopologicalStability,
-        VolumeConservation, DimensionalityUtilization, GeneralizationMetrics,
-        kl_divergence,
-    },
-    calibration::{
-        expected_calibration_error, brier_score, adaptive_calibration_error,
-        reliability_diagram, ReliabilityDiagram,
+        kl_divergence, AsymmetryMetrics, ContainmentAccuracy, ContainmentHierarchy,
+        DimensionalityUtilization, GeneralizationMetrics, IntersectionTopology,
+        TopologicalStability, VolumeConservation, VolumeDistribution,
     },
 };
-
+pub use utils::validation;
+pub use utils::{
+    clamp_temperature, clamp_temperature_default, gumbel_membership_prob, is_cross_pattern,
+    is_perfectly_nested, log_space_volume, map_gumbel_to_bounds, safe_init_bounds, sample_gumbel,
+    stable_sigmoid, suggested_min_separation, temperature_scheduler, volume_containment_loss,
+    volume_overlap_loss, volume_regularization, MAX_TEMPERATURE, MIN_TEMPERATURE,
+};

@@ -71,22 +71,37 @@ pub mod metrics {
                 by_relation: std::collections::HashMap::new(),
                 by_depth: std::collections::HashMap::new(),
                 by_frequency: FrequencyMetrics {
-                    high_freq: FrequencyStratum { count: 0, mrr: 0.0, hits_10: 0.0 },
-                    medium_freq: FrequencyStratum { count: 0, mrr: 0.0, hits_10: 0.0 },
-                    low_freq: FrequencyStratum { count: 0, mrr: 0.0, hits_10: 0.0 },
+                    high_freq: FrequencyStratum {
+                        count: 0,
+                        mrr: 0.0,
+                        hits_10: 0.0,
+                    },
+                    medium_freq: FrequencyStratum {
+                        count: 0,
+                        mrr: 0.0,
+                        hits_10: 0.0,
+                    },
+                    low_freq: FrequencyStratum {
+                        count: 0,
+                        mrr: 0.0,
+                        hits_10: 0.0,
+                    },
                 },
             }
         }
 
         /// Add relation-stratified result.
         pub fn add_relation_result(&mut self, relation: String, rank: usize) {
-            let metrics = self.by_relation.entry(relation).or_insert_with(|| RelationMetrics {
-                count: 0,
-                mrr: 0.0,
-                hits_10: 0.0,
-                mean_rank: 0.0,
-            });
-            
+            let metrics = self
+                .by_relation
+                .entry(relation)
+                .or_insert_with(|| RelationMetrics {
+                    count: 0,
+                    mrr: 0.0,
+                    hits_10: 0.0,
+                    mean_rank: 0.0,
+                });
+
             metrics.count += 1;
             if rank > 0 {
                 metrics.mrr += 1.0 / rank as f32;
@@ -116,7 +131,7 @@ pub mod metrics {
                 hits_10: 0.0,
                 containment_accuracy: 0.0,
             });
-            
+
             metrics.count += 1;
             if rank > 0 {
                 metrics.mrr += 1.0 / rank as f32;
@@ -153,7 +168,7 @@ pub mod metrics {
                 "low" => &mut self.by_frequency.low_freq,
                 _ => return, // Invalid category, ignore
             };
-            
+
             stratum.count += 1;
             if rank > 0 {
                 stratum.mrr += 1.0 / rank as f32;
@@ -215,14 +230,14 @@ pub mod metrics {
     {
         let mut sum = 0.0;
         let mut count = 0;
-        
+
         for rank in ranks {
             if rank > 0 {
                 sum += 1.0 / (rank as f32);
             }
             count += 1;
         }
-        
+
         if count == 0 {
             0.0
         } else {
@@ -256,14 +271,14 @@ pub mod metrics {
     {
         let mut hits = 0;
         let mut count = 0;
-        
+
         for rank in ranks {
             if rank > 0 && rank <= k {
                 hits += 1;
             }
             count += 1;
         }
-        
+
         if count == 0 {
             0.0
         } else {
@@ -296,14 +311,14 @@ pub mod metrics {
     {
         let mut sum = 0.0;
         let mut count = 0;
-        
+
         for rank in ranks {
             if rank > 0 {
                 sum += rank as f32;
             }
             count += 1;
         }
-        
+
         if count == 0 {
             0.0
         } else {
@@ -343,21 +358,21 @@ pub mod metrics {
         let mut dcg = 0.0;
         let mut idcg = 0.0;
         let mut position = 1;
-        
+
         let mut relevance_iter = relevance_scores.peekable();
         let mut ideal_iter = ideal_relevance.peekable();
-        
+
         while relevance_iter.peek().is_some() && ideal_iter.peek().is_some() {
             let rel = relevance_iter.next().unwrap_or(0.0);
             let ideal_rel = ideal_iter.next().unwrap_or(0.0);
-            
+
             // DCG: sum of (relevance / log2(position + 1))
             dcg += rel / ((position + 1) as f32).log2();
             idcg += ideal_rel / ((position + 1) as f32).log2();
-            
+
             position += 1;
         }
-        
+
         if idcg > 0.0 {
             dcg / idcg
         } else {
@@ -429,7 +444,7 @@ pub mod diagnostics {
                 self.intersection_volumes.push_back(int_vol);
             }
             self.gradient_norms.push_back(gradient_norm);
-            
+
             if self.losses.len() > self.window_size {
                 self.losses.pop_front();
             }
@@ -458,10 +473,14 @@ pub mod diagnostics {
             if self.losses.len() < min_iterations {
                 return false;
             }
-            
+
             let min_loss = self.losses.iter().copied().fold(f32::INFINITY, f32::min);
-            let max_loss = self.losses.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-            
+            let max_loss = self
+                .losses
+                .iter()
+                .copied()
+                .fold(f32::NEG_INFINITY, f32::max);
+
             (max_loss - min_loss) <= tolerance
         }
 
@@ -512,11 +531,15 @@ pub mod diagnostics {
             if self.losses.is_empty() {
                 return None;
             }
-            
+
             let mean = self.losses.iter().sum::<f32>() / self.losses.len() as f32;
             let min = self.losses.iter().copied().fold(f32::INFINITY, f32::min);
-            let max = self.losses.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-            
+            let max = self
+                .losses
+                .iter()
+                .copied()
+                .fold(f32::NEG_INFINITY, f32::max);
+
             Some((mean, min, max))
         }
 
@@ -525,11 +548,15 @@ pub mod diagnostics {
             if self.volumes.is_empty() {
                 return None;
             }
-            
+
             let mean = self.volumes.iter().sum::<f32>() / self.volumes.len() as f32;
             let min = self.volumes.iter().copied().fold(f32::INFINITY, f32::min);
-            let max = self.volumes.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-            
+            let max = self
+                .volumes
+                .iter()
+                .copied()
+                .fold(f32::NEG_INFINITY, f32::max);
+
             Some((mean, min, max))
         }
 
@@ -538,11 +565,19 @@ pub mod diagnostics {
             if self.gradient_norms.is_empty() {
                 return None;
             }
-            
+
             let mean = self.gradient_norms.iter().sum::<f32>() / self.gradient_norms.len() as f32;
-            let min = self.gradient_norms.iter().copied().fold(f32::INFINITY, f32::min);
-            let max = self.gradient_norms.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-            
+            let min = self
+                .gradient_norms
+                .iter()
+                .copied()
+                .fold(f32::INFINITY, f32::min);
+            let max = self
+                .gradient_norms
+                .iter()
+                .copied()
+                .fold(f32::NEG_INFINITY, f32::max);
+
             Some((mean, min, max))
         }
 
@@ -557,11 +592,20 @@ pub mod diagnostics {
             if self.intersection_volumes.is_empty() {
                 return None;
             }
-            
-            let mean = self.intersection_volumes.iter().sum::<f32>() / self.intersection_volumes.len() as f32;
-            let min = self.intersection_volumes.iter().copied().fold(f32::INFINITY, f32::min);
-            let max = self.intersection_volumes.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-            
+
+            let mean = self.intersection_volumes.iter().sum::<f32>()
+                / self.intersection_volumes.len() as f32;
+            let min = self
+                .intersection_volumes
+                .iter()
+                .copied()
+                .fold(f32::INFINITY, f32::min);
+            let max = self
+                .intersection_volumes
+                .iter()
+                .copied()
+                .fold(f32::NEG_INFINITY, f32::max);
+
             Some((mean, min, max))
         }
 
@@ -580,26 +624,28 @@ pub mod diagnostics {
             if self.intersection_volumes.len() < min_samples {
                 return None;
             }
-            
+
             // Use linear regression to detect trend
             let n = self.intersection_volumes.len() as f32;
             let sum_x: f32 = (0..self.intersection_volumes.len()).map(|i| i as f32).sum();
             let sum_y: f32 = self.intersection_volumes.iter().sum();
-            let sum_xy: f32 = self.intersection_volumes.iter()
+            let sum_xy: f32 = self
+                .intersection_volumes
+                .iter()
                 .enumerate()
                 .map(|(i, &y)| i as f32 * y)
                 .sum();
             let sum_x2: f32 = (0..self.intersection_volumes.len())
                 .map(|i| (i as f32).powi(2))
                 .sum();
-            
+
             let denominator = n * sum_x2 - sum_x * sum_x;
             if denominator.abs() < 1e-6 {
                 return None;
             }
-            
+
             let slope = (n * sum_xy - sum_x * sum_y) / denominator;
-            
+
             // Positive slope indicates increasing intersection volumes
             Some(slope > 0.0)
         }
@@ -612,23 +658,25 @@ pub mod diagnostics {
             if self.intersection_volumes.len() < min_samples {
                 return None;
             }
-            
+
             let n = self.intersection_volumes.len() as f32;
             let sum_x: f32 = (0..self.intersection_volumes.len()).map(|i| i as f32).sum();
             let sum_y: f32 = self.intersection_volumes.iter().sum();
-            let sum_xy: f32 = self.intersection_volumes.iter()
+            let sum_xy: f32 = self
+                .intersection_volumes
+                .iter()
                 .enumerate()
                 .map(|(i, &y)| i as f32 * y)
                 .sum();
             let sum_x2: f32 = (0..self.intersection_volumes.len())
                 .map(|i| (i as f32).powi(2))
                 .sum();
-            
+
             let denominator = n * sum_x2 - sum_x * sum_x;
             if denominator.abs() < 1e-6 {
                 return None;
             }
-            
+
             let slope = (n * sum_xy - sum_x * sum_y) / denominator;
             Some(slope)
         }
@@ -721,14 +769,14 @@ pub mod diagnostics {
             } else {
                 0.0
             };
-            
+
             if center_mean > 0.0 && size_mean > 0.0 {
                 let ratio = (center_mean / size_mean).max(size_mean / center_mean);
                 if ratio > threshold {
                     return Some(ratio);
                 }
             }
-            
+
             let min_mean = if !self.min_gradients.is_empty() {
                 self.min_gradients.iter().sum::<f32>() / self.min_gradients.len() as f32
             } else {
@@ -739,14 +787,14 @@ pub mod diagnostics {
             } else {
                 0.0
             };
-            
+
             if min_mean > 0.0 && max_mean > 0.0 {
                 let ratio = (min_mean / max_mean).max(max_mean / min_mean);
                 if ratio > threshold {
                     return Some(ratio);
                 }
             }
-            
+
             None
         }
 
@@ -754,7 +802,7 @@ pub mod diagnostics {
         pub fn gradient_sparsity(&self, threshold: f32) -> f32 {
             let mut total = 0;
             let mut sparse = 0;
-            
+
             for &g in &self.center_gradients {
                 total += 1;
                 if g < threshold {
@@ -779,7 +827,7 @@ pub mod diagnostics {
                     sparse += 1;
                 }
             }
-            
+
             if total == 0 {
                 0.0
             } else {
@@ -811,10 +859,11 @@ pub mod diagnostics {
 
         /// Record gradient for a box at a specific hierarchy depth.
         pub fn record(&mut self, depth: usize, gradient_norm: f32) {
-            let gradients = self.gradients_by_depth
+            let gradients = self
+                .gradients_by_depth
                 .entry(depth)
                 .or_insert_with(|| VecDeque::with_capacity(self.window_size));
-            
+
             gradients.push_back(gradient_norm);
             if gradients.len() > self.window_size {
                 gradients.pop_front();
@@ -823,7 +872,8 @@ pub mod diagnostics {
 
         /// Get mean gradient magnitude for each depth level.
         pub fn mean_gradients_by_depth(&self) -> std::collections::HashMap<usize, f32> {
-            self.gradients_by_depth.iter()
+            self.gradients_by_depth
+                .iter()
                 .map(|(&depth, grads)| {
                     let mean = if grads.is_empty() {
                         0.0
@@ -844,21 +894,23 @@ pub mod diagnostics {
             if means.len() < 2 {
                 return None;
             }
-            
-            let (min_depth, &min_grad) = means.iter()
+
+            let (min_depth, &min_grad) = means
+                .iter()
                 .min_by(|(_, &a), (_, &b)| a.partial_cmp(&b).unwrap())
                 .unwrap();
-            let (max_depth, &max_grad) = means.iter()
+            let (max_depth, &max_grad) = means
+                .iter()
                 .max_by(|(_, &a), (_, &b)| a.partial_cmp(&b).unwrap())
                 .unwrap();
-            
+
             if min_grad > 0.0 {
                 let ratio = max_grad / min_grad;
                 if ratio > threshold {
                     return Some((*min_depth, *max_depth, ratio));
                 }
             }
-            
+
             None
         }
     }
@@ -903,7 +955,7 @@ pub mod diagnostics {
         pub fn record(&mut self, loss: f32, gradient_norm: f32) {
             self.losses.push_back(loss);
             self.gradient_norms.push_back(gradient_norm);
-            
+
             if self.losses.len() > self.window_size {
                 self.losses.pop_front();
             }
@@ -917,45 +969,48 @@ pub mod diagnostics {
             if self.losses.len() < 3 {
                 return TrainingPhase::Exploration;
             }
-            
+
             let recent_losses: Vec<f32> = self.losses.iter().copied().collect();
             let mean_grad = if self.gradient_norms.is_empty() {
                 0.0
             } else {
                 self.gradient_norms.iter().sum::<f32>() / self.gradient_norms.len() as f32
             };
-            
+
             // Check for instability (loss increasing significantly)
             let loss_trend = recent_losses[recent_losses.len() - 1] - recent_losses[0];
             if loss_trend > 0.1 {
                 return TrainingPhase::Instability;
             }
-            
+
             // Check for convergence (stable loss, low gradients)
             // Need enough samples to reliably detect convergence
             if recent_losses.len() >= 7 {
                 let loss_variance = {
                     let mean = recent_losses.iter().sum::<f32>() / recent_losses.len() as f32;
-                    recent_losses.iter()
+                    recent_losses
+                        .iter()
                         .map(|&l| (l - mean).powi(2))
-                        .sum::<f32>() / recent_losses.len() as f32
+                        .sum::<f32>()
+                        / recent_losses.len() as f32
                 };
-                
+
                 // Very strict: loss must be extremely stable AND gradients very low
                 if loss_variance < 0.0001 && mean_grad < 0.06 {
                     return TrainingPhase::Convergence;
                 }
             }
-            
+
             // Check for exploitation (decreasing loss, moderate gradients)
             // Need more samples to reliably detect exploitation
             if recent_losses.len() >= 5 {
-                let recent_trend = recent_losses[recent_losses.len() - 1] - recent_losses[recent_losses.len() - 5];
+                let recent_trend =
+                    recent_losses[recent_losses.len() - 1] - recent_losses[recent_losses.len() - 5];
                 if recent_trend < -0.15 && mean_grad > 0.05 && mean_grad < 0.5 {
                     return TrainingPhase::Exploitation;
                 }
             }
-            
+
             // Default to exploration
             TrainingPhase::Exploration
         }
@@ -984,17 +1039,12 @@ pub mod diagnostics {
         }
 
         /// Record training step for a specific relation.
-        pub fn record(
-            &mut self,
-            relation: &str,
-            loss: f32,
-            avg_volume: f32,
-            gradient_norm: f32,
-        ) {
-            let stats = self.stats_by_relation
+        pub fn record(&mut self, relation: &str, loss: f32, avg_volume: f32, gradient_norm: f32) {
+            let stats = self
+                .stats_by_relation
                 .entry(relation.to_string())
                 .or_insert_with(|| TrainingStats::new(self.window_size));
-            
+
             stats.record(loss, avg_volume, gradient_norm);
         }
 
@@ -1007,11 +1057,17 @@ pub mod diagnostics {
             avg_intersection_volume: Option<f32>,
             gradient_norm: f32,
         ) {
-            let stats = self.stats_by_relation
+            let stats = self
+                .stats_by_relation
                 .entry(relation.to_string())
                 .or_insert_with(|| TrainingStats::new(self.window_size));
-            
-            stats.record_with_intersection(loss, avg_volume, avg_intersection_volume, gradient_norm);
+
+            stats.record_with_intersection(
+                loss,
+                avg_volume,
+                avg_intersection_volume,
+                gradient_norm,
+            );
         }
 
         /// Check if a specific relation has converged.
@@ -1028,11 +1084,7 @@ pub mod diagnostics {
         }
 
         /// Get all relations that have converged.
-        pub fn converged_relations(
-            &self,
-            tolerance: f32,
-            min_iterations: usize,
-        ) -> Vec<String> {
+        pub fn converged_relations(&self, tolerance: f32, min_iterations: usize) -> Vec<String> {
             self.stats_by_relation
                 .iter()
                 .filter_map(|(relation, stats)| {
@@ -1046,11 +1098,7 @@ pub mod diagnostics {
         }
 
         /// Get all relations that have not converged.
-        pub fn unconverged_relations(
-            &self,
-            tolerance: f32,
-            min_iterations: usize,
-        ) -> Vec<String> {
+        pub fn unconverged_relations(&self, tolerance: f32, min_iterations: usize) -> Vec<String> {
             self.stats_by_relation
                 .iter()
                 .filter_map(|(relation, stats)| {
@@ -1074,16 +1122,13 @@ pub mod diagnostics {
         }
 
         /// Get convergence rate (proportion of relations that have converged).
-        pub fn convergence_rate(
-            &self,
-            tolerance: f32,
-            min_iterations: usize,
-        ) -> f32 {
+        pub fn convergence_rate(&self, tolerance: f32, min_iterations: usize) -> f32 {
             if self.stats_by_relation.is_empty() {
                 return 0.0;
             }
 
-            let converged_count = self.stats_by_relation
+            let converged_count = self
+                .stats_by_relation
                 .values()
                 .filter(|stats| stats.is_converged(tolerance, min_iterations))
                 .count();
@@ -1108,11 +1153,7 @@ pub mod diagnostics {
 
     impl LossComponents {
         /// Create new loss components tracker.
-        pub fn new(
-            containment_loss: f32,
-            regularization_loss: f32,
-            constraint_loss: f32,
-        ) -> Self {
+        pub fn new(containment_loss: f32, regularization_loss: f32, constraint_loss: f32) -> Self {
             Self {
                 containment_loss,
                 regularization_loss,
@@ -1133,11 +1174,11 @@ pub mod diagnostics {
             if total == 0.0 {
                 return false;
             }
-            
+
             let containment_ratio = self.containment_loss / total;
             let reg_ratio = self.regularization_loss / total;
             let constraint_ratio = self.constraint_loss / total;
-            
+
             containment_ratio > 0.8 || reg_ratio > 0.8 || constraint_ratio > 0.8
         }
 
@@ -1147,11 +1188,11 @@ pub mod diagnostics {
             if total == 0.0 {
                 return None;
             }
-            
+
             let containment_ratio = self.containment_loss / total;
             let reg_ratio = self.regularization_loss / total;
             let constraint_ratio = self.constraint_loss / total;
-            
+
             if containment_ratio > 0.8 {
                 Some("containment")
             } else if reg_ratio > 0.8 {
@@ -1210,27 +1251,22 @@ pub mod quality {
             }
 
             vols.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            
+
             let min = vols[0];
             let max = vols[vols.len() - 1];
             let mean = vols.iter().sum::<f32>() / vols.len() as f32;
-            
+
             let median = if vols.len() % 2 == 0 {
                 (vols[vols.len() / 2 - 1] + vols[vols.len() / 2]) / 2.0
             } else {
                 vols[vols.len() / 2]
             };
-            
-            let variance = vols.iter()
-                .map(|&v| (v - mean).powi(2))
-                .sum::<f32>() / vols.len() as f32;
+
+            let variance =
+                vols.iter().map(|&v| (v - mean).powi(2)).sum::<f32>() / vols.len() as f32;
             let std_dev = variance.sqrt();
-            
-            let cv = if mean > 0.0 {
-                std_dev / mean
-            } else {
-                0.0
-            };
+
+            let cv = if mean > 0.0 { std_dev / mean } else { 0.0 };
 
             // Compute quantiles
             let q25_idx = (vols.len() as f32 * 0.25) as usize;
@@ -1355,8 +1391,10 @@ pub mod quality {
 
         /// Accuracy: (TP + TN) / (TP + FP + TN + FN)
         pub fn accuracy(&self) -> f32 {
-            let total = self.true_positives + self.false_positives
-                + self.true_negatives + self.false_negatives;
+            let total = self.true_positives
+                + self.false_positives
+                + self.true_negatives
+                + self.false_negatives;
             if total == 0 {
                 0.0
             } else {
@@ -1410,7 +1448,7 @@ pub mod quality {
                 self.sibling_intersection_ratio = Some(
                     self.sibling_intersection_ratio
                         .map(|r| (r + ratio) / 2.0)
-                        .unwrap_or(ratio)
+                        .unwrap_or(ratio),
                 );
             }
         }
@@ -1424,7 +1462,7 @@ pub mod quality {
                 self.parent_child_intersection_ratio = Some(
                     self.parent_child_intersection_ratio
                         .map(|r| (r + ratio) / 2.0)
-                        .unwrap_or(ratio)
+                        .unwrap_or(ratio),
                 );
             }
         }
@@ -1507,25 +1545,26 @@ pub mod quality {
         /// Compute transitive closure of containment relationships.
         pub fn compute_transitive_closure(&mut self) {
             self.transitive_closure.clear();
-            
+
             // Build adjacency list
-            let mut adj: std::collections::HashMap<usize, Vec<usize>> = std::collections::HashMap::new();
+            let mut adj: std::collections::HashMap<usize, Vec<usize>> =
+                std::collections::HashMap::new();
             for &(parent, child) in &self.direct_containments {
-                adj.entry(parent).or_insert_with(Vec::new).push(child);
+                adj.entry(parent).or_default().push(child);
             }
-            
+
             // DFS to compute reachability
             for &(parent, _) in &self.direct_containments {
                 let mut visited = std::collections::HashSet::new();
                 let mut stack = vec![parent];
-                
+
                 while let Some(node) = stack.pop() {
                     if visited.insert(node) {
                         if let Some(children) = adj.get(&node) {
                             for &child in children {
                                 self.transitive_closure
                                     .entry(parent)
-                                    .or_insert_with(Vec::new)
+                                    .or_default()
                                     .push(child);
                                 stack.push(child);
                             }
@@ -1539,7 +1578,7 @@ pub mod quality {
         pub fn verify_transitivity(&self) -> (usize, usize) {
             let mut violations = 0;
             let mut total_checks = 0;
-            
+
             for &(a, b) in &self.direct_containments {
                 if let Some(b_children) = self.transitive_closure.get(&b) {
                     for &c in b_children {
@@ -1552,7 +1591,7 @@ pub mod quality {
                     }
                 }
             }
-            
+
             (violations, total_checks)
         }
 
@@ -1562,13 +1601,14 @@ pub mod quality {
             let mut visited = std::collections::HashSet::new();
             let mut rec_stack = std::collections::HashSet::new();
             let mut path = Vec::new();
-            
+
             // Build adjacency list
-            let mut adj: std::collections::HashMap<usize, Vec<usize>> = std::collections::HashMap::new();
+            let mut adj: std::collections::HashMap<usize, Vec<usize>> =
+                std::collections::HashMap::new();
             for &(parent, child) in &self.direct_containments {
-                adj.entry(parent).or_insert_with(Vec::new).push(child);
+                adj.entry(parent).or_default().push(child);
             }
-            
+
             fn dfs(
                 node: usize,
                 adj: &std::collections::HashMap<usize, Vec<usize>>,
@@ -1580,7 +1620,7 @@ pub mod quality {
                 visited.insert(node);
                 rec_stack.insert(node);
                 path.push(node);
-                
+
                 if let Some(children) = adj.get(&node) {
                     for &child in children {
                         if !visited.contains(&child) {
@@ -1592,42 +1632,52 @@ pub mod quality {
                         }
                     }
                 }
-                
+
                 rec_stack.remove(&node);
                 path.pop();
             }
-            
+
             for &(parent, _) in &self.direct_containments {
                 if !visited.contains(&parent) {
-                    dfs(parent, &adj, &mut visited, &mut rec_stack, &mut path, &mut cycles);
+                    dfs(
+                        parent,
+                        &adj,
+                        &mut visited,
+                        &mut rec_stack,
+                        &mut path,
+                        &mut cycles,
+                    );
                 }
             }
-            
+
             cycles
         }
 
         /// Get hierarchy depth for each node (distance from root).
         pub fn hierarchy_depths(&self) -> std::collections::HashMap<usize, usize> {
             let mut depths = std::collections::HashMap::new();
-            let mut adj: std::collections::HashMap<usize, Vec<usize>> = std::collections::HashMap::new();
-            let mut in_degree: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
-            
+            let mut adj: std::collections::HashMap<usize, Vec<usize>> =
+                std::collections::HashMap::new();
+            let mut in_degree: std::collections::HashMap<usize, usize> =
+                std::collections::HashMap::new();
+
             for &(parent, child) in &self.direct_containments {
-                adj.entry(parent).or_insert_with(Vec::new).push(child);
+                adj.entry(parent).or_default().push(child);
                 *in_degree.entry(child).or_insert(0) += 1;
                 in_degree.entry(parent).or_insert(0);
             }
-            
+
             // Find roots (nodes with in-degree 0)
-            let mut queue: Vec<usize> = in_degree.iter()
+            let mut queue: Vec<usize> = in_degree
+                .iter()
                 .filter(|(_, &deg)| deg == 0)
                 .map(|(&node, _)| node)
                 .collect();
-            
+
             for root in &queue {
                 depths.insert(*root, 0);
             }
-            
+
             // BFS to assign depths
             while let Some(node) = queue.pop() {
                 let depth = depths[&node];
@@ -1638,7 +1688,7 @@ pub mod quality {
                     }
                 }
             }
-            
+
             depths
         }
     }
@@ -1689,10 +1739,13 @@ pub mod quality {
             if self.asymmetry_ratios.is_empty() {
                 return;
             }
-            
-            self.mean_asymmetry = self.asymmetry_ratios.iter().sum::<f32>() / self.asymmetry_ratios.len() as f32;
-            
-            let high_count = self.asymmetry_ratios.iter()
+
+            self.mean_asymmetry =
+                self.asymmetry_ratios.iter().sum::<f32>() / self.asymmetry_ratios.len() as f32;
+
+            let high_count = self
+                .asymmetry_ratios
+                .iter()
                 .filter(|&&r| r > threshold)
                 .count();
             self.high_asymmetry_proportion = high_count as f32 / self.asymmetry_ratios.len() as f32;
@@ -1752,11 +1805,11 @@ pub mod quality {
             I: Iterator<Item = f32>,
         {
             let children_sum: f32 = children_volumes.sum();
-            
+
             if parent_volume > 0.0 {
                 let ratio = children_sum / parent_volume;
                 self.parent_child_ratios.push(ratio);
-                
+
                 if ratio > 1.0 + tolerance {
                     self.violations += 1;
                 }
@@ -1786,10 +1839,10 @@ pub mod quality {
             if self.parent_child_ratios.is_empty() {
                 return None;
             }
-            
+
             let mut sorted = self.parent_child_ratios.clone();
             sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            
+
             let min = sorted[0];
             let max = sorted[sorted.len() - 1];
             let median = if sorted.len() % 2 == 0 {
@@ -1798,7 +1851,7 @@ pub mod quality {
                 sorted[sorted.len() / 2]
             };
             let mean = sorted.iter().sum::<f32>() / sorted.len() as f32;
-            
+
             Some((min, max, mean, median))
         }
     }
@@ -1817,8 +1870,6 @@ pub mod quality {
     pub struct DimensionalityUtilization {
         /// For each dimension, track the range of values used
         dimension_ranges: Vec<(f32, f32)>, // (min, max) for each dimension
-        /// For each dimension, track the variance of box sizes
-        dimension_size_variance: Vec<f32>,
     }
 
     impl DimensionalityUtilization {
@@ -1826,7 +1877,6 @@ pub mod quality {
         pub fn new(n_dimensions: usize) -> Self {
             Self {
                 dimension_ranges: vec![(f32::INFINITY, f32::NEG_INFINITY); n_dimensions],
-                dimension_size_variance: vec![0.0; n_dimensions],
             }
         }
 
@@ -1839,18 +1889,13 @@ pub mod quality {
                 if dim >= self.dimension_ranges.len() {
                     break;
                 }
-                
+
                 // Update range
                 let (curr_min, curr_max) = self.dimension_ranges[dim];
-                self.dimension_ranges[dim] = (
-                    curr_min.min(min_val),
-                    curr_max.max(max_val),
-                );
-                
-                // Track size (max - min) for variance calculation
+                self.dimension_ranges[dim] = (curr_min.min(min_val), curr_max.max(max_val));
+
+                // Track size (max - min) for future variance calculation if needed
                 let _size = max_val - min_val;
-                // Note: This is a simplified variance tracker
-                // In practice, you'd want to accumulate properly
             }
         }
 
@@ -1860,14 +1905,16 @@ pub mod quality {
         ///
         /// - `threshold`: Minimum range required to consider a dimension "used"
         pub fn effective_dimensionality(&self, threshold: f32) -> usize {
-            self.dimension_ranges.iter()
+            self.dimension_ranges
+                .iter()
                 .filter(|(min, max)| (max - min) >= threshold)
                 .count()
         }
 
         /// Get dimension utilization scores (0.0 to 1.0 for each dimension).
         pub fn utilization_scores(&self, max_range: f32) -> Vec<f32> {
-            self.dimension_ranges.iter()
+            self.dimension_ranges
+                .iter()
                 .map(|(min, max)| {
                     let range = max - min;
                     (range / max_range).min(1.0)
@@ -1895,8 +1942,6 @@ pub mod quality {
         inference_performance: Vec<f32>, // MRR or similar
         /// Performance on direct facts (memorization)
         direct_performance: Vec<f32>,
-        /// Performance on seen vs unseen entity pairs
-        seen_unseen_gap: f32,
     }
 
     impl GeneralizationMetrics {
@@ -1905,7 +1950,6 @@ pub mod quality {
             Self {
                 inference_performance: Vec::new(),
                 direct_performance: Vec::new(),
-                seen_unseen_gap: 0.0,
             }
         }
 
@@ -1927,10 +1971,12 @@ pub mod quality {
             if self.inference_performance.is_empty() || self.direct_performance.is_empty() {
                 return None;
             }
-            
-            let mean_inference = self.inference_performance.iter().sum::<f32>() / self.inference_performance.len() as f32;
-            let mean_direct = self.direct_performance.iter().sum::<f32>() / self.direct_performance.len() as f32;
-            
+
+            let mean_inference = self.inference_performance.iter().sum::<f32>()
+                / self.inference_performance.len() as f32;
+            let mean_direct =
+                self.direct_performance.iter().sum::<f32>() / self.direct_performance.len() as f32;
+
             Some(mean_inference - mean_direct)
         }
 
@@ -1941,10 +1987,12 @@ pub mod quality {
             if self.inference_performance.is_empty() || self.direct_performance.is_empty() {
                 return None;
             }
-            
-            let mean_inference = self.inference_performance.iter().sum::<f32>() / self.inference_performance.len() as f32;
-            let mean_direct = self.direct_performance.iter().sum::<f32>() / self.direct_performance.len() as f32;
-            
+
+            let mean_inference = self.inference_performance.iter().sum::<f32>()
+                / self.inference_performance.len() as f32;
+            let mean_direct =
+                self.direct_performance.iter().sum::<f32>() / self.direct_performance.len() as f32;
+
             if mean_direct > 0.0 {
                 Some(mean_inference / mean_direct)
             } else {
@@ -1967,10 +2015,6 @@ pub mod quality {
     pub struct TopologicalStability {
         /// Volume stability: coefficient of variation of volumes across runs
         volume_stability: f32,
-        /// Containment stability: proportion of containments preserved across runs
-        containment_stability: f32,
-        /// Intersection stability: proportion of intersections preserved
-        intersection_stability: f32,
     }
 
     impl TopologicalStability {
@@ -1985,46 +2029,40 @@ pub mod quality {
             J: Iterator<Item = f32>,
         {
             let sets: Vec<Vec<f32>> = volume_sets.map(|v| v.collect()).collect();
-            
+
             if sets.is_empty() || sets[0].is_empty() {
                 return Self {
                     volume_stability: 0.0,
-                    containment_stability: 0.0,
-                    intersection_stability: 0.0,
                 };
             }
-            
+
             // Compute coefficient of variation for each box across runs
             let n_boxes = sets[0].len();
             let mut cv_sum = 0.0;
-            
+
             for box_idx in 0..n_boxes {
-                let volumes: Vec<f32> = sets.iter()
+                let volumes: Vec<f32> = sets
+                    .iter()
                     .filter_map(|s| s.get(box_idx).copied())
                     .collect();
-                
+
                 if volumes.len() > 1 {
                     let mean = volumes.iter().sum::<f32>() / volumes.len() as f32;
-                    let variance = volumes.iter()
-                        .map(|&v| (v - mean).powi(2))
-                        .sum::<f32>() / volumes.len() as f32;
+                    let variance = volumes.iter().map(|&v| (v - mean).powi(2)).sum::<f32>()
+                        / volumes.len() as f32;
                     let std_dev = variance.sqrt();
                     let cv = if mean > 0.0 { std_dev / mean } else { 0.0 };
                     cv_sum += cv;
                 }
             }
-            
+
             let volume_stability = if n_boxes > 0 {
                 cv_sum / n_boxes as f32
             } else {
                 0.0
             };
-            
-            Self {
-                volume_stability,
-                containment_stability: 0.0, // Would need containment data
-                intersection_stability: 0.0, // Would need intersection data
-            }
+
+            Self { volume_stability }
         }
 
         /// Get volume stability (lower is better).
@@ -2044,18 +2082,18 @@ pub mod quality {
     {
         let learned: Vec<f32> = learned_volumes.collect();
         let target: Vec<f32> = target_volumes.collect();
-        
+
         if learned.len() != target.len() || learned.is_empty() {
             return f32::INFINITY;
         }
-        
+
         let learned_sum: f32 = learned.iter().sum();
         let target_sum: f32 = target.iter().sum();
-        
+
         if learned_sum <= 0.0 || target_sum <= 0.0 {
             return f32::INFINITY;
         }
-        
+
         let mut kl = 0.0;
         for (l, t) in learned.iter().zip(target.iter()) {
             if *l > 0.0 && *t > 0.0 {
@@ -2067,7 +2105,7 @@ pub mod quality {
                 return f32::INFINITY;
             }
         }
-        
+
         kl
     }
 }
@@ -2088,45 +2126,41 @@ pub mod calibration {
     /// # Returns
     ///
     /// ECE value in [0, 1], where lower is better
-    pub fn expected_calibration_error<I, J>(
-        predictions: I,
-        actuals: J,
-        n_bins: usize,
-    ) -> f32
+    pub fn expected_calibration_error<I, J>(predictions: I, actuals: J, n_bins: usize) -> f32
     where
         I: Iterator<Item = f32>,
         J: Iterator<Item = bool>,
     {
         let mut bins: Vec<Vec<(f32, bool)>> = vec![Vec::new(); n_bins];
-        
+
         // Collect predictions and actuals into bins
         for (pred, actual) in predictions.zip(actuals) {
             let pred_clamped = pred.clamp(0.0, 1.0);
             let bin_idx = ((pred_clamped * n_bins as f32) as usize).min(n_bins - 1);
             bins[bin_idx].push((pred_clamped, actual));
         }
-        
+
         let mut ece = 0.0;
         let mut total_samples = 0;
-        
+
         for bin in bins.iter() {
             if bin.is_empty() {
                 continue;
             }
-            
+
             let bin_size = bin.len();
             total_samples += bin_size;
-            
+
             // Average predicted probability in this bin
             let avg_pred = bin.iter().map(|(p, _)| p).sum::<f32>() / bin_size as f32;
-            
+
             // Empirical accuracy in this bin
             let empirical_acc = bin.iter().filter(|(_, a)| *a).count() as f32 / bin_size as f32;
-            
+
             // Weighted absolute difference
             ece += (avg_pred - empirical_acc).abs() * bin_size as f32;
         }
-        
+
         if total_samples > 0 {
             ece / total_samples as f32
         } else {
@@ -2154,14 +2188,14 @@ pub mod calibration {
     {
         let mut sum_squared_error = 0.0;
         let mut count = 0;
-        
+
         for (pred, actual) in predictions.zip(actuals) {
             let pred_clamped = pred.clamp(0.0, 1.0);
             let actual_val = if actual { 1.0 } else { 0.0 };
             sum_squared_error += (pred_clamped - actual_val).powi(2);
             count += 1;
         }
-        
+
         if count > 0 {
             sum_squared_error / count as f32
         } else {
@@ -2183,57 +2217,55 @@ pub mod calibration {
     /// # Returns
     ///
     /// ACE value in [0, 1], where lower is better
-    pub fn adaptive_calibration_error<I, J>(
-        predictions: I,
-        actuals: J,
-        n_bins: usize,
-    ) -> f32
+    pub fn adaptive_calibration_error<I, J>(predictions: I, actuals: J, n_bins: usize) -> f32
     where
         I: Iterator<Item = f32>,
         J: Iterator<Item = bool>,
     {
         // Collect all predictions and actuals
-        let mut data: Vec<(f32, bool)> = predictions.zip(actuals)
+        let mut data: Vec<(f32, bool)> = predictions
+            .zip(actuals)
             .map(|(p, a)| (p.clamp(0.0, 1.0), a))
             .collect();
-        
+
         if data.is_empty() {
             return 0.0;
         }
-        
+
         // Sort by predicted probability
         data.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-        
+
         let bin_size = (data.len() + n_bins - 1) / n_bins; // Ceiling division
         let mut ace = 0.0;
         let mut total_samples = 0;
-        
+
         for bin_idx in 0..n_bins {
             let start = bin_idx * bin_size;
             let end = ((bin_idx + 1) * bin_size).min(data.len());
-            
+
             if start >= data.len() {
                 break;
             }
-            
+
             let bin_data = &data[start..end];
             if bin_data.is_empty() {
                 continue;
             }
-            
+
             let bin_size_actual = bin_data.len();
             total_samples += bin_size_actual;
-            
+
             // Average predicted probability in this bin
             let avg_pred = bin_data.iter().map(|(p, _)| p).sum::<f32>() / bin_size_actual as f32;
-            
+
             // Empirical accuracy in this bin
-            let empirical_acc = bin_data.iter().filter(|(_, a)| *a).count() as f32 / bin_size_actual as f32;
-            
+            let empirical_acc =
+                bin_data.iter().filter(|(_, a)| *a).count() as f32 / bin_size_actual as f32;
+
             // Weighted absolute difference
             ace += (avg_pred - empirical_acc).abs() * bin_size_actual as f32;
         }
-        
+
         if total_samples > 0 {
             ace / total_samples as f32
         } else {
@@ -2266,31 +2298,31 @@ pub mod calibration {
         J: Iterator<Item = bool>,
     {
         let mut bins: Vec<Vec<(f32, bool)>> = vec![Vec::new(); n_bins];
-        
+
         // Collect predictions and actuals into bins
         for (pred, actual) in predictions.zip(actuals) {
             let pred_clamped = pred.clamp(0.0, 1.0);
             let bin_idx = ((pred_clamped * n_bins as f32) as usize).min(n_bins - 1);
             bins[bin_idx].push((pred_clamped, actual));
         }
-        
+
         let mut bin_centers = Vec::new();
         let mut empirical_accuracies = Vec::new();
         let mut bin_counts = Vec::new();
-        
+
         for bin in bins.iter() {
             if bin.is_empty() {
                 continue;
             }
-            
+
             let avg_pred = bin.iter().map(|(p, _)| p).sum::<f32>() / bin.len() as f32;
             let empirical_acc = bin.iter().filter(|(_, a)| *a).count() as f32 / bin.len() as f32;
-            
+
             bin_centers.push(avg_pred);
             empirical_accuracies.push(empirical_acc);
             bin_counts.push(bin.len());
         }
-        
+
         ReliabilityDiagram {
             bin_centers,
             empirical_accuracies,
@@ -2336,16 +2368,16 @@ mod tests {
     #[test]
     fn test_training_stats() {
         let mut stats = diagnostics::TrainingStats::new(10);
-        
+
         // Record some steps
         for i in 0..5 {
             stats.record(1.0 - i as f32 * 0.1, 0.5, 0.1);
         }
-        
+
         assert!(!stats.is_converged(0.01, 5));
         assert!(!stats.is_gradient_exploding(100.0));
         assert!(!stats.is_volume_collapsed(0.01));
-        
+
         let loss_stats = stats.loss_stats().unwrap();
         assert!(loss_stats.0 > 0.0); // Mean loss
     }
@@ -2356,7 +2388,7 @@ mod tests {
         let components2 = diagnostics::LossComponents::new(0.81, 0.1, 0.09);
         assert!(components2.is_imbalanced());
         assert_eq!(components2.dominant_component(), Some("containment"));
-        
+
         let balanced = diagnostics::LossComponents::new(0.4, 0.3, 0.3);
         assert!(!balanced.is_imbalanced());
         assert_eq!(balanced.dominant_component(), None);
@@ -2366,7 +2398,7 @@ mod tests {
     fn test_volume_distribution() {
         let volumes = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
         let dist = quality::VolumeDistribution::from_volumes(volumes.iter().copied());
-        
+
         assert!((dist.min - 0.1).abs() < 1e-6);
         assert!((dist.max - 1.0).abs() < 1e-6);
         assert!((dist.mean - 0.55).abs() < 1e-6);
@@ -2378,20 +2410,20 @@ mod tests {
     #[test]
     fn test_containment_accuracy() {
         let mut acc = quality::ContainmentAccuracy::new();
-        
+
         // Record some predictions
-        acc.record(true, true);   // TP
-        acc.record(true, true);   // TP
-        acc.record(true, false);  // FP
+        acc.record(true, true); // TP
+        acc.record(true, true); // TP
+        acc.record(true, false); // FP
         acc.record(false, true); // FN
         acc.record(false, false); // TN
         acc.record(false, false); // TN
-        
+
         assert_eq!(acc.true_positives, 2);
         assert_eq!(acc.false_positives, 1);
         assert_eq!(acc.false_negatives, 1);
         assert_eq!(acc.true_negatives, 2);
-        
+
         // Precision = 2 / (2 + 1) = 2/3 ≈ 0.667
         assert!((acc.precision() - 0.6667).abs() < 1e-3);
         // Recall = 2 / (2 + 1) = 2/3 ≈ 0.667
@@ -2421,7 +2453,7 @@ mod tests {
         let actuals = vec![false, false, true, true];
         let brier = calibration::brier_score(preds.iter().copied(), actuals.iter().copied());
         assert_eq!(brier, 0.0);
-        
+
         // Random predictions (should have higher Brier score)
         let preds2 = vec![0.5, 0.5, 0.5, 0.5];
         let actuals2 = vec![false, true, false, true];
@@ -2432,18 +2464,18 @@ mod tests {
     #[test]
     fn test_intersection_topology() {
         let mut topology = quality::IntersectionTopology::new();
-        
-        topology.record_intersection(true);   // Intersecting
-        topology.record_intersection(true);   // Intersecting
-        topology.record_intersection(false);  // Disjoint
-        topology.record_containment(true);    // Has containment
-        topology.record_containment(false);   // No containment
-        
+
+        topology.record_intersection(true); // Intersecting
+        topology.record_intersection(true); // Intersecting
+        topology.record_intersection(false); // Disjoint
+        topology.record_containment(true); // Has containment
+        topology.record_containment(false); // No containment
+
         assert_eq!(topology.total_pairs, 3);
         assert_eq!(topology.intersecting_pairs, 2);
         assert_eq!(topology.disjoint_pairs, 1);
         assert_eq!(topology.containment_pairs, 1);
-        
+
         assert!((topology.intersection_rate() - 0.6667).abs() < 1e-3);
         assert!((topology.containment_rate() - 0.3333).abs() < 1e-3);
         assert!((topology.disjoint_rate() - 0.3333).abs() < 1e-3);
@@ -2452,14 +2484,14 @@ mod tests {
     #[test]
     fn test_gradient_flow_analysis() {
         let mut flow = diagnostics::GradientFlowAnalysis::new(10);
-        
+
         flow.record(Some(0.5), Some(0.1), Some(0.3), Some(0.2));
         flow.record(Some(0.6), Some(0.15), Some(0.4), Some(0.25));
-        
+
         // Check imbalance (center >> size)
         let imbalance = flow.check_imbalance(2.0);
         assert!(imbalance.is_some());
-        
+
         let sparsity = flow.gradient_sparsity(0.01);
         assert!(sparsity >= 0.0 && sparsity <= 1.0);
     }
@@ -2470,7 +2502,7 @@ mod tests {
         let uniform_vols = vec![1.0, 1.0, 1.0, 1.0, 1.0];
         let dist_uniform = quality::VolumeDistribution::from_volumes(uniform_vols.iter().copied());
         assert!(dist_uniform.entropy > 0.0);
-        
+
         // Skewed distribution (lower entropy)
         let skewed_vols = vec![0.1, 0.1, 0.1, 0.1, 10.0];
         let dist_skewed = quality::VolumeDistribution::from_volumes(skewed_vols.iter().copied());
@@ -2481,22 +2513,22 @@ mod tests {
     #[test]
     fn test_containment_hierarchy() {
         let mut hierarchy = quality::ContainmentHierarchy::new();
-        
+
         // Create a simple hierarchy: A -> B -> C
         hierarchy.add_containment(0, 1); // A contains B
         hierarchy.add_containment(1, 2); // B contains C
         hierarchy.compute_transitive_closure();
-        
+
         // Verify transitivity: A should contain C
         let (violations, _total) = hierarchy.verify_transitivity();
         assert_eq!(violations, 0);
-        
+
         // Check depths
         let depths = hierarchy.hierarchy_depths();
         assert_eq!(depths.get(&0), Some(&0)); // Root
         assert_eq!(depths.get(&1), Some(&1));
         assert_eq!(depths.get(&2), Some(&2));
-        
+
         // Should have no cycles
         let cycles = hierarchy.detect_cycles();
         assert!(cycles.is_empty());
@@ -2509,7 +2541,7 @@ mod tests {
         let target = vec![0.25, 0.25, 0.25, 0.25];
         let kl = quality::kl_divergence(learned.iter().copied(), target.iter().copied());
         assert!((kl - 0.0).abs() < 1e-6);
-        
+
         // Different distributions
         let learned2 = vec![0.5, 0.3, 0.15, 0.05];
         let target2 = vec![0.25, 0.25, 0.25, 0.25];
@@ -2534,30 +2566,30 @@ mod tests {
     fn test_reliability_diagram() {
         let preds = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9];
         let actuals = vec![false, false, false, false, true, true, true, true, true];
-        let diagram = calibration::reliability_diagram(
-            preds.iter().copied(),
-            actuals.iter().copied(),
-            5,
-        );
-        
+        let diagram =
+            calibration::reliability_diagram(preds.iter().copied(), actuals.iter().copied(), 5);
+
         assert!(!diagram.bin_centers.is_empty());
-        assert_eq!(diagram.bin_centers.len(), diagram.empirical_accuracies.len());
+        assert_eq!(
+            diagram.bin_centers.len(),
+            diagram.empirical_accuracies.len()
+        );
         assert_eq!(diagram.bin_centers.len(), diagram.bin_counts.len());
     }
 
     #[test]
     fn test_depth_stratified_gradient_flow() {
         let mut flow = diagnostics::DepthStratifiedGradientFlow::new(10);
-        
+
         flow.record(0, 0.5); // Root level
         flow.record(1, 0.3); // Depth 1
         flow.record(2, 0.1); // Depth 2
-        
+
         let means = flow.mean_gradients_by_depth();
         assert_eq!(means.get(&0), Some(&0.5));
         assert_eq!(means.get(&1), Some(&0.3));
         assert_eq!(means.get(&2), Some(&0.1));
-        
+
         // Should detect imbalance (depth 0 >> depth 2)
         if let Some((min_depth, max_depth, ratio)) = flow.check_depth_imbalance(2.0) {
             assert_eq!(max_depth, 0);
@@ -2569,16 +2601,18 @@ mod tests {
     #[test]
     fn test_phase_detector() {
         let mut detector = diagnostics::PhaseDetector::new(10);
-        
+
         // Early training: high loss, high gradients
         detector.record(1.0, 0.8);
         detector.record(0.9, 0.7);
         detector.record(0.85, 0.6);
         let phase1 = detector.detect_phase();
         // Early training should be exploration (or exploitation if decreasing)
-        assert!(phase1 == diagnostics::TrainingPhase::Exploration || 
-                phase1 == diagnostics::TrainingPhase::Exploitation);
-        
+        assert!(
+            phase1 == diagnostics::TrainingPhase::Exploration
+                || phase1 == diagnostics::TrainingPhase::Exploitation
+        );
+
         // Mid training: decreasing loss (more dramatic decrease)
         detector.record(0.7, 0.4);
         detector.record(0.5, 0.3);
@@ -2588,7 +2622,7 @@ mod tests {
         let phase2 = detector.detect_phase();
         // Should detect exploitation with strong decreasing trend
         assert_eq!(phase2, diagnostics::TrainingPhase::Exploitation);
-        
+
         // Late training: stable loss, low gradients (need more samples for convergence)
         // Add more samples to ensure convergence detection
         for _ in 0..3 {
@@ -2599,34 +2633,28 @@ mod tests {
         let phase3 = detector.detect_phase();
         // Should detect convergence (very stable loss, very low gradients)
         // Phase detection is heuristic, so allow some flexibility
-        assert!(phase3 == diagnostics::TrainingPhase::Convergence || 
-                phase3 == diagnostics::TrainingPhase::Exploitation);
+        assert!(
+            phase3 == diagnostics::TrainingPhase::Convergence
+                || phase3 == diagnostics::TrainingPhase::Exploitation
+        );
     }
 
     #[test]
     fn test_volume_conservation() {
         let mut conservation = quality::VolumeConservation::new();
-        
+
         // Parent with children that sum to less than parent (valid)
-        conservation.record_parent_children(
-            10.0,
-            vec![3.0, 2.0, 1.0].into_iter(),
-            0.1,
-        );
-        
+        conservation.record_parent_children(10.0, vec![3.0, 2.0, 1.0].into_iter(), 0.1);
+
         // Parent with children that sum to more than parent (violation)
-        conservation.record_parent_children(
-            5.0,
-            vec![3.0, 2.0, 1.5].into_iter(),
-            0.1,
-        );
-        
+        conservation.record_parent_children(5.0, vec![3.0, 2.0, 1.5].into_iter(), 0.1);
+
         let mean_ratio = conservation.mean_ratio();
         assert!(mean_ratio > 0.0);
-        
+
         let violation_rate = conservation.violation_rate();
         assert!(violation_rate > 0.0 && violation_rate <= 1.0);
-        
+
         if let Some((min, max, mean, _median)) = conservation.ratio_statistics() {
             assert!(min <= max);
             assert!(mean >= min && mean <= max);
@@ -2636,7 +2664,7 @@ mod tests {
     #[test]
     fn test_dimensionality_utilization() {
         let mut util = quality::DimensionalityUtilization::new(3);
-        
+
         // Record boxes with different ranges
         util.record_box(
             vec![0.0, 0.0, 0.0].into_iter(),
@@ -2646,13 +2674,13 @@ mod tests {
             vec![0.5, 0.05, 5.0].into_iter(),
             vec![1.5, 0.15, 15.0].into_iter(),
         );
-        
+
         let effective_dim = util.effective_dimensionality(0.5);
         assert!(effective_dim > 0);
-        
+
         let scores = util.utilization_scores(20.0);
         assert_eq!(scores.len(), 3);
-        
+
         let underutilized = util.underutilized_dimensions(20.0, 0.1);
         // Dimension 1 has small range, might be underutilized
         assert!(underutilized.len() <= 3);
@@ -2661,17 +2689,17 @@ mod tests {
     #[test]
     fn test_generalization_metrics() {
         let mut metrics = quality::GeneralizationMetrics::new();
-        
+
         // Good generalization: inference performance similar to direct
         metrics.record_inference(0.8);
         metrics.record_inference(0.75);
         metrics.record_direct(0.7);
         metrics.record_direct(0.72);
-        
+
         if let Some(gap) = metrics.generalization_gap() {
             assert!(gap > 0.0); // Inference > direct
         }
-        
+
         if let Some(ratio) = metrics.generalization_ratio() {
             assert!(ratio > 1.0); // Good generalization
         }
@@ -2680,16 +2708,16 @@ mod tests {
     #[test]
     fn test_intersection_volume_stats() {
         let mut stats = diagnostics::TrainingStats::new(10);
-        
+
         // Record without intersection volumes
         stats.record(1.0, 0.5, 0.1);
         assert!(stats.intersection_volume_stats().is_none());
-        
+
         // Record with intersection volumes
         stats.record_with_intersection(1.0, 0.5, Some(0.2), 0.1);
         stats.record_with_intersection(0.9, 0.6, Some(0.25), 0.08);
         stats.record_with_intersection(0.8, 0.7, Some(0.3), 0.06);
-        
+
         if let Some((mean, min, max)) = stats.intersection_volume_stats() {
             assert!(mean > 0.0);
             assert!(min <= mean && mean <= max);
@@ -2700,18 +2728,18 @@ mod tests {
     #[test]
     fn test_intersection_volume_trend() {
         let mut stats = diagnostics::TrainingStats::new(10);
-        
+
         // Not enough samples
         stats.record_with_intersection(1.0, 0.5, Some(0.2), 0.1);
         assert!(stats.intersection_volume_trend(3).is_none());
-        
+
         // Increasing trend
         for i in 0..5 {
             let vol = 0.2 + i as f32 * 0.05;
             stats.record_with_intersection(1.0 - i as f32 * 0.1, 0.5, Some(vol), 0.1);
         }
         assert_eq!(stats.intersection_volume_trend(3), Some(true));
-        
+
         // Decreasing trend
         let mut stats2 = diagnostics::TrainingStats::new(10);
         for i in 0..5 {
@@ -2724,25 +2752,25 @@ mod tests {
     #[test]
     fn test_stratified_metrics() {
         let mut metrics = metrics::StratifiedMetrics::new();
-        
+
         // Add relation results
         metrics.add_relation_result("is_a".to_string(), 1);
         metrics.add_relation_result("is_a".to_string(), 2);
         metrics.add_relation_result("part_of".to_string(), 3);
         metrics.finalize_relations();
-        
+
         assert_eq!(metrics.by_relation.len(), 2);
         if let Some(rel_metrics) = metrics.by_relation.get("is_a") {
             assert_eq!(rel_metrics.count, 2);
             assert!(rel_metrics.mrr > 0.0);
         }
-        
+
         // Add depth results
         metrics.add_depth_result(0, 1, true);
         metrics.add_depth_result(0, 2, true);
         metrics.add_depth_result(1, 3, false);
         metrics.finalize_depths();
-        
+
         assert_eq!(metrics.by_depth.len(), 2);
         if let Some(depth_metrics) = metrics.by_depth.get(&0) {
             assert_eq!(depth_metrics.count, 2);
@@ -2762,23 +2790,23 @@ mod tests {
         assert!(stats.volume_stats().is_none());
         assert!(stats.gradient_stats().is_none());
         assert!(stats.intersection_volume_stats().is_none());
-        
+
         // Empty VolumeDistribution
         let empty_dist = quality::VolumeDistribution::from_volumes(std::iter::empty());
         // Empty distribution initializes with default values
         assert_eq!(empty_dist.min, 0.0);
         assert_eq!(empty_dist.max, 0.0);
         assert_eq!(empty_dist.mean, 0.0);
-        
+
         // Empty ContainmentAccuracy
         let empty_acc = quality::ContainmentAccuracy::new();
         // Precision is NaN when TP + FP = 0 (division by zero, undefined)
         assert!(empty_acc.precision().is_nan());
-        
+
         // Empty metrics
         let empty_mrr = metrics::mean_reciprocal_rank(std::iter::empty());
         assert_eq!(empty_mrr, 0.0);
-        
+
         let empty_hits = metrics::hits_at_k(std::iter::empty(), 10);
         assert_eq!(empty_hits, 0.0);
     }
@@ -2795,45 +2823,45 @@ mod tests {
     #[test]
     fn test_relation_stratified_training_stats() {
         let mut stats = diagnostics::RelationStratifiedTrainingStats::new(10);
-        
+
         // Record training steps for different relations
         stats.record("has_part", 1.0, 0.5, 0.8);
         stats.record("has_part", 0.9, 0.5, 0.7);
         stats.record("has_part", 0.85, 0.5, 0.6);
-        
+
         stats.record("located_in", 1.0, 0.6, 0.9);
         stats.record("located_in", 0.95, 0.6, 0.8);
         stats.record("located_in", 0.92, 0.6, 0.75);
-        
+
         // Check that relations are tracked separately
         assert!(stats.get_relation_stats("has_part").is_some());
         assert!(stats.get_relation_stats("located_in").is_some());
         assert!(stats.get_relation_stats("nonexistent").is_none());
-        
+
         // Check convergence (neither should be converged with such high loss variance)
         assert!(!stats.is_relation_converged("has_part", 0.01, 3));
         assert!(!stats.is_relation_converged("located_in", 0.01, 3));
-        
+
         // Record more steps to create convergence for one relation
         for i in 0..10 {
             let loss = 0.5 + (i as f32 * 0.001); // Very stable loss
             stats.record("has_part", loss, 0.5, 0.05); // Low gradients
         }
-        
+
         // Now has_part should be converged (stable loss, low gradients)
         assert!(stats.is_relation_converged("has_part", 0.01, 5));
-        
+
         // Check convergence rate
         let rate = stats.convergence_rate(0.01, 5);
         assert!(rate > 0.0 && rate <= 1.0);
-        
+
         // Check converged/unconverged relations
         let converged = stats.converged_relations(0.01, 5);
         assert!(converged.contains(&"has_part".to_string()));
-        
+
         let unconverged = stats.unconverged_relations(0.01, 5);
         assert!(unconverged.contains(&"located_in".to_string()));
-        
+
         // Test with intersection volume tracking
         stats.record_with_intersection("has_part", 0.5, 0.5, Some(0.2), 0.05);
         if let Some(rel_stats) = stats.get_relation_stats("has_part") {
@@ -2841,7 +2869,7 @@ mod tests {
                 assert!(mean > 0.0);
             }
         }
-        
+
         // Test relations() method
         let relations = stats.relations();
         assert!(relations.len() >= 2);
@@ -2855,12 +2883,12 @@ mod tests {
         let mut acc = quality::ContainmentAccuracy::new();
         // Only negative predictions (no TP or FP)
         acc.record(false, false); // TN
-        acc.record(false, true);  // FN
+        acc.record(false, true); // FN
         acc.record(false, false); // TN
-        
+
         let precision = acc.precision();
         assert!(precision.is_nan());
-        
+
         // F1 should return NaN when precision is NaN
         let f1 = acc.f1();
         assert!(f1.is_nan());
@@ -2869,21 +2897,21 @@ mod tests {
     #[test]
     fn test_volume_conservation_edge_cases() {
         let mut conservation = quality::VolumeConservation::new();
-        
+
         // Zero parent volume (should skip)
         conservation.record_parent_children(0.0, vec![1.0, 2.0].into_iter(), 0.1);
         assert_eq!(conservation.mean_ratio(), 0.0); // No ratios recorded
-        
+
         // Empty children (should record ratio of 0.0)
         conservation.record_parent_children(10.0, std::iter::empty(), 0.1);
         let mean1 = conservation.mean_ratio();
         assert_eq!(mean1, 0.0);
-        
+
         // Zero child volumes
         conservation.record_parent_children(10.0, vec![0.0, 0.0].into_iter(), 0.1);
         let mean2 = conservation.mean_ratio();
         assert_eq!(mean2, 0.0); // Both ratios are 0.0
-        
+
         // Perfect conservation (children sum exactly to parent)
         conservation.record_parent_children(10.0, vec![6.0, 4.0].into_iter(), 0.1);
         if let Some((_min, _max, mean, _median)) = conservation.ratio_statistics() {
@@ -2892,7 +2920,7 @@ mod tests {
             // But actually we have 3 ratios now, so mean should be around 0.33
             assert!(mean >= 0.0 && mean <= 1.0);
         }
-        
+
         // Check violation rate
         let violation_rate = conservation.violation_rate();
         assert!(violation_rate >= 0.0 && violation_rate <= 1.0);
@@ -2901,19 +2929,19 @@ mod tests {
     #[test]
     fn test_intersection_volume_trend_edge_cases() {
         let mut stats = diagnostics::TrainingStats::new(10);
-        
+
         // Constant values (zero slope)
         for _ in 0..5 {
             stats.record_with_intersection(1.0, 0.5, Some(0.3), 0.1);
         }
         let trend = stats.intersection_volume_trend(3);
         assert_eq!(trend, Some(false)); // Zero slope is treated as decreasing
-        
+
         // Single sample (not enough)
         let mut stats2 = diagnostics::TrainingStats::new(10);
         stats2.record_with_intersection(1.0, 0.5, Some(0.3), 0.1);
         assert!(stats2.intersection_volume_trend(3).is_none());
-        
+
         // Slope magnitude
         let mut stats3 = diagnostics::TrainingStats::new(10);
         for i in 0..5 {
@@ -2937,7 +2965,7 @@ mod tests {
             4,
         );
         assert!(ece_perfect < 0.01); // Should be near zero
-        
+
         // Worst calibration (always wrong)
         let worst_preds = vec![1.0, 1.0, 0.0, 0.0];
         let worst_actuals = vec![false, false, true, true];
@@ -2947,7 +2975,7 @@ mod tests {
             4,
         );
         assert!(ece_worst > 0.5); // Should be high
-        
+
         // All same predictions
         let same_preds = vec![0.5, 0.5, 0.5, 0.5];
         let mixed_actuals = vec![false, true, false, true];
@@ -2963,17 +2991,17 @@ mod tests {
     #[test]
     fn test_hierarchy_edge_cases() {
         let mut hierarchy = quality::ContainmentHierarchy::new();
-        
+
         // Single node (no containments)
         hierarchy.compute_transitive_closure();
         let depths = hierarchy.hierarchy_depths();
         assert!(depths.is_empty());
-        
+
         // Self-loop (should be detected as cycle)
         hierarchy.add_containment(0, 0);
         let cycles = hierarchy.detect_cycles();
         assert!(!cycles.is_empty());
-        
+
         // Disconnected nodes
         let mut hierarchy2 = quality::ContainmentHierarchy::new();
         hierarchy2.add_containment(0, 1); // Component 1
@@ -2987,21 +3015,21 @@ mod tests {
     #[test]
     fn test_asymmetry_metrics_edge_cases() {
         let mut asym = quality::AsymmetryMetrics::new();
-        
+
         // Perfect symmetry
         asym.record_pair(1.0, 1.0);
         asym.record_pair(2.0, 2.0);
         asym.finalize(0.1);
         assert_eq!(asym.mean_asymmetry(), 0.0);
         assert_eq!(asym.high_asymmetry_proportion(), 0.0);
-        
+
         // Complete asymmetry
         asym.record_pair(1.0, 10.0);
         asym.record_pair(10.0, 1.0);
         asym.finalize(0.1);
         let mean = asym.mean_asymmetry();
         assert!(mean > 0.0);
-        
+
         // Zero distances
         let mut asym2 = quality::AsymmetryMetrics::new();
         asym2.record_pair(0.0, 0.0);
@@ -3015,24 +3043,24 @@ mod tests {
         // Single run (can't compute stability)
         let single_run: Vec<Vec<f32>> = vec![vec![1.0, 2.0, 3.0]];
         let stability = quality::TopologicalStability::from_volume_distributions(
-            single_run.iter().map(|v| v.iter().copied())
+            single_run.iter().map(|v| v.iter().copied()),
         );
         assert_eq!(stability.volume_stability(), 0.0);
-        
+
         // Empty runs
         let empty_runs: Vec<Vec<f32>> = vec![];
         let stability2 = quality::TopologicalStability::from_volume_distributions(
-            empty_runs.iter().map(|v| v.iter().copied())
+            empty_runs.iter().map(|v| v.iter().copied()),
         );
         assert_eq!(stability2.volume_stability(), 0.0);
-        
+
         // Mismatched lengths (should handle gracefully)
         let mismatched: Vec<Vec<f32>> = vec![
             vec![1.0, 2.0],
             vec![1.0, 2.0, 3.0], // Different length
         ];
         let stability3 = quality::TopologicalStability::from_volume_distributions(
-            mismatched.iter().map(|v| v.iter().copied())
+            mismatched.iter().map(|v| v.iter().copied()),
         );
         // Should compute CV for available boxes
         assert!(stability3.volume_stability() >= 0.0);
@@ -3041,21 +3069,21 @@ mod tests {
     #[test]
     fn test_frequency_metrics_edge_cases() {
         let mut metrics = metrics::StratifiedMetrics::new();
-        
+
         // Finalize with no data
         metrics.finalize_frequency();
         assert_eq!(metrics.by_frequency.high_freq.count, 0);
-        
+
         // Add data and finalize
         metrics.add_frequency_result("high", 1);
         metrics.add_frequency_result("high", 2);
         metrics.add_frequency_result("medium", 3);
         metrics.finalize_frequency();
-        
+
         assert_eq!(metrics.by_frequency.high_freq.count, 2);
         assert!(metrics.by_frequency.high_freq.mrr > 0.0);
         assert_eq!(metrics.by_frequency.medium_freq.count, 1);
-        
+
         // Invalid category (should be ignored)
         metrics.add_frequency_result("invalid", 1);
         metrics.finalize_frequency();
@@ -3067,25 +3095,28 @@ mod tests {
         // Empty distributions
         let empty_learned: Vec<f32> = vec![];
         let empty_target: Vec<f32> = vec![];
-        let kl_empty = quality::kl_divergence(empty_learned.iter().copied(), empty_target.iter().copied());
+        let kl_empty =
+            quality::kl_divergence(empty_learned.iter().copied(), empty_target.iter().copied());
         assert_eq!(kl_empty, f32::INFINITY);
-        
+
         // Mismatched lengths
         let learned = vec![0.5, 0.5];
         let target = vec![0.33, 0.33, 0.34];
         let kl_mismatch = quality::kl_divergence(learned.iter().copied(), target.iter().copied());
         assert_eq!(kl_mismatch, f32::INFINITY);
-        
+
         // Zero sum (should return infinity)
         let zero_learned = vec![0.0, 0.0, 0.0];
         let zero_target = vec![0.0, 0.0, 0.0];
-        let kl_zero = quality::kl_divergence(zero_learned.iter().copied(), zero_target.iter().copied());
+        let kl_zero =
+            quality::kl_divergence(zero_learned.iter().copied(), zero_target.iter().copied());
         assert_eq!(kl_zero, f32::INFINITY);
-        
+
         // Learned has positive but target is zero (infinite divergence)
         let learned_pos = vec![1.0, 0.0];
         let target_zero = vec![0.0, 1.0];
-        let kl_infinite = quality::kl_divergence(learned_pos.iter().copied(), target_zero.iter().copied());
+        let kl_infinite =
+            quality::kl_divergence(learned_pos.iter().copied(), target_zero.iter().copied());
         assert_eq!(kl_infinite, f32::INFINITY);
     }
 
@@ -3096,16 +3127,15 @@ mod tests {
         let dist_tiny = quality::VolumeDistribution::from_volumes(tiny_vols.iter().copied());
         assert!(dist_tiny.min > 0.0);
         assert!(!dist_tiny.min.is_nan());
-        
+
         // Very large volumes
         let large_vols = vec![1e10, 1e11, 1e12];
         let dist_large = quality::VolumeDistribution::from_volumes(large_vols.iter().copied());
         assert!(!dist_large.max.is_infinite() || dist_large.max == f32::INFINITY);
-        
+
         // Mixed scales
         let mixed_vols = vec![1e-10, 1.0, 1e10];
         let dist_mixed = quality::VolumeDistribution::from_volumes(mixed_vols.iter().copied());
         assert!(dist_mixed.cv > 0.0); // Should have high coefficient of variation
     }
 }
-

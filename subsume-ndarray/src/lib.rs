@@ -22,6 +22,7 @@
 
 #![warn(missing_docs)]
 
+pub mod distance;
 mod ndarray_box;
 mod ndarray_gumbel;
 
@@ -31,6 +32,13 @@ mod matrix_e2e_tests;
 #[cfg(test)]
 mod enriched_methods_tests;
 
+#[cfg(test)]
+mod paper_verification_tests;
+
+#[cfg(test)]
+mod quantitative_verification_tests;
+
+pub use distance::{boundary_distance, depth_distance, vector_to_box_distance};
 pub use ndarray_box::NdarrayBox;
 pub use ndarray_gumbel::NdarrayGumbelBox;
 
@@ -47,8 +55,8 @@ mod edge_case_tests;
 mod tests {
     use super::*;
     use ndarray::array;
-    use subsume_core::{Box, BoxEmbedding, BoxCollection, GumbelBox};
     use serde_json;
+    use subsume_core::{Box, BoxCollection, BoxEmbedding, GumbelBox};
 
     #[test]
     fn test_box_creation() {
@@ -184,7 +192,7 @@ mod tests {
         collection.push(NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap());
         collection.push(NdarrayBox::new(array![0.2, 0.2], array![0.8, 0.8], 1.0).unwrap());
         collection.push(NdarrayBox::new(array![0.5, 0.5], array![1.5, 1.5], 1.0).unwrap());
-        
+
         assert_eq!(collection.len(), 3);
         assert!(!collection.is_empty());
     }
@@ -194,8 +202,9 @@ mod tests {
         let collection: BoxCollection<NdarrayBox> = vec![
             NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap(),
             NdarrayBox::new(array![0.2, 0.2], array![0.8, 0.8], 1.0).unwrap(),
-        ].into();
-        
+        ]
+        .into();
+
         let matrix = collection.containment_matrix(1.0).unwrap();
         assert_eq!(matrix.len(), 2);
         assert_eq!(matrix[0].len(), 2);
@@ -211,8 +220,9 @@ mod tests {
             NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap(),
             NdarrayBox::new(array![0.2, 0.2], array![0.8, 0.8], 1.0).unwrap(),
             NdarrayBox::new(array![0.5, 0.5], array![1.5, 1.5], 1.0).unwrap(),
-        ].into();
-        
+        ]
+        .into();
+
         let query = NdarrayBox::new(array![0.3, 0.3], array![0.7, 0.7], 1.0).unwrap();
         let containing = collection.containing_boxes(&query, 0.5, 1.0).unwrap();
         // Box 0 and 1 should contain the query
@@ -227,8 +237,9 @@ mod tests {
         let collection: BoxCollection<NdarrayBox> = vec![
             NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap(),
             NdarrayBox::new(array![0.2, 0.2], array![0.8, 0.8], 1.0).unwrap(),
-        ].into();
-        
+        ]
+        .into();
+
         let query = NdarrayBox::new(array![0.0, 0.0], array![2.0, 2.0], 1.0).unwrap();
         let contained = collection.contained_boxes(&query, 0.5, 1.0).unwrap();
         // Both boxes should be contained in the query
@@ -238,15 +249,11 @@ mod tests {
 
     #[test]
     fn test_serialize_ndarray_box() {
-        let box_ = NdarrayBox::new(
-            array![0.0, 1.0, 2.0],
-            array![1.0, 2.0, 3.0],
-            1.5,
-        ).unwrap();
-        
+        let box_ = NdarrayBox::new(array![0.0, 1.0, 2.0], array![1.0, 2.0, 3.0], 1.5).unwrap();
+
         let serialized = serde_json::to_string(&box_).unwrap();
         let deserialized: NdarrayBox = serde_json::from_str(&serialized).unwrap();
-        
+
         assert_eq!(box_.dim(), deserialized.dim());
         assert_eq!(box_.temperature, deserialized.temperature);
         assert_eq!(box_.min(), deserialized.min());
@@ -255,15 +262,11 @@ mod tests {
 
     #[test]
     fn test_serialize_ndarray_gumbel_box() {
-        let gumbel_box = NdarrayGumbelBox::new(
-            array![0.0, 1.0],
-            array![1.0, 2.0],
-            0.5,
-        ).unwrap();
-        
+        let gumbel_box = NdarrayGumbelBox::new(array![0.0, 1.0], array![1.0, 2.0], 0.5).unwrap();
+
         let serialized = serde_json::to_string(&gumbel_box).unwrap();
         let deserialized: NdarrayGumbelBox = serde_json::from_str(&serialized).unwrap();
-        
+
         assert_eq!(gumbel_box.dim(), deserialized.dim());
         assert_eq!(gumbel_box.temperature(), deserialized.temperature());
         assert_eq!(gumbel_box.min(), deserialized.min());
@@ -272,15 +275,11 @@ mod tests {
 
     #[test]
     fn test_serialize_round_trip_operations() {
-        let original = NdarrayBox::new(
-            array![0.0, 0.0],
-            array![1.0, 1.0],
-            1.0,
-        ).unwrap();
-        
+        let original = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();
+
         let serialized = serde_json::to_string(&original).unwrap();
         let deserialized: NdarrayBox = serde_json::from_str(&serialized).unwrap();
-        
+
         // Operations should work identically
         let vol_original = original.volume(1.0).unwrap();
         let vol_deserialized = deserialized.volume(1.0).unwrap();
