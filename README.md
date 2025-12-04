@@ -83,21 +83,50 @@ Based on:
 - **Batch operations**: Overlap matrix, overlapping boxes queries, k-nearest neighbors, bounding box computation
 - **Training quality and diagnostics** (based on research from Box Embeddings library, BEUrRE, BoxE):
   - Rank-based metrics: MRR, Hits@K, Mean Rank, nDCG for link prediction evaluation
-  - Training diagnostics: Convergence detection, gradient monitoring, volume tracking, loss component analysis
-  - Embedding quality assessment: Volume distribution analysis, containment accuracy verification, intersection topology tracking
-  - Calibration metrics: Expected Calibration Error (ECE) and Brier score for probabilistic predictions
-- **Comprehensive test suite**: 115+ tests including:
+  - **Advanced training diagnostics**: 
+    - Per-parameter gradient flow analysis (center vs size, min vs max coordinates)
+    - **Depth-stratified gradient flow**: Track gradients by hierarchy depth to detect uneven learning
+    - **Training phase detection**: Automatically identify exploration, exploitation, convergence, and instability phases
+    - Gradient sparsity tracking and imbalance detection
+    - Convergence detection, gradient explosion/vanishing, volume collapse
+    - Loss component analysis with imbalance detection
+  - **Sophisticated embedding quality assessment**:
+    - Volume distribution entropy (Shannon entropy of normalized volumes)
+    - Volume quantiles (Q25, Q50, Q75, Q95) and coefficient of variation
+    - KL divergence between learned and target volume distributions
+    - Containment hierarchy verification with transitive closure analysis
+    - Cycle detection in containment relationships
+    - Hierarchy depth analysis
+    - Intersection topology regularity (sibling/parent-child ratios)
+    - **Volume conservation analysis**: Verify parent volumes properly contain sum of children volumes
+    - **Dimensionality utilization analysis**: Detect underutilized or redundant dimensions
+    - **Generalization vs memorization metrics**: Distinguish learning structure from memorizing facts
+    - Asymmetry quantification for directional relationships
+    - Topological stability metrics across initializations
+  - **Advanced calibration metrics**:
+    - Expected Calibration Error (ECE) with equal-width binning
+    - Adaptive Calibration Error (ACE) with equal-mass binning
+    - Brier score for probabilistic predictions
+    - Reliability diagram data for visualization
+  - **Stratified evaluation**: Relation-stratified, depth-stratified, and frequency-stratified metrics
+  - **Deep diagnostic techniques** (most nuanced and sophisticated):
+    - Gradient flow analysis by hierarchy depth (detect uneven learning across levels)
+    - Training phase detection (exploration, exploitation, convergence, instability)
+    - Volume conservation verification (parent volumes vs sum of children)
+    - Dimensionality utilization analysis (detect underutilized dimensions)
+    - Generalization vs memorization metrics (inference performance vs direct facts)
+- **Comprehensive test suite**: 115+ tests (149 test functions) including:
   - Unit tests (22 tests) covering basic functionality
   - Property-based tests (18 tests) using proptest, including 7 new tests for training utilities
   - Mathematical invariant tests (30+ tests) verifying set theory, probability theory, and geometric properties
   - Edge case tests (15+ tests) for error conditions and boundary cases
   - Matrix e2e tests (15 tests) for batch operations
   - Enriched methods tests (16 tests) for new geometric operations
-  - Training quality tests (11 tests) for metrics and diagnostics
+  - Training quality tests (22 tests) for metrics, diagnostics, and deep diagnostic techniques
   - Property tests for training utilities (7 new tests) for volume regularization, temperature scheduling, and loss functions
 - Benchmarks with `criterion`
 - Serialization support with `serde` (ndarray backend)
-- Examples for knowledge graphs, serialization, training utilities, training diagnostics, and embedding quality assessment
+- Examples for knowledge graphs, serialization, training utilities, training diagnostics, embedding quality assessment, advanced diagnostics, and deep diagnostics
 
 ### Next Steps
 

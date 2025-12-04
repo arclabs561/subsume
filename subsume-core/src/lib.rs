@@ -63,9 +63,23 @@ pub use utils::{
     volume_overlap_loss,
 };
 pub use training::{
-    metrics::{mean_reciprocal_rank, hits_at_k, mean_rank, ndcg},
-    diagnostics::{TrainingStats, LossComponents},
-    quality::{VolumeDistribution, ContainmentAccuracy, IntersectionTopology},
-    calibration::{expected_calibration_error, brier_score},
+    metrics::{
+        mean_reciprocal_rank, hits_at_k, mean_rank, ndcg,
+        StratifiedMetrics, RelationMetrics, DepthMetrics, FrequencyMetrics,
+    },
+    diagnostics::{
+        TrainingStats, LossComponents, GradientFlowAnalysis,
+        DepthStratifiedGradientFlow, PhaseDetector, TrainingPhase,
+    },
+    quality::{
+        VolumeDistribution, ContainmentAccuracy, IntersectionTopology,
+        ContainmentHierarchy, AsymmetryMetrics, TopologicalStability,
+        VolumeConservation, DimensionalityUtilization, GeneralizationMetrics,
+        kl_divergence,
+    },
+    calibration::{
+        expected_calibration_error, brier_score, adaptive_calibration_error,
+        reliability_diagram, ReliabilityDiagram,
+    },
 };
 
