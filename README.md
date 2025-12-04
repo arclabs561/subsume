@@ -22,6 +22,7 @@ This workspace contains three crates:
 - **Overlap probability**: Compute P(A ∩ B ≠ ∅) for entity resolution
 - **Batch operations**: `BoxCollection` for efficient batch queries and containment matrices
 - **Training utilities**: Log-space volume computation, volume regularization, temperature scheduling, and loss functions
+- **Initialization utilities**: Safe initialization bounds, cross-pattern detection, and separation distance suggestions to avoid local identifiability problems
 - **Training quality metrics**: MRR, Hits@K, Mean Rank, nDCG for evaluating embedding quality
 - **Training diagnostics**: Convergence detection, gradient monitoring, volume tracking, loss component analysis
 - **Embedding quality assessment**: Volume distribution analysis, containment accuracy verification, hierarchy detection
