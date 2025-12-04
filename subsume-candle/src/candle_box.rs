@@ -1,6 +1,6 @@
 //! Candle implementation of Box trait.
 
-use candle_core::{Device, Tensor};
+use candle_core::Tensor;
 use subsume_core::{Box, BoxError};
 
 /// A box embedding implemented using `candle_core::Tensor`.
