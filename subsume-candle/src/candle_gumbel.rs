@@ -141,12 +141,15 @@ impl GumbelBox for CandleGumbelBox {
             samples.push(value);
         }
         
-        Tensor::new(&samples, device).unwrap_or_else(|_| {
+        Tensor::new(&samples, device).unwrap_or_else(|e| {
             // Fallback: return center point if tensor creation fails
+            // This should be rare - only occurs if device allocation fails
             let center: Vec<f32> = (0..dim)
                 .map(|i| (min_data[i] + max_data[i]) / 2.0)
                 .collect();
-            Tensor::new(&center, device).expect("Failed to create sample tensor")
+            Tensor::new(&center, device).unwrap_or_else(|_| {
+                panic!("Failed to create sample tensor: original error: {}, fallback also failed", e)
+            })
         })
     }
 }

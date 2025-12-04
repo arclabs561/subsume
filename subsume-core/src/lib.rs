@@ -28,8 +28,8 @@
 //! use subsume_core::{Box, GumbelBox};
 //!
 //! // Framework-agnostic box operations
-//! fn compute_entailment<B: Box>(premise: &B, hypothesis: &B) -> B::Scalar {
-//!     premise.containment_prob(hypothesis)
+//! fn compute_entailment<B: Box>(premise: &B, hypothesis: &B, temp: B::Scalar) -> Result<B::Scalar, subsume_core::BoxError> {
+//!     premise.containment_prob(hypothesis, temp)
 //! }
 //! ```
 //!
