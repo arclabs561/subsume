@@ -61,6 +61,8 @@ pub use utils::{
     log_space_volume, volume_regularization,
     temperature_scheduler, volume_containment_loss,
     volume_overlap_loss,
+    safe_init_bounds, is_cross_pattern, is_perfectly_nested,
+    suggested_min_separation,
 };
 pub use training::{
     metrics::{

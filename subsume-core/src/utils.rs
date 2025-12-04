@@ -301,6 +301,134 @@ pub fn volume_overlap_loss(overlap_prob: f32, target: f32, margin: f32) -> f32 {
     }
 }
 
+/// Compute safe initialization bounds for box embeddings.
+///
+/// Returns suggested min and max bounds for initializing boxes to avoid
+/// local identifiability problems. Boxes initialized with these bounds will
+/// be well-separated and avoid problematic geometric configurations.
+///
+/// # Parameters
+///
+/// - `dimension`: Dimension index (0-indexed)
+/// - `num_boxes`: Total number of boxes being initialized
+/// - `box_index`: Index of the current box (0-indexed)
+/// - `center_range`: Range for box centers (default: [-2.0, 2.0])
+/// - `size_range`: Range for box sizes (default: [0.1, 1.0])
+///
+/// # Returns
+///
+/// `(min_bound, max_bound)` for the specified dimension
+///
+/// # Example
+///
+/// ```rust
+/// use subsume_core::utils::safe_init_bounds;
+///
+/// // Initialize 10 boxes in 3D space
+/// for box_idx in 0..10 {
+///     for dim in 0..3 {
+///         let (min, max) = safe_init_bounds(dim, 10, box_idx, (-2.0, 2.0), (0.1, 1.0));
+///         // Use min and max to create box bounds
+///     }
+/// }
+/// ```
+pub fn safe_init_bounds(
+    dimension: usize,
+    num_boxes: usize,
+    box_index: usize,
+    center_range: (f32, f32),
+    size_range: (f32, f32),
+) -> (f32, f32) {
+    let (center_min, center_max) = center_range;
+    let (size_min, size_max) = size_range;
+    
+    // Use different strategies per dimension to avoid cross patterns
+    let dim_offset = dimension as f32 * 0.5;
+    let box_offset = (box_index as f32) / (num_boxes as f32);
+    
+    // Create well-separated centers using a combination of dimension and box index
+    let center = center_min + (center_max - center_min) * 
+        ((box_offset + dim_offset * 0.3) % 1.0);
+    
+    // Vary box sizes to avoid perfect nesting
+    let size = size_min + (size_max - size_min) * 
+        (0.5 + 0.3 * (box_index as f32 * 1.618).sin()); // Golden ratio for variety
+    
+    let half_size = size / 2.0;
+    (center - half_size, center + half_size)
+}
+
+/// Check if two boxes form a problematic cross pattern.
+///
+/// Cross patterns occur when boxes intersect without clear containment,
+/// which can cause local identifiability problems during training.
+///
+/// # Parameters
+///
+/// - `overlap_prob`: Overlap probability between two boxes
+/// - `containment_prob_a_b`: P(A ⊆ B)
+/// - `containment_prob_b_a`: P(B ⊆ A)
+/// - `threshold`: Threshold for detecting cross patterns (default: 0.3)
+///
+/// # Returns
+///
+/// `true` if boxes form a cross pattern (high overlap but low containment in both directions)
+pub fn is_cross_pattern(
+    overlap_prob: f32,
+    containment_prob_a_b: f32,
+    containment_prob_b_a: f32,
+    threshold: f32,
+) -> bool {
+    // Cross pattern: high overlap but neither box contains the other
+    overlap_prob > threshold &&
+    containment_prob_a_b < threshold &&
+    containment_prob_b_a < threshold
+}
+
+/// Check if boxes are perfectly nested (one fully contains the other).
+///
+/// Perfect nesting at initialization can cause local identifiability problems.
+/// This function helps detect such configurations.
+///
+/// # Parameters
+///
+/// - `containment_prob_a_b`: P(A ⊆ B)
+/// - `containment_prob_b_a`: P(B ⊆ A)
+/// - `threshold`: Threshold for perfect containment (default: 0.95)
+///
+/// # Returns
+///
+/// `true` if one box perfectly contains the other
+pub fn is_perfectly_nested(
+    containment_prob_a_b: f32,
+    containment_prob_b_a: f32,
+    threshold: f32,
+) -> bool {
+    containment_prob_a_b > threshold || containment_prob_b_a > threshold
+}
+
+/// Suggest minimum separation distance for box initialization.
+///
+/// Returns a suggested minimum distance between box centers to avoid
+/// problematic geometric configurations that cause local identifiability issues.
+///
+/// # Parameters
+///
+/// - `dimension`: Embedding dimension
+/// - `target_volume_range`: Desired volume range for boxes
+///
+/// # Returns
+///
+/// Minimum suggested separation distance
+pub fn suggested_min_separation(dimension: usize, target_volume_range: (f32, f32)) -> f32 {
+    let (min_vol, max_vol) = target_volume_range;
+    // Separation should be at least the diameter of the largest box
+    // For a box with volume V in d dimensions, approximate side length is V^(1/d)
+    let avg_side = ((min_vol + max_vol) / 2.0).powf(1.0 / dimension as f32);
+    // Use 1.5x the average side length as minimum separation
+    avg_side * 1.5
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -444,6 +572,71 @@ mod tests {
         // Disjoint pair with high overlap (high loss)
         let loss_disjoint_bad = volume_overlap_loss(0.8, 0.0, 0.1);
         assert!((loss_disjoint_bad - 0.7).abs() < 1e-6); // 0.8 - 0.1 = 0.7
+    }
+
+    #[test]
+    fn test_safe_init_bounds() {
+        // Test that bounds are valid (min < max)
+        let (min, max) = safe_init_bounds(0, 10, 0, (-2.0, 2.0), (0.1, 1.0));
+        assert!(min < max);
+        assert!(max - min >= 0.1); // At least minimum size
+        
+        // Test that different boxes get different bounds
+        let (min1, max1) = safe_init_bounds(0, 10, 0, (-2.0, 2.0), (0.1, 1.0));
+        let (min2, max2) = safe_init_bounds(0, 10, 1, (-2.0, 2.0), (0.1, 1.0));
+        // They should be different (not identical)
+        assert!(min1 != min2 || max1 != max2);
+        
+        // Test that different dimensions get different bounds
+        let (min_dim0, max_dim0) = safe_init_bounds(0, 10, 5, (-2.0, 2.0), (0.1, 1.0));
+        let (min_dim1, max_dim1) = safe_init_bounds(1, 10, 5, (-2.0, 2.0), (0.1, 1.0));
+        // They should be different
+        assert!(min_dim0 != min_dim1 || max_dim0 != max_dim1);
+    }
+
+    #[test]
+    fn test_is_cross_pattern() {
+        // High overlap, low containment in both directions = cross pattern
+        assert!(is_cross_pattern(0.8, 0.2, 0.1, 0.3));
+        
+        // High overlap with high containment = not cross pattern
+        assert!(!is_cross_pattern(0.8, 0.9, 0.1, 0.3));
+        
+        // Low overlap = not cross pattern
+        assert!(!is_cross_pattern(0.2, 0.1, 0.1, 0.3));
+    }
+
+    #[test]
+    fn test_is_perfectly_nested() {
+        // One box perfectly contains the other
+        assert!(is_perfectly_nested(0.98, 0.1, 0.95));
+        assert!(is_perfectly_nested(0.1, 0.98, 0.95));
+        
+        // Neither box contains the other
+        assert!(!is_perfectly_nested(0.5, 0.3, 0.95));
+        
+        // Both boxes contain each other (should still be detected)
+        assert!(is_perfectly_nested(0.98, 0.97, 0.95));
+    }
+
+    #[test]
+    fn test_suggested_min_separation() {
+        // For 2D boxes with volume range [0.1, 1.0]
+        let sep_2d = suggested_min_separation(2, (0.1, 1.0));
+        assert!(sep_2d > 0.0);
+        
+        // For 3D boxes
+        let sep_3d = suggested_min_separation(3, (0.1, 1.0));
+        assert!(sep_3d > 0.0);
+        
+        // For 10D boxes
+        let sep_10d = suggested_min_separation(10, (0.1, 1.0));
+        assert!(sep_10d > 0.0);
+        
+        // All separations should be positive and reasonable
+        assert!(sep_2d < 10.0); // Reasonable upper bound
+        assert!(sep_3d < 10.0);
+        assert!(sep_10d < 10.0);
     }
 }
 

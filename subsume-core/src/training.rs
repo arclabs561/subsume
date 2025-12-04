@@ -1338,9 +1338,14 @@ pub mod quality {
         }
 
         /// F1 score: 2 * (precision * recall) / (precision + recall)
+        ///
+        /// Returns NaN if precision is NaN (no positive predictions).
         pub fn f1(&self) -> f32 {
             let prec = self.precision();
             let rec = self.recall();
+            if prec.is_nan() {
+                return f32::NAN; // Undefined when precision is undefined
+            }
             if prec + rec == 0.0 {
                 0.0
             } else {
