@@ -65,7 +65,7 @@ impl Box for CandleBox {
         self.min.dims().iter().product()
     }
 
-    fn volume(&self, temperature: Self::Scalar) -> std::result::Result<Self::Scalar, BoxError> {
+    fn volume(&self, _temperature: Self::Scalar) -> std::result::Result<Self::Scalar, BoxError> {
         // Volume = ∏(max[i] - min[i])
         let diff = self.max.sub(&self.min).map_err(|e| BoxError::Internal(e.to_string()))?;
         // Compute product by iterating over elements

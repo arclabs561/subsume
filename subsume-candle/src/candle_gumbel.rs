@@ -116,7 +116,7 @@ impl GumbelBox for CandleGumbelBox {
     }
 
     fn sample(&self) -> Self::Vector {
-        use candle_core::{Tensor, Device};
+        use candle_core::Tensor;
         
         // Use LCG for pseudo-random sampling to avoid rand dependency conflicts.
         // Note: LCG has known limitations but is sufficient for non-cryptographic use.
