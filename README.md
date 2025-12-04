@@ -93,7 +93,7 @@ fn main() -> Result<(), subsume_core::BoxError> {
 
 ## Research Background
 
-Based on foundational research in box embeddings:
+### Foundational Papers
 
 - **Vilnis et al. (2018)**: "Probabilistic Embedding of Knowledge Graphs with Box Lattice Measures" — Original probabilistic box embeddings framework
 - **Dasgupta et al. (2020)**: "Improving Local Identifiability in Probabilistic Box Embeddings" (NeurIPS) — Gumbel-box process solving gradient sparsity
@@ -103,7 +103,14 @@ Based on foundational research in box embeddings:
 - **Messner et al. (2022)**: "Temporal Knowledge Graph Completion with Box Embeddings" (BoxTE)
 - **Chen et al. (2021)**: "Uncertainty-Aware Knowledge Graph Embeddings" (UKGE)
 
-See [`docs/MATHEMATICAL_FOUNDATIONS.md`](docs/MATHEMATICAL_FOUNDATIONS.md) for detailed mathematical formulations and theoretical guarantees.
+### Recent Developments (2023-2025)
+
+- **Yang & Chen (2025)**: "RegD: Achieving Hyperbolic-Like Expressiveness with Arbitrary Euclidean Regions" — Validates box embeddings can achieve hyperbolic-like expressiveness in Euclidean space
+- **Huang et al. (2023)**: "Concept2Box: Joint Geometric Embeddings for Learning Two-View Knowledge Graphs" (ACL) — Box embeddings for concepts, vectors for entities
+- **Yang, Chen & Sattler (2024)**: "TransBox: EL++-closed Ontology Embedding" — Box embeddings for formal ontologies
+- **Xiao, He & Cao (2024)**: "Knowledge Graph Embedding by Normalizing Flows" — Uncertainty quantification in embeddings
+
+See [`docs/MATHEMATICAL_FOUNDATIONS.md`](docs/MATHEMATICAL_FOUNDATIONS.md) for detailed mathematical formulations and [`docs/RECENT_RESEARCH.md`](docs/RECENT_RESEARCH.md) for recent developments.
 
 ## Status
 
