@@ -1,6 +1,6 @@
 //! Candle implementation of Box trait.
 
-use candle_core::{Device, Result, Tensor};
+use candle_core::{Device, Tensor};
 use subsume_core::{Box, BoxError};
 
 /// A box embedding implemented using `candle_core::Tensor`.
@@ -20,7 +20,7 @@ impl CandleBox {
     /// # Errors
     ///
     /// Returns `BoxError` if min/max have different shapes or if any min[i] > max[i].
-    pub fn new(min: Tensor, max: Tensor, temperature: f32) -> Result<Self, BoxError> {
+    pub fn new(min: Tensor, max: Tensor, temperature: f32) -> std::result::Result<Self, BoxError> {
         if min.shape() != max.shape() {
             return Err(BoxError::DimensionMismatch {
                 expected: min.dims().len(),
@@ -65,14 +65,16 @@ impl Box for CandleBox {
         self.min.dims().iter().product()
     }
 
-    fn volume(&self, temperature: Self::Scalar) -> Result<Self::Scalar, BoxError> {
+    fn volume(&self, temperature: Self::Scalar) -> std::result::Result<Self::Scalar, BoxError> {
         // Volume = ∏(max[i] - min[i])
         let diff = self.max.sub(&self.min).map_err(|e| BoxError::Internal(e.to_string()))?;
-        let volume = diff.prod_all::<f32>().map_err(|e| BoxError::Internal(e.to_string()))?;
+        // Compute product by iterating over elements
+        let diff_data = diff.to_vec1::<f32>().map_err(|e| BoxError::Internal(e.to_string()))?;
+        let volume = diff_data.iter().product::<f32>();
         Ok(volume)
     }
 
-    fn intersection(&self, other: &Self) -> Result<Self, BoxError> {
+    fn intersection(&self, other: &Self) -> std::result::Result<Self, BoxError> {
         if self.dim() != other.dim() {
             return Err(BoxError::DimensionMismatch {
                 expected: self.dim(),
@@ -101,7 +103,7 @@ impl Box for CandleBox {
         &self,
         other: &Self,
         temperature: Self::Scalar,
-    ) -> Result<Self::Scalar, BoxError> {
+    ) -> std::result::Result<Self::Scalar, BoxError> {
         if self.dim() != other.dim() {
             return Err(BoxError::DimensionMismatch {
                 expected: self.dim(),
@@ -125,7 +127,7 @@ impl Box for CandleBox {
         &self,
         other: &Self,
         temperature: Self::Scalar,
-    ) -> Result<Self::Scalar, BoxError> {
+    ) -> std::result::Result<Self::Scalar, BoxError> {
         // P(self ∩ other ≠ ∅) = intersection_volume / union_volume
         // Using inclusion-exclusion: P(A ∩ B ≠ ∅) = intersection_vol(A, B) / union_vol(A, B)
         let intersection = self.intersection(other)?;
@@ -143,7 +145,7 @@ impl Box for CandleBox {
         Ok((intersection_vol / union_vol).clamp(0.0, 1.0))
     }
 
-    fn union(&self, other: &Self) -> Result<Self, BoxError> {
+    fn union(&self, other: &Self) -> std::result::Result<Self, BoxError> {
         if self.dim() != other.dim() {
             return Err(BoxError::DimensionMismatch {
                 expected: self.dim(),
@@ -157,7 +159,7 @@ impl Box for CandleBox {
         Self::new(union_min, union_max, self.temperature)
     }
 
-    fn center(&self) -> Result<Self::Vector, BoxError> {
+    fn center(&self) -> std::result::Result<Self::Vector, BoxError> {
         // Center = (min + max) / 2
         let sum = self.min.add(&self.max).map_err(|e| BoxError::Internal(e.to_string()))?;
         let two = Tensor::new(&[2.0f32], self.min.device()).map_err(|e| BoxError::Internal(e.to_string()))?;
@@ -165,7 +167,7 @@ impl Box for CandleBox {
         Ok(center)
     }
 
-    fn distance(&self, other: &Self) -> Result<Self::Scalar, BoxError> {
+    fn distance(&self, other: &Self) -> std::result::Result<Self::Scalar, BoxError> {
         if self.dim() != other.dim() {
             return Err(BoxError::DimensionMismatch {
                 expected: self.dim(),

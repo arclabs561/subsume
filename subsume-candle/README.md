@@ -1,26 +1,19 @@
 # subsume-candle
 
-⚠️ **Currently disabled due to dependency conflicts**
+✅ **Dependency conflict resolved - compilation in progress**
 
 This crate provides `CandleBox` and `CandleGumbelBox` types that implement the `Box` and `GumbelBox` traits using `candle_core::Tensor`.
 
-## Known Issue
-
-The `candle-core` crate has internal dependency conflicts between `rand` 0.8/0.9 and `half` 2.7.1 that prevent compilation. This is an upstream issue in `candle-core` itself, not in this crate.
-
 ## Status
 
-- ✅ Implementation complete
-- ❌ Compilation blocked by `candle-core` dependency conflicts
-- ⏳ Waiting for upstream fix in `candle-core`
+- ✅ Dependency conflict resolved (half downgraded to 2.3.1 via Cargo resolution)
+- 🔧 Compilation errors being fixed (error conversion from `candle_core::Error` to `BoxError`)
+- ⏳ Implementation nearly complete
 
-## Workaround
+## Dependency Resolution
 
-If you need candle support, you can:
-1. Manually add `subsume-candle` to workspace members in root `Cargo.toml`
-2. Use `subsume-ndarray` backend instead (fully functional)
-3. Wait for `candle-core` to resolve the `rand`/`half` version conflicts
+The `candle-core` crate uses `half` 2.3.1 and `rand_distr` 0.4.3, but newer transitive dependencies were pulling in `half` 2.7.1 which requires `rand_distr` 0.5. This conflict has been resolved by Cargo's dependency resolution automatically downgrading `half` to 2.3.1 to match `candle-core`'s requirements.
 
-## Related Issues
+## Current Work
 
-- [candle-core issue #2805](https://github.com/huggingface/candle/issues/2805) - rand/half version conflicts
+Fixing error conversion issues where `candle_core::Error` needs to be converted to `BoxError` using `.map_err()` throughout the implementation.ub.com/huggingface/candle/issues/2805) - rand/half version conflicts

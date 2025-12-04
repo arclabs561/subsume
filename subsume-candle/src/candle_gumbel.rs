@@ -18,7 +18,7 @@ pub struct CandleGumbelBox {
 
 impl CandleGumbelBox {
     /// Create a new CandleGumbelBox.
-    pub fn new(min: Tensor, max: Tensor, temperature: f32) -> Result<Self, BoxError> {
+    pub fn new(min: Tensor, max: Tensor, temperature: f32) -> std::result::Result<Self, BoxError> {
         Ok(Self {
             inner: CandleBox::new(min, max, temperature)?,
         })
@@ -87,7 +87,7 @@ impl GumbelBox for CandleGumbelBox {
         self.inner.temperature
     }
 
-    fn membership_probability(&self, point: &Self::Vector) -> Result<Self::Scalar, BoxError> {
+    fn membership_probability(&self, point: &Self::Vector) -> std::result::Result<Self::Scalar, BoxError> {
         use candle_core::Tensor;
         
         if point.dims() != &[self.dim()] {
