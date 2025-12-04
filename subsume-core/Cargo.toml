@@ -1,0 +1,23 @@
+[package]
+name = "subsume-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Framework-agnostic traits for geometric box embeddings (containment, entailment, overlap)"
+keywords = ["embeddings", "box-embeddings", "geometric", "containment", "entailment", "nlp", "ml"]
+categories = ["science", "algorithms"]
+repository = "https://github.com/arclabs561/subsume"
+homepage = "https://docs.rs/subsume-core"
+documentation = "https://docs.rs/subsume-core"
+readme = "README.md"
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+criterion = "0.5"
+proptest = "1.5"
+

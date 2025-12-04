@@ -1,0 +1,24 @@
+[package]
+name = "subsume-candle"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Candle implementation of subsume-core traits for box embeddings"
+keywords = ["embeddings", "box-embeddings", "candle", "ml", "tensor"]
+categories = ["science", "algorithms"]
+repository = "https://github.com/arclabs561/subsume"
+homepage = "https://docs.rs/subsume-candle"
+documentation = "https://docs.rs/subsume-candle"
+readme = "README.md"
+
+[dependencies]
+subsume-core = { path = "../subsume-core" }
+candle-core = "0.4"
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+criterion = "0.5"
+

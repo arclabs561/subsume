@@ -1,0 +1,163 @@
+//! Candle implementation of GumbelBox trait.
+
+use candle_core::Tensor;
+use subsume_core::{Box, BoxError, GumbelBox, gumbel_membership_prob, sample_gumbel, map_gumbel_to_bounds};
+use crate::candle_box::CandleBox;
+
+impl From<candle_core::Error> for BoxError {
+    fn from(err: candle_core::Error) -> Self {
+        BoxError::Internal(err.to_string())
+    }
+}
+
+/// A Gumbel box embedding implemented using `candle_core::Tensor`.
+#[derive(Debug, Clone)]
+pub struct CandleGumbelBox {
+    inner: CandleBox,
+}
+
+impl CandleGumbelBox {
+    /// Create a new CandleGumbelBox.
+    pub fn new(min: Tensor, max: Tensor, temperature: f32) -> Result<Self, BoxError> {
+        Ok(Self {
+            inner: CandleBox::new(min, max, temperature)?,
+        })
+    }
+}
+
+impl Box for CandleGumbelBox {
+    type Scalar = f32;
+    type Vector = Tensor;
+
+    fn min(&self) -> &Self::Vector {
+        self.inner.min()
+    }
+
+    fn max(&self) -> &Self::Vector {
+        self.inner.max()
+    }
+
+    fn dim(&self) -> usize {
+        self.inner.dim()
+    }
+
+    fn volume(&self, temperature: Self::Scalar) -> Result<Self::Scalar, BoxError> {
+        self.inner.volume(temperature)
+    }
+
+    fn intersection(&self, other: &Self) -> Result<Self, BoxError> {
+        Ok(Self {
+            inner: self.inner.intersection(&other.inner)?,
+        })
+    }
+
+    fn containment_prob(
+        &self,
+        other: &Self,
+        temperature: Self::Scalar,
+    ) -> Result<Self::Scalar, BoxError> {
+        self.inner.containment_prob(&other.inner, temperature)
+    }
+
+    fn overlap_prob(
+        &self,
+        other: &Self,
+        temperature: Self::Scalar,
+    ) -> Result<Self::Scalar, BoxError> {
+        self.inner.overlap_prob(&other.inner, temperature)
+    }
+}
+
+impl GumbelBox for CandleGumbelBox {
+    fn temperature(&self) -> Self::Scalar {
+        self.inner.temperature
+    }
+
+    fn membership_probability(&self, point: &Self::Vector) -> Result<Self::Scalar, BoxError> {
+        use candle_core::Tensor;
+        
+        if point.dims() != &[self.dim()] {
+            return Err(BoxError::DimensionMismatch {
+                expected: self.dim(),
+                actual: point.dims().len(),
+            });
+        }
+
+        // P(point ∈ box) = ∏ P(min[i] <= point[i] <= max[i])
+        // Using numerically stable Gumbel-Softmax probability calculation
+        let temp = self.temperature();
+
+        // For each dimension: P(min[i] <= point[i] <= max[i])
+        let point_data = point.to_vec1::<f32>()?;
+        let min_data = self.min().to_vec1::<f32>()?;
+        let max_data = self.max().to_vec1::<f32>()?;
+
+        let mut prob = 1.0;
+        for (i, &coord) in point_data.iter().enumerate() {
+            // Use numerically stable Gumbel-Softmax probability calculation
+            let dim_prob = gumbel_membership_prob(
+                coord,
+                min_data[i],
+                max_data[i],
+                temp,
+            );
+            prob *= dim_prob;
+        }
+
+        Ok(prob)
+    }
+
+    fn sample(&self) -> Self::Vector {
+        use candle_core::{Tensor, Device};
+        
+        // Sample from Gumbel-Softmax distribution
+        // Since rand compatibility is an issue, we use a simple linear congruential generator
+        // for pseudo-random sampling within box bounds
+        let device = self.min().device();
+        let dim = self.dim();
+        
+        let min_data = self.min().to_vec1::<f32>().unwrap_or_default();
+        let max_data = self.max().to_vec1::<f32>().unwrap_or_default();
+        
+        // Simple LCG for pseudo-random sampling (seeded with current time)
+        // This provides non-deterministic sampling without external rand dependency
+        let mut seed = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos() as u64;
+        
+        // LCG parameters (same as used in many standard libraries)
+        const A: u64 = 1664525;
+        const C: u64 = 1013904223;
+        const M: u64 = 1u64 << 32;
+        
+        let mut samples: Vec<f32> = Vec::with_capacity(dim);
+        for i in 0..dim {
+            // Generate next random number
+            seed = (A.wrapping_mul(seed).wrapping_add(C)) % M;
+            // Normalize to [0, 1)
+            let u = (seed as f32) / (M as f32);
+            
+            // Sample from Gumbel distribution with numerical stability
+            let gumbel = sample_gumbel(u, 1e-7);
+            
+            // Map Gumbel sample to box bounds using temperature-scaled transformation
+            let value = map_gumbel_to_bounds(
+                gumbel,
+                min_data[i],
+                max_data[i],
+                temp,
+            );
+            samples.push(value);
+        }
+        
+        Tensor::new(&samples, device).unwrap_or_else(|_| {
+            // Fallback: return center point if tensor creation fails
+            let center: Vec<f32> = (0..dim)
+                .map(|i| (min_data[i] + max_data[i]) / 2.0)
+                .collect();
+            Tensor::new(&center, device).expect("Failed to create sample tensor")
+        })
+    }
+}
+
