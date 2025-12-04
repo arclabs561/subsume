@@ -82,8 +82,6 @@ impl GumbelBox for CandleGumbelBox {
     }
 
     fn membership_probability(&self, point: &Self::Vector) -> std::result::Result<Self::Scalar, BoxError> {
-        use candle_core::Tensor;
-        
         if point.dims() != &[self.dim()] {
             return Err(BoxError::DimensionMismatch {
                 expected: self.dim(),
