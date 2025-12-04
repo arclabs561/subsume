@@ -94,6 +94,35 @@ pub trait Box: Sized {
     ///
     /// Returns `BoxError::DimensionMismatch` if boxes have different dimensions.
     fn overlap_prob(&self, other: &Self, temperature: Self::Scalar) -> Result<Self::Scalar, BoxError>;
+
+    /// Compute the union of two boxes.
+    ///
+    /// Returns the smallest box that contains both `self` and `other`.
+    /// Union box has min = min(self.min, other.min) and max = max(self.max, other.max).
+    ///
+    /// # Errors
+    ///
+    /// Returns `BoxError::DimensionMismatch` if boxes have different dimensions.
+    fn union(&self, other: &Self) -> Result<Self, BoxError>;
+
+    /// Get the center point of the box.
+    ///
+    /// Center = (min + max) / 2 for each dimension.
+    ///
+    /// # Errors
+    ///
+    /// Returns `BoxError::Internal` if center computation fails.
+    fn center(&self) -> Result<Self::Vector, BoxError>;
+
+    /// Compute the minimum distance between two boxes.
+    ///
+    /// Returns 0.0 if boxes overlap, otherwise the Euclidean distance
+    /// between the closest points on the two boxes.
+    ///
+    /// # Errors
+    ///
+    /// Returns `BoxError::DimensionMismatch` if boxes have different dimensions.
+    fn distance(&self, other: &Self) -> Result<Self::Scalar, BoxError>;
 }
 
 /// Errors that can occur during box operations.

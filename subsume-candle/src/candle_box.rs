@@ -148,5 +148,65 @@ impl Box for CandleBox {
         
         Ok((intersection_vol / union_vol).clamp(0.0, 1.0))
     }
+
+    fn union(&self, other: &Self) -> Result<Self, BoxError> {
+        if self.dim() != other.dim() {
+            return Err(BoxError::DimensionMismatch {
+                expected: self.dim(),
+                actual: other.dim(),
+            });
+        }
+
+        let union_min = self.min.minimum(&other.min)?;
+        let union_max = self.max.maximum(&other.max)?;
+
+        Self::new(union_min, union_max, self.temperature)
+    }
+
+    fn center(&self) -> Result<Self::Vector, BoxError> {
+        // Center = (min + max) / 2
+        let sum = self.min.add(&self.max)?;
+        let two = Tensor::new(&[2.0f32], self.min.device())?;
+        let center = sum.broadcast_div(&two)?;
+        Ok(center)
+    }
+
+    fn distance(&self, other: &Self) -> Result<Self::Scalar, BoxError> {
+        if self.dim() != other.dim() {
+            return Err(BoxError::DimensionMismatch {
+                expected: self.dim(),
+                actual: other.dim(),
+            });
+        }
+
+        // Check if boxes overlap (distance = 0)
+        let intersection = self.intersection(other)?;
+        let intersection_vol = intersection.volume(1.0)?;
+        if intersection_vol > 0.0 {
+            return Ok(0.0);
+        }
+
+        // Compute minimum distance between two axis-aligned boxes
+        // For each dimension, compute the gap (or 0 if overlapping)
+        // Use element-wise operations on tensors
+        let self_min_data = self.min.to_vec1::<f32>()?;
+        let self_max_data = self.max.to_vec1::<f32>()?;
+        let other_min_data = other.min.to_vec1::<f32>()?;
+        let other_max_data = other.max.to_vec1::<f32>()?;
+        
+        let mut dist_sq = 0.0;
+        for i in 0..self.dim() {
+            let gap = if self_max_data[i] < other_min_data[i] {
+                other_min_data[i] - self_max_data[i]
+            } else if other_max_data[i] < self_min_data[i] {
+                self_min_data[i] - other_max_data[i]
+            } else {
+                0.0
+            };
+            dist_sq += gap * gap;
+        }
+        
+        Ok(dist_sq.sqrt())
+    }
 }
 

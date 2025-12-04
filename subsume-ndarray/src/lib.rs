@@ -28,6 +28,9 @@ mod ndarray_gumbel;
 #[cfg(test)]
 mod matrix_e2e_tests;
 
+#[cfg(test)]
+mod enriched_methods_tests;
+
 pub use ndarray_box::NdarrayBox;
 pub use ndarray_gumbel::NdarrayGumbelBox;
 

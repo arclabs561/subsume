@@ -61,6 +61,61 @@ pub trait BoxEmbedding<B: Box> {
         threshold: B::Scalar,
         temperature: B::Scalar,
     ) -> Result<Vec<usize>, BoxError>;
+
+    /// Compute pairwise overlap probabilities.
+    ///
+    /// Returns a matrix where `result[i][j] = P(box[i] ∩ box[j] ≠ ∅)`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `BoxError` if any boxes have dimension mismatches.
+    fn overlap_matrix(
+        &self,
+        temperature: B::Scalar,
+    ) -> Result<Vec<Vec<B::Scalar>>, BoxError>;
+
+    /// Find boxes that overlap with a given box.
+    ///
+    /// Returns indices of boxes where `overlap_prob(box[i], query) > threshold`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `BoxError` if query has dimension mismatch with any box.
+    fn overlapping_boxes(
+        &self,
+        query: &B,
+        threshold: B::Scalar,
+        temperature: B::Scalar,
+    ) -> Result<Vec<usize>, BoxError>;
+
+    /// Find the k nearest boxes to a query box by distance.
+    ///
+    /// Returns indices of the k boxes with smallest `distance(box[i], query)`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `BoxError` if query has dimension mismatch with any box.
+    fn nearest_boxes(
+        &self,
+        query: &B,
+        k: usize,
+    ) -> Result<Vec<usize>, BoxError>;
+
+    /// Compute the bounding box of all boxes in the collection.
+    ///
+    /// Returns the smallest box that contains all boxes in the collection.
+    ///
+    /// # Errors
+    ///
+    /// Returns `BoxError` if collection is empty or boxes have dimension mismatches.
+    ///
+    /// # Note
+    ///
+    /// This method requires that `B: Clone`. For boxes that don't implement `Clone`,
+    /// use `bounding_box_from_iter` with an iterator instead.
+    fn bounding_box(&self) -> Result<B, BoxError>
+    where
+        B: Clone;
 }
 
 /// A simple collection of boxes implemented as a vector.
@@ -188,6 +243,93 @@ impl<B: Box> BoxEmbedding<B> for BoxCollection<B> {
         }
         
         Ok(results)
+    }
+
+    fn overlap_matrix(
+        &self,
+        temperature: B::Scalar,
+    ) -> Result<Vec<Vec<B::Scalar>>, BoxError> {
+        let n = self.len();
+        let mut matrix = Vec::with_capacity(n);
+        
+        for i in 0..n {
+            let mut row = Vec::with_capacity(n);
+            let box_i = self.get(i)?;
+            
+            for j in 0..n {
+                let box_j = self.get(j)?;
+                let prob = box_i.overlap_prob(box_j, temperature)?;
+                row.push(prob);
+            }
+            
+            matrix.push(row);
+        }
+        
+        Ok(matrix)
+    }
+
+    fn overlapping_boxes(
+        &self,
+        query: &B,
+        threshold: B::Scalar,
+        temperature: B::Scalar,
+    ) -> Result<Vec<usize>, BoxError> {
+        let mut results = Vec::new();
+        
+        for (i, box_) in self.boxes.iter().enumerate() {
+            let prob = box_.overlap_prob(query, temperature)?;
+            if prob > threshold {
+                results.push(i);
+            }
+        }
+        
+        Ok(results)
+    }
+
+    fn nearest_boxes(
+        &self,
+        query: &B,
+        k: usize,
+    ) -> Result<Vec<usize>, BoxError> {
+        if k == 0 {
+            return Ok(Vec::new());
+        }
+
+        let mut distances: Vec<(usize, B::Scalar)> = Vec::new();
+        
+        for (i, box_) in self.boxes.iter().enumerate() {
+            let dist = box_.distance(query)?;
+            distances.push((i, dist));
+        }
+        
+        // Sort by distance and take k nearest
+        distances.sort_by(|a, b| {
+            a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        
+        Ok(distances.into_iter()
+            .take(k)
+            .map(|(idx, _)| idx)
+            .collect())
+    }
+
+    fn bounding_box(&self) -> Result<B, BoxError>
+    where
+        B: Clone,
+    {
+        if self.is_empty() {
+            return Err(BoxError::Internal("Cannot compute bounding box of empty collection".to_string()));
+        }
+
+        let first_box = self.get(0)?;
+        let mut bbox = first_box.clone();
+        
+        for i in 1..self.len() {
+            let box_i = self.get(i)?;
+            bbox = bbox.union(box_i)?;
+        }
+        
+        Ok(bbox)
     }
 }
 

@@ -80,6 +80,20 @@ impl Box for NdarrayGumbelBox {
     ) -> Result<Self::Scalar, BoxError> {
         self.inner.overlap_prob(&other.inner, temperature)
     }
+
+    fn union(&self, other: &Self) -> Result<Self, BoxError> {
+        Ok(Self {
+            inner: self.inner.union(&other.inner)?,
+        })
+    }
+
+    fn center(&self) -> Result<Self::Vector, BoxError> {
+        self.inner.center()
+    }
+
+    fn distance(&self, other: &Self) -> Result<Self::Scalar, BoxError> {
+        self.inner.distance(&other.inner)
+    }
 }
 
 impl GumbelBox for NdarrayGumbelBox {

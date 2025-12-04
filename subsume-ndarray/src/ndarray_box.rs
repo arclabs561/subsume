@@ -236,5 +236,65 @@ impl Box for NdarrayBox {
         
         Ok((intersection_vol / union_vol).clamp(0.0, 1.0))
     }
+
+    fn union(&self, other: &Self) -> Result<Self, BoxError> {
+        if self.dim() != other.dim() {
+            return Err(BoxError::DimensionMismatch {
+                expected: self.dim(),
+                actual: other.dim(),
+            });
+        }
+
+        let union_min: Array1<f32> = self.min.iter()
+            .zip(other.min.iter())
+            .map(|(a, b)| a.min(*b))
+            .collect();
+        let union_max: Array1<f32> = self.max.iter()
+            .zip(other.max.iter())
+            .map(|(a, b)| a.max(*b))
+            .collect();
+
+        Self::new(union_min, union_max, self.temperature)
+    }
+
+    fn center(&self) -> Result<Self::Vector, BoxError> {
+        let center: Array1<f32> = self.min.iter()
+            .zip(self.max.iter())
+            .map(|(min_val, max_val)| (min_val + max_val) / 2.0)
+            .collect();
+        Ok(center)
+    }
+
+    fn distance(&self, other: &Self) -> Result<Self::Scalar, BoxError> {
+        if self.dim() != other.dim() {
+            return Err(BoxError::DimensionMismatch {
+                expected: self.dim(),
+                actual: other.dim(),
+            });
+        }
+
+        // Check if boxes overlap (distance = 0)
+        let intersection = self.intersection(other)?;
+        let intersection_vol = intersection.volume(1.0)?;
+        if intersection_vol > 0.0 {
+            return Ok(0.0);
+        }
+
+        // Compute minimum distance between two axis-aligned boxes
+        // For each dimension, compute the gap (or 0 if overlapping)
+        let mut dist_sq = 0.0;
+        for i in 0..self.dim() {
+            let gap = if self.max[i] < other.min[i] {
+                other.min[i] - self.max[i]
+            } else if other.max[i] < self.min[i] {
+                self.min[i] - other.max[i]
+            } else {
+                0.0
+            };
+            dist_sq += gap * gap;
+        }
+
+        Ok(dist_sq.sqrt())
+    }
 }
 
