@@ -11,7 +11,7 @@ Framework-agnostic geometric box embeddings for containment, entailment, and hie
 This workspace contains three crates:
 
 - **`subsume-core`**: Framework-agnostic traits (`Box`, `GumbelBox`, `BoxEmbedding`)
-- **`subsume-candle`**: Implementation using `candle_core::Tensor` (⚠️ currently disabled due to dependency conflicts)
+- **`subsume-candle`**: Implementation using `candle_core::Tensor` (✅ fully functional)
 - **`subsume-ndarray`**: Implementation using `ndarray::Array1<f32>` (✅ fully functional)
 
 ## Key Features
