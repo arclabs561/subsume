@@ -46,7 +46,7 @@
 ///
 /// # Invariants
 ///
-/// - `min[i] <= max[i]` for all dimensions i
+/// - `min\[i\] <= max\[i\]` for all dimensions i
 /// - `dim()` returns the number of dimensions
 ///
 /// # Example
@@ -107,7 +107,7 @@ pub trait Box: Sized {
     ///
     /// # Errors
     ///
-    /// Returns `BoxError::InvalidBounds` if any min[i] > max[i].
+    /// Returns `BoxError::InvalidBounds` if any min\[i\] > max\[i\].
     fn volume(&self, temperature: Self::Scalar) -> Result<Self::Scalar, BoxError>;
 
     /// Compute the intersection of two boxes.
@@ -263,7 +263,7 @@ pub enum BoxError {
         actual: usize,
     },
 
-    /// Invalid bounds: min[i] > max[i] for some dimension i.
+    /// Invalid bounds: min\[i\] > max\[i\] for some dimension i.
     #[error("Invalid bounds: min[{dim}] = {min} > max[{dim}] = {max}")]
     InvalidBounds {
         /// Dimension index where the invalid bounds occur.

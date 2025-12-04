@@ -146,8 +146,9 @@ pub fn map_gumbel_to_bounds(gumbel: f32, min: f32, max: f32, temp: f32) -> f32 {
 ///
 /// For high-dimensional boxes, direct volume computation can fail:
 ///
-/// ```rust
+/// ```rust,ignore
 /// // This can underflow in high dimensions!
+/// let side_lengths = vec![0.5; 20]; // 20 dimensions
 /// let volume = side_lengths.iter().product::<f32>();
 /// // For 20 dimensions with side length 0.5: 0.5^20 ≈ 9.5×10^-7
 /// // This can underflow to 0.0 in f32!
@@ -158,11 +159,11 @@ pub fn map_gumbel_to_bounds(gumbel: f32, min: f32, max: f32, temp: f32) -> f32 {
 /// Compute volume in log-space, then exponentiate:
 ///
 /// \[
-/// \log(\text{Vol}) = \sum_{i=1}^{d} \log(\text{side}[i])
+/// \log(\text{Vol}) = \sum_{i=1}^{d} \log(\text{side}\[i\])
 /// \]
 ///
 /// \[
-/// \text{Vol} = \exp\left(\sum_{i=1}^{d} \log(\text{side}[i])\right)
+/// \text{Vol} = \exp\left(\sum_{i=1}^{d} \log(\text{side}\[i\])\right)
 /// \]
 ///
 /// This is numerically stable because:
@@ -179,7 +180,7 @@ pub fn map_gumbel_to_bounds(gumbel: f32, min: f32, max: f32, temp: f32) -> f32 {
 ///
 /// # Parameters
 ///
-/// - `side_lengths`: Iterator over side lengths (max[i] - min[i]) for each dimension
+/// - `side_lengths`: Iterator over side lengths (max\[i\] - min\[i\]) for each dimension
 ///
 /// # Returns
 ///
@@ -502,7 +503,7 @@ pub mod validation {
     ///
     /// This is useful for checking box validity after operations that might
     /// modify bounds, or for debugging during training. The volume calculation
-    /// will fail if bounds are invalid (min[i] > max[i] for any dimension).
+    /// will fail if bounds are invalid (min\[i\] > max\[i\] for any dimension).
     ///
     /// # Parameters
     ///
@@ -633,7 +634,7 @@ mod tests {
     #[test]
     fn test_map_gumbel_to_bounds() {
         let value = map_gumbel_to_bounds(0.0, 0.0, 1.0, 1.0);
-        assert!(value >= 0.0 && value <= 1.0);
+        assert!((0.0..=1.0).contains(&value));
     }
 
     #[test]

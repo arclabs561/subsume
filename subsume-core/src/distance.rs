@@ -181,7 +181,7 @@ where
     // This is the minimum "gap" between inner and outer boundaries.
     //
     // For each dimension i:
-    //   gap_i = min(inner.min[i] - outer.min[i], outer.max[i] - inner.max[i])
+    //   gap_i = min(inner.min\[i\] - outer.min\[i\], outer.max\[i\] - inner.max\[i\])
     // Boundary distance = min over all dimensions
     //
     // Note: This generic implementation uses a simplified approximation.

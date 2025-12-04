@@ -2235,7 +2235,7 @@ pub mod calibration {
         // Sort by predicted probability
         data.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
 
-        let bin_size = (data.len() + n_bins - 1) / n_bins; // Ceiling division
+        let bin_size = data.len().div_ceil(n_bins);
         let mut ace = 0.0;
         let mut total_samples = 0;
 
@@ -2493,7 +2493,7 @@ mod tests {
         assert!(imbalance.is_some());
 
         let sparsity = flow.gradient_sparsity(0.01);
-        assert!(sparsity >= 0.0 && sparsity <= 1.0);
+        assert!((0.0..=1.0).contains(&sparsity));
     }
 
     #[test]
@@ -2644,10 +2644,10 @@ mod tests {
         let mut conservation = quality::VolumeConservation::new();
 
         // Parent with children that sum to less than parent (valid)
-        conservation.record_parent_children(10.0, vec![3.0, 2.0, 1.0].into_iter(), 0.1);
+        conservation.record_parent_children(10.0, [3.0, 2.0, 1.0].into_iter(), 0.1);
 
         // Parent with children that sum to more than parent (violation)
-        conservation.record_parent_children(5.0, vec![3.0, 2.0, 1.5].into_iter(), 0.1);
+        conservation.record_parent_children(5.0, [3.0, 2.0, 1.5].into_iter(), 0.1);
 
         let mean_ratio = conservation.mean_ratio();
         assert!(mean_ratio > 0.0);
@@ -2657,7 +2657,7 @@ mod tests {
 
         if let Some((min, max, mean, _median)) = conservation.ratio_statistics() {
             assert!(min <= max);
-            assert!(mean >= min && mean <= max);
+            assert!((min..=max).contains(&mean));
         }
     }
 
@@ -2666,14 +2666,8 @@ mod tests {
         let mut util = quality::DimensionalityUtilization::new(3);
 
         // Record boxes with different ranges
-        util.record_box(
-            vec![0.0, 0.0, 0.0].into_iter(),
-            vec![1.0, 0.1, 10.0].into_iter(),
-        );
-        util.record_box(
-            vec![0.5, 0.05, 5.0].into_iter(),
-            vec![1.5, 0.15, 15.0].into_iter(),
-        );
+        util.record_box([0.0, 0.0, 0.0].into_iter(), [1.0, 0.1, 10.0].into_iter());
+        util.record_box([0.5, 0.05, 5.0].into_iter(), [1.5, 0.15, 15.0].into_iter());
 
         let effective_dim = util.effective_dimensionality(0.5);
         assert!(effective_dim > 0);
@@ -2899,7 +2893,7 @@ mod tests {
         let mut conservation = quality::VolumeConservation::new();
 
         // Zero parent volume (should skip)
-        conservation.record_parent_children(0.0, vec![1.0, 2.0].into_iter(), 0.1);
+        conservation.record_parent_children(0.0, [1.0, 2.0].into_iter(), 0.1);
         assert_eq!(conservation.mean_ratio(), 0.0); // No ratios recorded
 
         // Empty children (should record ratio of 0.0)
@@ -2908,22 +2902,22 @@ mod tests {
         assert_eq!(mean1, 0.0);
 
         // Zero child volumes
-        conservation.record_parent_children(10.0, vec![0.0, 0.0].into_iter(), 0.1);
+        conservation.record_parent_children(10.0, [0.0, 0.0].into_iter(), 0.1);
         let mean2 = conservation.mean_ratio();
         assert_eq!(mean2, 0.0); // Both ratios are 0.0
 
         // Perfect conservation (children sum exactly to parent)
-        conservation.record_parent_children(10.0, vec![6.0, 4.0].into_iter(), 0.1);
+        conservation.record_parent_children(10.0, [6.0, 4.0].into_iter(), 0.1);
         if let Some((_min, _max, mean, _median)) = conservation.ratio_statistics() {
             // Mean should include the 1.0 ratio from perfect conservation
             // We have: 0.0 (empty), 0.0 (zero children), 1.0 (perfect) = mean of 0.33
             // But actually we have 3 ratios now, so mean should be around 0.33
-            assert!(mean >= 0.0 && mean <= 1.0);
+            assert!((0.0..=1.0).contains(&mean));
         }
 
         // Check violation rate
         let violation_rate = conservation.violation_rate();
-        assert!(violation_rate >= 0.0 && violation_rate <= 1.0);
+        assert!((0.0..=1.0).contains(&violation_rate));
     }
 
     #[test]
@@ -2985,7 +2979,7 @@ mod tests {
             4,
         );
         // Should handle gracefully (all in one bin)
-        assert!(ece_same >= 0.0 && ece_same <= 1.0);
+        assert!((0.0..=1.0).contains(&ece_same));
     }
 
     #[test]

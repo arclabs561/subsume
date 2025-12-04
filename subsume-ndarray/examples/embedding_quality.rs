@@ -1,6 +1,6 @@
 //! Example demonstrating embedding quality assessment and calibration metrics.
 
-use ndarray::Array1;
+use ndarray::{array, Array1};
 use subsume_core::{
     training::{
         calibration::{brier_score, expected_calibration_error},
@@ -23,7 +23,7 @@ fn main() -> Result<(), subsume_core::BoxError> {
 
     for i in 0..20 {
         let side = 0.1 + (i as f32) * 0.05;
-        let box_ = NdarrayBox::new(Array1::from([0.0, 0.0]), Array1::from([side, side]), 1.0)?;
+        let box_ = NdarrayBox::new(array![0.0, 0.0], array![side, side], 1.0)?;
         let vol = box_.volume(1.0)?;
         boxes.push(box_);
         volumes.push(vol);

@@ -102,7 +102,7 @@ impl NdarrayBox {
     ///
     /// # Errors
     ///
-    /// Returns `BoxError` if min/max have different shapes or if any min[i] > max[i].
+    /// Returns `BoxError` if min/max have different shapes or if any min\[i\] > max\[i\].
     pub fn new(min: Array1<f32>, max: Array1<f32>, temperature: f32) -> Result<Self, BoxError> {
         if min.len() != max.len() {
             return Err(BoxError::DimensionMismatch {

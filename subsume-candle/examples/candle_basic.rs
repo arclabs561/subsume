@@ -9,15 +9,19 @@ fn main() -> Result<(), subsume_core::BoxError> {
 
     // Create a premise box (larger)
     let premise = CandleBox::new(
-        Tensor::new(&[0.0f32, 0.0, 0.0], &device)?,
-        Tensor::new(&[1.0f32, 1.0, 1.0], &device)?,
+        Tensor::new(&[0.0f32, 0.0, 0.0], &device)
+            .map_err(|e| subsume_core::BoxError::Internal(e.to_string()))?,
+        Tensor::new(&[1.0f32, 1.0, 1.0], &device)
+            .map_err(|e| subsume_core::BoxError::Internal(e.to_string()))?,
         1.0,
     )?;
 
     // Create a hypothesis box (contained within premise)
     let hypothesis = CandleBox::new(
-        Tensor::new(&[0.2f32, 0.2, 0.2], &device)?,
-        Tensor::new(&[0.8f32, 0.8, 0.8], &device)?,
+        Tensor::new(&[0.2f32, 0.2, 0.2], &device)
+            .map_err(|e| subsume_core::BoxError::Internal(e.to_string()))?,
+        Tensor::new(&[0.8f32, 0.8, 0.8], &device)
+            .map_err(|e| subsume_core::BoxError::Internal(e.to_string()))?,
         1.0,
     )?;
 

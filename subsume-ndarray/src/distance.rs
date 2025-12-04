@@ -18,8 +18,8 @@ use subsume_core::{Box, BoxError};
 /// \]
 ///
 /// Simplified: for each dimension i:
-/// - If v[i] < min[i]: distance contribution = (min[i] - v[i])²
-/// - If v[i] > max[i]: distance contribution = (v[i] - max[i])²
+/// - If v\[i\] < min\[i\]: distance contribution = (min\[i\] - v\[i\])²
+/// - If v\[i\] > max\[i\]: distance contribution = (v\[i\] - max\[i\])²
 /// - Otherwise: distance contribution = 0 (point is inside box in this dimension)
 ///
 /// # Parameters
@@ -130,9 +130,9 @@ pub fn boundary_distance(
     let mut min_gap = f32::INFINITY;
 
     for i in 0..outer.dim() {
-        // Gap on the min side: inner.min[i] - outer.min[i]
+        // Gap on the min side: inner.min\[i\] - outer.min\[i\]
         let gap_min = inner.min()[i] - outer.min()[i];
-        // Gap on the max side: outer.max[i] - inner.max[i]
+        // Gap on the max side: outer.max\[i\] - inner.max\[i\]
         let gap_max = outer.max()[i] - inner.max()[i];
         // Minimum gap in this dimension
         let gap = gap_min.min(gap_max);

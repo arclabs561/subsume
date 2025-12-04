@@ -20,7 +20,7 @@ impl CandleBox {
     ///
     /// # Errors
     ///
-    /// Returns `BoxError` if min/max have different shapes or if any min[i] > max[i].
+    /// Returns `BoxError` if min/max have different shapes or if any min\[i\] > max\[i\].
     pub fn new(min: Tensor, max: Tensor, temperature: f32) -> std::result::Result<Self, BoxError> {
         if min.shape() != max.shape() {
             return Err(BoxError::DimensionMismatch {
@@ -71,7 +71,7 @@ impl Box for CandleBox {
     }
 
     fn volume(&self, _temperature: Self::Scalar) -> std::result::Result<Self::Scalar, BoxError> {
-        // Volume = ∏(max[i] - min[i])
+        // Volume = ∏(max\[i\] - min\[i\])
         let diff = self
             .max
             .sub(&self.min)

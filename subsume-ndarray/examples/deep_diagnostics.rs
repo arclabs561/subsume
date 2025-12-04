@@ -98,7 +98,7 @@ fn main() -> Result<(), subsume_core::BoxError> {
     let mammal_vol = mammal.volume(1.0)?;
     let bird_vol = bird.volume(1.0)?;
 
-    conservation.record_parent_children(animal_vol, vec![mammal_vol, bird_vol].into_iter(), 0.1);
+    conservation.record_parent_children(animal_vol, [mammal_vol, bird_vol].into_iter(), 0.1);
 
     println!("   Parent (Animal) volume: {:.4}", animal_vol);
     println!(
@@ -139,8 +139,8 @@ fn main() -> Result<(), subsume_core::BoxError> {
     for i in 0..5 {
         let offset = i as f32 * 2.0;
         util.record_box(
-            vec![offset, 0.0, offset * 0.8, offset * 1.2].into_iter(),
-            vec![
+            [offset, 0.0, offset * 0.8, offset * 1.2].into_iter(),
+            [
                 offset + 2.0,
                 0.1 + i as f32 * 0.05,
                 offset * 0.8 + 1.6,
@@ -240,7 +240,7 @@ fn main() -> Result<(), subsume_core::BoxError> {
             let child2_vol = 2.0 + epoch as f32 * 0.03;
             conservation.record_parent_children(
                 parent_vol,
-                vec![child1_vol, child2_vol].into_iter(),
+                [child1_vol, child2_vol].into_iter(),
                 0.1,
             );
         }
@@ -249,8 +249,8 @@ fn main() -> Result<(), subsume_core::BoxError> {
         if epoch % 3 == 0 {
             let offset = epoch as f32 * 0.1;
             util.record_box(
-                vec![offset, offset * 0.1, offset * 0.8].into_iter(),
-                vec![offset + 1.0, offset * 0.1 + 0.2, offset * 0.8 + 0.8].into_iter(),
+                [offset, offset * 0.1, offset * 0.8].into_iter(),
+                [offset + 1.0, offset * 0.1 + 0.2, offset * 0.8 + 0.8].into_iter(),
             );
         }
 

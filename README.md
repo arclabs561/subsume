@@ -133,7 +133,7 @@ fn main() -> Result<(), subsume_core::BoxError> {
 - **Yang, Chen & Sattler (2024)**: "TransBox: EL++-closed Ontology Embedding" — Box embeddings for formal ontologies
 - **Xiao, He & Cao (2024)**: "Knowledge Graph Embedding by Normalizing Flows" — Uncertainty quantification in embeddings
 
-See [`docs/MATHEMATICAL_FOUNDATIONS.md`](docs/MATHEMATICAL_FOUNDATIONS.md) for detailed mathematical formulations, [`docs/RECENT_RESEARCH.md`](docs/RECENT_RESEARCH.md) for recent developments, and [`docs/PAPER_VERIFICATION.md`](docs/PAPER_VERIFICATION.md) for verification of paper claims.
+See [`docs/MATHEMATICAL_FOUNDATIONS.md`](docs/MATHEMATICAL_FOUNDATIONS.md) for detailed mathematical formulations, [`docs/RECENT_RESEARCH.md`](docs/RECENT_RESEARCH.md) for recent developments, [`docs/PAPER_VERIFICATION.md`](docs/PAPER_VERIFICATION.md) for verification of paper claims, and [`docs/REPRODUCING_PAPER_RESULTS.md`](docs/REPRODUCING_PAPER_RESULTS.md) for methodology to reproduce quantitative results.
 
 ## Status
 
@@ -191,7 +191,7 @@ See [`docs/MATHEMATICAL_FOUNDATIONS.md`](docs/MATHEMATICAL_FOUNDATIONS.md) for d
     - Volume conservation verification (parent volumes vs sum of children)
     - Dimensionality utilization analysis (detect underutilized dimensions)
     - Generalization vs memorization metrics (inference performance vs direct facts)
-- **Comprehensive test suite**: 115+ tests (149 test functions) including:
+- **Comprehensive test suite**: 137+ tests including:
   - Unit tests (22 tests) covering basic functionality
   - Property-based tests (18 tests) using proptest, including 7 new tests for training utilities
   - Mathematical invariant tests (30+ tests) verifying set theory, probability theory, and geometric properties

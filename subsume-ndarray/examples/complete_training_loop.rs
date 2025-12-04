@@ -23,7 +23,7 @@ use subsume_core::{
     },
     Box, BoxEmbedding,
 };
-use subsume_ndarray::NdarrayBox;
+use subsume_ndarray::{distance, NdarrayBox};
 
 fn main() -> Result<(), subsume_core::BoxError> {
     println!("=== Complete Training Loop with All Diagnostics ===\n");
@@ -34,7 +34,7 @@ fn main() -> Result<(), subsume_core::BoxError> {
     let mut gradient_flow = GradientFlowAnalysis::new(20);
     let mut depth_flow = DepthStratifiedGradientFlow::new(20);
     let mut phase_detector = PhaseDetector::new(10);
-    let _loss_components = LossComponents::new(0.0, 0.0, 0.0);
+    let mut loss_components = LossComponents::new(0.0, 0.0, 0.0);
     let mut containment_hierarchy = ContainmentHierarchy::new();
     let mut volume_conservation = VolumeConservation::new();
     let mut dimensionality_util = DimensionalityUtilization::new(3);
@@ -97,16 +97,12 @@ fn main() -> Result<(), subsume_core::BoxError> {
     let animal_vol = animal.volume(1.0)?;
     let mammal_vol = mammal.volume(1.0)?;
     let bird_vol = bird.volume(1.0)?;
-    volume_conservation.record_parent_children(
-        animal_vol,
-        vec![mammal_vol, bird_vol].into_iter(),
-        0.1,
-    );
+    volume_conservation.record_parent_children(animal_vol, [mammal_vol, bird_vol].into_iter(), 0.1);
 
     let _mammal_children_vol = cat.volume(1.0)? + dog.volume(1.0)?;
     volume_conservation.record_parent_children(
         mammal_vol,
-        vec![cat.volume(1.0)?, dog.volume(1.0)?].into_iter(),
+        [cat.volume(1.0)?, dog.volume(1.0)?].into_iter(),
         0.1,
     );
 
@@ -252,6 +248,18 @@ fn main() -> Result<(), subsume_core::BoxError> {
             // Dimensionality utilization
             let effective_dim = dimensionality_util.effective_dimensionality(1.0);
             println!("  Effective dimensions: {}/3", effective_dim);
+
+            // Boundary distance for hierarchy validation (RegD 2025)
+            if let Some(boundary_dist) =
+                distance::boundary_distance(&animal, &mammal, 1.0).unwrap_or(None)
+            {
+                if epoch == 10 {
+                    println!(
+                        "  Boundary distance (Animal ⊇ Mammal): {:.4}",
+                        boundary_dist
+                    );
+                }
+            }
 
             println!();
         }

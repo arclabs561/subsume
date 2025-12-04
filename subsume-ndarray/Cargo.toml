@@ -41,12 +41,24 @@ name = "recent_research_metrics"
 path = "examples/recent_research_metrics.rs"
 
 [[example]]
+name = "concept2box_joint_learning"
+path = "examples/concept2box_joint_learning.rs"
+
+[[example]]
+name = "regd_training"
+path = "examples/regd_training.rs"
+
+[[example]]
 name = "complete_training_loop"
 path = "examples/complete_training_loop.rs"
 
 [[example]]
 name = "hierarchical_classification"
 path = "examples/hierarchical_classification.rs"
+
+[[bench]]
+name = "comparative_benchmarks"
+harness = false
 
 [[bench]]
 name = "box_operations"

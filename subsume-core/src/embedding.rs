@@ -24,7 +24,7 @@ pub trait BoxEmbedding<B: Box> {
 
     /// Compute pairwise containment probabilities.
     ///
-    /// Returns a matrix where `result[i][j] = P(box[j] ⊆ box[i])`.
+    /// Returns a matrix where `result\[i\]\[j\] = P(box\[j\] ⊆ box\[i\])`.
     ///
     /// # Errors
     ///
@@ -33,7 +33,7 @@ pub trait BoxEmbedding<B: Box> {
 
     /// Find boxes that contain a given box.
     ///
-    /// Returns indices of boxes where `containment_prob(box[i], query) > threshold`.
+    /// Returns indices of boxes where `containment_prob(box\[i\], query) > threshold`.
     ///
     /// # Errors
     ///
@@ -47,7 +47,7 @@ pub trait BoxEmbedding<B: Box> {
 
     /// Find boxes contained by a given box.
     ///
-    /// Returns indices of boxes where `containment_prob(query, box[i]) > threshold`.
+    /// Returns indices of boxes where `containment_prob(query, box\[i\]) > threshold`.
     ///
     /// # Errors
     ///
@@ -61,7 +61,7 @@ pub trait BoxEmbedding<B: Box> {
 
     /// Compute pairwise overlap probabilities.
     ///
-    /// Returns a matrix where `result[i][j] = P(box[i] ∩ box[j] ≠ ∅)`.
+    /// Returns a matrix where `result\[i\]\[j\] = P(box\[i\] ∩ box\[j\] ≠ ∅)`.
     ///
     /// # Errors
     ///
@@ -70,7 +70,7 @@ pub trait BoxEmbedding<B: Box> {
 
     /// Find boxes that overlap with a given box.
     ///
-    /// Returns indices of boxes where `overlap_prob(box[i], query) > threshold`.
+    /// Returns indices of boxes where `overlap_prob(box\[i\], query) > threshold`.
     ///
     /// # Errors
     ///
@@ -84,7 +84,7 @@ pub trait BoxEmbedding<B: Box> {
 
     /// Find the k nearest boxes to a query box by distance.
     ///
-    /// Returns indices of the k boxes with smallest `distance(box[i], query)`.
+    /// Returns indices of the k boxes with smallest `distance(box\[i\], query)`.
     ///
     /// # Errors
     ///

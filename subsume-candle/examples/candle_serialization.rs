@@ -6,7 +6,7 @@
 use candle_core::Device;
 use serde_json;
 use subsume_candle::{CandleBox, CandleGumbelBox};
-use subsume_core::Box as BoxTrait;
+use subsume_core::{Box as BoxTrait, GumbelBox};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Candle Serialization Example");

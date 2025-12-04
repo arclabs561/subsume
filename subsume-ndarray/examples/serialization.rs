@@ -4,7 +4,7 @@
 //! which is useful for model persistence, checkpointing, and sharing embeddings.
 
 use ndarray::array;
-use subsume_core::Box as BoxTrait;
+use subsume_core::{Box as BoxTrait, GumbelBox};
 use subsume_ndarray::{NdarrayBox, NdarrayGumbelBox};
 
 fn main() -> Result<(), std::boxed::Box<dyn std::error::Error>> {

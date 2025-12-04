@@ -95,11 +95,11 @@ impl GumbelBox for CandleGumbelBox {
             });
         }
 
-        // P(point ∈ box) = ∏ P(min[i] <= point[i] <= max[i])
+        // P(point ∈ box) = ∏ P(min\[i\] <= point\[i\] <= max\[i\])
         // Using numerically stable Gumbel-Softmax probability calculation
         let temp = self.temperature();
 
-        // For each dimension: P(min[i] <= point[i] <= max[i])
+        // For each dimension: P(min\[i\] <= point\[i\] <= max\[i\])
         let point_data = point
             .to_vec1::<f32>()
             .map_err(|e| BoxError::Internal(e.to_string()))?;

@@ -134,9 +134,9 @@ pub fn boundary_distance(
     let mut min_gap = f32::INFINITY;
 
     for i in 0..outer.dim() {
-        // Gap on the min side: inner.min[i] - outer.min[i]
+        // Gap on the min side: inner.min\[i\] - outer.min\[i\]
         let gap_min = inner_min_data[i] - outer_min_data[i];
-        // Gap on the max side: outer.max[i] - inner.max[i]
+        // Gap on the max side: outer.max\[i\] - inner.max\[i\]
         let gap_max = outer_max_data[i] - inner_max_data[i];
         // Minimum gap in this dimension
         let gap = gap_min.min(gap_max);

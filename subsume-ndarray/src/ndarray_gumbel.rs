@@ -111,7 +111,7 @@ impl GumbelBox for NdarrayGumbelBox {
             });
         }
 
-        // P(point ∈ box) = ∏ P(min[i] <= point[i] <= max[i])
+        // P(point ∈ box) = ∏ P(min\[i\] <= point\[i\] <= max\[i\])
         // Using numerically stable Gumbel-Softmax probability calculation
         let temp = self.temperature();
         let mut prob = 1.0;
