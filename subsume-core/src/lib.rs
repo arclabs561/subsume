@@ -10,7 +10,9 @@
 //!
 //! - **Box Embeddings**: Axis-aligned hyperrectangles that encode containment relationships
 //! - **Gumbel Boxes**: Probabilistic boxes with Gumbel noise for training stability
-//! - **Containment**: One box "subsumes" another (entailment, hierarchical relationships)
+//! - **Containment/Subsumption**: One box "subsumes" another when it contains it
+//!   (entailment, hierarchical relationships). The term "subsume" means to include
+//!   something in a more general category — if box A contains box B, A subsumes B.
 //! - **Overlap**: Mutual probability of two boxes representing the same entity
 //!
 //! # Design Philosophy
@@ -64,6 +66,7 @@ pub use utils::{
     safe_init_bounds, is_cross_pattern, is_perfectly_nested,
     suggested_min_separation,
 };
+pub use utils::validation;
 pub use training::{
     metrics::{
         mean_reciprocal_rank, hits_at_k, mean_rank, ndcg,

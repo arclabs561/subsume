@@ -429,6 +429,100 @@ pub fn suggested_min_separation(dimension: usize, target_volume_range: (f32, f32
     avg_side * 1.5
 }
 
+/// Validation utilities for box embeddings.
+///
+/// These utilities help validate box embeddings to ensure they meet
+/// mathematical constraints and avoid numerical issues.
+pub mod validation {
+    use crate::{Box, BoxError};
+
+    /// Validate that a box has valid bounds by checking its volume.
+    ///
+    /// This is useful for checking box validity after operations that might
+    /// modify bounds, or for debugging during training. The volume calculation
+    /// will fail if bounds are invalid (min[i] > max[i] for any dimension).
+    ///
+    /// # Parameters
+    ///
+    /// - `box_`: The box to validate
+    /// - `temperature`: Temperature parameter for volume calculation (typically 1.0)
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(())` if the box is valid
+    /// - `Err(BoxError::InvalidBounds)` if any dimension has invalid bounds
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use subsume_core::utils::validation::validate_box_bounds;
+    /// use subsume_ndarray::NdarrayBox;
+    ///
+    /// let box_ = NdarrayBox::new(...)?;
+    /// validate_box_bounds(&box_, 1.0)?; // Check validity
+    /// ```
+    pub fn validate_box_bounds<B: Box>(box_: &B, temperature: B::Scalar) -> Result<(), BoxError> {
+        // Volume calculation will fail if bounds are invalid
+        let _vol = box_.volume(temperature)?;
+        Ok(())
+    }
+
+    /// Check if a box has zero or near-zero volume.
+    ///
+    /// Zero-volume boxes can cause numerical issues in probability calculations.
+    ///
+    /// # Parameters
+    ///
+    /// - `box_`: The box to check
+    /// - `temperature`: Temperature parameter for volume calculation (typically 1.0)
+    /// - `epsilon`: Threshold for considering volume as zero (default: 1e-10)
+    ///
+    /// # Returns
+    ///
+    /// - `true` if box volume is below epsilon
+    /// - `false` otherwise
+    pub fn is_zero_volume<B: Box>(box_: &B, temperature: B::Scalar, epsilon: B::Scalar) -> bool
+    where
+        B::Scalar: PartialOrd,
+    {
+        if let Ok(vol) = box_.volume(temperature) {
+            vol < epsilon
+        } else {
+            true // If volume calculation fails, consider it zero
+        }
+    }
+
+    /// Validate that two boxes have compatible dimensions.
+    ///
+    /// Useful for checking before operations that require dimension matching.
+    ///
+    /// # Parameters
+    ///
+    /// - `box1`: First box
+    /// - `box2`: Second box
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(())` if dimensions match
+    /// - `Err(BoxError::DimensionMismatch)` if dimensions differ
+    pub fn validate_compatible_dimensions<B: Box>(
+        box1: &B,
+        box2: &B,
+    ) -> Result<(), BoxError> {
+        let dim1 = box1.dim();
+        let dim2 = box2.dim();
+        
+        if dim1 != dim2 {
+            return Err(BoxError::DimensionMismatch {
+                expected: dim1,
+                actual: dim2,
+            });
+        }
+        
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

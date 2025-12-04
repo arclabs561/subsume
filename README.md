@@ -2,6 +2,17 @@
 
 Framework-agnostic geometric box embeddings for containment, entailment, and hierarchical relationships.
 
+## Why "subsume"?
+
+The name **subsume** comes from the logical relationship that box embeddings model: when box A contains box B, we say that A **subsumes** B. This term originates from logic and philosophy, where "subsumption" means to include or absorb something into a more general category or concept.
+
+In box embeddings:
+- **Subsumption** = containment relationship (A ⊇ B means A subsumes B)
+- **Entailment** = if premise subsumes hypothesis, then premise entails hypothesis
+- **Hierarchical relationships** = parent concepts subsume child concepts
+
+For example, if "animal" is represented by a box that contains the box for "dog", then "animal" subsumes "dog" — the more general concept contains the more specific one.
+
 ## Overview
 
 `subsume` provides geometric embeddings (boxes, hypercubes) that model containment relationships in NLP and knowledge graphs. Unlike vector embeddings, box embeddings encode logical invariants: if box A contains box B, then A "subsumes" B (entailment, hierarchical relationship).
@@ -134,7 +145,7 @@ Based on:
 ### Next Steps
 
 - ⏳ Resolve `candle-core` dependency issues (external, not our code - bf16/rand version conflict)
-- ⏳ Add serialization for Candle backend
+- ✅ Add serialization for Candle backend (implemented in `candle_serialization.rs`)
 - ⏳ Consider center-offset representation as alternative to min-max
-- ⏳ Add more examples (hierarchical classification, training loops)
+- ⏳ Add more examples (hierarchical classification, complete training loops)
 
