@@ -3,12 +3,6 @@
 use candle_core::{Device, Result, Tensor};
 use subsume_core::{Box, BoxError};
 
-impl From<candle_core::Error> for BoxError {
-    fn from(err: candle_core::Error) -> Self {
-        BoxError::Internal(err.to_string())
-    }
-}
-
 /// A box embedding implemented using `candle_core::Tensor`.
 #[derive(Debug, Clone)]
 pub struct CandleBox {
@@ -35,8 +29,8 @@ impl CandleBox {
         }
 
         // Validate bounds
-        let min_data = min.to_vec1::<f32>()?;
-        let max_data = max.to_vec1::<f32>()?;
+        let min_data = min.to_vec1::<f32>().map_err(|e| BoxError::Internal(e.to_string()))?;
+        let max_data = max.to_vec1::<f32>().map_err(|e| BoxError::Internal(e.to_string()))?;
         for (i, (&m, &max_val)) in min_data.iter().zip(max_data.iter()).enumerate() {
             if m > max_val {
                 return Err(BoxError::InvalidBounds {
@@ -73,8 +67,8 @@ impl Box for CandleBox {
 
     fn volume(&self, temperature: Self::Scalar) -> Result<Self::Scalar, BoxError> {
         // Volume = ∏(max[i] - min[i])
-        let diff = self.max.sub(&self.min)?;
-        let volume = diff.prod_all::<f32>()?;
+        let diff = self.max.sub(&self.min).map_err(|e| BoxError::Internal(e.to_string()))?;
+        let volume = diff.prod_all::<f32>().map_err(|e| BoxError::Internal(e.to_string()))?;
         Ok(volume)
     }
 
@@ -86,13 +80,13 @@ impl Box for CandleBox {
             });
         }
 
-        let intersection_min = self.min.maximum(&other.min)?;
-        let intersection_max = self.max.minimum(&other.max)?;
+        let intersection_min = self.min.maximum(&other.min).map_err(|e| BoxError::Internal(e.to_string()))?;
+        let intersection_max = self.max.minimum(&other.max).map_err(|e| BoxError::Internal(e.to_string()))?;
 
         // Check if intersection is valid (not disjoint)
         // If min > max in any dimension, boxes are disjoint
-        let min_data = intersection_min.to_vec1::<f32>()?;
-        let max_data = intersection_max.to_vec1::<f32>()?;
+        let min_data = intersection_min.to_vec1::<f32>().map_err(|e| BoxError::Internal(e.to_string()))?;
+        let max_data = intersection_max.to_vec1::<f32>().map_err(|e| BoxError::Internal(e.to_string()))?;
         for (min_val, max_val) in min_data.iter().zip(max_data.iter()) {
             if min_val > max_val {
                 // Boxes are disjoint - return a zero-volume box
@@ -157,17 +151,17 @@ impl Box for CandleBox {
             });
         }
 
-        let union_min = self.min.minimum(&other.min)?;
-        let union_max = self.max.maximum(&other.max)?;
+        let union_min = self.min.minimum(&other.min).map_err(|e| BoxError::Internal(e.to_string()))?;
+        let union_max = self.max.maximum(&other.max).map_err(|e| BoxError::Internal(e.to_string()))?;
 
         Self::new(union_min, union_max, self.temperature)
     }
 
     fn center(&self) -> Result<Self::Vector, BoxError> {
         // Center = (min + max) / 2
-        let sum = self.min.add(&self.max)?;
-        let two = Tensor::new(&[2.0f32], self.min.device())?;
-        let center = sum.broadcast_div(&two)?;
+        let sum = self.min.add(&self.max).map_err(|e| BoxError::Internal(e.to_string()))?;
+        let two = Tensor::new(&[2.0f32], self.min.device()).map_err(|e| BoxError::Internal(e.to_string()))?;
+        let center = sum.broadcast_div(&two).map_err(|e| BoxError::Internal(e.to_string()))?;
         Ok(center)
     }
 
@@ -189,10 +183,10 @@ impl Box for CandleBox {
         // Compute minimum distance between two axis-aligned boxes
         // For each dimension, compute the gap (or 0 if overlapping)
         // Use element-wise operations on tensors
-        let self_min_data = self.min.to_vec1::<f32>()?;
-        let self_max_data = self.max.to_vec1::<f32>()?;
-        let other_min_data = other.min.to_vec1::<f32>()?;
-        let other_max_data = other.max.to_vec1::<f32>()?;
+        let self_min_data = self.min.to_vec1::<f32>().map_err(|e| BoxError::Internal(e.to_string()))?;
+        let self_max_data = self.max.to_vec1::<f32>().map_err(|e| BoxError::Internal(e.to_string()))?;
+        let other_min_data = other.min.to_vec1::<f32>().map_err(|e| BoxError::Internal(e.to_string()))?;
+        let other_max_data = other.max.to_vec1::<f32>().map_err(|e| BoxError::Internal(e.to_string()))?;
         
         let mut dist_sq = 0.0;
         for i in 0..self.dim() {

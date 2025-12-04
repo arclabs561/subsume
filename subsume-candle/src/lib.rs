@@ -4,6 +4,14 @@
 //!
 //! This crate provides `CandleBox` and `CandleGumbelBox` types that implement
 //! the `Box` and `GumbelBox` traits using `candle_core::Tensor`.
+
+use subsume_core::BoxError;
+
+impl From<candle_core::Error> for BoxError {
+    fn from(err: candle_core::Error) -> Self {
+        BoxError::Internal(err.to_string())
+    }
+}
 //!
 //! # Example
 //!

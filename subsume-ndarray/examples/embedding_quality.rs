@@ -4,7 +4,7 @@ use ndarray::Array1;
 use subsume_core::{
     Box,
     training::{
-        quality::{VolumeDistribution, ContainmentAccuracy},
+        quality::{VolumeDistribution, ContainmentAccuracy, IntersectionTopology},
         calibration::{expected_calibration_error, brier_score},
     },
 };
@@ -133,8 +133,36 @@ fn main() -> Result<(), subsume_core::BoxError> {
     println!("     Note: Overconfident predictions have higher ECE");
     println!();
 
-    // 4. Practical quality assessment workflow
-    println!("4. Practical Quality Assessment Workflow");
+    // 4. Intersection topology tracking
+    println!("4. Intersection Topology Tracking");
+    println!("   Analyze the structure of box relationships.\n");
+    
+    let mut topology = IntersectionTopology::new();
+    
+    // Simulate analyzing box pairs
+    let intersection_results = vec![true, true, false, true, false, false, true];
+    let containment_results = vec![true, false, true, false, false, false, false];
+    
+    for (has_intersection, has_containment) in intersection_results.iter().zip(containment_results.iter()) {
+        topology.record_intersection(*has_intersection);
+        topology.record_containment(*has_containment);
+    }
+    
+    println!("   Topology Statistics:");
+    println!("     Total pairs: {}", topology.total_pairs);
+    println!("     Intersecting pairs: {} ({:.1}%)",
+             topology.intersecting_pairs,
+             topology.intersection_rate() * 100.0);
+    println!("     Containment pairs: {} ({:.1}%)",
+             topology.containment_pairs,
+             topology.containment_rate() * 100.0);
+    println!("     Disjoint pairs: {} ({:.1}%)",
+             topology.disjoint_pairs,
+             topology.disjoint_rate() * 100.0);
+    println!();
+
+    // 5. Practical quality assessment workflow
+    println!("5. Practical Quality Assessment Workflow");
     println!("   Combining all metrics for comprehensive evaluation.\n");
     
     // Simulate evaluating a trained model

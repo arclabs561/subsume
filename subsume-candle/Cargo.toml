@@ -18,10 +18,9 @@ subsume-core = { path = "../subsume-core" }
 candle-core = "0.4"
 serde = { workspace = true }
 thiserror = { workspace = true }
-# Force consistent versions to avoid conflicts
-rand = { workspace = true }
-rand_distr = { workspace = true }
-half = { workspace = true }
+# Force half to 2.3.1 to match candle-core's expectation (candle-core uses half 2.3.1)
+# This prevents newer half 2.7.1 from being pulled in transitively
+half = "=2.3.1"
 
 [dev-dependencies]
 criterion = "0.5"

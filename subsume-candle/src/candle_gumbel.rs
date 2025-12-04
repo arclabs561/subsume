@@ -102,9 +102,9 @@ impl GumbelBox for CandleGumbelBox {
         let temp = self.temperature();
 
         // For each dimension: P(min[i] <= point[i] <= max[i])
-        let point_data = point.to_vec1::<f32>()?;
-        let min_data = self.min().to_vec1::<f32>()?;
-        let max_data = self.max().to_vec1::<f32>()?;
+        let point_data = point.to_vec1::<f32>().map_err(|e| BoxError::Internal(e.to_string()))?;
+        let min_data = self.min().to_vec1::<f32>().map_err(|e| BoxError::Internal(e.to_string()))?;
+        let max_data = self.max().to_vec1::<f32>().map_err(|e| BoxError::Internal(e.to_string()))?;
 
         let mut prob = 1.0;
         for (i, &coord) in point_data.iter().enumerate() {
@@ -141,6 +141,7 @@ impl GumbelBox for CandleGumbelBox {
         const C: u64 = 1013904223;
         const M: u64 = 1u64 << 32;
         
+        let temp = self.temperature();
         let mut samples: Vec<f32> = Vec::with_capacity(dim);
         for i in 0..dim {
             seed = (A.wrapping_mul(seed).wrapping_add(C)) % M;
@@ -155,13 +156,13 @@ impl GumbelBox for CandleGumbelBox {
             samples.push(value);
         }
         
-        Tensor::new(&samples, device).unwrap_or_else(|e| {
+        Tensor::new(&*samples, device).unwrap_or_else(|e| {
             // Fallback: return center point if tensor creation fails
             // This should be rare - only occurs if device allocation fails
             let center: Vec<f32> = (0..dim)
                 .map(|i| (min_data[i] + max_data[i]) / 2.0)
                 .collect();
-            Tensor::new(&center, device).unwrap_or_else(|_| {
+            Tensor::new(&*center, device).unwrap_or_else(|_| {
                 panic!("Failed to create sample tensor: original error: {}, fallback also failed", e)
             })
         })

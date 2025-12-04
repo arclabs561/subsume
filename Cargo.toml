@@ -1,7 +1,5 @@
 [workspace]
-members = ["subsume-core", "subsume-ndarray"]
-# subsume-candle is excluded due to dependency conflicts (candle-core internal rand/half version issues)
-# To use candle backend, add it manually: members = ["subsume-core", "subsume-candle", "subsume-ndarray"]
+members = ["subsume-core", "subsume-candle", "subsume-ndarray"]
 resolver = "2"
 
 [workspace.package]
@@ -14,4 +12,3 @@ authors = ["Arc <attobop@gmail.com>"]
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
-

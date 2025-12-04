@@ -81,13 +81,20 @@ Based on:
   - Volume-based loss functions for containment and overlap relationships
 - **Geometric operations**: Union, center, distance calculations
 - **Batch operations**: Overlap matrix, overlapping boxes queries, k-nearest neighbors, bounding box computation
-- **Comprehensive test suite**: 108 tests including:
+- **Training quality and diagnostics** (based on research from Box Embeddings library, BEUrRE, BoxE):
+  - Rank-based metrics: MRR, Hits@K, Mean Rank, nDCG for link prediction evaluation
+  - Training diagnostics: Convergence detection, gradient monitoring, volume tracking, loss component analysis
+  - Embedding quality assessment: Volume distribution analysis, containment accuracy verification, intersection topology tracking
+  - Calibration metrics: Expected Calibration Error (ECE) and Brier score for probabilistic predictions
+- **Comprehensive test suite**: 115+ tests including:
   - Unit tests (22 tests) covering basic functionality
-  - Property-based tests (10+ tests) using proptest
+  - Property-based tests (18 tests) using proptest, including 7 new tests for training utilities
   - Mathematical invariant tests (30+ tests) verifying set theory, probability theory, and geometric properties
   - Edge case tests (15+ tests) for error conditions and boundary cases
   - Matrix e2e tests (15 tests) for batch operations
   - Enriched methods tests (16 tests) for new geometric operations
+  - Training quality tests (11 tests) for metrics and diagnostics
+  - Property tests for training utilities (7 new tests) for volume regularization, temperature scheduling, and loss functions
 - Benchmarks with `criterion`
 - Serialization support with `serde` (ndarray backend)
 - Examples for knowledge graphs, serialization, training utilities, training diagnostics, and embedding quality assessment

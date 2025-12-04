@@ -2,10 +2,16 @@
 
 #[cfg(test)]
 mod proptest_tests {
-    use crate::{NdarrayBox, NdarrayGumbelBox};
-    use ndarray::Array1;
-    use proptest::prelude::*;
-    use subsume_core::{Box, GumbelBox};
+use crate::{NdarrayBox, NdarrayGumbelBox};
+use ndarray::Array1;
+use proptest::prelude::*;
+use subsume_core::{
+    Box, GumbelBox,
+    volume_regularization, temperature_scheduler,
+    volume_containment_loss, volume_overlap_loss,
+    log_space_volume,
+    MIN_TEMPERATURE,
+};
 
 
     /// Strategy for generating valid box bounds (min <= max for all dimensions).
@@ -228,6 +234,110 @@ mod proptest_tests {
                 "Volumes should match: {} vs {}",
                 vol_orig, vol_deser
             );
+        }
+
+        #[test]
+        fn volume_regularization_non_negative(
+            volume in 0.0f32..100.0f32,
+            threshold_max in 1.0f32..50.0f32,
+            threshold_min in 0.001f32..1.0f32,
+            lambda in 0.01f32..1.0f32,
+        ) {
+            prop_assume!(threshold_min < threshold_max);
+            let penalty = volume_regularization(volume, threshold_max, threshold_min, lambda);
+            prop_assert!(penalty >= 0.0, "Regularization penalty must be non-negative, got {}", penalty);
+        }
+
+        #[test]
+        fn volume_regularization_zero_when_in_bounds(
+            volume in 0.01f32..10.0f32,
+            threshold_max in 10.0f32..20.0f32,
+            threshold_min in 0.001f32..0.01f32,
+            lambda in 0.01f32..1.0f32,
+        ) {
+            prop_assume!(threshold_min < volume && volume < threshold_max);
+            let penalty = volume_regularization(volume, threshold_max, threshold_min, lambda);
+            prop_assert_eq!(penalty, 0.0, "Penalty should be zero when volume is within bounds");
+        }
+
+        #[test]
+        fn temperature_scheduler_monotonic_decreasing(
+            initial_temp in 1.0f32..100.0f32,
+            decay_rate in 0.9f32..0.99f32,
+            step1 in 0usize..100,
+            step2 in 0usize..100,
+        ) {
+            prop_assume!(step1 < step2);
+            let temp1 = temperature_scheduler(initial_temp, decay_rate, step1, MIN_TEMPERATURE);
+            let temp2 = temperature_scheduler(initial_temp, decay_rate, step2, MIN_TEMPERATURE);
+            prop_assert!(
+                temp2 <= temp1,
+                "Temperature should decrease or stay same: step {} = {}, step {} = {}",
+                step1, temp1, step2, temp2
+            );
+        }
+
+        #[test]
+        fn temperature_scheduler_bounded(
+            initial_temp in 1.0f32..100.0f32,
+            decay_rate in 0.9f32..0.99f32,
+            step in 0usize..1000,
+        ) {
+            let temp = temperature_scheduler(initial_temp, decay_rate, step, MIN_TEMPERATURE);
+            prop_assert!(
+                temp >= MIN_TEMPERATURE,
+                "Temperature should be >= MIN_TEMPERATURE, got {}",
+                temp
+            );
+            prop_assert!(
+                temp <= initial_temp,
+                "Temperature should be <= initial_temp, got {}",
+                temp
+            );
+        }
+
+        #[test]
+        fn volume_containment_loss_bounds(
+            containment_prob in 0.0f32..1.0f32,
+            target in 0.0f32..1.0f32,
+            margin in 0.01f32..0.5f32,
+        ) {
+            let loss = volume_containment_loss(containment_prob, target, margin);
+            prop_assert!(loss >= 0.0, "Loss must be non-negative, got {}", loss);
+            prop_assert!(loss.is_finite(), "Loss must be finite, got {}", loss);
+        }
+
+        #[test]
+        fn volume_overlap_loss_bounds(
+            overlap_prob in 0.0f32..1.0f32,
+            target in 0.0f32..1.0f32,
+            margin in 0.01f32..0.5f32,
+        ) {
+            let loss = volume_overlap_loss(overlap_prob, target, margin);
+            prop_assert!(loss >= 0.0, "Loss must be non-negative, got {}", loss);
+            prop_assert!(loss.is_finite(), "Loss must be finite, got {}", loss);
+        }
+
+        #[test]
+        fn log_space_volume_consistency(
+            side_lengths in prop::collection::vec(0.001f32..10.0f32, 2..10)
+        ) {
+            let (log_vol, vol) = log_space_volume(side_lengths.iter().copied());
+            
+            // If any side is <= 0, should return (NEG_INFINITY, 0.0)
+            let has_zero = side_lengths.iter().any(|&s| s <= 1e-10);
+            if has_zero {
+                prop_assert_eq!(log_vol, f32::NEG_INFINITY);
+                prop_assert_eq!(vol, 0.0);
+            } else {
+                // Otherwise, should be consistent: exp(log_vol) ≈ vol
+                prop_assert!(
+                    (log_vol.exp() - vol).abs() < 1e-5,
+                    "exp(log_vol) should equal vol: exp({}) = {} vs {}",
+                    log_vol, log_vol.exp(), vol
+                );
+                prop_assert!(vol >= 0.0, "Volume must be non-negative, got {}", vol);
+            }
         }
     }
 }
