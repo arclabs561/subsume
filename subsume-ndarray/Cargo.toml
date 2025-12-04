@@ -36,6 +36,14 @@ path = "examples/serialization.rs"
 name = "geometric_operations"
 path = "examples/geometric_operations.rs"
 
+[[example]]
+name = "complete_training_loop"
+path = "examples/complete_training_loop.rs"
+
+[[example]]
+name = "hierarchical_classification"
+path = "examples/hierarchical_classification.rs"
+
 [[bench]]
 name = "box_operations"
 harness = false

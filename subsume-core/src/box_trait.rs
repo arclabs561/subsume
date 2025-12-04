@@ -1,9 +1,43 @@
 //! Core trait for box embeddings.
+//!
+//! # Mathematical Foundations
+//!
+//! Box embeddings model **subsumption** relationships geometrically. In formal logic,
+//! subsumption means that one statement is more general than another. When box A contains
+//! box B (B ⊆ A), we say that A **subsumes** B.
+//!
+//! ## Subsumption Formula
+//!
+//! \[
+//! \text{Box A subsumes Box B} \iff B \subseteq A \iff P(B|A) = \frac{\text{Vol}(A \cap B)}{\text{Vol}(A)} = 1
+//! \]
+//!
+//! ## Volume Calculation
+//!
+//! For a box with min coordinates \(z_i\) and max coordinates \(Z_i\):
+//!
+//! \[
+//! \text{Vol}(B) = \prod_{i=1}^{d} \max(Z_i - z_i, 0)
+//! \]
+//!
+//! For Gumbel boxes, the expected volume uses the Bessel approximation:
+//!
+//! \[
+//! \mathbb{E}[\text{Vol}(B)] = 2\beta K_0\left(2e^{-\frac{\mu_y - \mu_x}{2\beta}}\right)
+//! \]
+//!
+//! where \(K_0\) is the modified Bessel function of the second kind.
+//!
+//! See [`docs/MATHEMATICAL_FOUNDATIONS.md`](../../../docs/MATHEMATICAL_FOUNDATIONS.md) for complete details.
 
 /// A geometric box (axis-aligned hyperrectangle) in d-dimensional space.
 ///
 /// Boxes model containment relationships: if box A contains box B,
-/// then A "subsumes" B (entailment, hierarchical relationship).
+/// then A **subsumes** B (entailment, hierarchical relationship).
+///
+/// The term "subsume" comes from formal logic, where subsumption means
+/// one statement is more general than another. This geometric representation
+/// directly models logical subsumption through containment.
 ///
 /// # Type Parameters
 ///
@@ -58,7 +92,18 @@ pub trait Box: Sized {
 
     /// Compute the volume of the box.
     ///
-    /// Volume = ∏(max[i] - min[i])
+    /// ## Mathematical Formulation
+    ///
+    /// For a box with min coordinates \(z_i\) and max coordinates \(Z_i\):
+    ///
+    /// \[
+    /// \text{Vol}(B) = \prod_{i=1}^{d} \max(Z_i - z_i, 0)
+    /// \]
+    ///
+    /// where \(d\) is the number of dimensions.
+    ///
+    /// For Gumbel boxes, this computes the expected volume using the Bessel approximation.
+    /// See [`docs/MATHEMATICAL_FOUNDATIONS.md`](../../../docs/MATHEMATICAL_FOUNDATIONS.md) for details.
     ///
     /// # Errors
     ///
@@ -76,10 +121,22 @@ pub trait Box: Sized {
 
     /// Compute the probability that `self` contains `other`.
     ///
-    /// This is the core "subsumption" operation: P(other ⊆ self).
+    /// This is the core **subsumption** operation: P(other ⊆ self).
     ///
-    /// For standard boxes: `intersection_volume(other) / other.volume()`
-    /// For Gumbel boxes: Uses Gumbel-Softmax reparameterization.
+    /// ## Mathematical Formulation
+    ///
+    /// For standard boxes:
+    /// \[
+    /// P(\text{other} \subseteq \text{self}) = \frac{\text{Vol}(\text{self} \cap \text{other})}{\text{Vol}(\text{other})}
+    /// \]
+    ///
+    /// For Gumbel boxes, this uses the expected volume with first-order Taylor approximation:
+    /// \[
+    /// P(\text{other} \subseteq \text{self}) \approx \frac{\mathbb{E}[\text{Vol}(\text{self} \cap \text{other})]}{\mathbb{E}[\text{Vol}(\text{other})]}
+    /// \]
+    ///
+    /// This directly models logical subsumption: if the probability is 1.0, then
+    /// `self` completely subsumes `other` (entailment relationship).
     ///
     /// # Errors
     ///

@@ -4,14 +4,35 @@ Framework-agnostic geometric box embeddings for containment, entailment, and hie
 
 ## Why "subsume"?
 
-The name **subsume** comes from the logical relationship that box embeddings model: when box A contains box B, we say that A **subsumes** B. This term originates from logic and philosophy, where "subsumption" means to include or absorb something into a more general category or concept.
+The name **subsume** is the precise mathematical and logical term for the containment relationship that box embeddings model. In formal logic and automated reasoning, **subsumption** means that one statement is more general than another and covers all cases that the more specific statement would cover.
+
+### Mathematical Definition
+
+When box A contains box B (geometrically: B ⊆ A), we say that **A subsumes B**:
+
+\[
+\text{Box A subsumes Box B} \iff B \subseteq A \iff P(B|A) = 1
+\]
+
+### Logical Relationships
 
 In box embeddings:
 - **Subsumption** = containment relationship (A ⊇ B means A subsumes B)
 - **Entailment** = if premise subsumes hypothesis, then premise entails hypothesis
-- **Hierarchical relationships** = parent concepts subsume child concepts
+- **Hierarchical relationships** = parent concepts subsume child concepts (hyponym-hypernym relationships)
 
-For example, if "animal" is represented by a box that contains the box for "dog", then "animal" subsumes "dog" — the more general concept contains the more specific one.
+### Example
+
+If "animal" is represented by a box that contains the box for "dog", then "animal" subsumes "dog" — the more general concept contains the more specific one. This directly models the logical subsumption relationship used in automated theorem proving and knowledge representation.
+
+### Mathematical Foundations
+
+For detailed mathematical formulations, see [`docs/MATHEMATICAL_FOUNDATIONS.md`](docs/MATHEMATICAL_FOUNDATIONS.md), which covers:
+- Volume calculation methods (hard, soft, Gumbel-box with Bessel approximation)
+- Containment and overlap probability formulas
+- Gumbel-Softmax framework and local identifiability solutions
+- Theoretical guarantees (expressiveness, closure properties, idempotency)
+- Training dynamics and optimization considerations
 
 ## Overview
 
@@ -72,11 +93,17 @@ fn main() -> Result<(), subsume_core::BoxError> {
 
 ## Research Background
 
-Based on:
-- Vilnis et al. (2018): "Probabilistic Embedding of Knowledge Graphs with Box Lattice Measures"
-- Lee et al. (2022): "Box Embeddings for Event-Event Relation Extraction" (BERE)
-- Messner et al. (2022): "Temporal Knowledge Graph Completion with Box Embeddings" (BoxTE)
-- Chen et al. (2021): "Uncertainty-Aware Knowledge Graph Embeddings" (UKGE)
+Based on foundational research in box embeddings:
+
+- **Vilnis et al. (2018)**: "Probabilistic Embedding of Knowledge Graphs with Box Lattice Measures" — Original probabilistic box embeddings framework
+- **Dasgupta et al. (2020)**: "Improving Local Identifiability in Probabilistic Box Embeddings" (NeurIPS) — Gumbel-box process solving gradient sparsity
+- **Li et al. (2019)**: "SmoothBox: Smoothing Box Embeddings for Better Training" — Gaussian convolution approach
+- **Boratko et al. (2020)**: "BoxE: A Box Embedding Model for Knowledge Base Completion" (NeurIPS) — Full expressiveness guarantees
+- **Lee et al. (2022)**: "Box Embeddings for Event-Event Relation Extraction" (BERE)
+- **Messner et al. (2022)**: "Temporal Knowledge Graph Completion with Box Embeddings" (BoxTE)
+- **Chen et al. (2021)**: "Uncertainty-Aware Knowledge Graph Embeddings" (UKGE)
+
+See [`docs/MATHEMATICAL_FOUNDATIONS.md`](docs/MATHEMATICAL_FOUNDATIONS.md) for detailed mathematical formulations and theoretical guarantees.
 
 ## Status
 
@@ -140,12 +167,13 @@ Based on:
   - Property tests for training utilities (7 new tests) for volume regularization, temperature scheduling, and loss functions
 - Benchmarks with `criterion`
 - Serialization support with `serde` (ndarray backend)
-- Examples for knowledge graphs, serialization, training utilities, training diagnostics, embedding quality assessment, advanced diagnostics, and deep diagnostics
+- Examples for knowledge graphs, serialization, training utilities, training diagnostics, embedding quality assessment, advanced diagnostics, deep diagnostics, complete training loops, and hierarchical classification
 
 ### Next Steps
 
 - ⏳ Resolve `candle-core` dependency issues (external, not our code - bf16/rand version conflict)
 - ✅ Add serialization for Candle backend (implemented in `candle_serialization.rs`)
-- ⏳ Consider center-offset representation as alternative to min-max
-- ⏳ Add more examples (hierarchical classification, complete training loops)
+- ✅ Add complete training loop example (integrates all diagnostics)
+- ✅ Add hierarchical classification example
+- 📄 Center-offset representation: Documented in `docs/CENTER_OFFSET_REPRESENTATION.md` (not yet implemented, considered for future if needed)
 
