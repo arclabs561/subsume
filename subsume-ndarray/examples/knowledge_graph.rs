@@ -131,6 +131,53 @@ fn main() -> Result<(), subsume_core::BoxError> {
         println!();
     }
     
+    // Demonstrate new geometric operations
+    println!("\nGeometric Operations:");
+    println!("====================");
+    
+    // Union: combine Dog and Cat into a single box
+    let dog_cat_union = dog2.union(&cat2)?;
+    println!("Union of Dog and Cat boxes:");
+    println!("  Min: [{:.2}, {:.2}, {:.2}]", dog_cat_union.min()[0], dog_cat_union.min()[1], dog_cat_union.min()[2]);
+    println!("  Max: [{:.2}, {:.2}, {:.2}]", dog_cat_union.max()[0], dog_cat_union.max()[1], dog_cat_union.max()[2]);
+    
+    // Center: get center point of Animal box
+    let animal_center = animal2.center()?;
+    println!("Center of Animal box: [{:.2}, {:.2}, {:.2}]", animal_center[0], animal_center[1], animal_center[2]);
+    
+    // Distance: measure distance between Dog and City (should be large)
+    let dog_city_dist = dog2.distance(&city2)?;
+    println!("Distance between Dog and City: {:.3}", dog_city_dist);
+    
+    // Overlap matrix: find which entities overlap
+    let overlap_matrix = entities.overlap_matrix(1.0)?;
+    println!("\nOverlap Matrix (row overlaps with column):");
+    println!("  Animal  Dog  Cat  Location  City");
+    for (i, row) in overlap_matrix.iter().enumerate() {
+        let names = ["Animal", "Dog", "Cat", "Location", "City"];
+        print!("{}", names[i]);
+        for prob in row {
+            print!("  {:.2}", prob);
+        }
+        println!();
+    }
+    
+    // Find overlapping entities
+    let overlapping_dog = entities.overlapping_boxes(&dog2, 0.1, 1.0)?;
+    println!("\nEntities overlapping with Dog: {:?}", overlapping_dog);
+    
+    // Find nearest entities
+    let nearest_to_dog = entities.nearest_boxes(&dog2, 3)?;
+    println!("3 nearest entities to Dog: {:?}", nearest_to_dog);
+    
+    // Compute bounding box of all entities
+    let bbox = entities.bounding_box()?;
+    println!("\nBounding box of all entities:");
+    println!("  Min: [{:.2}, {:.2}, {:.2}]", bbox.min()[0], bbox.min()[1], bbox.min()[2]);
+    println!("  Max: [{:.2}, {:.2}, {:.2}]", bbox.max()[0], bbox.max()[1], bbox.max()[2]);
+    let bbox_vol = bbox.volume(1.0)?;
+    println!("  Volume: {:.3}", bbox_vol);
+    
     Ok(())
 }
 

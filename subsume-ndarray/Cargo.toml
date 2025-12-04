@@ -32,6 +32,10 @@ path = "examples/knowledge_graph.rs"
 name = "serialization"
 path = "examples/serialization.rs"
 
+[[example]]
+name = "geometric_operations"
+path = "examples/geometric_operations.rs"
+
 [[bench]]
 name = "box_operations"
 harness = false

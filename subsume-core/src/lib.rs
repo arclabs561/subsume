@@ -48,6 +48,7 @@ pub mod box_trait;
 pub mod gumbel;
 pub mod embedding;
 pub mod utils;
+pub mod training;
 
 pub use box_trait::{Box, BoxError};
 pub use gumbel::GumbelBox;
@@ -60,5 +61,9 @@ pub use utils::{
     log_space_volume, volume_regularization,
     temperature_scheduler, volume_containment_loss,
     volume_overlap_loss,
+};
+pub use training::{
+    metrics::{mean_reciprocal_rank, hits_at_k, mean_rank, ndcg},
+    diagnostics::{TrainingStats, LossComponents},
 };
 

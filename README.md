@@ -22,6 +22,8 @@ This workspace contains three crates:
 - **Overlap probability**: Compute P(A ∩ B ≠ ∅) for entity resolution
 - **Batch operations**: `BoxCollection` for efficient batch queries and containment matrices
 - **Training utilities**: Log-space volume computation, volume regularization, temperature scheduling, and loss functions
+- **Training quality metrics**: MRR, Hits@K, Mean Rank, nDCG for evaluating embedding quality
+- **Training diagnostics**: Convergence detection, gradient monitoring, volume tracking, loss component analysis
 - **Property-based testing**: Property tests using `proptest` to verify mathematical invariants
 - **Performance benchmarks**: Benchmarks with `criterion` across multiple dimensions
 - **Serialization**: `serde` support for model persistence (JSON, bincode, etc.)
@@ -75,14 +77,18 @@ Based on:
   - Volume regularization to prevent boxes from becoming too large or small
   - Temperature scheduler for annealing during training (exponential decay)
   - Volume-based loss functions for containment and overlap relationships
-- **Comprehensive test suite**: 77+ tests including:
+- **Geometric operations**: Union, center, distance calculations
+- **Batch operations**: Overlap matrix, overlapping boxes queries, k-nearest neighbors, bounding box computation
+- **Comprehensive test suite**: 108 tests including:
   - Unit tests (22 tests) covering basic functionality
   - Property-based tests (10+ tests) using proptest
   - Mathematical invariant tests (30+ tests) verifying set theory, probability theory, and geometric properties
   - Edge case tests (15+ tests) for error conditions and boundary cases
+  - Matrix e2e tests (15 tests) for batch operations
+  - Enriched methods tests (16 tests) for new geometric operations
 - Benchmarks with `criterion`
 - Serialization support with `serde` (ndarray backend)
-- Examples for knowledge graphs, serialization, and training utilities
+- Examples for knowledge graphs, serialization, training utilities, and training diagnostics
 
 ### Next Steps
 
