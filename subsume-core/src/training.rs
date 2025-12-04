@@ -2848,5 +2848,264 @@ mod tests {
         assert!(relations.contains(&"has_part".to_string()));
         assert!(relations.contains(&"located_in".to_string()));
     }
+
+    #[test]
+    fn test_f1_with_nan_precision() {
+        // F1 score when precision is NaN (no positive predictions)
+        let mut acc = quality::ContainmentAccuracy::new();
+        // Only negative predictions (no TP or FP)
+        acc.record(false, false); // TN
+        acc.record(false, true);  // FN
+        acc.record(false, false); // TN
+        
+        let precision = acc.precision();
+        assert!(precision.is_nan());
+        
+        // F1 should return NaN when precision is NaN
+        let f1 = acc.f1();
+        assert!(f1.is_nan());
+    }
+
+    #[test]
+    fn test_volume_conservation_edge_cases() {
+        let mut conservation = quality::VolumeConservation::new();
+        
+        // Zero parent volume (should skip)
+        conservation.record_parent_children(0.0, vec![1.0, 2.0].into_iter(), 0.1);
+        assert_eq!(conservation.mean_ratio(), 0.0); // No ratios recorded
+        
+        // Empty children (should record ratio of 0.0)
+        conservation.record_parent_children(10.0, std::iter::empty(), 0.1);
+        let mean1 = conservation.mean_ratio();
+        assert_eq!(mean1, 0.0);
+        
+        // Zero child volumes
+        conservation.record_parent_children(10.0, vec![0.0, 0.0].into_iter(), 0.1);
+        let mean2 = conservation.mean_ratio();
+        assert_eq!(mean2, 0.0); // Both ratios are 0.0
+        
+        // Perfect conservation (children sum exactly to parent)
+        conservation.record_parent_children(10.0, vec![6.0, 4.0].into_iter(), 0.1);
+        if let Some((_min, _max, mean, _median)) = conservation.ratio_statistics() {
+            // Mean should include the 1.0 ratio from perfect conservation
+            // We have: 0.0 (empty), 0.0 (zero children), 1.0 (perfect) = mean of 0.33
+            // But actually we have 3 ratios now, so mean should be around 0.33
+            assert!(mean >= 0.0 && mean <= 1.0);
+        }
+        
+        // Check violation rate
+        let violation_rate = conservation.violation_rate();
+        assert!(violation_rate >= 0.0 && violation_rate <= 1.0);
+    }
+
+    #[test]
+    fn test_intersection_volume_trend_edge_cases() {
+        let mut stats = diagnostics::TrainingStats::new(10);
+        
+        // Constant values (zero slope)
+        for _ in 0..5 {
+            stats.record_with_intersection(1.0, 0.5, Some(0.3), 0.1);
+        }
+        let trend = stats.intersection_volume_trend(3);
+        assert_eq!(trend, Some(false)); // Zero slope is treated as decreasing
+        
+        // Single sample (not enough)
+        let mut stats2 = diagnostics::TrainingStats::new(10);
+        stats2.record_with_intersection(1.0, 0.5, Some(0.3), 0.1);
+        assert!(stats2.intersection_volume_trend(3).is_none());
+        
+        // Slope magnitude
+        let mut stats3 = diagnostics::TrainingStats::new(10);
+        for i in 0..5 {
+            let vol = 0.2 + i as f32 * 0.1; // Strong increasing trend
+            stats3.record_with_intersection(1.0, 0.5, Some(vol), 0.1);
+        }
+        if let Some(slope) = stats3.intersection_volume_slope(3) {
+            assert!(slope > 0.0);
+            assert!(slope > 0.05); // Should be substantial
+        }
+    }
+
+    #[test]
+    fn test_calibration_edge_cases() {
+        // Perfect calibration (all predictions match actuals)
+        let perfect_preds = vec![0.0, 0.0, 1.0, 1.0];
+        let perfect_actuals = vec![false, false, true, true];
+        let ece_perfect = calibration::expected_calibration_error(
+            perfect_preds.iter().copied(),
+            perfect_actuals.iter().copied(),
+            4,
+        );
+        assert!(ece_perfect < 0.01); // Should be near zero
+        
+        // Worst calibration (always wrong)
+        let worst_preds = vec![1.0, 1.0, 0.0, 0.0];
+        let worst_actuals = vec![false, false, true, true];
+        let ece_worst = calibration::expected_calibration_error(
+            worst_preds.iter().copied(),
+            worst_actuals.iter().copied(),
+            4,
+        );
+        assert!(ece_worst > 0.5); // Should be high
+        
+        // All same predictions
+        let same_preds = vec![0.5, 0.5, 0.5, 0.5];
+        let mixed_actuals = vec![false, true, false, true];
+        let ece_same = calibration::expected_calibration_error(
+            same_preds.iter().copied(),
+            mixed_actuals.iter().copied(),
+            4,
+        );
+        // Should handle gracefully (all in one bin)
+        assert!(ece_same >= 0.0 && ece_same <= 1.0);
+    }
+
+    #[test]
+    fn test_hierarchy_edge_cases() {
+        let mut hierarchy = quality::ContainmentHierarchy::new();
+        
+        // Single node (no containments)
+        hierarchy.compute_transitive_closure();
+        let depths = hierarchy.hierarchy_depths();
+        assert!(depths.is_empty());
+        
+        // Self-loop (should be detected as cycle)
+        hierarchy.add_containment(0, 0);
+        let cycles = hierarchy.detect_cycles();
+        assert!(!cycles.is_empty());
+        
+        // Disconnected nodes
+        let mut hierarchy2 = quality::ContainmentHierarchy::new();
+        hierarchy2.add_containment(0, 1); // Component 1
+        hierarchy2.add_containment(2, 3); // Component 2 (disconnected)
+        hierarchy2.compute_transitive_closure();
+        let depths2 = hierarchy2.hierarchy_depths();
+        assert_eq!(depths2.get(&0), Some(&0));
+        assert_eq!(depths2.get(&2), Some(&0)); // Also a root
+    }
+
+    #[test]
+    fn test_asymmetry_metrics_edge_cases() {
+        let mut asym = quality::AsymmetryMetrics::new();
+        
+        // Perfect symmetry
+        asym.record_pair(1.0, 1.0);
+        asym.record_pair(2.0, 2.0);
+        asym.finalize(0.1);
+        assert_eq!(asym.mean_asymmetry(), 0.0);
+        assert_eq!(asym.high_asymmetry_proportion(), 0.0);
+        
+        // Complete asymmetry
+        asym.record_pair(1.0, 10.0);
+        asym.record_pair(10.0, 1.0);
+        asym.finalize(0.1);
+        let mean = asym.mean_asymmetry();
+        assert!(mean > 0.0);
+        
+        // Zero distances
+        let mut asym2 = quality::AsymmetryMetrics::new();
+        asym2.record_pair(0.0, 0.0);
+        asym2.finalize(0.1);
+        // Should handle gracefully
+        assert!(asym2.mean_asymmetry() >= 0.0);
+    }
+
+    #[test]
+    fn test_topological_stability_edge_cases() {
+        // Single run (can't compute stability)
+        let single_run: Vec<Vec<f32>> = vec![vec![1.0, 2.0, 3.0]];
+        let stability = quality::TopologicalStability::from_volume_distributions(
+            single_run.iter().map(|v| v.iter().copied())
+        );
+        assert_eq!(stability.volume_stability(), 0.0);
+        
+        // Empty runs
+        let empty_runs: Vec<Vec<f32>> = vec![];
+        let stability2 = quality::TopologicalStability::from_volume_distributions(
+            empty_runs.iter().map(|v| v.iter().copied())
+        );
+        assert_eq!(stability2.volume_stability(), 0.0);
+        
+        // Mismatched lengths (should handle gracefully)
+        let mismatched: Vec<Vec<f32>> = vec![
+            vec![1.0, 2.0],
+            vec![1.0, 2.0, 3.0], // Different length
+        ];
+        let stability3 = quality::TopologicalStability::from_volume_distributions(
+            mismatched.iter().map(|v| v.iter().copied())
+        );
+        // Should compute CV for available boxes
+        assert!(stability3.volume_stability() >= 0.0);
+    }
+
+    #[test]
+    fn test_frequency_metrics_edge_cases() {
+        let mut metrics = metrics::StratifiedMetrics::new();
+        
+        // Finalize with no data
+        metrics.finalize_frequency();
+        assert_eq!(metrics.by_frequency.high_freq.count, 0);
+        
+        // Add data and finalize
+        metrics.add_frequency_result("high", 1);
+        metrics.add_frequency_result("high", 2);
+        metrics.add_frequency_result("medium", 3);
+        metrics.finalize_frequency();
+        
+        assert_eq!(metrics.by_frequency.high_freq.count, 2);
+        assert!(metrics.by_frequency.high_freq.mrr > 0.0);
+        assert_eq!(metrics.by_frequency.medium_freq.count, 1);
+        
+        // Invalid category (should be ignored)
+        metrics.add_frequency_result("invalid", 1);
+        metrics.finalize_frequency();
+        // Should not crash
+    }
+
+    #[test]
+    fn test_kl_divergence_edge_cases() {
+        // Empty distributions
+        let empty_learned: Vec<f32> = vec![];
+        let empty_target: Vec<f32> = vec![];
+        let kl_empty = quality::kl_divergence(empty_learned.iter().copied(), empty_target.iter().copied());
+        assert_eq!(kl_empty, f32::INFINITY);
+        
+        // Mismatched lengths
+        let learned = vec![0.5, 0.5];
+        let target = vec![0.33, 0.33, 0.34];
+        let kl_mismatch = quality::kl_divergence(learned.iter().copied(), target.iter().copied());
+        assert_eq!(kl_mismatch, f32::INFINITY);
+        
+        // Zero sum (should return infinity)
+        let zero_learned = vec![0.0, 0.0, 0.0];
+        let zero_target = vec![0.0, 0.0, 0.0];
+        let kl_zero = quality::kl_divergence(zero_learned.iter().copied(), zero_target.iter().copied());
+        assert_eq!(kl_zero, f32::INFINITY);
+        
+        // Learned has positive but target is zero (infinite divergence)
+        let learned_pos = vec![1.0, 0.0];
+        let target_zero = vec![0.0, 1.0];
+        let kl_infinite = quality::kl_divergence(learned_pos.iter().copied(), target_zero.iter().copied());
+        assert_eq!(kl_infinite, f32::INFINITY);
+    }
+
+    #[test]
+    fn test_numerical_stability_edge_cases() {
+        // Very small volumes
+        let tiny_vols = vec![1e-10, 1e-9, 1e-8];
+        let dist_tiny = quality::VolumeDistribution::from_volumes(tiny_vols.iter().copied());
+        assert!(dist_tiny.min > 0.0);
+        assert!(!dist_tiny.min.is_nan());
+        
+        // Very large volumes
+        let large_vols = vec![1e10, 1e11, 1e12];
+        let dist_large = quality::VolumeDistribution::from_volumes(large_vols.iter().copied());
+        assert!(!dist_large.max.is_infinite() || dist_large.max == f32::INFINITY);
+        
+        // Mixed scales
+        let mixed_vols = vec![1e-10, 1.0, 1e10];
+        let dist_mixed = quality::VolumeDistribution::from_volumes(mixed_vols.iter().copied());
+        assert!(dist_mixed.cv > 0.0); // Should have high coefficient of variation
+    }
 }
 

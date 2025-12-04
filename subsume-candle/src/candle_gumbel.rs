@@ -1,6 +1,7 @@
 //! Candle implementation of GumbelBox trait.
 
 use candle_core::Tensor;
+use serde::{Deserialize, Serialize};
 use subsume_core::{Box, BoxError, GumbelBox, gumbel_membership_prob, sample_gumbel, map_gumbel_to_bounds};
 use crate::candle_box::CandleBox;
 
@@ -158,6 +159,26 @@ impl GumbelBox for CandleGumbelBox {
                 panic!("Failed to create sample tensor: original error: {}, fallback also failed", e)
             })
         })
+    }
+}
+
+impl Serialize for CandleGumbelBox {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        // Delegate to inner CandleBox serialization
+        self.inner.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for CandleGumbelBox {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let inner = CandleBox::deserialize(deserializer)?;
+        Ok(Self { inner })
     }
 }
 

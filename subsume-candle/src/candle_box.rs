@@ -1,6 +1,7 @@
 //! Candle implementation of Box trait.
 
 use candle_core::Tensor;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use subsume_core::{Box, BoxError};
 
 /// A box embedding implemented using `candle_core::Tensor`.
@@ -203,6 +204,106 @@ impl Box for CandleBox {
         }
         
         Ok(dist_sq.sqrt())
+    }
+}
+
+impl Serialize for CandleBox {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("CandleBox", 3)?;
+        
+        // Convert tensors to Vec<f32> for serialization
+        let min_vec = self.min.to_vec1::<f32>()
+            .map_err(|e| serde::ser::Error::custom(format!("Failed to serialize min tensor: {}", e)))?;
+        let max_vec = self.max.to_vec1::<f32>()
+            .map_err(|e| serde::ser::Error::custom(format!("Failed to serialize max tensor: {}", e)))?;
+        
+        state.serialize_field("min", &min_vec)?;
+        state.serialize_field("max", &max_vec)?;
+        state.serialize_field("temperature", &self.temperature)?;
+        state.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for CandleBox {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        use serde::de::{self, MapAccess, Visitor};
+        use std::fmt;
+
+        #[derive(Deserialize)]
+        #[serde(field_identifier, rename_all = "lowercase")]
+        enum Field {
+            Min,
+            Max,
+            Temperature,
+        }
+
+        struct CandleBoxVisitor;
+
+        impl<'de> Visitor<'de> for CandleBoxVisitor {
+            type Value = CandleBox;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct CandleBox")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<CandleBox, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                let mut min_vec: Option<Vec<f32>> = None;
+                let mut max_vec: Option<Vec<f32>> = None;
+                let mut temperature: Option<f32> = None;
+
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::Min => {
+                            if min_vec.is_some() {
+                                return Err(de::Error::duplicate_field("min"));
+                            }
+                            min_vec = Some(map.next_value()?);
+                        }
+                        Field::Max => {
+                            if max_vec.is_some() {
+                                return Err(de::Error::duplicate_field("max"));
+                            }
+                            max_vec = Some(map.next_value()?);
+                        }
+                        Field::Temperature => {
+                            if temperature.is_some() {
+                                return Err(de::Error::duplicate_field("temperature"));
+                            }
+                            temperature = Some(map.next_value()?);
+                        }
+                    }
+                }
+
+                let min_vec = min_vec.ok_or_else(|| de::Error::missing_field("min"))?;
+                let max_vec = max_vec.ok_or_else(|| de::Error::missing_field("max"))?;
+                let temperature = temperature.unwrap_or(1.0);
+
+                // Reconstruct tensors from vectors
+                // Note: We use CPU device by default during deserialization
+                // Users can move tensors to GPU after deserialization if needed
+                let device = candle_core::Device::Cpu;
+                let min_tensor = Tensor::new(&min_vec[..], &device)
+                    .map_err(|e| de::Error::custom(format!("Failed to create min tensor: {}", e)))?;
+                let max_tensor = Tensor::new(&max_vec[..], &device)
+                    .map_err(|e| de::Error::custom(format!("Failed to create max tensor: {}", e)))?;
+
+                CandleBox::new(min_tensor, max_tensor, temperature)
+                    .map_err(|e| de::Error::custom(format!("Failed to create CandleBox: {}", e)))
+            }
+        }
+
+        const FIELDS: &[&str] = &["min", "max", "temperature"];
+        deserializer.deserialize_struct("CandleBox", FIELDS, CandleBoxVisitor)
     }
 }
 
