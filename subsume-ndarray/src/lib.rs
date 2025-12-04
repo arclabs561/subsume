@@ -32,6 +32,12 @@ pub use ndarray_gumbel::NdarrayGumbelBox;
 mod proptest_tests;
 
 #[cfg(test)]
+mod invariant_tests;
+
+#[cfg(test)]
+mod edge_case_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use ndarray::array;

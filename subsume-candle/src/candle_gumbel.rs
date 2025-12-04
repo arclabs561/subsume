@@ -110,38 +110,28 @@ impl GumbelBox for CandleGumbelBox {
     fn sample(&self) -> Self::Vector {
         use candle_core::{Tensor, Device};
         
-        // Sample from Gumbel-Softmax distribution
-        // Since rand compatibility is an issue, we use a simple linear congruential generator
-        // for pseudo-random sampling within box bounds
+        // Use LCG for pseudo-random sampling to avoid rand dependency conflicts.
+        // Note: LCG has known limitations but is sufficient for non-cryptographic use.
         let device = self.min().device();
         let dim = self.dim();
         
         let min_data = self.min().to_vec1::<f32>().unwrap_or_default();
         let max_data = self.max().to_vec1::<f32>().unwrap_or_default();
         
-        // Simple LCG for pseudo-random sampling (seeded with current time)
-        // This provides non-deterministic sampling without external rand dependency
         let mut seed = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos() as u64;
         
-        // LCG parameters (same as used in many standard libraries)
         const A: u64 = 1664525;
         const C: u64 = 1013904223;
         const M: u64 = 1u64 << 32;
         
         let mut samples: Vec<f32> = Vec::with_capacity(dim);
         for i in 0..dim {
-            // Generate next random number
             seed = (A.wrapping_mul(seed).wrapping_add(C)) % M;
-            // Normalize to [0, 1)
             let u = (seed as f32) / (M as f32);
-            
-            // Sample from Gumbel distribution with numerical stability
             let gumbel = sample_gumbel(u, 1e-7);
-            
-            // Map Gumbel sample to box bounds using temperature-scaled transformation
             let value = map_gumbel_to_bounds(
                 gumbel,
                 min_data[i],

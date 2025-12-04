@@ -116,33 +116,26 @@ impl GumbelBox for NdarrayGumbelBox {
     fn sample(&self) -> Self::Vector {
         use ndarray::Array1;
         
-        // Sample from Gumbel-Softmax distribution using LCG (no external rand dependency)
+        // Use LCG for pseudo-random sampling to avoid rand dependency conflicts.
+        // Note: LCG has known limitations (correlation, period) but is sufficient
+        // for non-cryptographic sampling in embeddings.
         let temp = self.temperature();
         let dim = self.dim();
         
-        // Simple LCG for pseudo-random sampling (seeded with current time)
-        // This provides non-deterministic sampling without external rand dependency
         let mut seed = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos() as u64;
         
-        // LCG parameters (same as used in many standard libraries)
         const A: u64 = 1664525;
         const C: u64 = 1013904223;
         const M: u64 = 1u64 << 32;
         
         let mut sampled = Vec::with_capacity(dim);
         for i in 0..dim {
-            // Generate next random number
             seed = (A.wrapping_mul(seed).wrapping_add(C)) % M;
-            // Normalize to [0, 1)
             let u = (seed as f32) / (M as f32);
-            
-            // Sample from Gumbel distribution with numerical stability
             let gumbel = sample_gumbel(u, 1e-7);
-            
-            // Map Gumbel sample to box bounds using temperature-scaled transformation
             let value = map_gumbel_to_bounds(
                 gumbel,
                 self.min()[i],

@@ -86,7 +86,7 @@ pub trait Box: Sized {
     /// Returns `BoxError::DimensionMismatch` if boxes have different dimensions.
     fn containment_prob(&self, other: &Self, temperature: Self::Scalar) -> Result<Self::Scalar, BoxError>;
 
-    /// Compute the probability that two boxes overlap (mutual containment).
+    /// Compute the probability that two boxes overlap (non-empty intersection).
     ///
     /// P(self ∩ other ≠ ∅) = intersection_volume / union_volume
     ///

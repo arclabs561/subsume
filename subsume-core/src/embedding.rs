@@ -66,7 +66,7 @@ pub trait BoxEmbedding<B: Box> {
 /// A simple collection of boxes implemented as a vector.
 ///
 /// This is a basic implementation of `BoxEmbedding` that stores boxes in a `Vec`.
-/// For production use, consider implementing more efficient data structures
+/// For large-scale use, consider implementing more efficient data structures
 /// (e.g., spatial indexes, hierarchical clustering).
 ///
 /// # Example

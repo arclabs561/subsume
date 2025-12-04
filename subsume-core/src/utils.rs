@@ -2,9 +2,8 @@
 
 /// Clamp temperature to a safe range to avoid numerical instability.
 ///
-/// Research shows that very low temperatures cause vanishing gradients and
-/// exponential underflow, while very high temperatures lose correspondence
-/// to discrete distributions.
+/// Very low temperatures can cause vanishing gradients and exponential underflow,
+/// while very high temperatures lose correspondence to discrete distributions.
 ///
 /// # Parameters
 ///
@@ -110,7 +109,6 @@ pub fn map_gumbel_to_bounds(gumbel: f32, min: f32, max: f32, temp: f32) -> f32 {
     let normalized = (gumbel / temp_safe).tanh();
     let t = (normalized + 1.0) / 2.0;
     
-    // Clamp to ensure we stay within bounds (defensive programming)
     min + (max - min) * t.clamp(0.0, 1.0)
 }
 

@@ -21,15 +21,16 @@ This workspace contains three crates:
 - **Containment operations**: Compute P(A ⊆ B) for entailment/hierarchical reasoning
 - **Overlap probability**: Compute P(A ∩ B ≠ ∅) for entity resolution
 - **Batch operations**: `BoxCollection` for efficient batch queries and containment matrices
-- **Property-based testing**: Comprehensive property tests using `proptest` to verify mathematical invariants
-- **Performance benchmarks**: Detailed benchmarks with `criterion` across multiple dimensions
-- **Serialization**: Full `serde` support for model persistence (JSON, bincode, etc.)
+- **Property-based testing**: Property tests using `proptest` to verify mathematical invariants
+- **Performance benchmarks**: Benchmarks with `criterion` across multiple dimensions
+- **Serialization**: `serde` support for model persistence (JSON, bincode, etc.)
 
 ## Example
 
 ```rust
 use subsume_ndarray::NdarrayBox;
 use subsume_core::Box;
+use ndarray::array;
 
 let premise = NdarrayBox::new(
     array![0.0, 0.0, 0.0],
@@ -58,30 +59,25 @@ Based on:
 
 ## Status
 
-✅ **Core functionality complete** - Traits and implementations are working.
+✅ **Core traits and ndarray implementation working** - Basic functionality is implemented and tested.
 
-### Recent Updates
+### Current Features
 
-- ✅ Implemented Gumbel-Softmax sampling using LCG (Linear Congruential Generator)
-- ✅ Non-deterministic sampling without external `rand` dependency (removed from ndarray)
-- ✅ Gumbel-Softmax membership probability calculation with numerical stability
-- ✅ Fixed `overlap_prob` implementation (proper inclusion-exclusion formula)
-- ✅ Added error conversion for Candle backend
-- ✅ Removed redundant device field from CandleBox
-- ✅ Added comprehensive unit tests (32 tests covering edge cases)
-- ✅ Added runnable examples for both backends
-- ✅ Implemented `BoxEmbedding` trait with `BoxCollection` for batch operations
-- ✅ Documented all error variant fields
-- ✅ Fixed intersection handling for disjoint boxes
-- ✅ Added numerical stability utilities for temperature handling and Gumbel-Softmax
-- ✅ **Property-based testing** with `proptest` (10+ property tests covering mathematical invariants)
-- ✅ **Performance benchmarks** with `criterion` (6 benchmark suites across multiple dimensions)
-- ✅ **Serialization support** with `serde` (JSON and other formats for model persistence)
+- Gumbel-Softmax sampling (using LCG to avoid `rand` dependency conflicts)
+- Numerical stability utilities for temperature and sigmoid operations
+- **Comprehensive test suite**: 77+ tests including:
+  - Unit tests (22 tests) covering basic functionality
+  - Property-based tests (10+ tests) using proptest
+  - Mathematical invariant tests (30+ tests) verifying set theory, probability theory, and geometric properties
+  - Edge case tests (15+ tests) for error conditions and boundary cases
+- Benchmarks with `criterion`
+- Serialization support with `serde` (ndarray backend)
+- Examples for knowledge graphs and serialization
 
 ### Next Steps
 
 - ⏳ Resolve `candle-core` dependency issues (external, not our code - bf16/rand version conflict)
 - ⏳ Add serialization for Candle backend
 - ⏳ Consider center-offset representation as alternative to min-max
-- ⏳ Add more comprehensive examples (knowledge graphs, hierarchical classification)
+- ⏳ Add more examples (hierarchical classification, training loops)
 
