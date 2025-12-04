@@ -86,6 +86,8 @@ Based on:
   - **Advanced training diagnostics**: 
     - Per-parameter gradient flow analysis (center vs size, min vs max coordinates)
     - **Depth-stratified gradient flow**: Track gradients by hierarchy depth to detect uneven learning
+    - **Relation-stratified training stats**: Track convergence separately for each relation type in knowledge graphs
+    - **Intersection volume tracking**: Monitor how containment relationships evolve during training
     - **Training phase detection**: Automatically identify exploration, exploitation, convergence, and instability phases
     - Gradient sparsity tracking and imbalance detection
     - Convergence detection, gradient explosion/vanishing, volume collapse
