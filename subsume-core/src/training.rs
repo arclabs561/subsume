@@ -139,6 +139,45 @@ pub mod metrics {
                 }
             }
         }
+
+        /// Add frequency-stratified result.
+        ///
+        /// # Parameters
+        ///
+        /// - `frequency_category`: "high", "medium", or "low"
+        /// - `rank`: Rank of the correct answer (1-indexed, 0 if not found)
+        pub fn add_frequency_result(&mut self, frequency_category: &str, rank: usize) {
+            let stratum = match frequency_category {
+                "high" => &mut self.by_frequency.high_freq,
+                "medium" => &mut self.by_frequency.medium_freq,
+                "low" => &mut self.by_frequency.low_freq,
+                _ => return, // Invalid category, ignore
+            };
+            
+            stratum.count += 1;
+            if rank > 0 {
+                stratum.mrr += 1.0 / rank as f32;
+                if rank <= 10 {
+                    stratum.hits_10 += 1.0;
+                }
+            }
+        }
+
+        /// Finalize frequency metrics (compute averages).
+        pub fn finalize_frequency(&mut self) {
+            if self.by_frequency.high_freq.count > 0 {
+                self.by_frequency.high_freq.mrr /= self.by_frequency.high_freq.count as f32;
+                self.by_frequency.high_freq.hits_10 /= self.by_frequency.high_freq.count as f32;
+            }
+            if self.by_frequency.medium_freq.count > 0 {
+                self.by_frequency.medium_freq.mrr /= self.by_frequency.medium_freq.count as f32;
+                self.by_frequency.medium_freq.hits_10 /= self.by_frequency.medium_freq.count as f32;
+            }
+            if self.by_frequency.low_freq.count > 0 {
+                self.by_frequency.low_freq.mrr /= self.by_frequency.low_freq.count as f32;
+                self.by_frequency.low_freq.hits_10 /= self.by_frequency.low_freq.count as f32;
+            }
+        }
     }
 
     impl Default for StratifiedMetrics {
@@ -462,6 +501,9 @@ pub mod diagnostics {
         ///
         /// `true` if volumes have collapsed
         pub fn is_volume_collapsed(&self, min_volume: f32) -> bool {
+            if self.volumes.is_empty() {
+                return false; // Can't determine collapse without data
+            }
             self.volumes.iter().all(|&vol| vol < min_volume)
         }
 
@@ -560,6 +602,43 @@ pub mod diagnostics {
             
             // Positive slope indicates increasing intersection volumes
             Some(slope > 0.0)
+        }
+
+        /// Get intersection volume trend magnitude (slope).
+        ///
+        /// Returns the actual slope value, not just direction.
+        /// Positive values indicate increasing volumes, negative indicate decreasing.
+        pub fn intersection_volume_slope(&self, min_samples: usize) -> Option<f32> {
+            if self.intersection_volumes.len() < min_samples {
+                return None;
+            }
+            
+            let n = self.intersection_volumes.len() as f32;
+            let sum_x: f32 = (0..self.intersection_volumes.len()).map(|i| i as f32).sum();
+            let sum_y: f32 = self.intersection_volumes.iter().sum();
+            let sum_xy: f32 = self.intersection_volumes.iter()
+                .enumerate()
+                .map(|(i, &y)| i as f32 * y)
+                .sum();
+            let sum_x2: f32 = (0..self.intersection_volumes.len())
+                .map(|i| (i as f32).powi(2))
+                .sum();
+            
+            let denominator = n * sum_x2 - sum_x * sum_x;
+            if denominator.abs() < 1e-6 {
+                return None;
+            }
+            
+            let slope = (n * sum_xy - sum_x * sum_y) / denominator;
+            Some(slope)
+        }
+
+        /// Clear all recorded statistics (reset to empty state).
+        pub fn clear(&mut self) {
+            self.losses.clear();
+            self.volumes.clear();
+            self.intersection_volumes.clear();
+            self.gradient_norms.clear();
         }
     }
 
@@ -882,6 +961,137 @@ pub mod diagnostics {
         }
     }
 
+    /// Relation-stratified training statistics for tracking convergence per relation type.
+    ///
+    /// Different relation types in knowledge graphs may converge at different rates.
+    /// This tracks training statistics separately for each relation, allowing detection
+    /// of relation-specific convergence issues.
+    #[derive(Debug, Clone)]
+    pub struct RelationStratifiedTrainingStats {
+        /// Training stats per relation type
+        stats_by_relation: std::collections::HashMap<String, TrainingStats>,
+        /// Window size for statistics
+        window_size: usize,
+    }
+
+    impl RelationStratifiedTrainingStats {
+        /// Create new relation-stratified training stats tracker.
+        pub fn new(window_size: usize) -> Self {
+            Self {
+                stats_by_relation: std::collections::HashMap::new(),
+                window_size,
+            }
+        }
+
+        /// Record training step for a specific relation.
+        pub fn record(
+            &mut self,
+            relation: &str,
+            loss: f32,
+            avg_volume: f32,
+            gradient_norm: f32,
+        ) {
+            let stats = self.stats_by_relation
+                .entry(relation.to_string())
+                .or_insert_with(|| TrainingStats::new(self.window_size));
+            
+            stats.record(loss, avg_volume, gradient_norm);
+        }
+
+        /// Record training step with intersection volume for a specific relation.
+        pub fn record_with_intersection(
+            &mut self,
+            relation: &str,
+            loss: f32,
+            avg_volume: f32,
+            avg_intersection_volume: Option<f32>,
+            gradient_norm: f32,
+        ) {
+            let stats = self.stats_by_relation
+                .entry(relation.to_string())
+                .or_insert_with(|| TrainingStats::new(self.window_size));
+            
+            stats.record_with_intersection(loss, avg_volume, avg_intersection_volume, gradient_norm);
+        }
+
+        /// Check if a specific relation has converged.
+        pub fn is_relation_converged(
+            &self,
+            relation: &str,
+            tolerance: f32,
+            min_iterations: usize,
+        ) -> bool {
+            self.stats_by_relation
+                .get(relation)
+                .map(|stats| stats.is_converged(tolerance, min_iterations))
+                .unwrap_or(false)
+        }
+
+        /// Get all relations that have converged.
+        pub fn converged_relations(
+            &self,
+            tolerance: f32,
+            min_iterations: usize,
+        ) -> Vec<String> {
+            self.stats_by_relation
+                .iter()
+                .filter_map(|(relation, stats)| {
+                    if stats.is_converged(tolerance, min_iterations) {
+                        Some(relation.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        }
+
+        /// Get all relations that have not converged.
+        pub fn unconverged_relations(
+            &self,
+            tolerance: f32,
+            min_iterations: usize,
+        ) -> Vec<String> {
+            self.stats_by_relation
+                .iter()
+                .filter_map(|(relation, stats)| {
+                    if !stats.is_converged(tolerance, min_iterations) {
+                        Some(relation.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        }
+
+        /// Get training stats for a specific relation.
+        pub fn get_relation_stats(&self, relation: &str) -> Option<&TrainingStats> {
+            self.stats_by_relation.get(relation)
+        }
+
+        /// Get all relation names being tracked.
+        pub fn relations(&self) -> Vec<String> {
+            self.stats_by_relation.keys().cloned().collect()
+        }
+
+        /// Get convergence rate (proportion of relations that have converged).
+        pub fn convergence_rate(
+            &self,
+            tolerance: f32,
+            min_iterations: usize,
+        ) -> f32 {
+            if self.stats_by_relation.is_empty() {
+                return 0.0;
+            }
+
+            let converged_count = self.stats_by_relation
+                .values()
+                .filter(|stats| stats.is_converged(tolerance, min_iterations))
+                .count();
+
+            converged_count as f32 / self.stats_by_relation.len() as f32
+        }
+    }
+
     /// Loss component breakdown for multi-component loss functions.
     ///
     /// Box embedding training often uses multiple loss components (containment loss,
@@ -1111,7 +1321,7 @@ pub mod quality {
         pub fn precision(&self) -> f32 {
             let total_positive = self.true_positives + self.false_positives;
             if total_positive == 0 {
-                0.0
+                f32::NAN // Precision is undefined when there are no positive predictions
             } else {
                 self.true_positives as f32 / total_positive as f32
             }
@@ -2460,6 +2670,178 @@ mod tests {
         if let Some(ratio) = metrics.generalization_ratio() {
             assert!(ratio > 1.0); // Good generalization
         }
+    }
+
+    #[test]
+    fn test_intersection_volume_stats() {
+        let mut stats = diagnostics::TrainingStats::new(10);
+        
+        // Record without intersection volumes
+        stats.record(1.0, 0.5, 0.1);
+        assert!(stats.intersection_volume_stats().is_none());
+        
+        // Record with intersection volumes
+        stats.record_with_intersection(1.0, 0.5, Some(0.2), 0.1);
+        stats.record_with_intersection(0.9, 0.6, Some(0.25), 0.08);
+        stats.record_with_intersection(0.8, 0.7, Some(0.3), 0.06);
+        
+        if let Some((mean, min, max)) = stats.intersection_volume_stats() {
+            assert!(mean > 0.0);
+            assert!(min <= mean && mean <= max);
+            assert!((mean - 0.25).abs() < 0.1); // Should be around 0.25
+        }
+    }
+
+    #[test]
+    fn test_intersection_volume_trend() {
+        let mut stats = diagnostics::TrainingStats::new(10);
+        
+        // Not enough samples
+        stats.record_with_intersection(1.0, 0.5, Some(0.2), 0.1);
+        assert!(stats.intersection_volume_trend(3).is_none());
+        
+        // Increasing trend
+        for i in 0..5 {
+            let vol = 0.2 + i as f32 * 0.05;
+            stats.record_with_intersection(1.0 - i as f32 * 0.1, 0.5, Some(vol), 0.1);
+        }
+        assert_eq!(stats.intersection_volume_trend(3), Some(true));
+        
+        // Decreasing trend
+        let mut stats2 = diagnostics::TrainingStats::new(10);
+        for i in 0..5 {
+            let vol = 0.4 - i as f32 * 0.05;
+            stats2.record_with_intersection(1.0 - i as f32 * 0.1, 0.5, Some(vol), 0.1);
+        }
+        assert_eq!(stats2.intersection_volume_trend(3), Some(false));
+    }
+
+    #[test]
+    fn test_stratified_metrics() {
+        let mut metrics = metrics::StratifiedMetrics::new();
+        
+        // Add relation results
+        metrics.add_relation_result("is_a".to_string(), 1);
+        metrics.add_relation_result("is_a".to_string(), 2);
+        metrics.add_relation_result("part_of".to_string(), 3);
+        metrics.finalize_relations();
+        
+        assert_eq!(metrics.by_relation.len(), 2);
+        if let Some(rel_metrics) = metrics.by_relation.get("is_a") {
+            assert_eq!(rel_metrics.count, 2);
+            assert!(rel_metrics.mrr > 0.0);
+        }
+        
+        // Add depth results
+        metrics.add_depth_result(0, 1, true);
+        metrics.add_depth_result(0, 2, true);
+        metrics.add_depth_result(1, 3, false);
+        metrics.finalize_depths();
+        
+        assert_eq!(metrics.by_depth.len(), 2);
+        if let Some(depth_metrics) = metrics.by_depth.get(&0) {
+            assert_eq!(depth_metrics.count, 2);
+            assert_eq!(depth_metrics.containment_accuracy, 1.0); // Both correct
+        }
+    }
+
+    #[test]
+    fn test_empty_collections() {
+        // Empty TrainingStats
+        let stats = diagnostics::TrainingStats::new(10);
+        assert!(!stats.is_converged(0.01, 5));
+        assert!(!stats.is_gradient_exploding(100.0));
+        // is_volume_collapsed returns false for empty (no volumes to check)
+        assert!(!stats.is_volume_collapsed(0.01));
+        assert!(stats.loss_stats().is_none());
+        assert!(stats.volume_stats().is_none());
+        assert!(stats.gradient_stats().is_none());
+        assert!(stats.intersection_volume_stats().is_none());
+        
+        // Empty VolumeDistribution
+        let empty_dist = quality::VolumeDistribution::from_volumes(std::iter::empty());
+        // Empty distribution initializes with default values
+        assert_eq!(empty_dist.min, 0.0);
+        assert_eq!(empty_dist.max, 0.0);
+        assert_eq!(empty_dist.mean, 0.0);
+        
+        // Empty ContainmentAccuracy
+        let empty_acc = quality::ContainmentAccuracy::new();
+        // Precision is NaN when TP + FP = 0 (division by zero, undefined)
+        assert!(empty_acc.precision().is_nan());
+        
+        // Empty metrics
+        let empty_mrr = metrics::mean_reciprocal_rank(std::iter::empty());
+        assert_eq!(empty_mrr, 0.0);
+        
+        let empty_hits = metrics::hits_at_k(std::iter::empty(), 10);
+        assert_eq!(empty_hits, 0.0);
+    }
+
+    #[test]
+    fn test_edge_cases_zero_rank() {
+        // Rank of 0 should be handled gracefully
+        let ranks = vec![0, 1, 2, 0, 3];
+        let mrr = metrics::mean_reciprocal_rank(ranks.iter().copied());
+        // Should only count non-zero ranks: (1/1 + 1/2 + 1/3) / 3
+        assert!(mrr > 0.0 && mrr < 1.0);
+    }
+
+    #[test]
+    fn test_relation_stratified_training_stats() {
+        let mut stats = diagnostics::RelationStratifiedTrainingStats::new(10);
+        
+        // Record training steps for different relations
+        stats.record("has_part", 1.0, 0.5, 0.8);
+        stats.record("has_part", 0.9, 0.5, 0.7);
+        stats.record("has_part", 0.85, 0.5, 0.6);
+        
+        stats.record("located_in", 1.0, 0.6, 0.9);
+        stats.record("located_in", 0.95, 0.6, 0.8);
+        stats.record("located_in", 0.92, 0.6, 0.75);
+        
+        // Check that relations are tracked separately
+        assert!(stats.get_relation_stats("has_part").is_some());
+        assert!(stats.get_relation_stats("located_in").is_some());
+        assert!(stats.get_relation_stats("nonexistent").is_none());
+        
+        // Check convergence (neither should be converged with such high loss variance)
+        assert!(!stats.is_relation_converged("has_part", 0.01, 3));
+        assert!(!stats.is_relation_converged("located_in", 0.01, 3));
+        
+        // Record more steps to create convergence for one relation
+        for i in 0..10 {
+            let loss = 0.5 + (i as f32 * 0.001); // Very stable loss
+            stats.record("has_part", loss, 0.5, 0.05); // Low gradients
+        }
+        
+        // Now has_part should be converged (stable loss, low gradients)
+        assert!(stats.is_relation_converged("has_part", 0.01, 5));
+        
+        // Check convergence rate
+        let rate = stats.convergence_rate(0.01, 5);
+        assert!(rate > 0.0 && rate <= 1.0);
+        
+        // Check converged/unconverged relations
+        let converged = stats.converged_relations(0.01, 5);
+        assert!(converged.contains(&"has_part".to_string()));
+        
+        let unconverged = stats.unconverged_relations(0.01, 5);
+        assert!(unconverged.contains(&"located_in".to_string()));
+        
+        // Test with intersection volume tracking
+        stats.record_with_intersection("has_part", 0.5, 0.5, Some(0.2), 0.05);
+        if let Some(rel_stats) = stats.get_relation_stats("has_part") {
+            if let Some((mean, _, _)) = rel_stats.intersection_volume_stats() {
+                assert!(mean > 0.0);
+            }
+        }
+        
+        // Test relations() method
+        let relations = stats.relations();
+        assert!(relations.len() >= 2);
+        assert!(relations.contains(&"has_part".to_string()));
+        assert!(relations.contains(&"located_in".to_string()));
     }
 }
 

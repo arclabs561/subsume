@@ -70,6 +70,7 @@ pub use training::{
     diagnostics::{
         TrainingStats, LossComponents, GradientFlowAnalysis,
         DepthStratifiedGradientFlow, PhaseDetector, TrainingPhase,
+        RelationStratifiedTrainingStats,
     },
     quality::{
         VolumeDistribution, ContainmentAccuracy, IntersectionTopology,
