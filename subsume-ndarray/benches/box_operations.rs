@@ -2,7 +2,7 @@
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
 use ndarray::Array1;
-use subsume_core::{Box, GumbelBox};
+use subsume_core::{Box, GumbelBox, BoxEmbedding};
 use subsume_ndarray::{NdarrayBox, NdarrayGumbelBox};
 
 fn bench_volume(c: &mut Criterion) {
@@ -161,6 +161,102 @@ fn bench_gumbel_membership(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_containment_matrix(c: &mut Criterion) {
+    let mut group = c.benchmark_group("containment_matrix");
+    
+    for size in [5, 10, 20, 50, 100].iter() {
+        let mut collection = subsume_core::BoxCollection::new();
+        
+        for i in 0..*size {
+            let offset = (i as f32) * 0.01;
+            let box_ = NdarrayBox::new(
+                Array1::from(vec![offset; 3]),
+                Array1::from(vec![offset + 0.5; 3]),
+                1.0,
+            ).unwrap();
+            collection.push(box_);
+        }
+        
+        group.bench_with_input(
+            BenchmarkId::from_parameter(size),
+            &collection,
+            |b, coll| {
+                b.iter(|| coll.containment_matrix(black_box(1.0)))
+            },
+        );
+    }
+    
+    group.finish();
+}
+
+fn bench_containing_boxes(c: &mut Criterion) {
+    let mut group = c.benchmark_group("containing_boxes");
+    
+    for size in [10, 50, 100, 500].iter() {
+        let mut collection = subsume_core::BoxCollection::new();
+        
+        for i in 0..*size {
+            let offset = (i as f32) * 0.01;
+            let box_ = NdarrayBox::new(
+                Array1::from(vec![offset; 3]),
+                Array1::from(vec![offset + 0.5; 3]),
+                1.0,
+            ).unwrap();
+            collection.push(box_);
+        }
+        
+        let query = NdarrayBox::new(
+            Array1::from(vec![0.25f32; 3]),
+            Array1::from(vec![0.75f32; 3]),
+            1.0,
+        ).unwrap();
+        
+        group.bench_with_input(
+            BenchmarkId::from_parameter(size),
+            &(&collection, &query),
+            |b, (coll, q)| {
+                b.iter(|| coll.containing_boxes(black_box(q), black_box(0.5), black_box(1.0)))
+            },
+        );
+    }
+    
+    group.finish();
+}
+
+fn bench_contained_boxes(c: &mut Criterion) {
+    let mut group = c.benchmark_group("contained_boxes");
+    
+    for size in [10, 50, 100, 500].iter() {
+        let mut collection = subsume_core::BoxCollection::new();
+        
+        for i in 0..*size {
+            let offset = (i as f32) * 0.01;
+            let box_ = NdarrayBox::new(
+                Array1::from(vec![offset; 3]),
+                Array1::from(vec![offset + 0.5; 3]),
+                1.0,
+            ).unwrap();
+            collection.push(box_);
+        }
+        
+        let query = NdarrayBox::new(
+            Array1::from(vec![0.0f32; 3]),
+            Array1::from(vec![1.0f32; 3]),
+            1.0,
+        ).unwrap();
+        
+        group.bench_with_input(
+            BenchmarkId::from_parameter(size),
+            &(&collection, &query),
+            |b, (coll, q)| {
+                b.iter(|| coll.contained_boxes(black_box(q), black_box(0.5), black_box(1.0)))
+            },
+        );
+    }
+    
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_volume,
@@ -168,7 +264,10 @@ criterion_group!(
     bench_containment_prob,
     bench_overlap_prob,
     bench_gumbel_sample,
-    bench_gumbel_membership
+    bench_gumbel_membership,
+    bench_containment_matrix,
+    bench_containing_boxes,
+    bench_contained_boxes
 );
 criterion_main!(benches);
 

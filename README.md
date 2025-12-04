@@ -21,6 +21,7 @@ This workspace contains three crates:
 - **Containment operations**: Compute P(A ⊆ B) for entailment/hierarchical reasoning
 - **Overlap probability**: Compute P(A ∩ B ≠ ∅) for entity resolution
 - **Batch operations**: `BoxCollection` for efficient batch queries and containment matrices
+- **Training utilities**: Log-space volume computation, volume regularization, temperature scheduling, and loss functions
 - **Property-based testing**: Property tests using `proptest` to verify mathematical invariants
 - **Performance benchmarks**: Benchmarks with `criterion` across multiple dimensions
 - **Serialization**: `serde` support for model persistence (JSON, bincode, etc.)
@@ -69,6 +70,11 @@ Based on:
 
 - Gumbel-Softmax sampling (using LCG to avoid `rand` dependency conflicts)
 - Numerical stability utilities for temperature and sigmoid operations
+- **Training utilities** (based on research from Vilnis et al. 2018, Dasgupta et al. 2020):
+  - Log-space volume computation for high-dimensional boxes (prevents underflow/overflow)
+  - Volume regularization to prevent boxes from becoming too large or small
+  - Temperature scheduler for annealing during training (exponential decay)
+  - Volume-based loss functions for containment and overlap relationships
 - **Comprehensive test suite**: 77+ tests including:
   - Unit tests (22 tests) covering basic functionality
   - Property-based tests (10+ tests) using proptest
@@ -76,7 +82,7 @@ Based on:
   - Edge case tests (15+ tests) for error conditions and boundary cases
 - Benchmarks with `criterion`
 - Serialization support with `serde` (ndarray backend)
-- Examples for knowledge graphs and serialization
+- Examples for knowledge graphs, serialization, and training utilities
 
 ### Next Steps
 

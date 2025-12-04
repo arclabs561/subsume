@@ -146,10 +146,21 @@ impl Box for NdarrayBox {
     }
 
     fn volume(&self, _temperature: Self::Scalar) -> Result<Self::Scalar, BoxError> {
-        // Volume = ∏(max[i] - min[i])
+        use subsume_core::log_space_volume;
+        
+        // For high-dimensional boxes, use log-space computation to avoid underflow/overflow
         let diff = &self.max - &self.min;
-        let volume = diff.iter().product::<f32>();
-        Ok(volume.max(0.0))
+        let dim = self.dim();
+        
+        if dim > 10 {
+            // High-dimensional: use log-space
+            let (_, volume) = log_space_volume(diff.iter().copied());
+            Ok(volume.max(0.0))
+        } else {
+            // Low-dimensional: direct multiplication is fine
+            let volume = diff.iter().product::<f32>();
+            Ok(volume.max(0.0))
+        }
     }
 
     fn intersection(&self, other: &Self) -> Result<Self, BoxError> {

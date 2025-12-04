@@ -57,5 +57,8 @@ pub use utils::{
     MIN_TEMPERATURE, MAX_TEMPERATURE,
     stable_sigmoid, gumbel_membership_prob,
     sample_gumbel, map_gumbel_to_bounds,
+    log_space_volume, volume_regularization,
+    temperature_scheduler, volume_containment_loss,
+    volume_overlap_loss,
 };
 
