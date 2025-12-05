@@ -82,9 +82,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 epoch_loss += loss;
 
                 // Update head box to contain tail box better
+                // Clone tail values before mutable borrow
+                let tail_min = tail_box.min().to_owned();
+                let tail_max = tail_box.max().to_owned();
+                
                 let head_box_mut = entity_boxes.get_mut(&triple.head).unwrap();
                 let mut head_min = head_box_mut.min().to_owned();
-                let tail_min = tail_box.min();
 
                 // Simple gradient approximation: move head box towards tail box
                 let grad_min_vec: Vec<f32> = head_min

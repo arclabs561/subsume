@@ -161,7 +161,7 @@ fn main() -> Result<(), std::boxed::Box<dyn std::error::Error>> {
             batch_count += 1;
         }
 
-        let avg_loss = epoch_loss / batch_count as f32.max(1.0);
+        let avg_loss = epoch_loss / (batch_count as f32).max(1.0);
 
         // Record stats
         let avg_volume = entity_boxes
