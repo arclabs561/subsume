@@ -16,8 +16,10 @@ readme = "README.md"
 [dependencies]
 serde = { workspace = true }
 thiserror = { workspace = true }
+rand = "0.8"
 
 [dev-dependencies]
 criterion = "0.5"
 proptest = "1.5"
+tempfile = "3"
 

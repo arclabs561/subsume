@@ -1,0 +1,21 @@
+{
+  "name": "subsume-docs-preview",
+  "version": "1.0.0",
+  "description": "Live markdown preview with KaTeX for subsume documentation",
+  "type": "module",
+  "scripts": {
+    "preview": "node preview.mjs",
+    "preview:file": "node preview.mjs"
+  },
+  "keywords": [
+    "markdown",
+    "katex",
+    "preview",
+    "math"
+  ],
+  "dependencies": {
+    "markdown-it": "^14.0.0",
+    "markdown-it-katex": "^2.0.3"
+  }
+}
+

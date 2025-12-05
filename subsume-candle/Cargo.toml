@@ -30,3 +30,15 @@ serde_json = "1.0"
 name = "candle_serialization"
 path = "examples/candle_serialization.rs"
 
+[[example]]
+name = "candle_recent_research_metrics"
+path = "examples/candle_recent_research_metrics.rs"
+
+[[example]]
+name = "candle_concept2box"
+path = "examples/candle_concept2box.rs"
+
+[[example]]
+name = "candle_regd_training"
+path = "examples/candle_regd_training.rs"
+

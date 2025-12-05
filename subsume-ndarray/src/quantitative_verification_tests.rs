@@ -65,8 +65,7 @@ mod tests {
     /// better separation by incorporating volume.
     #[test]
     fn test_regd_2025_crowding_effect_mitigation() {
-        // Create a parent box with many children
-        let parent = NdarrayBox::new(array![0.0, 0.0], array![10.0, 10.0], 1.0).unwrap();
+        // Create many children (parent box not needed for this test)
 
         // Create 10 children, all similar size, clustered near center
         let mut children = Vec::new();

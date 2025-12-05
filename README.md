@@ -53,15 +53,28 @@ println!("Entailment: {:.2}", entailment);
 - Training metrics: MRR, Hits@K, Mean Rank, nDCG
 - Training diagnostics: Gradient flow, volume tracking, phase detection
 - Quality assessment: Volume distribution, hierarchy verification, calibration
-- Property-based tests: 137+ tests
-- Serialization: `serde` support
+- Automated evaluation: Benchmark infrastructure with plotting and metrics collection
+- Property-based tests: 149+ tests (property tests, unit tests, integration tests)
+- Serialization: `serde` support for all box types
+- Distance metrics: Boundary distance, depth distance, vector-to-box distance
+- Optimizers: Adam, AdamW, SGD with configurable hyperparameters
 
 ## Documentation
 
+**New to box embeddings?** Start with [`docs/READING_GUIDE.md`](docs/READING_GUIDE.md) for recommended reading order.
+
+**Preview Docs:** 
+- **All markdown docs**: `./docs/preview-all.sh` - GitHub-style preview with KaTeX (see [`docs/README_PREVIEW.md`](docs/README_PREVIEW.md))
+- **Rust docs**: `make docs-open` - API docs with KaTeX rendering (see [`docs/README_RUSTDOC.md`](docs/README_RUSTDOC.md))
+
+- [`docs/READING_GUIDE.md`](docs/READING_GUIDE.md) — **Start here!** Recommended reading order
 - [`docs/CONCEPTUAL_OVERVIEW.md`](docs/CONCEPTUAL_OVERVIEW.md) — Why box embeddings
-- [`docs/MATHEMATICAL_FOUNDATIONS.md`](docs/MATHEMATICAL_FOUNDATIONS.md) — Mathematical details
+- [`docs/MATHEMATICAL_FOUNDATIONS.md`](docs/MATHEMATICAL_FOUNDATIONS.md) — Mathematical details with derivations
+- [`docs/MATH_TO_CODE_CONNECTIONS.md`](docs/MATH_TO_CODE_CONNECTIONS.md) — How theory maps to implementation
+- [`docs/MATH_QUICK_REFERENCE.md`](docs/MATH_QUICK_REFERENCE.md) — Quick reference for key formulas
 - [`docs/PRACTICAL_GUIDE.md`](docs/PRACTICAL_GUIDE.md) — Usage guidance
 - [`docs/RECENT_RESEARCH.md`](docs/RECENT_RESEARCH.md) — Recent papers (2023-2025)
+- [`docs/REAL_TRAINING_EXAMPLES.md`](docs/REAL_TRAINING_EXAMPLES.md) — Real training examples with datasets
 
 ## Research
 
@@ -77,7 +90,14 @@ println!("Entailment: {:.2}", entailment);
 
 ## Status
 
-- Core traits and implementations working
-- 137+ tests passing
-- Candle backend: serialization implemented
-- Known issue: `candle-core` dependency conflict (external, bf16/rand version mismatch)
+- ✅ Core traits and implementations working
+- ✅ 149 tests passing (property tests, unit tests, integration tests, regression tests)
+- ✅ Dataset loading utilities for WN18RR, FB15k-237, YAGO3-10
+- ✅ Training infrastructure: Adam/AdamW/SGD optimizers, negative sampling, evaluation
+- ✅ BoxE implementation: translational bumps, scoring, margin-based loss
+- ✅ Center-offset representation: conversion utilities implemented
+- ✅ Candle backend: serialization and all examples implemented
+- ✅ Distance metrics: Boundary, depth, vector-to-box distances
+- ✅ Training examples: Real training loops for WN18RR, FB15k-237, BoxE
+- ✅ Error handling: Proper Result types, no panics in user-facing code
+- ✅ Paper configurations: Dasgupta 2020, Boratko 2020, Vilnis 2018 presets

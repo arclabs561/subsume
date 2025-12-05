@@ -130,6 +130,13 @@ fn main() -> Result<(), subsume_core::BoxError> {
         let constraint_loss = base_loss * 0.15;
 
         loss_components = LossComponents::new(containment_loss, reg_loss, constraint_loss);
+        
+        // Check for imbalanced loss (example diagnostic)
+        if loss_components.is_imbalanced() && epoch % 10 == 0 {
+            if let Some(dominant) = loss_components.dominant_component() {
+                println!("   Epoch {}: Loss imbalanced, dominant: {}", epoch, dominant);
+            }
+        }
 
         let avg_volume = 0.4 + epoch as f32 * 0.01;
         let gradient_norm = 0.6 / (1.0 + epoch as f32 * 0.1);

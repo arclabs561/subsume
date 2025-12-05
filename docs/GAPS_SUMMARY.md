@@ -112,7 +112,7 @@ This document summarizes gaps identified and fixes applied.
 
 ## Test Coverage Summary
 
-- **Total Tests**: 137+ (129 existing + 8 new quantitative verification)
+- **Total Tests**: 149+ (comprehensive coverage: property tests, unit tests, integration tests, regression tests)
 - **Paper Verification Tests**: 8 (mathematical properties)
 - **Quantitative Verification Tests**: 8 (empirical claims)
 - **Edge Case Tests**: 4 (zero volumes, identical boxes, etc.)

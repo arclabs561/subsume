@@ -59,9 +59,13 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 pub mod box_trait;
+pub mod boxe;
+pub mod center_offset;
+pub mod dataset;
 pub mod distance;
 pub mod embedding;
 pub mod gumbel;
+pub mod trainer;
 pub mod training;
 pub mod utils;
 
@@ -87,6 +91,13 @@ pub use training::{
         DimensionalityUtilization, GeneralizationMetrics, IntersectionTopology,
         TopologicalStability, VolumeConservation, VolumeDistribution,
     },
+};
+pub use boxe::{boxe_loss, boxe_score, Bump};
+pub use center_offset::{center_offset_to_min_max, min_max_to_center_offset};
+pub use dataset::{Dataset, DatasetError, DatasetStats, Triple};
+pub use trainer::{
+    evaluate_link_prediction, generate_negative_samples, log_training_result, EvaluationResults,
+    HyperparameterSearch, NegativeSamplingStrategy, TrainingConfig, TrainingResult,
 };
 pub use utils::validation;
 pub use utils::{

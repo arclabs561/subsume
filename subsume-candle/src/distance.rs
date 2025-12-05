@@ -22,7 +22,7 @@ use subsume_core::{Box, BoxError};
 ///
 /// Returns `BoxError` if point and box have dimension mismatch.
 pub fn vector_to_box_distance(point: &Tensor, box_: &CandleBox) -> Result<f32, BoxError> {
-    if point.dims() != &[box_.dim()] {
+    if point.dims() != [box_.dim()] {
         return Err(BoxError::DimensionMismatch {
             expected: box_.dim(),
             actual: point.dims().len(),

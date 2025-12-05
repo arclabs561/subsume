@@ -88,7 +88,7 @@ impl GumbelBox for CandleGumbelBox {
         &self,
         point: &Self::Vector,
     ) -> std::result::Result<Self::Scalar, BoxError> {
-        if point.dims() != &[self.dim()] {
+        if point.dims() != [self.dim()] {
             return Err(BoxError::DimensionMismatch {
                 expected: self.dim(),
                 actual: point.dims().len(),
@@ -159,10 +159,21 @@ impl GumbelBox for CandleGumbelBox {
                 .map(|i| (min_data[i] + max_data[i]) / 2.0)
                 .collect();
             Tensor::new(&*center, device).unwrap_or_else(|_| {
-                panic!(
-                    "Failed to create sample tensor: original error: {}, fallback also failed",
+                // If fallback also fails, try creating zero tensor on same device
+                // This is better than panicking, though indicates serious device issues
+                eprintln!(
+                    "WARNING: Failed to create sample tensor (original error: {}). Using zero tensor as fallback.",
                     e
-                )
+                );
+                // Return a zero tensor - this is a degraded state but better than panic
+                // If this also fails, we have no choice but to panic (indicates system failure)
+                Tensor::zeros(&[dim], candle_core::DType::F32, device)
+                    .unwrap_or_else(|_| {
+                        panic!(
+                            "CRITICAL: Cannot create any tensor on device {:?}. System may be out of memory or device unavailable. Original error: {}",
+                            device, e
+                        )
+                    })
             })
         })
     }

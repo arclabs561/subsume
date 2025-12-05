@@ -21,8 +21,15 @@
 //! ```
 
 #![warn(missing_docs)]
+// Allow acceptable patterns in tests and examples
+#![allow(clippy::useless_vec)] // vec! is often clearer than alternatives in tests
+#![allow(clippy::needless_range_loop)] // Indexing is sometimes necessary and clear
+#![allow(clippy::module_inception)] // Test modules often match parent name
 
+pub mod benchmark;
 pub mod distance;
+pub mod evaluation;
+pub mod optimizer;
 mod ndarray_box;
 mod ndarray_gumbel;
 
@@ -38,9 +45,14 @@ mod paper_verification_tests;
 #[cfg(test)]
 mod quantitative_verification_tests;
 
+pub use benchmark::{BenchmarkConfig, BenchmarkResult, BenchmarkSuite};
 pub use distance::{boundary_distance, depth_distance, vector_to_box_distance};
+pub use evaluation::{EvaluationConfig, EvaluationMetrics, OptimizerComparison};
+#[cfg(feature = "plotting")]
+pub use evaluation::plotting;
 pub use ndarray_box::NdarrayBox;
 pub use ndarray_gumbel::NdarrayGumbelBox;
+pub use optimizer::{Adam, AdamW, SGD};
 
 #[cfg(test)]
 mod proptest_tests;
@@ -50,6 +62,9 @@ mod invariant_tests;
 
 #[cfg(test)]
 mod edge_case_tests;
+
+#[cfg(test)]
+mod trainer_integration_tests;
 
 #[cfg(test)]
 mod tests {

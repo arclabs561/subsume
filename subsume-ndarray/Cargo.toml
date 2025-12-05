@@ -17,7 +17,14 @@ readme = "README.md"
 subsume-core = { path = "../subsume-core" }
 ndarray = { version = "0.16", features = ["serde-1"] }
 serde = { workspace = true }
+serde_json = "1.0"
 thiserror = { workspace = true }
+plotters = { version = "0.3", optional = true }
+rand = "0.8"
+
+[features]
+default = []
+plotting = ["plotters"]
 
 [dev-dependencies]
 criterion = "0.5"
@@ -51,6 +58,47 @@ path = "examples/regd_training.rs"
 [[example]]
 name = "complete_training_loop"
 path = "examples/complete_training_loop.rs"
+
+[[example]]
+name = "dataset_loading"
+path = "examples/dataset_loading.rs"
+
+[[example]]
+name = "full_training_with_datasets"
+path = "examples/full_training_with_datasets.rs"
+
+[[example]]
+name = "adam_training"
+path = "examples/adam_training.rs"
+
+[[example]]
+name = "boxe_training"
+path = "examples/boxe_training.rs"
+
+[[example]]
+name = "automated_evaluation"
+path = "examples/automated_evaluation.rs"
+required-features = ["plotting"]
+
+[[example]]
+name = "run_benchmarks"
+path = "examples/run_benchmarks.rs"
+
+[[example]]
+name = "simple_training"
+path = "examples/simple_training.rs"
+
+[[example]]
+name = "real_training_wn18rr"
+path = "examples/real_training_wn18rr.rs"
+
+[[example]]
+name = "real_training_fb15k237"
+path = "examples/real_training_fb15k237.rs"
+
+[[example]]
+name = "real_training_boxe"
+path = "examples/real_training_boxe.rs"
 
 [[example]]
 name = "hierarchical_classification"

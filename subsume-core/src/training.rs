@@ -203,8 +203,57 @@ pub mod metrics {
 
     /// Compute Mean Reciprocal Rank (MRR) for a set of queries.
     ///
-    /// MRR = (1/|Q|) * Σ(1/rank_i) where rank_i is the rank of the first correct answer
-    /// for query i.
+    /// # Paradigm Problem: Evaluating Link Prediction
+    ///
+    /// **The task**: Given a query (head, relation, ?), rank all possible tail entities by
+    /// their score. The correct tail should appear as high as possible in the ranking.
+    ///
+    /// **Example**: Query is (Paris, located_in, ?). The model scores all entities:
+    /// - France: 0.95 (correct answer)
+    /// - Germany: 0.30
+    /// - Italy: 0.25
+    /// - Spain: 0.20
+    /// - ...
+    ///
+    /// France ranks 1st, so the reciprocal rank is 1/1 = 1.0. If France had ranked 3rd,
+    /// the reciprocal rank would be 1/3 ≈ 0.33.
+    ///
+    /// **MRR computation**: Average the reciprocal ranks across all queries. If we have 100
+    /// queries and the correct answer appears at ranks [1, 2, 1, 5, 3, ...], then:
+    /// MRR = (1/1 + 1/2 + 1/1 + 1/5 + 1/3 + ...) / 100
+    ///
+    /// **Why reciprocal?**: This gives exponentially more weight to top rankings. Rank 1 gets
+    /// weight 1.0, rank 2 gets 0.5, rank 10 gets 0.1. This matches user behavior—users care
+    /// much more about the first few results than results further down.
+    ///
+    /// # Research Background
+    ///
+    /// MRR is a standard information retrieval metric adapted for knowledge graph link prediction.
+    /// It was popularized in KG embedding by **Bordes et al. (2013)** and has become the primary
+    /// metric for comparing knowledge graph embedding methods.
+    ///
+    /// **Reference**: Bordes et al. (2013), "Translating Embeddings for Modeling Multi-relational Data"
+    /// - Introduces MRR, Hits@K, and Mean Rank as standard evaluation metrics for knowledge graphs
+    /// - These metrics are now used consistently across all knowledge graph embedding papers
+    /// - The reciprocal rank formulation (1/rank) gives exponentially more weight to top positions,
+    ///   which matches user behavior: finding the correct answer at rank 1 is much better than rank 10
+    ///
+    /// **Example scenario**:
+    /// - Query 1: (Paris, located_in, ?) → France at rank 1 → score = 1.0
+    /// - Query 2: (Tokyo, located_in, ?) → Japan at rank 3 → score = 0.33
+    /// - Query 3: (Berlin, located_in, ?) → Germany at rank 2 → score = 0.5
+    /// - MRR = (1.0 + 0.33 + 0.5) / 3 ≈ 0.61
+    ///
+    /// **Interpretation**: MRR of 0.61 means on average, the correct answer appears around
+    /// rank 1.6 (since 1/1.6 ≈ 0.61). Higher MRR = better model.
+    ///
+    /// # Mathematical Formulation
+    ///
+    /// \[
+    /// \text{MRR} = \frac{1}{|Q|} \sum_{i=1}^{|Q|} \frac{1}{\text{rank}_i}
+    /// \]
+    ///
+    /// where \(\text{rank}_i\) is the position (1-indexed) of the first correct answer for query \(i\).
     ///
     /// # Parameters
     ///
@@ -246,6 +295,28 @@ pub mod metrics {
     }
 
     /// Compute Hits@K metric: fraction of queries where correct answer appears in top K.
+    ///
+    /// # Intuitive Explanation
+    ///
+    /// Hits@K answers: "In what fraction of queries does the model get the answer in the top K?"
+    /// This is a binary metric: either the correct answer is in the top K (hit = 1) or not (hit = 0).
+    ///
+    /// **Why this matters**: For practical applications, you often care about "is the answer
+    /// in the top 10 suggestions?" rather than "is it exactly rank 1?" Hits@K captures this.
+    ///
+    /// **Example scenario**:
+    /// - Query 1: (Paris, located_in, ?) → France at rank 1 → Hits@10 = 1 (hit!)
+    /// - Query 2: (Tokyo, located_in, ?) → Japan at rank 15 → Hits@10 = 0 (miss)
+    /// - Query 3: (Berlin, located_in, ?) → Germany at rank 3 → Hits@10 = 1 (hit!)
+    /// - Hits@10 = 2/3 = 0.67 (67% of queries have correct answer in top 10)
+    ///
+    /// **Common K values**:
+    /// - **Hits@1**: Strict metric - answer must be rank 1 (most challenging)
+    /// - **Hits@3**: Moderate - answer in top 3 (practical for many applications)
+    /// - **Hits@10**: Lenient - answer in top 10 (common benchmark in papers)
+    ///
+    /// **Interpretation**: Higher Hits@K = better model. Hits@10 > 0.8 is considered good
+    /// for knowledge graph completion tasks.
     ///
     /// # Parameters
     ///

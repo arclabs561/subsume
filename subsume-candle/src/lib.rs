@@ -21,6 +21,8 @@
 //! ```
 
 #![warn(missing_docs)]
+// Allow acceptable patterns
+#![allow(clippy::module_inception)] // Test modules often match parent name
 
 mod candle_box;
 mod candle_gumbel;

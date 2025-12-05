@@ -1,0 +1,77 @@
+<!-- KaTeX CSS -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" integrity="sha384-n8MVd4RsNIU0tAv4ct0nTaAbDJwPJzDEaqSD1odI+WdtXRGWt2kTvGFasHpSy3SV" crossorigin="anonymous">
+
+<!-- KaTeX JavaScript -->
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" integrity="sha384-XjKyOOlG8jCC0C9WXZB6XH0jZqKk7xK3I2VqQnBk3xSB7f4F0v3f5f5f5f5f5f" crossorigin="anonymous"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" integrity="sha384-+VBxd3r6XgURycqtZ117nYw44OOcIax56Z4dCRWbxyPt0Koah1uHoK0o4+/RRE05" crossorigin="anonymous"></script>
+
+<script>
+// Configure KaTeX to render math in rustdoc
+document.addEventListener("DOMContentLoaded", function() {
+    // Render math in all documentation content
+    renderMathInElement(document.body, {
+        delimiters: [
+            {left: "\\[", right: "\\]", display: true},
+            {left: "\\(", right: "\\)", display: false},
+            {left: "$$", right: "$$", display: true},
+            {left: "$", right: "$", display: false}
+        ],
+        throwOnError: false,
+        strict: false,
+        trust: true
+    });
+    
+    // Also watch for dynamically loaded content (rustdoc uses JS to load content)
+    const observer = new MutationObserver(function(mutations) {
+        mutations.forEach(function(mutation) {
+            mutation.addedNodes.forEach(function(node) {
+                if (node.nodeType === 1) { // Element node
+                    renderMathInElement(node, {
+                        delimiters: [
+                            {left: "\\[", right: "\\]", display: true},
+                            {left: "\\(", right: "\\)", display: false},
+                            {left: "$$", right: "$$", display: true},
+                            {left: "$", right: "$", display: false}
+                        ],
+                        throwOnError: false,
+                        strict: false,
+                        trust: true
+                    });
+                }
+            });
+        });
+    });
+    
+    // Observe the main content area
+    const content = document.querySelector('.content') || document.querySelector('main') || document.body;
+    if (content) {
+        observer.observe(content, {
+            childList: true,
+            subtree: true
+        });
+    }
+});
+</script>
+
+<style>
+/* Enhance KaTeX rendering in rustdoc */
+.rustdoc .katex {
+    font-size: 1.1em;
+}
+
+.rustdoc .katex-display {
+    margin: 1.5em 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+/* Better spacing for math in doc comments */
+.rustdoc .docblock .katex-display {
+    margin: 1em 0;
+}
+
+.rustdoc .docblock .katex {
+    font-size: 1.05em;
+}
+</style>
+

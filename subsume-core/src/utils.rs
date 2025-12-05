@@ -1,4 +1,40 @@
 //! Numerical stability utilities for box embeddings.
+//!
+//! # Mathematical Background
+//!
+//! This module provides numerically stable implementations of mathematical operations
+//! used in box embeddings. Key concepts:
+//!
+//! ## Log-Space Computations
+//!
+//! For high-dimensional volumes, direct multiplication can underflow. The solution is
+//! to compute in log-space:
+//!
+//! \[
+//! \log(\text{Vol}) = \sum_{i=1}^{d} \log(\text{side}_i), \quad \text{Vol} = \exp\left(\sum_{i=1}^{d} \log(\text{side}_i)\right)
+//! \]
+//!
+//! ## Stable Sigmoid
+//!
+//! The sigmoid function `σ(x) = 1/(1 + e^(-x))` can overflow when `x` is large
+//! and negative. The stable form uses:
+//!
+//! - If `x < 0`: use `e^x / (1 + e^x)`
+//! - If `x ≥ 0`: use `1 / (1 + e^(-x))`
+//!
+//! ## Log-Sum-Exp Pattern
+//!
+//! Many operations use the log-sum-exp pattern for numerical stability:
+//!
+//! \[
+//! \text{lse}_\beta(x, y) = \max(x, y) + \beta \log(1 + e^{-|x-y|/\beta})
+//! \]
+//!
+//! This pattern appears in Gumbel intersections and other operations.
+//!
+//! See [`docs/MATHEMATICAL_FOUNDATIONS.md`](../../../docs/MATHEMATICAL_FOUNDATIONS.md)
+//! for complete mathematical derivations and [`docs/MATH_TO_CODE_CONNECTIONS.md`](../../../docs/MATH_TO_CODE_CONNECTIONS.md)
+//! for how these patterns are used in the codebase.
 
 /// Clamp temperature to a safe range to avoid numerical instability.
 ///
@@ -45,8 +81,42 @@ pub fn stable_sigmoid(x: f32) -> f32 {
 
 /// Compute numerically stable Gumbel-Softmax probability.
 ///
-/// For a value x with bounds [min, max] and temperature τ:
-/// P(min ≤ x ≤ max) = sigmoid((x - min) / τ) * sigmoid((max - x) / τ)
+/// This computes the probability that a point lies within box bounds using the
+/// Gumbel-Softmax framework.
+///
+/// ## Mathematical Formulation
+///
+/// For a value \(x\) with bounds \([min, max]\) and temperature \(\tau\):
+///
+/// \[
+/// P(min \leq x \leq max) = \sigma\left(\frac{x - min}{\tau}\right) \cdot \sigma\left(\frac{max - x}{\tau}\right)
+/// \]
+///
+/// where \(\sigma\) is the sigmoid function. This is the product of:
+/// - \(P(x > min)\): Probability that point is above minimum bound
+/// - \(P(x < max)\): Probability that point is below maximum bound
+///
+/// **Derivation**: For Gumbel-distributed box boundaries, the probability that a point lies
+/// within the box is the product of the probabilities that it's above the minimum and below
+/// the maximum. Each probability is computed using the sigmoid function, which provides
+/// smooth gradients for training.
+///
+/// ## Temperature Behavior
+///
+/// - **\(\tau \to 0\)**: Approaches hard bounds (0 or 1) - deterministic membership
+/// - **\(\tau \to \infty\)**: Approaches uniform probability - smooth, continuous
+///
+/// The temperature parameter controls the trade-off between:
+/// - **Low \(\tau\)**: Sharp boundaries, better correspondence to discrete logic
+/// - **High \(\tau\)**: Smooth boundaries, better gradients for optimization
+///
+/// ## Numerical Stability
+///
+/// Uses [`stable_sigmoid`](crate::utils::stable_sigmoid) to avoid overflow when
+/// \(|x - min|/\tau\) or \(|max - x|/\tau\) is large.
+///
+/// See [`docs/MATHEMATICAL_FOUNDATIONS.md`](../../../docs/MATHEMATICAL_FOUNDATIONS.md)
+/// section "Gumbel-Softmax Framework" for more details.
 ///
 /// # Parameters
 ///
@@ -78,14 +148,41 @@ pub fn gumbel_membership_prob(x: f32, min: f32, max: f32, temp: f32) -> f32 {
 /// Sample from Gumbel distribution with numerical stability.
 ///
 /// The Gumbel distribution is used in the Gumbel-max trick for differentiable sampling.
-/// For a uniform random variable U ~ Uniform(0, 1), the Gumbel sample is:
+/// For a uniform random variable \(U \sim \text{Uniform}(0, 1)\), the Gumbel sample is:
 ///
-/// G = -ln(-ln(U))
+/// \[
+/// G = -\ln(-\ln(U))
+/// \]
 ///
-/// **Why this matters**: The Gumbel distribution is max-stable, meaning the maximum
-/// of independent Gumbel random variables is itself Gumbel-distributed. This property
-/// is crucial for maintaining the algebraic structure of box embeddings when computing
-/// intersections (max of minimums, min of maximums).
+/// This produces \(G \sim \text{Gumbel}(0, 1)\) (standard Gumbel distribution).
+///
+/// ## Max-Stability Property
+///
+/// **Why this matters**: The Gumbel distribution is **max-stable**, meaning the maximum
+/// of independent Gumbel random variables is itself Gumbel-distributed:
+///
+/// If \(G_1, \ldots, G_k \sim \text{Gumbel}(\mu, \beta)\) are independent, then:
+///
+/// \[
+/// \max\{G_1, \ldots, G_k\} \sim \text{Gumbel}(\mu + \beta \ln k, \beta)
+/// \]
+///
+/// **Proof sketch**: The CDF of the maximum is the product of individual CDFs:
+///
+/// \[
+/// P(\max\{G_1, \ldots, G_k\} \leq x) = [e^{-e^{-(x-\mu)/\beta}}]^k = e^{-k e^{-(x-\mu)/\beta}}
+/// \]
+///
+/// After algebraic manipulation, this equals \(e^{-e^{-(x-(\mu+\beta\ln k))/\beta}}\), which is
+/// the CDF of \(\text{Gumbel}(\mu + \beta \ln k, \beta)\).
+///
+/// This property is crucial for maintaining the algebraic structure of box embeddings
+/// when computing intersections (max of minimums, min of maximums). It ensures that
+/// intersection operations preserve the Gumbel distribution family, enabling analytical
+/// volume calculations.
+///
+/// See [`docs/MATHEMATICAL_FOUNDATIONS.md`](../../../docs/MATHEMATICAL_FOUNDATIONS.md)
+/// section "Min-Max Stability" for the complete proof.
 ///
 /// # Numerical Stability
 ///
@@ -158,13 +255,13 @@ pub fn map_gumbel_to_bounds(gumbel: f32, min: f32, max: f32, temp: f32) -> f32 {
 ///
 /// Compute volume in log-space, then exponentiate:
 ///
-/// \[
-/// \log(\text{Vol}) = \sum_{i=1}^{d} \log(\text{side}\[i\])
-/// \]
+/// ```text
+/// log(Vol) = Σᵢ log(side[i])
+/// ```
 ///
-/// \[
-/// \text{Vol} = \exp\left(\sum_{i=1}^{d} \log(\text{side}\[i\])\right)
-/// \]
+/// ```text
+/// Vol = exp(Σᵢ log(side[i]))
+/// ```
 ///
 /// This is numerically stable because:
 /// - Log of small numbers is a large negative number (no underflow)
@@ -303,6 +400,43 @@ pub fn temperature_scheduler(
 }
 
 /// Volume-based containment loss for training.
+///
+/// # Paradigm Problem: Training on Containment Relationships
+///
+/// **The problem**: Given positive pairs (A should contain B) and negative pairs (A should NOT
+/// contain B), design a loss function that encourages correct containment while discouraging
+/// incorrect containment.
+///
+/// **Step-by-step reasoning**:
+///
+/// 1. **For positive pairs**: We want high containment probability P(B|A) → 1.0
+///    - Use negative log-likelihood: `-log(P(B|A))`
+///    - When P(B|A) = 1.0, loss = 0 (perfect)
+///    - When P(B|A) = 0.5, loss = log(2) ≈ 0.69 (penalty)
+///    - This provides strong gradient signal when containment is not perfect
+///
+/// 2. **For negative pairs**: We want low containment probability P(B|A) → 0.0
+///    - Use margin-based loss: `max(0, margin - (-log(P(B|A))))`
+///    - When P(B|A) is very small, loss = 0 (good enough)
+///    - When P(B|A) exceeds threshold, loss > 0 (penalty)
+///    - This creates a "safety zone"—as long as containment is below threshold, no penalty
+///
+/// 3. **Why different losses?**: Positive pairs need to be maximized (log-likelihood provides
+///    strong gradient), while negative pairs just need to stay below a threshold (margin loss
+///    is sufficient and computationally cheaper).
+///
+/// # Research Background
+///
+/// This loss function combines negative log-likelihood (for positive pairs) with margin-based
+/// loss (for negative pairs), following practices from knowledge graph embedding literature.
+///
+/// **Research foundation**:
+/// - **Vilnis et al. (2018)**: "Probabilistic Embedding of Knowledge Graphs with Box Lattice Measures"
+///   - Establishes volume as probability measure, uses log-likelihood for positive pairs
+/// - **Boratko et al. (2020)**: "BoxE: A Box Embedding Model for Knowledge Base Completion" (NeurIPS)
+///   - Uses margin-based ranking loss for both positive and negative pairs
+/// - **Bordes et al. (2013)**: "Translating Embeddings for Modeling Multi-relational Data"
+///   - Introduces margin-based ranking loss for knowledge graphs, establishes standard training protocol
 ///
 /// Computes a loss that encourages high containment probability when boxes
 /// should be in a containment relationship, and low probability otherwise.

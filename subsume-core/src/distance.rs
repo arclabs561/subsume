@@ -14,10 +14,39 @@ use crate::{Box, BoxError};
 
 /// Compute depth-based distance between two boxes.
 ///
-/// Depth distance incorporates region "size" (volume) into distance calculations,
-/// enabling Euclidean boxes to achieve hyperbolic-like expressiveness. This addresses
-/// the crowding effect where traditional Euclidean embeddings cluster together as
-/// the number of children increases in hierarchies.
+/// # Paradigm Problem: The Crowding Effect in Taxonomies
+///
+/// Consider a taxonomy where "Animal" has many children: "Dog", "Cat", "Bird", "Fish", etc.
+/// In traditional Euclidean embeddings, all these children cluster near the "Animal" center,
+/// making them hard to distinguish. This is the **crowding problem**.
+///
+/// **The problem**: If "Animal" is at center (0.5, 0.5) and "Dog" is at (0.51, 0.51), the
+/// Euclidean distance is small. But "Animal" is a very general concept (large box) while
+/// "Dog" is specific (small box). They should be "farther apart" conceptually, even if
+/// their centers are close.
+///
+/// **The solution**: Incorporate box size into distance. A large box (general concept) should
+/// be farther from a small box (specific concept) than two boxes of similar size, even if
+/// their centers are equally distant.
+///
+/// **Visual intuition**: Imagine two boxes with overlapping centers. One is huge (covers
+/// the whole space), one is tiny (a small region). They're conceptually very different,
+/// even though their centers coincide. Depth distance captures this by adding a term
+/// proportional to the difference in their volumes.
+///
+/// # Research Background
+///
+/// Depth-based distance is introduced in **Yang & Chen (2025)**, "RegD: Achieving Hyperbolic-Like
+/// Expressiveness with Arbitrary Euclidean Regions" (arXiv:2501.17518, Section 3.2).
+///
+/// **Key insight from the paper**: Traditional hyperbolic embeddings solve the crowding problem
+/// through hyperbolic geometry. RegD shows that incorporating log-volume differences into
+/// Euclidean distance achieves similar expressiveness without the computational complexity
+/// of hyperbolic operations.
+///
+/// **Theoretical connection**: Hyperbolic space naturally models hierarchies because distance
+/// grows exponentially with depth. RegD approximates this by making distance grow with
+/// the log-volume difference, which captures the "depth" difference in a hierarchy.
 ///
 /// ## Mathematical Formulation (RegD 2025)
 ///
@@ -211,8 +240,43 @@ where
 
 /// Trait for computing distance from a point/vector to a box.
 ///
+/// ## Paradigm Problem: Two-View Knowledge Graphs
+///
+/// **The problem**: Real-world knowledge graphs have two types of entities:
+/// - **Concepts** (like "Animal", "Mammal", "Location"): Benefit from box embeddings because
+///   they have hierarchical relationships (Animal contains Mammal, Mammal contains Dog)
+/// - **Entities** (like "Paris", "Einstein", "The Eiffel Tower"): May be better as vectors
+///   because they're specific instances without clear hierarchies
+///
+/// **The challenge**: How do we score a triple like (Paris, instance_of, City) where "Paris"
+/// is a vector and "City" is a box? We need a distance metric that works across representations.
+///
+/// **The solution**: Vector-to-box distance. If the "Paris" vector is inside the "City" box,
+/// then Paris is a city. The distance measures how far the vector is from the box boundary.
+///
+/// **Visual intuition**: Imagine a box representing "City" in space. A vector representing
+/// "Paris" is a point. If the point is inside the box, distance = 0 (Paris is a city).
+/// If the point is outside, distance = minimum distance to the box boundary (how "far" is
+/// Paris from being a city?).
+///
+/// **Step-by-step computation**:
+/// 1. Check if vector is inside box: If yes, distance = 0
+/// 2. If outside, find nearest point on box boundary
+/// 3. Compute Euclidean distance from vector to that boundary point
+///
 /// This metric bridges concept box embeddings and entity vector embeddings,
 /// enabling hybrid representations where concepts are boxes and entities are vectors.
+///
+/// # Research Background
+///
+/// Vector-to-box distance is introduced in **Huang et al. (2023)**, "Concept2Box: Joint Geometric
+/// Embeddings for Learning Two-View Knowledge Graphs" (ACL 2023, Section 3.2).
+///
+/// **Key insight from the paper**: Real-world knowledge graphs often have heterogeneous entity types.
+/// Concepts (like "Animal", "Mammal") benefit from box embeddings for subsumption, while specific
+/// entities (like "Paris", "Einstein") may be better as vectors. The vector-to-box distance enables
+/// scoring triples that mix these representations, allowing hybrid models that use the best
+/// representation for each entity type.
 ///
 /// ## Mathematical Formulation (Concept2Box 2023)
 ///
