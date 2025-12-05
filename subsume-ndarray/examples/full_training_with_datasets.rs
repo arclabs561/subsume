@@ -70,6 +70,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         negative_strategy: NegativeSamplingStrategy::CorruptTail,
         regularization_weight: 0.01,
         temperature: 1.0,
+        weight_decay: 1e-5,
+        margin: 1.0,
+        early_stopping_patience: Some(10),
     };
 
     // Training diagnostics

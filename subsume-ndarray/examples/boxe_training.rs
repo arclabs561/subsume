@@ -5,6 +5,7 @@
 
 use ndarray::array;
 use subsume_core::boxe::{boxe_loss, boxe_score, Bump};
+use subsume_core::Box as CoreBox;
 use subsume_ndarray::NdarrayBox;
 
 fn main() -> Result<(), subsume_core::BoxError> {

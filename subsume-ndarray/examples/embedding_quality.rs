@@ -1,6 +1,6 @@
 //! Example demonstrating embedding quality assessment and calibration metrics.
 
-use ndarray::Array1;
+use ndarray::{array, Array1};
 use subsume_core::{
     training::{
         calibration::{brier_score, expected_calibration_error},

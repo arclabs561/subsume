@@ -142,9 +142,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     entity_boxes.get(&triple.head),
                     entity_boxes.get(&triple.tail),
                 ) {
+                    // Positive sample: maximize containment
                     let pos_score = head_box.containment_prob(tail_box, config.temperature)?;
                     let mut batch_loss = 1.0 - pos_score;
 
+                    // Generate negative samples
                     let negatives = generate_negative_samples(
                         triple,
                         &entities,
@@ -152,18 +154,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         config.negative_samples,
                     );
 
+                    // Negative samples: minimize containment
                     for neg in negatives.iter().take(config.negative_samples) {
                         if let Some(neg_tail_box) = entity_boxes.get(&neg.tail) {
                             let neg_score = head_box.containment_prob(neg_tail_box, config.temperature)?;
+                            // Margin-based loss: max(0, margin - pos_score + neg_score)
                             batch_loss += (config.margin - pos_score + neg_score).max(0.0);
                         }
                     }
 
-                    // Update embeddings
+                    // Update head box (simplified gradient)
+                    // Clone tail values before mutable borrow
+                    let tail_min = tail_box.min().to_owned();
+                    let tail_max = tail_box.max().to_owned();
+                    
                     let head_box_mut = entity_boxes.get_mut(&triple.head).unwrap();
                     let mut head_min = head_box_mut.min().to_owned();
-                    let tail_min = tail_box.min();
 
+                    // Approximate gradient: move head box to contain tail box
                     let grad_min_vec: Vec<f32> = head_min
                         .iter()
                         .zip(tail_min.iter())
@@ -172,8 +180,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let grad_min = Array1::from_vec(grad_min_vec);
                     optimizer.update(&format!("{}_min", triple.head), &mut head_min, grad_min.view());
 
-                    let head_max_clone = head_box_mut.max().to_owned();
-                    *head_box_mut = NdarrayBox::new(head_min, head_max_clone, config.temperature)?;
+                    let mut head_max = head_box_mut.max().to_owned();
+                    let grad_max_vec: Vec<f32> = head_max
+                        .iter()
+                        .zip(tail_max.iter())
+                        .map(|(h, t)| batch_loss * 0.01 * (t - h))
+                        .collect();
+                    let grad_max = Array1::from_vec(grad_max_vec);
+                    optimizer.update(&format!("{}_max", triple.head), &mut head_max, grad_max.view());
+
+                    *head_box_mut = NdarrayBox::new(head_min, head_max, config.temperature)?;
 
                     epoch_loss += batch_loss;
                 }
@@ -181,7 +197,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             batch_count += 1;
         }
 
-        let avg_loss = epoch_loss / batch_count as f32.max(1.0);
+        let avg_loss = epoch_loss / (batch_count as f32).max(1.0);
 
         // Validation
         let valid_subset: Vec<_> = dataset.valid.iter().take(1000).cloned().collect();

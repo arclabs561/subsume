@@ -123,13 +123,13 @@ fn main() -> Result<(), std::boxed::Box<dyn std::error::Error>> {
 
                     // Simplified gradient computation: approximate gradient as loss * direction
                     // In real implementation, would use automatic differentiation
+                    // Clone tail values before mutable borrow
+                    let tail_min = tail_box.min().to_owned();
+                    let tail_max = tail_box.max().to_owned();
+                    
                     let head_box_mut = entity_boxes.get_mut(&triple.head).unwrap();
                     let mut head_min = head_box_mut.min().to_owned();
                     let mut head_max = head_box_mut.max().to_owned();
-                    
-                    // Approximate gradient: move towards tail box
-                    let tail_min = tail_box.min();
-                    let tail_max = tail_box.max();
                     let grad_min_vec: Vec<f32> = head_min.iter().zip(tail_min.iter())
                         .map(|(h, t)| batch_loss * (t - h))
                         .collect();

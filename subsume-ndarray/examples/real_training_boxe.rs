@@ -157,9 +157,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         epoch_loss += loss;
 
                         // Update head box (simplified gradient)
+                        // Clone tail values before mutable borrow
+                        let tail_min = tail_box.min().to_owned();
+                        let tail_max = tail_box.max().to_owned();
+                        
                         let head_box_mut = entity_boxes.get_mut(&triple.head).unwrap();
                         let mut head_min = head_box_mut.min().to_owned();
-                        let tail_min = tail_box.min();
 
                         let grad_min_vec: Vec<f32> = head_min
                             .iter()
@@ -169,26 +172,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let grad_min = Array1::from_vec(grad_min_vec);
                         entity_optimizer.update(&format!("{}_min", triple.head), &mut head_min, grad_min.view());
 
-                        let head_max_clone = head_box_mut.max().to_owned();
-                        *head_box_mut = NdarrayBox::new(head_min, head_max_clone, 1.0)?;
+                        let mut head_max = head_box_mut.max().to_owned();
+                        let grad_max_vec: Vec<f32> = head_max
+                            .iter()
+                            .zip(tail_max.iter())
+                            .map(|(h, t)| loss * 0.01 * (t - h))
+                            .collect();
+                        let grad_max = Array1::from_vec(grad_max_vec);
+                        entity_optimizer.update(&format!("{}_max", triple.head), &mut head_max, grad_max.view());
+                        
+                        *head_box_mut = NdarrayBox::new(head_min, head_max, 1.0)?;
 
                         // Update relation bump (simplified)
                         let bump_mut = relation_bumps.get_mut(&triple.relation).unwrap();
-                        let mut bump_translation = bump_mut.translation.clone();
+                        let mut bump_translation = Array1::from_iter(bump_mut.translation.iter().cloned());
                         let bump_grad_vec: Vec<f32> = bump_translation
                             .iter()
                             .map(|_| loss * 0.005)
                             .collect();
                         let bump_grad = Array1::from_vec(bump_grad_vec);
                         relation_optimizer.update(&format!("{}_bump", triple.relation), &mut bump_translation, bump_grad.view());
-                        bump_mut.translation = bump_translation;
+                        bump_mut.translation = bump_translation.to_vec();
                     }
                 }
             }
             batch_count += 1;
         }
 
-        let avg_loss = epoch_loss / batch_count as f32.max(1.0);
+        let avg_loss = epoch_loss / (batch_count as f32).max(1.0);
 
         if epoch % 10 == 0 || epoch == config.epochs - 1 {
             // Evaluate on validation set

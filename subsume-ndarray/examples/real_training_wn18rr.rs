@@ -28,7 +28,6 @@ use subsume_core::trainer::{
 };
 use subsume_core::training::{
     diagnostics::TrainingStats,
-    metrics::{hits_at_k, mean_rank, mean_reciprocal_rank},
 };
 use subsume_core::Box as CoreBox;
 use subsume_ndarray::{Adam, NdarrayBox};
@@ -176,9 +175,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
 
                     // Update head box (simplified gradient)
+                    // Clone tail values before mutable borrow
+                    let tail_min = tail_box.min().to_owned();
+                    let tail_max = tail_box.max().to_owned();
+                    
                     let head_box_mut = entity_boxes.get_mut(&triple.head).unwrap();
                     let mut head_min = head_box_mut.min().to_owned();
-                    let tail_min = tail_box.min();
 
                     // Approximate gradient: move head box to contain tail box
                     let grad_min_vec: Vec<f32> = head_min
@@ -189,8 +191,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let grad_min = Array1::from_vec(grad_min_vec);
                     optimizer.update(&format!("{}_min", triple.head), &mut head_min, grad_min.view());
 
-                    let head_max_clone = head_box_mut.max().to_owned();
-                    *head_box_mut = NdarrayBox::new(head_min, head_max_clone, config.temperature)?;
+                    let mut head_max = head_box_mut.max().to_owned();
+                    let grad_max_vec: Vec<f32> = head_max
+                        .iter()
+                        .zip(tail_max.iter())
+                        .map(|(h, t)| batch_loss * 0.01 * (t - h))
+                        .collect();
+                    let grad_max = Array1::from_vec(grad_max_vec);
+                    optimizer.update(&format!("{}_max", triple.head), &mut head_max, grad_max.view());
+
+                    *head_box_mut = NdarrayBox::new(head_min, head_max, config.temperature)?;
 
                     epoch_loss += batch_loss;
                 }
@@ -198,7 +208,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             batch_count += 1;
         }
 
-        let avg_loss = epoch_loss / batch_count as f32.max(1.0);
+        let avg_loss = epoch_loss / (batch_count as f32).max(1.0);
 
         // Evaluate on validation set
         let valid_results = evaluate_link_prediction::<NdarrayBox>(&dataset.valid, &entity_boxes, None)?;
@@ -255,8 +265,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Print training summary
     println!("\n=== Training Summary ===");
-    let summary = training_stats.summary();
-    println!("Final loss: {:.4}", summary.final_loss);
+    if let Some((mean, min, max)) = training_stats.loss_stats() {
+        println!("Final loss - Mean: {:.4}, Min: {:.4}, Max: {:.4}", mean, min, max);
+    }
+    if let Some((mean, min, max)) = training_stats.volume_stats() {
+        println!("Volume - Mean: {:.4}, Min: {:.4}, Max: {:.4}", mean, min, max);
+    }
     println!("Best valid MRR: {:.4}", best_valid_mrr);
 
     Ok(())
