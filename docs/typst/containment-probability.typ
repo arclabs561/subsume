@@ -1,7 +1,7 @@
 #import "template.typ": theorem, definition, proof, example
 
 #align(center)[
-  #text(size: 24pt, weight: "bold")[Containment Probability]
+  #text(24pt, weight: "bold")[Containment Probability]
 ]
 
 #v(1em)
@@ -12,7 +12,7 @@
 
 But for Gumbel boxes with random boundaries, the question becomes: "What's the *average* probability that one box contains another, when the boxes themselves are random?" This is trickier. We must compute an expectation over the joint distribution of both boxes' coordinates.
 
-*The challenge:* We need the expectation of a ratio: $E["Vol"(A ∩ B) / "Vol"(B)]$. Unlike the expectation of a product (where $E[X cdot Y] = E[X]E[Y]$ if $X$ and $Y$ are independent), the expectation of a ratio does not factor simply. You can't just divide the expectations! 
+*The challenge:* We need the expectation of a ratio: $E["Vol"(A ∩ B) / "Vol"(B)]$. Unlike the expectation of a product (where $E[X * Y] = E[X]E[Y]$ if $X$ and $Y$ are independent), the expectation of a ratio does not factor simply. You can't just divide the expectations! 
 
 However, here's the key insight: when the variance of the denominator is small relative to its mean (i.e., when the volume doesn't vary too much), a first-order Taylor expansion provides an accurate approximation. It's like approximating a curve with a straight line—when the curve is nearly straight, the approximation works beautifully.
 
@@ -72,13 +72,13 @@ This error term reveals when the approximation is accurate:
 
    *Quantitative bound:* When the coefficient of variation $"CV"(V_B) < 0.1$, the relative error is approximately $"CV"(V_B)^2/2$. For example, if $"CV"(V_B) = 0.05$, the relative error is about $0.00125$ or $0.125%$.
 
-2. *Positive correlation*: When $V_{cap}$ and $V_B$ are positively correlated (which occurs naturally when both volumes depend on similar box parameters, especially when $B$ is contained in $A$), the covariance term partially cancels the variance term, reducing the overall error.
+2. *Positive correlation*: When $V_"cap"$ and $V_B$ are positively correlated (which occurs naturally when both volumes depend on similar box parameters, especially when $B$ is contained in $A$), the covariance term partially cancels the variance term, reducing the overall error.
 
 3. *Non-vanishing denominator*: When $mu_B$ is bounded away from zero, the error terms remain well-controlled. This is typically satisfied in practice since boxes have positive expected volume.
 
 The approximation is most accurate when boxes have low variance (small $beta$) and when the intersection volume and box volume are positively correlated, both of which hold in typical box embedding scenarios. The approximation may break down when $beta$ is very large (relative to expected volumes) or when volumes are extremely small.
 
-*Connection to delta method:* The first-order Taylor approximation used here is a special case of the delta method in statistics, which provides asymptotic distributions for functions of random variables. The delta method states that if $sqrt(n)(X_n - mu) -> N(0, sigma^2)$ in distribution, then $sqrt(n)(f(X_n) - f(mu)) -> N(0, f'(mu)^2 sigma^2)$ for smooth functions $f$. In our case, we're applying this to the ratio function $f(V_{cap}, V_B) = V_{cap}/V_B$, and the first-order approximation corresponds to the delta method's linearization. The error analysis above provides finite-sample bounds on the approximation quality, which is crucial for practical applications where we need guarantees on the accuracy of containment probability estimates.
+*Connection to delta method:* The first-order Taylor approximation used here is a special case of the delta method in statistics, which provides asymptotic distributions for functions of random variables. The delta method states that if $sqrt(n)(X_n - mu) -> N(0, sigma^2)$ in distribution, then $sqrt(n)(f(X_n) - f(mu)) -> N(0, f'(mu)^2 sigma^2)$ for smooth functions $f$. In our case, we're applying this to the ratio function $f(V_"cap", V_B) = V_"cap"/V_B$, and the first-order approximation corresponds to the delta method's linearization. The error analysis above provides finite-sample bounds on the approximation quality, which is crucial for practical applications where we need guarantees on the accuracy of containment probability estimates.
 
 == Example
 

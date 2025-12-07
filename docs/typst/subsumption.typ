@@ -1,7 +1,7 @@
 #import "template.typ": theorem, definition, proof, example
 
 #align(center)[
-  #text(size: 24pt, weight: "bold")[Subsumption]
+  #text(24pt, weight: "bold")[Subsumption]
 ]
 
 #v(1em)
@@ -123,7 +123,7 @@ Subsumption provides a unified framework for encoding three fundamental logical 
                       radius: 2pt,
                       inset: 0.3em,
                       align(center)[
-                        #text(weight: "bold", size: 8pt)[dog]
+                        #text(8pt, weight: "bold")[dog]
                       ]
                     )
                   ]

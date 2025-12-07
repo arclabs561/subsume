@@ -161,7 +161,7 @@ impl Box for NdarrayBox {
         // uses simpler calculations that are mathematically equivalent in the regimes
         // where they're used.
         //
-        // See [`docs/typst-output/pdf/gumbel-box-volume.pdf`](../../../docs/typst-output/pdf/gumbel-box-volume.pdf)
+        // See [`docs/typst-output/pdf/gumbel-box-volume.pdf`](../../docs/typst-output/pdf/gumbel-box-volume.pdf)
         // for the complete derivation from Gumbel distributions to Bessel functions.
 
         // For high-dimensional boxes, use log-space computation to avoid underflow/overflow
@@ -231,7 +231,7 @@ impl Box for NdarrayBox {
         // approximation is accurate when the coefficient of variation is small (typically
         // when β < 0.2). The approximation breaks down when volumes are highly variable.
         //
-        // See [`docs/typst-output/pdf/containment-probability.pdf`](../../../docs/typst-output/pdf/containment-probability.pdf)
+        // See [`docs/typst-output/pdf/containment-probability.pdf`](../../docs/typst-output/pdf/containment-probability.pdf)
         // for the complete derivation, error analysis, and validity conditions.
 
         if self.dim() != other.dim() {

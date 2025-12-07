@@ -146,8 +146,7 @@ README.md
        └─> MATHEMATICAL_FOUNDATIONS.md
             ├─> MATH_QUICK_REFERENCE.md (reference)
             ├─> MATH_TO_CODE_CONNECTIONS.md
-            ├─> MATH_EXPLANATION_GAPS.md (deep dive)
-            └─> MATH_DERIVATION_INDEX.md (navigation)
+            └─> Typst PDFs in typst-output/pdf/ (detailed derivations)
 ```
 
 **Legend:**

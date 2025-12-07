@@ -1,7 +1,7 @@
 #import "template.typ": theorem, definition, proof, example
 
 #align(center)[
-  #text(size: 24pt, weight: "bold")[Future Directions and Open Questions]
+  #text(24pt, weight: "bold")[Future Directions and Open Questions]
 ]
 
 #v(1em)

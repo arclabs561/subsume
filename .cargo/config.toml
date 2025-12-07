@@ -1,0 +1,11 @@
+# Cargo configuration for subsume workspace
+#
+# This file configures cargo and clippy behavior for the workspace.
+
+[build]
+# Use all available cores for parallel compilation
+jobs = 0
+
+[target.'cfg(all())']
+# Allow some clippy warnings in examples and tests
+# These are stylistic and acceptable given our project structure

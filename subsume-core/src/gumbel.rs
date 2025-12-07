@@ -74,10 +74,10 @@
 //!
 //! **Reference**: The complete derivation is in **Dasgupta et al. (2020)**, Section 3,
 //! "Deriving the Expected Volume Formula". The key insight is that the Gumbel CDF leads
-//! to an integral that evaluates to a Bessel function. See the [mathematical foundations](../docs/MATHEMATICAL_FOUNDATIONS.md)
+//! to an integral that evaluates to a Bessel function. See the [mathematical foundations](../../docs/MATHEMATICAL_FOUNDATIONS.md)
 //! for the full derivation from Gumbel PDFs to Bessel functions.
 //!
-//! **For detailed study:** The PDF version [`docs/typst-output/pdf/gumbel-box-volume.pdf`](../../../docs/typst-output/pdf/gumbel-box-volume.pdf)
+//! **For detailed study:** The PDF version [`docs/typst-output/pdf/gumbel-box-volume.pdf`](../../docs/typst-output/pdf/gumbel-box-volume.pdf)
 //! provides a complete step-by-step derivation with professional typesetting, including the connection
 //! to extreme value theory and numerical approximation methods.
 //!
@@ -90,13 +90,13 @@
 //!
 //! The temperature must remain **constant across dimensions** to preserve min-max stability.
 //!
-//! See [`docs/MATHEMATICAL_FOUNDATIONS.md`](../../../docs/MATHEMATICAL_FOUNDATIONS.md) for:
+//! See [`docs/MATHEMATICAL_FOUNDATIONS.md`](../../docs/MATHEMATICAL_FOUNDATIONS.md) for:
 //! - Complete derivation from Gumbel PDFs to Bessel functions
 //! - Proofs of max-stability and min-stability
 //! - Log-sum-exp function and numerical stability
 //! - Gumbel-Softmax framework details
 //!
-//! See [`docs/MATH_TO_CODE_CONNECTIONS.md`](../../../docs/MATH_TO_CODE_CONNECTIONS.md) for
+//! See [`docs/MATH_TO_CODE_CONNECTIONS.md`](../../docs/MATH_TO_CODE_CONNECTIONS.md) for
 //! how these mathematical concepts map to code implementations.
 
 use crate::{Box, BoxError};
@@ -201,7 +201,7 @@ pub trait GumbelBox: Box {
     /// - If \(x < 0\): uses \(e^x / (1 + e^x)\) to avoid computing \(e^{-x}\) when \(x\) is large and negative
     /// - If \(x \geq 0\): uses \(1 / (1 + e^{-x})\) which is stable for positive \(x\)
     ///
-    /// See [`docs/MATHEMATICAL_FOUNDATIONS.md`](../../../docs/MATHEMATICAL_FOUNDATIONS.md)
+    /// See [`docs/MATHEMATICAL_FOUNDATIONS.md`](../../docs/MATHEMATICAL_FOUNDATIONS.md)
     /// section "Gumbel-Softmax Framework" for more details.
     ///
     /// # Errors

@@ -1,7 +1,12 @@
 // Page layout: generous margins for mathematical typesetting (Hardy-style)
 #set page(margin: (top: 2.5cm, bottom: 2.5cm, left: 3cm, right: 2.5cm))
 #set text(font: ("Linux Libertine", "Times New Roman", "serif"), size: 11pt)
-#set heading(numbering: "1.", size: 1.2em, above: 1.2em, below: 0.8em)
+#set heading(numbering: "1.")
+#show heading: it => {
+  v(1.2em)
+  text(1.2em, weight: "bold")[#it.body]
+  v(0.8em)
+}
 #set par(justify: true, leading: 0.75em, first-line-indent: 0pt, spacing: 0.3em)
 #set math.equation(numbering: "(1)", number-align: right)
 #set enum(indent: 1.5em, body-indent: 0.5em)

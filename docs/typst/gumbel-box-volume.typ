@@ -1,7 +1,7 @@
 #import "template.typ": theorem, definition, proof, example
 
 #align(center)[
-  #text(size: 24pt, weight: "bold")[Gumbel-Box Volume]
+  #text(24pt, weight: "bold")[Gumbel-Box Volume]
 ]
 
 #v(1em)

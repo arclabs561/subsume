@@ -1,7 +1,7 @@
 #import "template.typ": theorem, definition, proof, example
 
 #align(center)[
-  #text(size: 24pt, weight: "bold")[Modern Applications and State-of-the-Art]
+  #text(24pt, weight: "bold")[Modern Applications and State-of-the-Art]
 ]
 
 #v(1em)

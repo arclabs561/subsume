@@ -1,7 +1,7 @@
 #import "template.typ": theorem, definition, proof, example
 
 #align(center)[
-  #text(size: 24pt, weight: "bold")[Log-Sum-Exp and Gumbel Intersection]
+  #text(24pt, weight: "bold")[Log-Sum-Exp and Gumbel Intersection]
 ]
 
 #v(1em)
@@ -128,7 +128,7 @@ The temperature parameter $beta$ controls the "softness" of the maximum operatio
               radius: 2pt,
               inset: 0.6em,
               align(center)[
-                #text(weight: "bold", 9pt)[$beta -> 0$]
+                #text(9pt, weight: "bold")[$beta -> 0$]
                 #v(0.2em)
                 #text(8pt)[$max(x, y)$]
                 #v(0.2em)
@@ -141,9 +141,9 @@ The temperature parameter $beta$ controls the "softness" of the maximum operatio
               radius: 2pt,
               inset: 0.6em,
               align(center)[
-                #text(weight: "bold", 9pt)[$beta$ finite]
+                #text(9pt, weight: "bold")[$beta$ finite]
                 #v(0.2em)
-                #text(8pt)[$lse_beta(x, y)$]
+                #text(8pt)[$"lse"_beta(x, y)$]
                 #v(0.2em)
                 #text(8pt)[Smooth maximum]
               ]
@@ -154,7 +154,7 @@ The temperature parameter $beta$ controls the "softness" of the maximum operatio
               radius: 2pt,
               inset: 0.6em,
               align(center)[
-                #text(weight: "bold", 9pt)[$beta -> infinity$]
+                #text(9pt, weight: "bold")[$beta -> infinity$]
                 #v(0.2em)
                 #text(8pt)[$(x+y)/2$]
                 #v(0.2em)
@@ -178,7 +178,7 @@ The temperature parameter $beta$ controls the "softness" of the maximum operatio
 
 == Notes
 
-*Connection to softmax:* The log-sum-exp function is the logarithm of the normalization constant in the softmax function. If we have log-probabilities $log p_1, ..., log p_k$, then $softmax_i = exp(log p_i - "lse"(log p_1, ..., log p_k))$. This connection explains why log-sum-exp appears so frequently in machine learning: it's the natural operation for normalizing log-probabilities.
+*Connection to softmax:* The log-sum-exp function is the logarithm of the normalization constant in the softmax function. If we have log-probabilities $log p_1, ..., log p_k$, then $"softmax"_i = exp(log p_i - "lse"(log p_1, ..., log p_k))$. This connection explains why log-sum-exp appears so frequently in machine learning: it's the natural operation for normalizing log-probabilities.
 
 *Numerical stability in practice:* The log-sum-exp trick is one of the most important numerical stability techniques in machine learning. It's used in virtually every implementation of softmax, attention mechanisms, and probabilistic models. The key insight—shifting by the maximum before exponentiating—applies to any sum of exponentials, making it a fundamental tool for working with log-probabilities.
 

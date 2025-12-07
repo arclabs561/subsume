@@ -1,7 +1,7 @@
 #import "template.typ": theorem, definition, proof, example
 
 #align(center)[
-  #text(size: 24pt, weight: "bold")[Gumbel Max-Stability]
+  #text(24pt, weight: "bold")[Gumbel Max-Stability]
 ]
 
 #v(1em)
@@ -135,31 +135,37 @@ Without max-stability, each intersection would produce a different distribution 
               inset: 0.4em,
               align(center)[$G_3$]
             ),
-            #block(colspan: 3, align(center)[
-              #text(10pt)[$downarrow$]
-              #v(0.2em)
-              #text(9pt)[$max$]
-            ]),
             #block(
-              colspan: 3,
+              width: 100%,
+              align(center)[
+                #text(10pt)[$↓$]
+                #v(0.2em)
+                #text(9pt)[$max$]
+              ]
+            ),
+            #block(
+              width: 100%,
               fill: rgb("e0f0ff"),
               stroke: 1.5pt + rgb("2c3e50"),
               radius: 2pt,
               inset: 0.5em,
               align(center)[$max(G_1, G_2, G_3)$]
             ),
-            #block(colspan: 3, align(center)[
-              #text(10pt)[$downarrow$]
-              #v(0.2em)
-              #text(9pt)[$~$]
-            ]),
             #block(
-              colspan: 3,
+              width: 100%,
+              align(center)[
+                #text(10pt)[$↓$]
+                #v(0.2em)
+                #text(9pt)[$~$]
+              ]
+            ),
+            #block(
+              width: 100%,
               fill: rgb("d0e8f0"),
               stroke: 1.5pt + rgb("27ae60"),
               radius: 2pt,
               inset: 0.5em,
-              align(center)[$Gumbel(ln 3, 1)$]
+              align(center)[$"Gumbel"(ln 3, 1)$]
             ),
           ]
         )

@@ -1,7 +1,7 @@
 #import "template.typ": theorem, definition, proof, example
 
 #align(center)[
-  #text(size: 24pt, weight: "bold")[Introduction: The Embedding Evolution]
+  #text(24pt, weight: "bold")[Introduction: The Embedding Evolution]
 ]
 
 #v(1em)
@@ -43,7 +43,7 @@ The history of embeddings reveals a progression toward richer geometric structur
 - Enables natural representation of hierarchical relationships
 
 *2020: Gumbel Boxes*
-- **Dasgupta et al. (2020)**: "Gumbel Box Embeddings"
+- **Dasgupta et al. (2020)**: Gumbel Box Embeddings
 - Probabilistic boundaries using Gumbel distributions
 - Solves the local identifiability problem (zero gradients in hard boxes)
 - Enables effective gradient-based learning

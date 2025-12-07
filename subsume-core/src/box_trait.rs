@@ -46,9 +46,9 @@
 //!
 //! where \(K_0\) is the modified Bessel function of the second kind. The derivation from
 //! Gumbel distributions to Bessel functions, asymptotic behavior, and numerical approximations
-//! are explained in detail in the [mathematical foundations](../docs/MATHEMATICAL_FOUNDATIONS.md).
+//! are explained in detail in the [mathematical foundations](../../docs/MATHEMATICAL_FOUNDATIONS.md).
 //!
-//! See [`docs/MATHEMATICAL_FOUNDATIONS.md`](../../../docs/MATHEMATICAL_FOUNDATIONS.md) for:
+//! See [`docs/MATHEMATICAL_FOUNDATIONS.md`](../../docs/MATHEMATICAL_FOUNDATIONS.md) for:
 //! - Complete derivation from Gumbel PDFs to Bessel functions
 //! - Gumbel max-stability and algebraic closure properties
 //! - Log-sum-exp function and numerical stability
@@ -56,7 +56,7 @@
 //! - Measure-theoretic foundations
 //!
 //! **For detailed study:** PDF versions with professional typesetting are available in
-//! [`docs/typst-output/pdf/`](../../../docs/typst-output/pdf/), including complete step-by-step
+//! [`docs/typst-output/pdf/`](../../docs/typst-output/pdf/), including complete step-by-step
 //! derivations, proofs, and examples following textbook-style exposition.
 
 /// A geometric box (axis-aligned hyperrectangle) in d-dimensional space.
@@ -132,7 +132,7 @@ pub trait Box: Sized {
     /// where `d` is the number of dimensions.
     ///
     /// For Gumbel boxes, this computes the expected volume using the Bessel approximation.
-    /// See the [mathematical foundations](../docs/MATHEMATICAL_FOUNDATIONS.md) for details.
+    /// See the [mathematical foundations](../../docs/MATHEMATICAL_FOUNDATIONS.md) for details.
     ///
     ///
     /// # Errors

@@ -1,7 +1,7 @@
 #import "template.typ": theorem, definition, proof, example
 
 #align(center)[
-  #text(size: 24pt, weight: "bold")[Local Identifiability Problem]
+  #text(24pt, weight: "bold")[Local Identifiability Problem]
 ]
 
 #v(1em)
@@ -80,7 +80,7 @@ Gumbel boxes solve this fundamental problem through three mechanisms:
               radius: 2pt,
               inset: 0.8em,
               align(center)[
-                #text(weight: "bold", 10pt)[Hard Boxes]
+                #text(10pt, weight: "bold")[Hard Boxes]
                 #v(0.3em)
                 #text(9pt)[Flat loss landscape]
                 #v(0.2em)
@@ -95,7 +95,7 @@ Gumbel boxes solve this fundamental problem through three mechanisms:
               radius: 2pt,
               inset: 0.8em,
               align(center)[
-                #text(weight: "bold", 10pt)[Gumbel Boxes]
+                #text(10pt, weight: "bold")[Gumbel Boxes]
                 #v(0.3em)
                 #text(9pt)[Smooth loss landscape]
                 #v(0.2em)
