@@ -45,7 +45,7 @@ For numerical stability, this is approximated as:
 **Location:** `subsume-ndarray/src/ndarray_gumbel.rs` and `subsume-candle/src/candle_gumbel.rs`
 
 **Implementation Note:** The current implementation uses the softplus approximation for computational efficiency. The Bessel function \(K_0\) provides the theoretical foundation, but the softplus form \(\beta \log(1 + \exp(x/\beta - 2\gamma))\) is used in practice because it:
-- Matches the Bessel function asymptotically (see [`docs/typst-output/pdf/gumbel-box-volume.pdf`](typst-output/pdf/gumbel-box-volume.pdf) for the derivation)
+- Matches the Bessel function asymptotically (see [`gumbel-box-volume.pdf`](typst-output/pdf/gumbel-box-volume.pdf) for the derivation)
 - Provides numerical stability (avoids overflow/underflow)
 - Is computationally efficient (no special function evaluation needed)
 - Maintains smooth gradients throughout parameter space
