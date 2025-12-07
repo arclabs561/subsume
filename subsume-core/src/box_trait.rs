@@ -163,7 +163,7 @@ pub trait Box: Sized {
     /// where `lse_β(x, y) = max(x, y) + β log(1 + exp(-|x-y|/β))` is the
     /// numerically stable log-sum-exp function.
     ///
-    /// See the [mathematical foundations](../docs/MATHEMATICAL_FOUNDATIONS.md)
+    /// See the [mathematical foundations](../../docs/MATHEMATICAL_FOUNDATIONS.md)
     /// for details on Gumbel intersections and max-stability.
     ///
     /// # Errors
@@ -222,7 +222,7 @@ pub trait Box: Sized {
     /// This directly models logical subsumption: if the probability is 1.0, then
     /// `self` completely subsumes `other` (entailment relationship).
     ///
-    /// See the [mathematical foundations](../docs/MATHEMATICAL_FOUNDATIONS.md)
+    /// See the [mathematical foundations](../../docs/MATHEMATICAL_FOUNDATIONS.md)
     /// section "Containment Probability" for the complete derivation of the Taylor approximation.
     ///
     /// # Errors
