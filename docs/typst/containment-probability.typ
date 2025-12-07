@@ -70,7 +70,7 @@ This error term reveals when the approximation is accurate:
 
 1. *Small coefficient of variation*: When $"Var"(V_B)/mu_B^2$ (the squared coefficient of variation, denoted $"CV"(V_B)^2$) is small, the second term is negligible. This occurs when the scale parameter $beta$ is small relative to the expected volume, meaning the Gumbel boundaries are tightly concentrated around their means. 
 
-   *Quantitative bound:* When the coefficient of variation $"CV"(V_B) < 0.1$, the relative error is approximately $"CV"(V_B)^2/2$. For example, if $"CV"(V_B) = 0.05$, the relative error is about $0.00125$ or $0.125%$.
+   *Quantitative bound:* When the coefficient of variation $"CV"(V_B) < 0.1$, the relative error is approximately $"CV"(V_B)^2/2$. For example, if $"CV"(V_B) = 0.05$, the relative error is about $0.00125$ or $0.125%$. When $"CV"(V_B) < 0.2$, the relative error is approximately $2%$. When $"CV"(V_B) > 0.3$, the relative error may exceed 10%, indicating the approximation is breaking down.
 
 2. *Positive correlation*: When $V_"cap"$ and $V_B$ are positively correlated (which occurs naturally when both volumes depend on similar box parameters, especially when $B$ is contained in $A$), the covariance term partially cancels the variance term, reducing the overall error.
 
@@ -79,6 +79,12 @@ This error term reveals when the approximation is accurate:
 The approximation is most accurate when boxes have low variance (small $beta$) and when the intersection volume and box volume are positively correlated, both of which hold in typical box embedding scenarios. The approximation may break down when $beta$ is very large (relative to expected volumes) or when volumes are extremely small.
 
 *Connection to delta method:* The first-order Taylor approximation used here is a special case of the delta method in statistics, which provides asymptotic distributions for functions of random variables. The delta method states that if $sqrt(n)(X_n - mu) -> N(0, sigma^2)$ in distribution, then $sqrt(n)(f(X_n) - f(mu)) -> N(0, f'(mu)^2 sigma^2)$ for smooth functions $f$. In our case, we're applying this to the ratio function $f(V_"cap", V_B) = V_"cap"/V_B$, and the first-order approximation corresponds to the delta method's linearization. The error analysis above provides finite-sample bounds on the approximation quality, which is crucial for practical applications where we need guarantees on the accuracy of containment probability estimates.
+
+*Higher-order corrections:* The second-order Taylor expansion includes terms involving the Hessian matrix of $f(V_"cap", V_B) = V_"cap"/V_B$:
+
+$ E[f(V_"cap", V_B)] = (mu_"cap")/(mu_B) + 1/(2mu_B^2) "Var"(V_"cap") - (mu_"cap")/(mu_B^3) "Cov"(V_"cap", V_B) + (mu_"cap")/(2mu_B^3) "Var"(V_B) + O("CV"^3) $
+
+where $"CV"$ is the coefficient of variation. The second-order correction improves accuracy when $"CV" > 0.1$, but requires computing variances and covariances of volumes, which involves higher moments of Gumbel distributions. For most practical applications with $beta < 0.2$, the first-order approximation is sufficient, with relative error $< 2%$.
 
 == Example
 
@@ -150,5 +156,9 @@ The approximation is most accurate when boxes have low variance (small $beta$) a
 
 *Connection to importance sampling:* The containment probability formula $P(B subset.eq A) = E["Vol"(A ∩ B)]/E["Vol"(B)]$ is analogous to importance sampling, where we estimate $E_p[f(X)]$ by sampling from a different distribution $q$ and computing $E_q[f(X) p(X)/q(X)]$. In our case, the "base measure" is the uniform distribution on $[0,1]^d$, and we're computing the ratio of expectations rather than a single expectation. This connection suggests that more sophisticated estimation techniques (e.g., control variates, stratified sampling) could potentially improve containment probability estimates in high-dimensional settings.
 
+*Fuzzy set interpretation:* When boxes are interpreted probabilistically, each box represents a fuzzy set with a membership function given by the uniform probability distribution. Under this interpretation, set-theoretic operations on boxes correspond directly to operations on fuzzy sets. The intersection of two boxes as fuzzy sets has membership function $m_{A ∩ B}(x) = min(m_A(x), m_B(x))$, which for axis-aligned boxes equals the indicator function of the box intersection. The complement operation has a natural interpretation: $m_{A^c}(x) = 1 - m_A(x) = 1 - P(x in A)$, defining the complement as points outside the box. This fuzzy set semantics enables box embeddings to support complex queries involving conjunctions, disjunctions, and negations—capabilities critical for real-world applications in information retrieval and recommendation systems.
+
 *Beyond first-order:* Higher-order approximations (second-order, third-order) can be derived by including more terms in the Taylor expansion. However, these require computing higher moments (variance, skewness) of the volume distributions, which becomes computationally expensive. The first-order approximation strikes an optimal balance between accuracy and computational efficiency for most practical applications.
+
+*Computational complexity:* The first-order approximation requires computing two expected volumes: $E["Vol"(A ∩ B)]$ and $E["Vol"(B)]$, each costing $O(d)$ time using the Bessel function formula (see the Gumbel-Box Volume document). The ratio computation is $O(1)$, giving total complexity $O(d)$ per containment probability evaluation. Higher-order approximations would require computing variances and covariances, which involve second moments of Gumbel distributions and cost $O(d^2)$ or more. For $N$ boxes, evaluating all pairwise containment probabilities using the first-order approximation costs $O(N^2 d)$, which is already expensive for large $N$. Higher-order methods would increase this to $O(N^2 d^2)$ or worse, making them impractical for large-scale applications.
 

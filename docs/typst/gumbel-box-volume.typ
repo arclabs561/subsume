@@ -33,11 +33,15 @@ The expected interval length $E[max(Y-X, 0)]$ represents the average "size" of t
 == Statement
 
 #theorem[
-  *Theorem (Gumbel-Box Volume).* For a Gumbel box with $X ~ "MinGumbel"(mu_x, beta)$ and $Y ~ "MaxGumbel"(mu_y, beta)$, the expected interval length is:
+  *Theorem (Gumbel-Box Volume).* For a Gumbel box with $X ~ "MinGumbel"(mu_x, beta)$ and $Y ~ "MaxGumbel"(mu_y, beta)$, the expected interval length in one dimension is:
 
   $ E[max(Y-X, 0)] = 2 beta K_0(2 e^(-(mu_y - mu_x)/(2 beta))) $
 
   where $K_0$ is the modified Bessel function of the second kind, order zero.
+
+  For a $d$-dimensional Gumbel box, the expected volume is the product of expected interval lengths across dimensions (by independence of coordinates):
+
+  $ E["Vol"(B)] = product_(i=1)^d E[max(Y_i - X_i, 0)] = product_(i=1)^d 2 beta K_0(2 e^(-(mu_(y,i) - mu_(x,i))/(2 beta))) $
 ]
 
 == Proof
@@ -52,13 +56,18 @@ The Gumbel probability density functions are:
 
 *Step 1: Standardize the variables.* We substitute $u = (x-mu_x)/beta$ and $v = (y-mu_y)/beta$, so $"d"x = beta "d"u$ and $"d"y = beta "d"v$. The region where $y > x$ (so $max(y-x, 0) = y-x$) becomes $v > u - delta$ where $delta = (mu_y - mu_x)/beta$ measures the separation between location parameters.
 
-*Step 2: Simplify the integrand.* We change the order of integration to integrate over $u$ first for fixed $v$. The integrand has the double exponential structure $e^(u - e^u) e^(-v - e^(-v))$. Making the substitution $w = u - v - delta$ (so $u = w + v + delta$), we obtain an integral in $w$ and $v$. 
+*Step 2: Simplify the integrand.* After changing variables in Step 1, the integrand has the double exponential structure $e^(u - e^u) e^(-v - e^(-v))$. We change the order of integration to integrate over $u$ first for fixed $v$.
 
-Next, we substitute $s = e^w$, which transforms the integration domain. After this change of variables, the double integral reduces to a single integral over a new variable $t$ (related to $s$ via $t = "arcsinh"(s/2)$ or similar transformation):
+For the region $v > u - delta$, we make the substitution $w = u - v - delta$ (so $u = w + v + delta$). This transformation simplifies the integration domain. The Jacobian is 1, so $"d"u = "d"w$.
+
+After this substitution, the integrand becomes:
+$ e^((w + v + delta) - e^(w + v + delta)) e^(-v - e^(-v)) = e^(w + delta - e^(w + v + delta) - e^(-v)) $
+
+Simplifying and recognizing the structure, we make a further substitution $s = e^w$, which transforms the integration domain. After algebraic manipulation, the double integral reduces to a single integral over a new variable $t$ (related to $s$ via $t = "arcsinh"(s/2)$ or similar transformation):
 
 $ integral_0^(infinity) e^(-2 e^(-delta/2) cosh t) "d"t $
 
-This form reveals the underlying structure: the argument $2 e^(-delta/2)$ controls how the exponential decay interacts with the hyperbolic cosine. The appearance of $cosh t$ is characteristic of integrals arising from Gumbel distributions and signals the connection to Bessel functions.
+This form reveals the underlying structure: the argument $2 e^(-delta/2)$ controls how the exponential decay interacts with the hyperbolic cosine. The appearance of $cosh t$ is characteristic of integrals arising from Gumbel distributions and signals the connection to Bessel functions. The transformation to hyperbolic coordinates ($cosh t$) reveals the underlying symmetry that makes the Bessel function appear naturally.
 
 *Step 3: Recognize the Bessel function.* The integral representation of the modified Bessel function of the second kind, order zero, is:
 
@@ -87,7 +96,21 @@ The softplus form provides:
 - *Numerical stability*: The form $max(x, 0) + log(1 + exp(-abs(x)))$ avoids overflow. This is analogous to the log-sum-exp trick used in machine learning: by working in log-space and shifting by the maximum, we prevent numerical overflow when exponentiating large values. The softplus function is the one-dimensional case of log-sum-exp, providing the same numerical stability guarantees.
 - *Correct asymptotics*: It matches the Bessel function behavior in both small and large argument regimes
 
-*When the approximation breaks down:* For very large $beta$ (relative to $x$), the approximation becomes less accurate. In practice, when $beta > x/10$, direct computation of $K_0$ may be preferable, though the softplus form remains stable.
+*Error analysis:* The relative error of this approximation is approximately $O(z^2)$ for small $z = 2e^(-x/(2beta))$. When $z < 0.1$ (i.e., when $x/(2beta) > ln(20) approx 3$), the relative error is less than 1%. For $z < 0.01$, the relative error is less than 0.1%.
+
+*When the approximation breaks down:* For very large $beta$ (relative to $x$), specifically when $beta > x/3$, the approximation becomes less accurate. In practice, when $beta > x/10$, direct computation of $K_0$ may be preferable, though the softplus form remains stable.
+
+*Numerical stability edge cases:*
+
+1. *Very small volumes*: When $mu_y - mu_x$ is very negative (boxes with expected negative length), the Bessel function argument $z = 2e^(-x/(2beta))$ becomes very large, and $K_0(z)$ decays exponentially. The softplus approximation $beta log(1 + exp(x/beta - 2gamma))$ correctly captures this exponential decay, but care must be taken to avoid underflow when $x/beta$ is very negative. In practice, when $x/beta < -20$, the expected volume is effectively zero (below machine precision), and the computation can be short-circuited.
+
+2. *Very large volumes*: When $mu_y - mu_x$ is very large (boxes spanning most of the space), the Bessel function argument becomes very small, and $K_0(z) ~ -ln(z/2) - gamma$ dominates. The softplus approximation remains stable, but for extremely large $x/beta > 50$, the linear term $x - 2beta gamma$ dominates, and the expected volume approaches $x$ (the separation between expected boundaries). This is the correct asymptotic behavior: as the separation grows, the expected interval length approaches the separation itself.
+
+3. *High-dimensional underflow*: For $d$-dimensional boxes, the volume is the product of $d$ expected interval lengths. In log-space, this becomes a sum: $log E["Vol"] = sum_(i=1)^d log E[max(Y_i - X_i, 0)]$. When any dimension has very small expected length (approaching machine epsilon), the log-volume becomes very negative. Care must be taken to handle dimensions where $E[max(Y_i - X_i, 0)] < epsilon$ (machine epsilon), as these contribute $log epsilon$ to the sum, potentially causing numerical issues. The library implementation clamps very small expected lengths to a minimum threshold (typically $10^-10$) to prevent underflow while maintaining gradient flow.
+
+4. *Boundary cases in intersection*: When computing intersection volumes, the formula $E["Vol"(A ∩ B)] = product_i E[max(min(Z_i^A, Z_i^B) - max(z_i^A, z_i^B), 0)]$ can produce zero expected volume when boxes are far apart. The exponential decay bound $E["Vol"(A ∩ B)] >= C e^(-d/beta)$ ensures the volume is always positive, but for very large separation $d$, the volume may be below machine precision. In practice, when $d/beta > 20$, the intersection volume is effectively zero, and the computation can be short-circuited to avoid numerical issues.
+
+5. *Temperature extremes*: When $beta -> 0$ (hard boxes), the Bessel function argument $z = 2e^(-x/(2beta)) -> 0$ for finite $x$, and $K_0(z) ~ -ln(z/2) - gamma$ diverges. However, the product $2beta K_0(z)$ remains finite and approaches $max(x, 0)$ as $beta -> 0$, recovering the hard box volume. When $beta -> infinity$ (very soft boxes), the Bessel function argument $z -> 2$, and $K_0(2) approx 0.1139$ is finite. The expected volume approaches $2beta * 0.1139$, which grows linearly with $beta$. This behavior is correct: very soft boxes have large expected volumes due to high boundary variance.
 
 == Example
 
@@ -118,7 +141,11 @@ The softplus form provides:
 
 *Why Bessel functions?* The appearance of $K_0$ is not coincidental. Bessel functions arise naturally when computing expectations involving exponential random variables, and Gumbel distributions are intimately connected to exponentials through the transformation $X = -ln(-ln U)$ where $U$ is uniform. This connection runs deep: the modified Bessel function $K_0$ appears in the probability density of products of normal random variables, suggesting a fundamental relationship between extreme value theory and geometric probability.
 
+*Mathematical structure:* The double exponential structure $e^(u - e^u) e^(-v - e^(-v))$ in the Gumbel PDFs, when integrated over the region $y > x$, produces an integral of the form $integral_0^(infinity) e^(-z cosh t) "d"t$ where $z = 2e^(-delta/2)$ and $delta = (mu_y - mu_x)/beta$. This integral representation is the defining property of the modified Bessel function $K_0(z)$. The appearance of $cosh t$ (hyperbolic cosine) reflects the underlying hyperbolic geometry: the transformation to hyperbolic coordinates reveals the symmetry that makes the Bessel function appear naturally. This is not just a computational convenience—the Bessel function provides the *exact* analytical solution, avoiding the need for numerical integration or Monte Carlo methods.
+
 *Computational considerations:* For high-dimensional boxes, volume computation in log-space is essential to avoid numerical overflow. The library implementation computes $log E["Vol"] = sum_i log E[max(Y_i - X_i, 0)]$, then exponentiates only when necessary. This log-space computation is numerically stable and is the default in production implementations.
+
+*Complexity analysis:* Computing the expected volume of a single $d$-dimensional Gumbel box requires $d$ evaluations of the Bessel function (or its softplus approximation), giving time complexity $O(d)$. For $N$ boxes, the total cost is $O(N * d)$. The Bessel function evaluation itself is typically $O(1)$ using standard library implementations (e.g., `scipy.special.k0` in Python, or optimized approximations). The softplus approximation $beta log(1 + exp(x/beta - 2gamma))$ is also $O(1)$ per dimension, making volume computation highly efficient. This linear complexity in dimension makes box embeddings scalable to high-dimensional spaces, unlike methods requiring numerical integration which would be $O(d^k)$ for $k$-th order integration methods.
 
 *Beyond Gumbel boxes:* The Bessel function formula applies specifically to Gumbel-distributed boundaries. Other probabilistic box models (Gaussian-smoothed boxes, uniform boxes) require different volume calculations, typically involving numerical integration or Monte Carlo methods. The analytical tractability of Gumbel boxes is a key advantage that enables efficient training and inference.
 

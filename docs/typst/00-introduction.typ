@@ -37,21 +37,27 @@ The history of embeddings reveals a progression toward richer geometric structur
 - Cannot naturally represent containment or hierarchy
 
 *2018: Box Embeddings Emerge*
-- **Vilnis et al. (2018)**: "Probabilistic Embedding of Knowledge Graphs with Box Lattice Measures"
+- *Vilnis et al. (2018)*: "Probabilistic Embedding of Knowledge Graphs with Box Lattice Measures"
 - First to represent entities as *regions* (boxes) rather than points
 - Containment becomes geometric: if box A contains box B, then A subsumes B
 - Enables natural representation of hierarchical relationships
 
 *2020: Gumbel Boxes*
-- **Dasgupta et al. (2020)**: Gumbel Box Embeddings
+- *Dasgupta et al. (2020)*: "Improving Local Identifiability in Probabilistic Box Embeddings" (NeurIPS)
 - Probabilistic boundaries using Gumbel distributions
 - Solves the local identifiability problem (zero gradients in hard boxes)
 - Enables effective gradient-based learning
+- Achieves approximately 6 F1 score improvement over smoothed boxes on WordNet hypernym prediction
+- The choice of Gumbel distributions is theoretically motivated: they are the only max-stable family with infinite support, providing both smoothness and algebraic closure
 
-*2023-2025: Modern Applications*
-- **Concept2Box (2023)**: Joint learning of concepts (boxes) and entities (vectors)
-- **TransBox (2024)**: OWL ontology embeddings with logical closure
-- **RegD (2025)**: Hyperbolic-like expressiveness with Euclidean regions
+*2023-2025: Modern Applications and Extensions*
+- *Concept2Box (2023)*: Joint learning of concepts (boxes) and entities (vectors)
+- *TransBox (2024)*: OWL ontology embeddings with logical closure
+- *RegD (2025)*: Hyperbolic-like expressiveness with Euclidean regions
+- *Octagon Embeddings (2024)*: Region-based embeddings with explicit rule representation
+- *ExpressivE (2022)*: Hyper-parallelogram embeddings for complex relational patterns
+- *Geometric Algebra Embeddings (2020-2024)*: Clifford algebra framework extending quaternions
+- *Annular Sector Embeddings (2025)*: Novel geometric structures for relational modeling
 
 == Why Box Embeddings?
 
@@ -62,6 +68,8 @@ Consider the hierarchy "dog ⊆ mammal ⊆ animal":
 - *Box embeddings*: Three boxes where "dog" is contained in "mammal", which is contained in "animal". Containment is geometrically explicit and transitive.
 
 The key insight is that *containment is transitive*: if A contains B and B contains C, then A contains C. This matches logical subsumption perfectly: if dog is a mammal and mammal is an animal, then dog is an animal. Box embeddings preserve this transitivity through geometric containment, ensuring that learned hierarchies are consistent and interpretable.
+
+*Lattice-theoretic foundation:* Box embeddings are fundamentally grounded in *lattice theory* and *order theory*. They form a proper *box lattice* under the reverse product order, where the join operation (union) produces the smallest enclosing box and the meet operation (intersection) produces the box intersection. This lattice structure is strictly more general than order embedding lattices, providing the mathematical foundation for understanding box embeddings' expressiveness and their relationship to Boolean algebras and distributive lattices. The *intersectional closure* property—that the intersection of two boxes is itself a box—ensures the lattice remains closed under the meet operation, essential for modeling concept hierarchies.
 
 == Geometric Intuition
 
@@ -132,7 +140,7 @@ The evolution from hard boxes to Gumbel boxes was motivated by a fundamental lea
 
 *Gumbel Boxes (2020)*: Probabilistic boundaries using Gumbel distributions. Combines the best of both worlds: smooth gradients (enables learning) and max-stability (preserves mathematical structure). This is why Gumbel distributions, rather than other smooth distributions, are used in box embeddings.
 
-The choice of Gumbel distributions is not arbitrary—they appear naturally in extreme value theory as the limiting distribution of maxima (or minima), making them the "natural" choice for modeling extreme coordinates (minimum and maximum) that define box boundaries.
+The choice of Gumbel distributions is not arbitrary—they appear naturally in extreme value theory as the limiting distribution of maxima (or minima), making them the "natural" choice for modeling extreme coordinates (minimum and maximum) that define box boundaries. The Fisher-Tippett-Gnedenko theorem (1928-1943) establishes that there are only three possible limiting distributions for normalized maxima: Gumbel (Type I), Fréchet (Type II), and Weibull (Type III). Among these, only the Gumbel distribution is max-stable with scale preservation—the maximum of independent Gumbel random variables remains Gumbel-distributed with the same scale parameter, which is essential for maintaining mathematical consistency in box operations (see the Gumbel Max-Stability document).
 
 == Modern Relevance
 

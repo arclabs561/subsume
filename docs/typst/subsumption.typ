@@ -25,6 +25,10 @@ This geometric interpretation of logical subsumption is powerful because:
 
 *Connection to category theory:* In category theory, subsumption corresponds to a morphism between objects, where the containment relationship defines a partial order. Box embeddings provide a concrete geometric realization of this abstract structure, making it computable and learnable. The geometric interpretation also connects to the concept of *topological spaces*, where containment defines neighborhoods and continuity, providing a bridge between discrete logical structures and continuous geometric representations.
 
+*Lattice-theoretic foundations:* Box embeddings form a proper *box lattice* under the reverse product order on $RR^n_+$, where an embedding is below another in a hierarchy if all of its coordinates are larger. This ordering creates a natural partial order structure—the foundation of lattice theory. The *join operation* (union) produces the smallest enclosing box that contains both input boxes, while the *meet operation* (intersection) produces the intersection of two boxes. Critically, this lattice structure is *strictly more general* than order embedding lattices in any dimension. The *intersectional closure* property ensures that the intersection of two boxes (representing concepts) is itself a box, which is essential for modeling concept hierarchies where any two concepts maintain a well-defined relationship. This lattice-theoretic framework provides the mathematical foundation for understanding box embeddings' expressiveness and their relationship to Boolean algebras and distributive lattices.
+
+*Probabilistic extension:* The box lattice extends into probabilistic lattice theory through volume-based measures. Probabilities associated with concepts are derived from the volume of boxes in $[0,1]^n$. This probabilistic interpretation enables modeling of disjoint concepts (exactly -1 correlation when total volume equals 1), identical concepts (correlation of 1), and negative correlation—which previous order embedding models could never achieve. The box lattice can represent all possible correlations between pairs of variables through the continuity of the correlation function with respect to box translations and intersections. This continuity property is crucial: small changes in box positions produce small changes in correlation, ensuring smooth optimization landscapes.
+
 == Definition
 
 *Subsumption* is a fundamental concept in formal logic. In box embeddings, we define subsumption as a binary relation: box $A$ *subsumes* box $B$ if and only if $B$ is geometrically contained within $A$, denoted $B subset.eq A$.
@@ -45,11 +49,11 @@ For hard boxes, subsumption is deterministic: either $B subset.eq A$ (subsumptio
 
 == Proof
 
-We prove that geometric containment implies logical subsumption. Under the uniform base measure on $[0,1]^d$, the containment probability is defined as:
+We prove that geometric containment implies logical subsumption. Under the uniform base measure on $[0,1]^d$, the containment probability measures the fraction of box $B$'s volume that lies within box $A$:
 
 $ P(B subset.eq A) = ("Vol"(A ∩ B))/("Vol"(B)) $
 
-This measures the fraction of box $B$'s volume that lies within box $A$.
+This is intuitive: if $B$ is completely inside $A$, then every point in $B$ is also in $A$, so the intersection volume equals $B$'s volume, giving probability 1.
 
 *Hard boxes:* When $B subset.eq A$ (geometric containment), we have $A ∩ B = B$ by definition of intersection. Therefore $"Vol"(A ∩ B) = "Vol"(B)$, which gives $P(B subset.eq A) = "Vol"(B)/"Vol"(B) = 1$. This establishes that geometric containment implies subsumption with probability 1.
 
@@ -59,7 +63,7 @@ Conversely, if $P(B subset.eq A) = 1$, then $"Vol"(A ∩ B) = "Vol"(B)$, which m
 
 $ P(B subset.eq A) approx (E["Vol"(A ∩ B)])/(E["Vol"(B)]) $
 
-When the expected boundaries satisfy $E[B] subset.eq E[A]$ (where $E[B]$ denotes the box with expected boundaries), and when $beta$ is small, the approximation gives $P(B subset.eq A) approx 1$, establishing probabilistic subsumption.
+When the expected boundaries satisfy $E[B] subset.eq E[A]$ (where $E[B]$ denotes the box with expected boundaries), and when $beta$ is small, the approximation gives $P(B subset.eq A) approx 1$, establishing probabilistic subsumption. As $beta -> 0$, Gumbel boxes approach hard boxes, and the approximation becomes exact.
 
 == Interpretation
 
@@ -72,6 +76,8 @@ Subsumption provides a unified framework for encoding three fundamental logical 
 3. *Logical consequence*: The containment relationship represents logical subsumption in a continuous, learnable form. Unlike discrete logical systems, box embeddings allow for soft, probabilistic subsumption that can be optimized through gradient descent.
 
 *Partial subsumption:* When $0 < P(B subset.eq A) < 1$, we have *partial subsumption*. This occurs when boxes overlap but $B$ is not fully contained in $A$. The probability value quantifies the degree of containment: $P(B subset.eq A) = 0.8$ means 80% of box $B$'s volume lies within box $A$. This soft subsumption enables modeling of uncertain or graded logical relationships, which is particularly useful for learning from noisy or ambiguous data.
+
+*Relation-specific geometric patterns:* Different relation types manifest in distinct geometric patterns. *Symmetric relations* (e.g., "married_to") require boxes that are symmetric with respect to argument positions—the relation box for head entities should be identical to the relation box for tail entities. *Transitive relations* (e.g., "ancestor_of") naturally encode through containment chains: if box $A$ contains box $B$ and box $B$ contains box $C$, then box $A$ contains box $C$ by geometric transitivity. *One-to-many relations* (e.g., "has_child") require larger boxes to contain many answer entities—the box offset (size) correlates with the number of entities connected by the relation. *Composition relations* require learning geometric transformations that chain together: if relation $r_1$ transforms box $A$ to contain box $B$, and relation $r_2$ transforms box $B$ to contain box $C$, then the composition $r_3 = r_1 @ r_2$ should transform box $A$ to contain box $C$. These geometric patterns provide interpretability: inspecting learned box configurations reveals the relational structure encoded in the embedding space.
 
 == Example
 
@@ -154,7 +160,7 @@ Subsumption provides a unified framework for encoding three fundamental logical 
 
 *Beyond hard boxes:* The deterministic containment shown above extends naturally to probabilistic settings. Gumbel boxes allow partial containment, where $0 < P(B subset.eq A) < 1$, enabling modeling of uncertain or graded relationships. This probabilistic extension preserves the geometric intuition while enabling gradient-based learning.
 
-*Connection to knowledge graphs:* Box embeddings have been successfully applied to WordNet (82,114 entities, 84,363 edges), achieving F1 scores above 90% for hypernym prediction. The geometric containment directly encodes the IS-A relationship, making box embeddings particularly well-suited for hierarchical knowledge representation.
+*Connection to knowledge graphs:* Box embeddings have been successfully applied to WordNet (82,114 entities, 84,363 edges), achieving F1 scores above 90% for hypernym prediction. The geometric containment directly encodes the IS-A relationship, making box embeddings particularly well-suited for hierarchical knowledge representation. On knowledge graph completion benchmarks (FB15k-237, WN18RR), box embeddings achieve competitive performance with point-based methods while providing interpretability through geometric structure. The containment probability (see the Containment Probability document) enables probabilistic reasoning about hierarchical relationships, allowing the model to handle uncertainty and noisy data.
 
-*Future directions:* Current work explores extending box embeddings to more complex geometric structures (balls, cones, arbitrary regions) and investigating connections to hyperbolic geometry. The fundamental insight—that containment relationships are naturally geometric—suggests many unexplored applications in knowledge representation and reasoning.
+*Future directions:* Current work explores extending box embeddings to more complex geometric structures (balls, cones, arbitrary regions) and investigating connections to hyperbolic geometry. The fundamental insight—that containment relationships are naturally geometric—suggests many unexplored applications in knowledge representation and reasoning. Recent extensions include octagon embeddings (2024) for explicit rule representation, ExpressivE (2022) using hyper-parallelograms for complex relational patterns, and geometric algebra embeddings (2020-2024) using Clifford algebras. These extensions demonstrate that the geometric containment principle can be generalized beyond axis-aligned boxes while maintaining computational tractability. The mathematical foundations established for box embeddings (volume calculations, max-stability, local identifiability) provide a framework for understanding and developing these extensions.
 

@@ -180,6 +180,13 @@ README.md
 
 ---
 
+## Documentation Improvements
+
+For information about improving proofs and explanations:
+- **[`TYPST_IMPROVEMENTS.md`](TYPST_IMPROVEMENTS.md)** - Detailed improvements for Typst source files (PDFs)
+- **[`PROOF_IMPROVEMENTS_ANALYSIS.md`](PROOF_IMPROVEMENTS_ANALYSIS.md)** - Improvements for Markdown mathematical documents
+- **[`IMPROVEMENTS_SUMMARY.md`](IMPROVEMENTS_SUMMARY.md)** - Quick reference to all improvement analyses
+
 ## Feedback
 
 If you find a better reading order for your use case, consider updating this guide!
