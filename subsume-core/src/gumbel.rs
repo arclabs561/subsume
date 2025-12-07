@@ -77,6 +77,10 @@
 //! to an integral that evaluates to a Bessel function. See the [mathematical foundations](../docs/MATHEMATICAL_FOUNDATIONS.md)
 //! for the full derivation from Gumbel PDFs to Bessel functions.
 //!
+//! **For detailed study:** The PDF version [`docs/typst-output/pdf/gumbel-box-volume.pdf`](../../../docs/typst-output/pdf/gumbel-box-volume.pdf)
+//! provides a complete step-by-step derivation with professional typesetting, including the connection
+//! to extreme value theory and numerical approximation methods.
+//!
 //! ## Temperature Parameter
 //!
 //! The `temperature` parameter (denoted `β` or `τ`) controls the "softness":

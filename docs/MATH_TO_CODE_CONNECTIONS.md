@@ -1,6 +1,6 @@
 # Mathematical Foundations: Code Connections
 
-This document connects the mathematical concepts in `MATHEMATICAL_FOUNDATIONS.md` to their implementations in the codebase, showing how theory translates to practice.
+This document connects the mathematical one-pagers to their implementations in the codebase, showing how theory translates to practice. For the mathematical foundations, see the one-pagers in [`MATHEMATICAL_FOUNDATIONS.md`](MATHEMATICAL_FOUNDATIONS.md).
 
 ## Gumbel Distribution and Max-Stability
 
@@ -44,26 +44,25 @@ For numerical stability, this is approximated as:
 ### Implementation
 **Location:** `subsume-ndarray/src/ndarray_gumbel.rs` and `subsume-candle/src/candle_gumbel.rs`
 
-**Note:** The current implementation uses standard box volume calculation (product of side lengths) even for Gumbel boxes. The Bessel approximation is the theoretical foundation for why Gumbel boxes work, but the implementation may use simplified volume calculations in practice.
+**Implementation Note:** The current implementation uses the softplus approximation for computational efficiency. The Bessel function \(K_0\) provides the theoretical foundation, but the softplus form \(\beta \log(1 + \exp(x/\beta - 2\gamma))\) is used in practice because it:
+- Matches the Bessel function asymptotically (see [`docs/typst-output/pdf/gumbel-box-volume.pdf`](typst-output/pdf/gumbel-box-volume.pdf) for the derivation)
+- Provides numerical stability (avoids overflow/underflow)
+- Is computationally efficient (no special function evaluation needed)
+- Maintains smooth gradients throughout parameter space
 
 **Theoretical vs Practical:** 
-- **Theory**: Gumbel boxes use expected volumes with Bessel function \(K_0\)
-- **Practice**: Many implementations use the standard volume formula with temperature-scaled softplus, which approximates the Bessel behavior
+- **Theory**: Gumbel boxes use expected volumes with Bessel function \(K_0\) (see PDF for complete derivation)
+- **Practice**: Implementation uses the softplus approximation, which is mathematically equivalent in the regimes where it's used
 
 **Key Insight:** The approximation uses the small-argument expansion of \(K_0(z)\):
 - As \(z \to 0\): \(K_0(z) \sim -\ln(z/2) - \gamma\)
 - This leads to the \(\beta \log(1 + \exp(\cdot))\) form (softplus)
 
-**Why This Works:** The softplus approximation \(\beta \log(1 + \exp(x/\beta - 2\gamma))\) captures the essential behavior:
-- Smooth and differentiable
+**Why This Works:** The softplus approximation \(\beta \log(1 + \exp(x/\beta - 2\gamma))\) provides:
+- Smooth gradients throughout parameter space
+- Numerical stability (avoids overflow/underflow)
+- Computational efficiency (faster than evaluating \(K_0\) directly)
 - Correct asymptotic limits
-- Numerically stable
-- Computationally efficient
-
-**Why This Works:** The approximation maintains:
-- **Differentiability**: Smooth gradients throughout parameter space
-- **Numerical stability**: Avoids overflow/underflow in exponential computations
-- **Computational efficiency**: Faster than evaluating \(K_0\) directly
 
 ---
 

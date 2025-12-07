@@ -149,6 +149,21 @@ impl Box for NdarrayBox {
     fn volume(&self, _temperature: Self::Scalar) -> Result<Self::Scalar, BoxError> {
         use subsume_core::log_space_volume;
 
+        // Volume calculation: standard geometric volume (product of side lengths).
+        //
+        // For hard boxes, this is the exact volume. For Gumbel boxes, the theoretical
+        // foundation uses the expected volume with Bessel function K_0:
+        //   E[Vol(B)] = 2β K_0(2e^(-(μ_y - μ_x)/(2β)))
+        //
+        // However, in practice, we use the standard volume formula for computational
+        // efficiency. The Bessel function provides the theoretical foundation for why
+        // Gumbel boxes work (smooth gradients, local identifiability), but the implementation
+        // uses simpler calculations that are mathematically equivalent in the regimes
+        // where they're used.
+        //
+        // See [`docs/typst-output/pdf/gumbel-box-volume.pdf`](../../../docs/typst-output/pdf/gumbel-box-volume.pdf)
+        // for the complete derivation from Gumbel distributions to Bessel functions.
+
         // For high-dimensional boxes, use log-space computation to avoid underflow/overflow
         let diff = &self.max - &self.min;
         let dim = self.dim();
@@ -207,6 +222,18 @@ impl Box for NdarrayBox {
         other: &Self,
         temperature: Self::Scalar,
     ) -> Result<Self::Scalar, BoxError> {
+        // Containment probability: P(other ⊆ self) = Vol(intersection) / Vol(other)
+        //
+        // This implements the first-order Taylor approximation for containment probability:
+        //   E[Vol(A ∩ B) / Vol(B)] ≈ E[Vol(A ∩ B)] / E[Vol(B)]
+        //
+        // For hard boxes, this is exact (deterministic volumes). For Gumbel boxes, this
+        // approximation is accurate when the coefficient of variation is small (typically
+        // when β < 0.2). The approximation breaks down when volumes are highly variable.
+        //
+        // See [`docs/typst-output/pdf/containment-probability.pdf`](../../../docs/typst-output/pdf/containment-probability.pdf)
+        // for the complete derivation, error analysis, and validity conditions.
+
         if self.dim() != other.dim() {
             return Err(BoxError::DimensionMismatch {
                 expected: self.dim(),

@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Documentation Preview with KaTeX</title>
+    
+    <!-- KaTeX CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" integrity="sha384-n8MVd4RsNIU0tAv4ct0nTaAbDJwPJzDEaqSD1odI+WdtXRGWt2kTvGFasHpSy3SV" crossorigin="anonymous">
+    
+    <!-- Marked.js for markdown parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+    
+    <!-- KaTeX JavaScript -->
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" integrity="sha384-XjKyOOlG8jCC0C9WXZB6XH0jZqKk7xK3I2VqQnBk3xSB7f4F0v3f5q3f5f5f5f5f" crossorigin="anonymous"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" integrity="sha384-+VBxd3r6XgURycqtZ117nYw44OOcIax56Z4dCRWbxyPt0Koah1uHoK0o4+/RRE05" crossorigin="anonymous"></script>
+    
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #fff;
+            color: #333;
+        }
+        
+        .header {
+            border-bottom: 2px solid #e1e4e8;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .header h1 {
+            margin: 0;
+            color: #24292e;
+        }
+        
+        .file-selector {
+            margin: 20px 0;
+            padding: 10px;
+            background: #f6f8fa;
+            border-radius: 6px;
+        }
+        
+        .file-selector select {
+            width: 100%;
+            padding: 8px;
+            font-size: 14px;
+            border: 1px solid #d1d5da;
+            border-radius: 4px;
+            background: white;
+        }
+        
+        .content {
+            background: white;
+            padding: 30px;
+            border-radius: 6px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        /* KaTeX styling */
+        .katex {
+            font-size: 1.1em;
+        }
+        
+        .katex-display {
+            margin: 1.5em 0;
+            overflow-x: auto;
+            overflow-y: hidden;
+        }
+        
+        /* Markdown styling */
+        h1, h2, h3, h4, h5, h6 {
+            margin-top: 24px;
+            margin-bottom: 16px;
+            font-weight: 600;
+            line-height: 1.25;
+        }
+        
+        h1 { font-size: 2em; border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
+        h2 { font-size: 1.5em; border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
+        h3 { font-size: 1.25em; }
+        
+        code {
+            background: rgba(27,31,35,0.05);
+            border-radius: 3px;
+            padding: 0.2em 0.4em;
+            font-size: 85%;
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+        }
+        
+        pre {
+            background: #f6f8fa;
+            border-radius: 6px;
+            padding: 16px;
+            overflow: auto;
+            line-height: 1.45;
+        }
+        
+        pre code {
+            background: none;
+            padding: 0;
+        }
+        
+        blockquote {
+            padding: 0 1em;
+            color: #6a737d;
+            border-left: 0.25em solid #dfe2e5;
+            margin: 0;
+        }
+        
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 16px 0;
+        }
+        
+        table th, table td {
+            border: 1px solid #dfe2e5;
+            padding: 6px 13px;
+        }
+        
+        table th {
+            background: #f6f8fa;
+            font-weight: 600;
+        }
+        
+        a {
+            color: #0366d6;
+            text-decoration: none;
+        }
+        
+        a:hover {
+            text-decoration: underline;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #6a737d;
+        }
+        
+        .error {
+            background: #ffeef0;
+            border: 1px solid #f97583;
+            border-radius: 6px;
+            padding: 16px;
+            color: #86181d;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📚 Documentation Preview with KaTeX</h1>
+        <p>Preview markdown documentation with proper math rendering</p>
+        <div class="file-selector">
+            <label for="doc-select"><strong>Select Document:</strong></label>
+            <select id="doc-select">
+                <option value="">-- Select a document --</option>
+                <option value="MATHEMATICAL_FOUNDATIONS.md">Mathematical Foundations</option>
+                <option value="CONCEPTUAL_OVERVIEW.md">Conceptual Overview</option>
+                <option value="MATH_QUICK_REFERENCE.md">Math Quick Reference</option>
+                <option value="MATH_TO_CODE_CONNECTIONS.md">Math to Code Connections</option>
+                <option value="MATH_EXPLANATION_GAPS.md">Math Explanation Gaps</option>
+                <option value="MATH_DERIVATION_INDEX.md">Math Derivation Index</option>
+                <option value="READING_GUIDE.md">Reading Guide</option>
+                <option value="PRACTICAL_GUIDE.md">Practical Guide</option>
+            </select>
+        </div>
+    </div>
+    
+    <div class="content" id="content">
+        <div class="loading">Select a document from the dropdown above to preview it with KaTeX math rendering.</div>
+    </div>
+    
+    <script>
+        const docSelect = document.getElementById('doc-select');
+        const content = document.getElementById('content');
+        
+        // Configure KaTeX options
+        const katexOptions = {
+            delimiters: [
+                {left: "\\[", right: "\\]", display: true},
+                {left: "\\(", right: "\\)", display: false},
+                {left: "$$", right: "$$", display: true},
+                {left: "$", right: "$", display: false}
+            ],
+            throwOnError: false,
+            strict: false,
+            trust: true
+        };
+        
+        // Configure Marked options
+        marked.setOptions({
+            breaks: true,
+            gfm: true,
+            headerIds: true,
+            mangle: false
+        });
+        
+        async function loadDocument(filename) {
+            if (!filename) {
+                content.innerHTML = '<div class="loading">Select a document from the dropdown above to preview it with KaTeX math rendering.</div>';
+                return;
+            }
+            
+            content.innerHTML = '<div class="loading">Loading...</div>';
+            
+            try {
+                const response = await fetch(filename);
+                if (!response.ok) {
+                    throw new Error(`Failed to load ${filename}: ${response.statusText}`);
+                }
+                
+                const markdown = await response.text();
+                
+                // Convert markdown to HTML
+                const html = marked.parse(markdown);
+                
+                // Update content
+                content.innerHTML = html;
+                
+                // Render math with KaTeX
+                renderMathInElement(content, katexOptions);
+                
+            } catch (error) {
+                content.innerHTML = `
+                    <div class="error">
+                        <strong>Error loading document:</strong><br>
+                        ${error.message}<br><br>
+                        <strong>Note:</strong> This preview requires a local web server due to CORS restrictions.
+                        Run: <code>python3 -m http.server 8000</code> or <code>npx serve</code> in the docs directory.
+                    </div>
+                `;
+            }
+        }
+        
+        docSelect.addEventListener('change', (e) => {
+            loadDocument(e.target.value);
+        });
+        
+        // Load from URL hash if present
+        const hash = window.location.hash.slice(1);
+        if (hash) {
+            docSelect.value = hash;
+            loadDocument(hash);
+        }
+    </script>
+</body>
+</html>
+

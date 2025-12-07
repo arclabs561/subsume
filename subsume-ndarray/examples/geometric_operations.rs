@@ -7,6 +7,17 @@
 //! - overlap_matrix: Batch overlap queries
 //! - nearest_boxes: Similarity search
 //! - bounding_box: Aggregate operations
+//!
+//! # Mathematical Foundations
+//!
+//! Box embeddings represent concepts as geometric regions (axis-aligned hyperrectangles).
+//! The fundamental operation is **containment**: if box A contains box B, then A subsumes B.
+//! This geometric relationship directly models logical subsumption from formal logic.
+//!
+//! For detailed mathematical foundations, see:
+//! - [`docs/typst-output/pdf/subsumption.pdf`](../../../docs/typst-output/pdf/subsumption.pdf) - Geometric containment as logical subsumption
+//! - [`docs/typst-output/pdf/gumbel-box-volume.pdf`](../../../docs/typst-output/pdf/gumbel-box-volume.pdf) - Volume calculations and their meaning
+//! - [`docs/typst-output/pdf/containment-probability.pdf`](../../../docs/typst-output/pdf/containment-probability.pdf) - Probabilistic containment
 
 use ndarray::array;
 use subsume_core::{Box, BoxCollection, BoxEmbedding};

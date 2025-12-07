@@ -1,0 +1,4 @@
+# Keep source files, ignore build artifacts
+*.pdf
+*.html
+

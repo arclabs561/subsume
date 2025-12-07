@@ -7,6 +7,18 @@
 //!
 //! Works with any standard KG dataset (WN18RR, FB15k-237, YAGO3-10).
 //! Place dataset in `data/wn18rr/` or specify path as argument.
+//!
+//! # Mathematical Foundations
+//!
+//! BoxE extends box embeddings with relation-specific transformations (translational bumps).
+//! The core idea remains geometric containment: entities are boxes, and relations transform
+//! these boxes. The scoring function measures how well transformed boxes satisfy containment
+//! relationships.
+//!
+//! For detailed mathematical foundations, see:
+//! - [`docs/typst-output/pdf/subsumption.pdf`](../../../docs/typst-output/pdf/subsumption.pdf) - Geometric containment as logical subsumption
+//! - [`docs/typst-output/pdf/local-identifiability.pdf`](../../../docs/typst-output/pdf/local-identifiability.pdf) - Why Gumbel boxes enable learning
+//! - [`docs/typst-output/pdf/07-applications.pdf`](../../../docs/typst-output/pdf/07-applications.pdf) - Modern applications and extensions
 
 use ndarray::Array1;
 use subsume_core::boxe::{boxe_loss, boxe_score, Bump};

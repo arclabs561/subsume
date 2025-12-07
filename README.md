@@ -69,7 +69,14 @@ println!("Entailment: {:.2}", entailment);
 
 - [`docs/READING_GUIDE.md`](docs/READING_GUIDE.md) — **Start here!** Recommended reading order
 - [`docs/CONCEPTUAL_OVERVIEW.md`](docs/CONCEPTUAL_OVERVIEW.md) — Why box embeddings
-- [`docs/MATHEMATICAL_FOUNDATIONS.md`](docs/MATHEMATICAL_FOUNDATIONS.md) — Mathematical details with derivations
+- [`docs/MATHEMATICAL_FOUNDATIONS.md`](docs/MATHEMATICAL_FOUNDATIONS.md) — Guide to mathematical one-pagers (textbook-style)
+  - **PDF versions** (Typst): Professional typesetting in `docs/typst-output/pdf/` (build with `make typst-docs`)
+    - Complete narrative: Introduction → Core concepts → Applications → Future directions
+    - Step-by-step derivations with proofs, examples, and diagrams
+    - Following Hardy, Gardner, Manber, and MacKay pedagogical styles
+    - Complete narrative: Introduction → Core concepts → Applications → Future directions
+    - Step-by-step derivations with proofs, examples, and diagrams
+    - Following Hardy, Gardner, Manber, and MacKay pedagogical styles
 - [`docs/MATH_TO_CODE_CONNECTIONS.md`](docs/MATH_TO_CODE_CONNECTIONS.md) — How theory maps to implementation
 - [`docs/MATH_QUICK_REFERENCE.md`](docs/MATH_QUICK_REFERENCE.md) — Quick reference for key formulas
 - [`docs/PRACTICAL_GUIDE.md`](docs/PRACTICAL_GUIDE.md) — Usage guidance

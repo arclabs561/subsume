@@ -54,6 +54,10 @@
 //! - Log-sum-exp function and numerical stability
 //! - First-order Taylor approximation for containment probability
 //! - Measure-theoretic foundations
+//!
+//! **For detailed study:** PDF versions with professional typesetting are available in
+//! [`docs/typst-output/pdf/`](../../../docs/typst-output/pdf/), including complete step-by-step
+//! derivations, proofs, and examples following textbook-style exposition.
 
 /// A geometric box (axis-aligned hyperrectangle) in d-dimensional space.
 ///

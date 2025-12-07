@@ -35,6 +35,10 @@
 //! See [`docs/MATHEMATICAL_FOUNDATIONS.md`](../../../docs/MATHEMATICAL_FOUNDATIONS.md)
 //! for complete mathematical derivations and [`docs/MATH_TO_CODE_CONNECTIONS.md`](../../../docs/MATH_TO_CODE_CONNECTIONS.md)
 //! for how these patterns are used in the codebase.
+//!
+//! **For detailed study:** PDF versions with professional typesetting are available:
+//! - [`docs/typst-output/pdf/log-sum-exp-intersection.pdf`](../../../docs/typst-output/pdf/log-sum-exp-intersection.pdf) - Log-sum-exp function and numerical stability
+//! - [`docs/typst-output/pdf/gumbel-box-volume.pdf`](../../../docs/typst-output/pdf/gumbel-box-volume.pdf) - Volume calculations and numerical considerations
 
 /// Clamp temperature to a safe range to avoid numerical instability.
 ///
@@ -198,6 +202,16 @@ pub fn gumbel_membership_prob(x: f32, min: f32, max: f32, temp: f32) -> f32 {
 /// # Returns
 ///
 /// Gumbel sample G ~ Gumbel(0, 1)
+///
+/// # Mathematical Foundation
+///
+/// This implements the inverse CDF method for sampling from a Gumbel distribution:
+/// G = -ln(-ln(U)) where U ~ Uniform(0,1). The double logarithm structure is
+/// fundamental to Gumbel distributions and enables max-stability: the maximum of
+/// independent Gumbel random variables is itself Gumbel-distributed.
+///
+/// See [`docs/typst-output/pdf/gumbel-max-stability.pdf`](../../../docs/typst-output/pdf/gumbel-max-stability.pdf)
+/// for the complete derivation of max-stability and why it's crucial for box embeddings.
 pub fn sample_gumbel(u: f32, epsilon: f32) -> f32 {
     let u_clamped = u.clamp(epsilon, 1.0 - epsilon);
     -(-u_clamped.ln()).ln()

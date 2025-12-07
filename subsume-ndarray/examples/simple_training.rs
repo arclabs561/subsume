@@ -6,6 +6,19 @@
 //! 3. Evaluating results
 //!
 //! This example is guaranteed to compile and run.
+//!
+//! # Mathematical Foundations
+//!
+//! This example demonstrates the core learning problem in box embeddings: training boxes
+//! to represent hierarchical relationships through geometric containment. The key insight
+//! is that hard boxes suffer from the **local identifiability problem**—when boxes are
+//! disjoint, gradients vanish, preventing learning. Gumbel boxes solve this by ensuring
+//! non-zero gradients everywhere.
+//!
+//! For detailed mathematical foundations, see:
+//! - [`docs/typst-output/pdf/local-identifiability.pdf`](../../../docs/typst-output/pdf/local-identifiability.pdf) - The learning problem and Gumbel solution
+//! - [`docs/typst-output/pdf/subsumption.pdf`](../../../docs/typst-output/pdf/subsumption.pdf) - Geometric containment as logical subsumption
+//! - [`docs/typst-output/pdf/containment-probability.pdf`](../../../docs/typst-output/pdf/containment-probability.pdf) - How containment probability is computed
 
 use ndarray::Array1;
 use subsume_core::dataset::Triple;

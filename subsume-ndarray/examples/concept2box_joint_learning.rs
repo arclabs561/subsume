@@ -6,6 +6,18 @@
 //! - Joint learning improves performance on two-view knowledge graphs
 //!
 //! Reference: Huang et al. (2023): "Concept2Box: Joint Geometric Embeddings for Learning Two-View Knowledge Graphs"
+//!
+//! # Mathematical Foundations
+//!
+//! Concept2Box addresses the two-view nature of knowledge graphs: concepts (ontology view)
+//! and entities (instance view). Boxes naturally represent hierarchical concept relationships
+//! through containment, while vectors efficiently represent entity similarity. The joint
+//! learning objective connects these views through distance metrics.
+//!
+//! For detailed mathematical foundations and modern applications, see:
+//! - [`docs/typst-output/pdf/07-applications.pdf`](../../../docs/typst-output/pdf/07-applications.pdf) - Modern applications including Concept2Box
+//! - [`docs/typst-output/pdf/subsumption.pdf`](../../../docs/typst-output/pdf/subsumption.pdf) - Why boxes for concepts
+//! - [`docs/typst-output/pdf/gumbel-box-volume.pdf`](../../../docs/typst-output/pdf/gumbel-box-volume.pdf) - Volume as concept granularity
 
 use ndarray::array;
 use subsume_core::Box;

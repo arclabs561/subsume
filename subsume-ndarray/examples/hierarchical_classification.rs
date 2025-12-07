@@ -6,6 +6,19 @@
 //!
 //! Box embeddings naturally model hierarchical relationships through
 //! containment: if "Animal" contains "Mammal", then P(Mammal ⊆ Animal) ≈ 1.0.
+//!
+//! # Mathematical Foundations
+//!
+//! The key insight is that geometric containment directly models logical subsumption.
+//! Parent concepts (e.g., "Animal") are represented as larger boxes that contain
+//! child concepts (e.g., "Mammal"). The volume of a box represents the granularity
+//! of the concept: general concepts have larger volumes, specific concepts have
+//! smaller volumes.
+//!
+//! For detailed mathematical foundations, see:
+//! - [`docs/typst-output/pdf/subsumption.pdf`](../../../docs/typst-output/pdf/subsumption.pdf) - Geometric containment as logical subsumption
+//! - [`docs/typst-output/pdf/containment-probability.pdf`](../../../docs/typst-output/pdf/containment-probability.pdf) - How containment probability is computed
+//! - [`docs/typst-output/pdf/gumbel-box-volume.pdf`](../../../docs/typst-output/pdf/gumbel-box-volume.pdf) - Volume as concept granularity
 
 use ndarray::Array1;
 use subsume_core::BoxCollection;

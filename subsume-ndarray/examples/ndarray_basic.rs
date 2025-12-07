@@ -1,4 +1,9 @@
 //! Basic example demonstrating box embeddings with ndarray.
+//!
+//! This example demonstrates the core concept of box embeddings: geometric containment
+//! models logical subsumption. For detailed mathematical foundations, see:
+//! - [`docs/typst-output/pdf/subsumption.pdf`](../../../docs/typst-output/pdf/subsumption.pdf) - Geometric containment as logical subsumption
+//! - [`docs/typst-output/pdf/containment-probability.pdf`](../../../docs/typst-output/pdf/containment-probability.pdf) - Containment probability calculation
 
 use ndarray::array;
 use subsume_core::Box;

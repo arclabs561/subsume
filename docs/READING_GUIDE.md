@@ -21,29 +21,28 @@ This guide provides recommended reading orders for different audiences and use c
 ### Beginner Path (No prior knowledge of box embeddings)
 
 1. **[`CONCEPTUAL_OVERVIEW.md`](CONCEPTUAL_OVERVIEW.md)** - Intuitive explanation of the approach
-2. **[`MATHEMATICAL_FOUNDATIONS.md`](MATHEMATICAL_FOUNDATIONS.md)** - Read sections in order:
-   - Subsumption: The Core Logical Concept
-   - Volume Calculation Methods (Hard, Soft, Gumbel-Box)
-   - Containment Probability
-   - Intersection Operations
-   - Probabilistic Interpretation
-3. **[`MATH_QUICK_REFERENCE.md`](MATH_QUICK_REFERENCE.md)** - Quick lookup for formulas
-4. **[`MATHEMATICAL_FOUNDATIONS.md`](MATHEMATICAL_FOUNDATIONS.md)** - Advanced sections:
-   - Local Identifiability Problem
-   - Theoretical Guarantees
-   - Gumbel-Softmax Framework
-   - Training Dynamics
+2. **[`MATHEMATICAL_FOUNDATIONS.md`](MATHEMATICAL_FOUNDATIONS.md)** - Guide to mathematical foundations
+3. Read mathematical foundations in order (prefer PDFs for best typesetting):
+   - **[PDF: Introduction](typst-output/pdf/00-introduction.pdf)** - Historical context and motivation
+   - **[PDF: Subsumption](typst-output/pdf/subsumption.pdf)** | [Markdown: Subsumption](SUBSUMPTION.md) - Geometric containment as logical subsumption
+   - **[PDF: Gumbel Box Volume](typst-output/pdf/gumbel-box-volume.pdf)** | [Markdown: Gumbel Box Volume](GUMBEL_BOX_VOLUME.md) - Expected volume for Gumbel boxes
+   - **[PDF: Containment Probability](typst-output/pdf/containment-probability.pdf)** | [Markdown: Containment Probability](CONTAINMENT_PROBABILITY.md) - Containment probability approximation
+   - **[PDF: Gumbel Max-Stability](typst-output/pdf/gumbel-max-stability.pdf)** | [Markdown: Gumbel Max-Stability](GUMBEL_MAX_STABILITY.md) - Max-stability and algebraic closure
+   - **[PDF: Log-Sum-Exp](typst-output/pdf/log-sum-exp-intersection.pdf)** | [Markdown: Log-Sum-Exp](LOG_SUM_EXP_INTERSECTION.md) - Log-sum-exp and intersection
+   - **[PDF: Local Identifiability](typst-output/pdf/local-identifiability.pdf)** | [Markdown: Local Identifiability](LOCAL_IDENTIFIABILITY.md) - The learning problem and solution
+   - **[PDF: Applications](typst-output/pdf/07-applications.pdf)** - Modern applications (2023-2025)
+   - **[PDF: Future Directions](typst-output/pdf/08-future.pdf)** - Open questions and future work
+4. **[`MATH_QUICK_REFERENCE.md`](MATH_QUICK_REFERENCE.md)** - Quick lookup for formulas
 
-**Time:** ~2-3 hours
+**Time:** ~1-2 hours
 
 ### Advanced Path (Familiar with embeddings, want deep theory)
 
-1. **[`MATHEMATICAL_FOUNDATIONS.md`](MATHEMATICAL_FOUNDATIONS.md)** - Complete read
-2. **[`MATH_EXPLANATION_GAPS.md`](MATH_EXPLANATION_GAPS.md)** - Detailed analysis of concepts
-3. **[`MATH_DERIVATION_INDEX.md`](MATH_DERIVATION_INDEX.md)** - Navigate to specific derivations
-4. **[`MATH_TO_CODE_CONNECTIONS.md`](MATH_TO_CODE_CONNECTIONS.md)** - See how theory maps to code
+1. All one-pagers from beginner path (for completeness)
+2. **[`MATH_TO_CODE_CONNECTIONS.md`](MATH_TO_CODE_CONNECTIONS.md)** - See how theory maps to code
+3. Original papers referenced in docs
 
-**Time:** ~3-4 hours
+**Time:** ~2-3 hours
 
 ---
 
@@ -70,9 +69,8 @@ This guide provides recommended reading orders for different audiences and use c
 
 1. **[`CONCEPTUAL_OVERVIEW.md`](CONCEPTUAL_OVERVIEW.md)** - Quick refresher
 2. **[`RECENT_RESEARCH.md`](RECENT_RESEARCH.md)** - Latest papers (2023-2025)
-3. **[`MATHEMATICAL_FOUNDATIONS.md`](MATHEMATICAL_FOUNDATIONS.md)** - Theoretical foundations
-4. **[`MATH_IMPROVEMENTS_SUMMARY.md`](MATH_IMPROVEMENTS_SUMMARY.md)** - What's been enhanced
-5. **[`REMAINING_WORK.md`](REMAINING_WORK.md)** - Open questions and future work
+3. **[`MATHEMATICAL_FOUNDATIONS.md`](MATHEMATICAL_FOUNDATIONS.md)** - Theoretical foundations (one-pagers)
+4. **[`REMAINING_WORK.md`](REMAINING_WORK.md)** - Open questions and future work
 
 **Time:** ~2-3 hours
 
@@ -83,9 +81,8 @@ This guide provides recommended reading orders for different audiences and use c
 **Goal:** Understand specific concepts or fix problems.
 
 1. **[`MATH_QUICK_REFERENCE.md`](MATH_QUICK_REFERENCE.md)** - Find the relevant formula
-2. **[`MATH_DERIVATION_INDEX.md`](MATH_DERIVATION_INDEX.md)** - Navigate to specific derivation
-3. **[`MATHEMATICAL_FOUNDATIONS.md`](MATHEMATICAL_FOUNDATIONS.md)** - Read the relevant section
-4. **[`MATH_TO_CODE_CONNECTIONS.md`](MATH_TO_CODE_CONNECTIONS.md)** - See implementation details
+2. **[`MATHEMATICAL_FOUNDATIONS.md`](MATHEMATICAL_FOUNDATIONS.md)** - Navigate to specific one-pager
+3. **[`MATH_TO_CODE_CONNECTIONS.md`](MATH_TO_CODE_CONNECTIONS.md)** - See implementation details
 5. **Rust Documentation** - Check function docs for numerical stability notes
 
 **Time:** ~30 minutes per concept
@@ -102,10 +99,9 @@ This guide provides recommended reading orders for different audiences and use c
 3. [`PRACTICAL_GUIDE.md`](PRACTICAL_GUIDE.md)
 
 ### Phase 2: Mathematics (Week 2)
-1. [`MATHEMATICAL_FOUNDATIONS.md`](MATHEMATICAL_FOUNDATIONS.md) - Full read
-2. [`MATH_QUICK_REFERENCE.md`](MATH_QUICK_REFERENCE.md) - Memorize key formulas
-3. [`MATH_EXPLANATION_GAPS.md`](MATH_EXPLANATION_GAPS.md) - Deep analysis
-4. [`MATH_DERIVATION_INDEX.md`](MATH_DERIVATION_INDEX.md) - Work through derivations
+1. [`MATHEMATICAL_FOUNDATIONS.md`](MATHEMATICAL_FOUNDATIONS.md) - Guide to one-pagers
+2. All one-pagers (read in order from foundations guide)
+3. [`MATH_QUICK_REFERENCE.md`](MATH_QUICK_REFERENCE.md) - Memorize key formulas
 
 ### Phase 3: Implementation (Week 3)
 1. [`MATH_TO_CODE_CONNECTIONS.md`](MATH_TO_CODE_CONNECTIONS.md)
@@ -124,23 +120,21 @@ This guide provides recommended reading orders for different audiences and use c
 ## By Topic
 
 ### Understanding Subsumption
-1. [`CONCEPTUAL_OVERVIEW.md`](CONCEPTUAL_OVERVIEW.md) - "The Subsumption Connection"
-2. [`MATHEMATICAL_FOUNDATIONS.md`](MATHEMATICAL_FOUNDATIONS.md) - "Subsumption: The Core Logical Concept"
+1. **[PDF](typst-output/pdf/subsumption.pdf)** | [Markdown](SUBSUMPTION.md) - Geometric containment as logical subsumption
+2. [`CONCEPTUAL_OVERVIEW.md`](CONCEPTUAL_OVERVIEW.md) - "The Subsumption Connection"
 
 ### Understanding Gumbel Distributions
-1. [`MATHEMATICAL_FOUNDATIONS.md`](MATHEMATICAL_FOUNDATIONS.md) - "Gumbel-Softmax Framework"
-2. [`MATH_EXPLANATION_GAPS.md`](MATH_EXPLANATION_GAPS.md) - "Gumbel Distribution Max-Stability"
-3. [`MATH_TO_CODE_CONNECTIONS.md`](MATH_TO_CODE_CONNECTIONS.md) - "Gumbel Distribution and Max-Stability"
+1. **[PDF](typst-output/pdf/gumbel-max-stability.pdf)** | [Markdown](GUMBEL_MAX_STABILITY.md) - Max-stability and min-stability
+2. [`MATH_TO_CODE_CONNECTIONS.md`](MATH_TO_CODE_CONNECTIONS.md) - "Gumbel Distribution and Max-Stability"
 
 ### Understanding Volume Calculations
-1. [`MATHEMATICAL_FOUNDATIONS.md`](MATHEMATICAL_FOUNDATIONS.md) - "Volume Calculation Methods"
-2. [`MATH_EXPLANATION_GAPS.md`](MATH_EXPLANATION_GAPS.md) - "Modified Bessel Function K₀"
-3. [`MATH_TO_CODE_CONNECTIONS.md`](MATH_TO_CODE_CONNECTIONS.md) - "Bessel Function and Volume Calculation"
+1. **[PDF](typst-output/pdf/gumbel-box-volume.pdf)** | [Markdown](GUMBEL_BOX_VOLUME.md) - Expected volume with Bessel function
+2. [`MATH_TO_CODE_CONNECTIONS.md`](MATH_TO_CODE_CONNECTIONS.md) - "Bessel Function and Volume Calculation"
 
 ### Understanding Numerical Stability
-1. [`MATH_TO_CODE_CONNECTIONS.md`](MATH_TO_CODE_CONNECTIONS.md) - "Numerical Stability Patterns"
-2. **Rust Documentation** - `subsume_core::utils` module
-3. [`MATHEMATICAL_FOUNDATIONS.md`](MATHEMATICAL_FOUNDATIONS.md) - "Log-Sum-Exp Function" section
+1. [`LOG_SUM_EXP_INTERSECTION.md`](LOG_SUM_EXP_INTERSECTION.md) - Stable log-sum-exp computation
+2. [`MATH_TO_CODE_CONNECTIONS.md`](MATH_TO_CODE_CONNECTIONS.md) - "Numerical Stability Patterns"
+3. **Rust Documentation** - `subsume_core::utils` module
 
 ---
 
@@ -171,7 +165,7 @@ README.md
 
 **Need to implement?** → [`MATH_TO_CODE_CONNECTIONS.md`](MATH_TO_CODE_CONNECTIONS.md)
 
-**Looking for a proof?** → [`MATH_DERIVATION_INDEX.md`](MATH_DERIVATION_INDEX.md)
+**Looking for a proof?** → See the one-pagers in [`MATHEMATICAL_FOUNDATIONS.md`](MATHEMATICAL_FOUNDATIONS.md)
 
 **Troubleshooting?** → Rust docs (`cargo doc`) + [`MATH_TO_CODE_CONNECTIONS.md`](MATH_TO_CODE_CONNECTIONS.md)
 
