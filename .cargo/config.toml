@@ -4,7 +4,7 @@
 
 [build]
 # Use all available cores for parallel compilation
-jobs = 0
+# jobs = 0  # Invalid - removed (cargo uses all cores by default)
 
 [target.'cfg(all())']
 # Allow some clippy warnings in examples and tests
