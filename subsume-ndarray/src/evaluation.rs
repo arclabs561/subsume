@@ -367,10 +367,13 @@ pub mod plotting {
 }
 
 #[cfg(not(feature = "plotting"))]
+#[allow(missing_docs)]
 pub mod plotting {
-    use super::*;
-    use std::path::Path;
+    //! Plotting stubs - requires `plotting` feature for actual implementation.
 
+    use super::*;
+
+    /// Stub for loss curve plotting.
     pub fn plot_loss_curve(
         _metrics: &EvaluationMetrics,
         _output_path: &std::path::Path,
@@ -379,6 +382,7 @@ pub mod plotting {
         Ok(())
     }
 
+    /// Stub for MRR curve plotting.
     pub fn plot_mrr_curve(
         _metrics: &EvaluationMetrics,
         _output_path: &std::path::Path,
@@ -387,6 +391,7 @@ pub mod plotting {
         Ok(())
     }
 
+    /// Stub for optimizer comparison plotting.
     pub fn plot_optimizer_comparison(
         _comparison: &OptimizerComparison,
         _output_path: &std::path::Path,
@@ -395,6 +400,7 @@ pub mod plotting {
         Ok(())
     }
 
+    /// Stub for learning rate comparison plotting.
     pub fn plot_learning_rate_comparison(
         _results: &[(String, f32, f32)],
         _output_path: &std::path::Path,
@@ -403,6 +409,7 @@ pub mod plotting {
         Ok(())
     }
 
+    /// Stub for batch size comparison plotting.
     pub fn plot_batch_size_comparison(
         _results: &[(usize, f32)],
         _output_path: &std::path::Path,
