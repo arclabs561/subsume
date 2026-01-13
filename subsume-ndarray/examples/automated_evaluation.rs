@@ -63,10 +63,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut comparison = OptimizerComparison::new();
 
     // Test different optimizers
-    let optimizers = vec![
-        ("Adam", run_with_optimizer::<Adam>),
-        ("AdamW", run_with_optimizer::<AdamW>),
-        ("SGD", run_with_optimizer::<SGD>),
+    type OptimizerFn = fn(
+        &[Triple],
+        &[Triple],
+        &HashSet<String>,
+        &EvaluationConfig,
+    ) -> Result<EvaluationMetrics, Box<dyn std::error::Error>>;
+
+    let optimizers: Vec<(&str, OptimizerFn)> = vec![
+        ("Adam", run_with_optimizer::<Adam> as OptimizerFn),
+        ("AdamW", run_with_optimizer::<AdamW> as OptimizerFn),
+        ("SGD", run_with_optimizer::<SGD> as OptimizerFn),
     ];
 
     for (name, optimizer_fn) in optimizers {
@@ -142,28 +149,35 @@ where
 
         for batch in train_triples.chunks(config.batch_size) {
             for triple in batch {
-                if let (Some(head_box), Some(tail_box)) = (
-                    entity_boxes.get(&triple.head),
-                    entity_boxes.get(&triple.tail),
-                ) {
+                // First, compute loss using immutable borrows
+                let (loss, tail_min_owned, head_max_owned) = {
+                    let head_box = match entity_boxes.get(&triple.head) {
+                        Some(b) => b,
+                        None => continue,
+                    };
+                    let tail_box = match entity_boxes.get(&triple.tail) {
+                        Some(b) => b,
+                        None => continue,
+                    };
                     let pos_score = head_box.containment_prob(tail_box, 1.0)?;
                     let loss = 1.0 - pos_score;
                     epoch_loss += loss;
+                    (loss, tail_box.min().to_owned(), head_box.max().to_owned())
+                };
 
-                    // Simplified gradient update
-                    let head_box_mut = entity_boxes.get_mut(&triple.head).unwrap();
+                // Now do mutable update
+                if let Some(head_box_mut) = entity_boxes.get_mut(&triple.head) {
                     let mut head_min = head_box_mut.min().to_owned();
-                    let tail_min = tail_box.min();
                     let grad_min_vec: Vec<f32> = head_min
                         .iter()
-                        .zip(tail_min.iter())
+                        .zip(tail_min_owned.iter())
                         .map(|(h, t)| loss * (t - h))
                         .collect();
                     let grad_min = Array1::from_vec(grad_min_vec);
                     optimizer.update(&format!("{}_min", triple.head), &mut head_min, grad_min.view());
                     *head_box_mut = NdarrayBox::new(
                         head_min,
-                        head_box_mut.max().to_owned(),
+                        head_max_owned,
                         1.0,
                     )?;
                 }
@@ -171,7 +185,7 @@ where
             batch_count += 1;
         }
 
-        let avg_loss = epoch_loss / batch_count as f32.max(1.0);
+        let avg_loss = epoch_loss / (batch_count as f32).max(1.0);
         let epoch_time = epoch_start.elapsed().as_secs_f64();
 
         // Evaluate
