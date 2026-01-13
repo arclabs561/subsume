@@ -147,7 +147,7 @@ pub fn center_offset_to_min_max(
 ///
 /// # Formula
 ///
-/// ```
+/// ```text
 /// center = (inverse_sigmoid(min) + inverse_sigmoid(max)) / 2
 /// offset = softplus_inverse((inverse_sigmoid(max) - inverse_sigmoid(min)) / 2)
 /// ```
