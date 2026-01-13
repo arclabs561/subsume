@@ -29,9 +29,9 @@
 pub mod benchmark;
 pub mod distance;
 pub mod evaluation;
-pub mod optimizer;
 mod ndarray_box;
 mod ndarray_gumbel;
+pub mod optimizer;
 
 #[cfg(test)]
 mod matrix_e2e_tests;
@@ -47,9 +47,9 @@ mod quantitative_verification_tests;
 
 pub use benchmark::{BenchmarkConfig, BenchmarkResult, BenchmarkSuite};
 pub use distance::{boundary_distance, depth_distance, vector_to_box_distance};
-pub use evaluation::{EvaluationConfig, EvaluationMetrics, OptimizerComparison};
 #[cfg(feature = "plotting")]
 pub use evaluation::plotting;
+pub use evaluation::{EvaluationConfig, EvaluationMetrics, OptimizerComparison};
 pub use ndarray_box::NdarrayBox;
 pub use ndarray_gumbel::NdarrayGumbelBox;
 pub use optimizer::{Adam, AdamW, SGD};

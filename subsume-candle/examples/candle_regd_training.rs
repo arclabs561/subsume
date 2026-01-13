@@ -39,7 +39,10 @@ fn main() -> Result<(), subsume_core::BoxError> {
     let depth_animal_mammal = distance::depth_distance(&animal, &mammal, 1.0, 0.1)?;
     let depth_mammal_dog = distance::depth_distance(&mammal, &dog, 1.0, 0.1)?;
 
-    println!("Depth distance (Animal, Mammal): {:.4}", depth_animal_mammal);
+    println!(
+        "Depth distance (Animal, Mammal): {:.4}",
+        depth_animal_mammal
+    );
     println!("Depth distance (Mammal, Dog):    {:.4}", depth_mammal_dog);
     println!();
 
@@ -55,4 +58,3 @@ fn main() -> Result<(), subsume_core::BoxError> {
 
     Ok(())
 }
-

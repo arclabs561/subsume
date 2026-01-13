@@ -94,7 +94,10 @@ pub fn center_offset_to_min_max(
     min_out: &mut [f32],
     max_out: &mut [f32],
 ) -> Result<(), BoxError> {
-    if center.len() != offset.len() || center.len() != min_out.len() || center.len() != max_out.len() {
+    if center.len() != offset.len()
+        || center.len() != min_out.len()
+        || center.len() != max_out.len()
+    {
         return Err(BoxError::DimensionMismatch {
             expected: center.len(),
             actual: offset.len().max(min_out.len()).max(max_out.len()),
@@ -109,11 +112,11 @@ pub fn center_offset_to_min_max(
         } else {
             offset[i].exp().ln_1p()
         };
-        
+
         // Apply sigmoid to center ± softplus(offset)
         let min_val = center[i] - softplus_offset;
         let max_val = center[i] + softplus_offset;
-        
+
         // Sigmoid: 1 / (1 + exp(-x))
         // Use stable sigmoid to avoid overflow
         let sigmoid = |x: f32| {
@@ -125,7 +128,7 @@ pub fn center_offset_to_min_max(
                 1.0 / (1.0 + (-x).exp())
             }
         };
-        
+
         min_out[i] = sigmoid(min_val);
         max_out[i] = sigmoid(max_val);
     }
@@ -166,13 +169,13 @@ pub fn min_max_to_center_offset(
         // Clamp to avoid division by zero or log of negative
         let min_clamped = min[i].clamp(1e-7, 1.0 - 1e-7);
         let max_clamped = max[i].clamp(1e-7, 1.0 - 1e-7);
-        
+
         let min_logit = (min_clamped / (1.0 - min_clamped)).ln();
         let max_logit = (max_clamped / (1.0 - max_clamped)).ln();
-        
+
         // Center is average of logits
         center_out[i] = (min_logit + max_logit) / 2.0;
-        
+
         // Offset is half the difference, converted back via inverse softplus
         let offset_logit = (max_logit - min_logit) / 2.0;
         // Inverse softplus: ln(exp(x) - 1)
@@ -225,10 +228,14 @@ mod tests {
 
         // Verify constraints: min[i] <= max[i] for all i
         for i in 0..2 {
-            assert!(min[i] <= max[i], "Constraint violation: min[{}] > max[{}]", i, i);
+            assert!(
+                min[i] <= max[i],
+                "Constraint violation: min[{}] > max[{}]",
+                i,
+                i
+            );
             assert!(min[i] >= 0.0 && min[i] <= 1.0, "min[{}] out of bounds", i);
             assert!(max[i] >= 0.0 && max[i] <= 1.0, "max[{}] out of bounds", i);
         }
     }
 }
-

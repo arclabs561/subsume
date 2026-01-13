@@ -4,6 +4,7 @@
 //! as specified in the box embedding papers (learning rate 1e-3 to 5e-4).
 
 use ndarray::Array1;
+use std::collections::{HashMap, HashSet};
 use subsume_core::dataset::Triple;
 use subsume_core::trainer::{
     evaluate_link_prediction, generate_negative_samples, NegativeSamplingStrategy, TrainingConfig,
@@ -11,7 +12,6 @@ use subsume_core::trainer::{
 use subsume_core::training::diagnostics::TrainingStats;
 use subsume_core::Box as CoreBox;
 use subsume_ndarray::{Adam, NdarrayBox};
-use std::collections::{HashMap, HashSet};
 
 fn main() -> Result<(), std::boxed::Box<dyn std::error::Error>> {
     println!("Adam Optimizer Training Example");
@@ -85,7 +85,10 @@ fn main() -> Result<(), std::boxed::Box<dyn std::error::Error>> {
     // Training diagnostics
     let mut training_stats = TrainingStats::new(10);
 
-    println!("Training with Adam optimizer (lr={})\n", config.learning_rate);
+    println!(
+        "Training with Adam optimizer (lr={})\n",
+        config.learning_rate
+    );
 
     // Training loop
     for epoch in 0..config.epochs {
@@ -126,19 +129,23 @@ fn main() -> Result<(), std::boxed::Box<dyn std::error::Error>> {
                     // Clone tail values before mutable borrow
                     let tail_min = tail_box.min().to_owned();
                     let tail_max = tail_box.max().to_owned();
-                    
+
                     let head_box_mut = entity_boxes.get_mut(&triple.head).unwrap();
                     let mut head_min = head_box_mut.min().to_owned();
                     let mut head_max = head_box_mut.max().to_owned();
-                    let grad_min_vec: Vec<f32> = head_min.iter().zip(tail_min.iter())
+                    let grad_min_vec: Vec<f32> = head_min
+                        .iter()
+                        .zip(tail_min.iter())
                         .map(|(h, t)| batch_loss * (t - h))
                         .collect();
-                    let grad_max_vec: Vec<f32> = head_max.iter().zip(tail_max.iter())
+                    let grad_max_vec: Vec<f32> = head_max
+                        .iter()
+                        .zip(tail_max.iter())
                         .map(|(h, t)| batch_loss * (t - h))
                         .collect();
                     let grad_min = Array1::from_vec(grad_min_vec);
                     let grad_max = Array1::from_vec(grad_max_vec);
-                    
+
                     optimizer.update(
                         &format!("{}_min", triple.head),
                         &mut head_min,
@@ -149,11 +156,7 @@ fn main() -> Result<(), std::boxed::Box<dyn std::error::Error>> {
                         &mut head_max,
                         grad_max.view(),
                     );
-                    *head_box_mut = NdarrayBox::new(
-                        head_min,
-                        head_max,
-                        config.temperature,
-                    )?;
+                    *head_box_mut = NdarrayBox::new(head_min, head_max, config.temperature)?;
 
                     epoch_loss += batch_loss;
                 }
@@ -194,4 +197,3 @@ fn main() -> Result<(), std::boxed::Box<dyn std::error::Error>> {
 
     Ok(())
 }
-

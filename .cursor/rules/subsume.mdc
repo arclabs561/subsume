@@ -1,0 +1,52 @@
+---
+title: "Subsume Rules"
+id: subsume-rules
+description: "Rules for Subsume box embeddings and hierarchy"
+priority: 100
+alwaysApply: true
+---
+
+# Subsume Rules
+
+## General Principles
+
+- **Order Theory**: Embeddings must respect lattice properties (transitivity, antisymmetry).
+- **Geometric Intuition**: Operations should have clear geometric interpretations (volumetric overlap, containment).
+
+## Architecture
+
+Subsume provides:
+- `subsume-core`: Traits and types.
+- `subsume-ndarray`: Reference implementation.
+- `subsume-candle`: Differentiable implementation (future/in-progress).
+
+**Rule**: `subsume-core` must remain backend-agnostic.
+
+## Rust Standards
+
+- All code must compile (`cargo check`).
+- All code must be formatted (`cargo fmt`).
+- All clippy warnings must be fixed (`cargo clippy -- -D warnings`).
+- Tests should pass (`cargo test`).
+- Use `Result<T, E>` for fallible operations.
+- Avoid `unwrap()` in production code.
+
+## Documentation
+
+- Explain the geometric interpretation of operations.
+- Link to relevant box embedding papers (Vilnis et al., etc.).
+
+## Integration
+
+Subsume could integrate with:
+- `grafene`: Hierarchical/taxonomic relationships
+- `anno`: Entity type hierarchies
+- `hop`: Document hierarchies
+
+## Anti-Sycophancy
+
+- Challenge assumptions and identify issues.
+- Present alternative approaches with trade-offs.
+- Use direct technical language.
+
+See also: `scholar-stack-base.mdc` for shared Rust standards.

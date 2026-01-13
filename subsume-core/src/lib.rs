@@ -65,14 +65,23 @@ pub mod dataset;
 pub mod distance;
 pub mod embedding;
 pub mod gumbel;
+pub mod hyperbolic;
+pub mod sheaf;
 pub mod trainer;
 pub mod training;
 pub mod utils;
 
 pub use box_trait::{Box, BoxError};
+pub use boxe::{boxe_loss, boxe_score, Bump};
+pub use center_offset::{center_offset_to_min_max, min_max_to_center_offset};
+pub use dataset::{Dataset, DatasetError, DatasetStats, Triple};
 pub use distance::{boundary_distance, depth_distance, depth_similarity, vector_to_box_distance};
 pub use embedding::{BoxCollection, BoxEmbedding};
 pub use gumbel::GumbelBox;
+pub use trainer::{
+    evaluate_link_prediction, generate_negative_samples, log_training_result, EvaluationResults,
+    HyperparameterSearch, NegativeSamplingStrategy, TrainingConfig, TrainingResult,
+};
 pub use training::{
     calibration::{
         adaptive_calibration_error, brier_score, expected_calibration_error, reliability_diagram,
@@ -92,17 +101,23 @@ pub use training::{
         TopologicalStability, VolumeConservation, VolumeDistribution,
     },
 };
-pub use boxe::{boxe_loss, boxe_score, Bump};
-pub use center_offset::{center_offset_to_min_max, min_max_to_center_offset};
-pub use dataset::{Dataset, DatasetError, DatasetStats, Triple};
-pub use trainer::{
-    evaluate_link_prediction, generate_negative_samples, log_training_result, EvaluationResults,
-    HyperparameterSearch, NegativeSamplingStrategy, TrainingConfig, TrainingResult,
-};
 pub use utils::validation;
 pub use utils::{
     clamp_temperature, clamp_temperature_default, gumbel_membership_prob, is_cross_pattern,
     is_perfectly_nested, log_space_volume, map_gumbel_to_bounds, safe_init_bounds, sample_gumbel,
     stable_sigmoid, suggested_min_separation, temperature_scheduler, volume_containment_loss,
     volume_overlap_loss, volume_regularization, MAX_TEMPERATURE, MIN_TEMPERATURE,
+};
+
+// Sheaf neural networks
+pub use sheaf::{
+    consistency_score, diffuse_until_convergence, DenseRestriction, DiffusionConfig, LaplacianType,
+    RestrictionMap, SheafBuilder, SheafEdge, SheafError, SheafGraph, SimpleSheafGraph, Stalk,
+    VecStalk,
+};
+
+// Hyperbolic embeddings
+pub use hyperbolic::{
+    hierarchy_preserved, pairwise_distances, Curvature, HyperbolicError, HyperbolicPoint,
+    PoincareBallPoint,
 };

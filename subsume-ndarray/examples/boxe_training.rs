@@ -49,4 +49,3 @@ fn main() -> Result<(), subsume_core::BoxError> {
 
     Ok(())
 }
-

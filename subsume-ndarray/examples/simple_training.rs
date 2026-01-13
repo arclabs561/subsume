@@ -21,11 +21,11 @@
 //! - [`docs/typst-output/pdf/containment-probability.pdf`](../../../docs/typst-output/pdf/containment-probability.pdf) - How containment probability is computed
 
 use ndarray::Array1;
+use std::collections::{HashMap, HashSet};
 use subsume_core::dataset::Triple;
 use subsume_core::trainer::{evaluate_link_prediction, TrainingConfig};
 use subsume_core::Box as CoreBox;
 use subsume_ndarray::{Adam, NdarrayBox};
-use std::collections::{HashMap, HashSet};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Simple Training Example");
@@ -78,7 +78,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut optimizer = Adam::new(0.01);
     let config = TrainingConfig::default();
 
-    println!("Training with Adam optimizer (lr={})...\n", config.learning_rate);
+    println!(
+        "Training with Adam optimizer (lr={})...\n",
+        config.learning_rate
+    );
 
     // Simple training loop
     for epoch in 0..10 {
@@ -98,7 +101,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // Clone tail values before mutable borrow
                 let tail_min = tail_box.min().to_owned();
                 let tail_max = tail_box.max().to_owned();
-                
+
                 let head_box_mut = entity_boxes.get_mut(&triple.head).unwrap();
                 let mut head_min = head_box_mut.min().to_owned();
 
@@ -109,7 +112,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .map(|(h, t)| loss * 0.1 * (t - h))
                     .collect();
                 let grad_min = Array1::from_vec(grad_min_vec);
-                optimizer.update(&format!("{}_min", triple.head), &mut head_min, grad_min.view());
+                optimizer.update(
+                    &format!("{}_min", triple.head),
+                    &mut head_min,
+                    grad_min.view(),
+                );
 
                 // Update the box
                 let head_max_clone = head_box_mut.max().to_owned();
@@ -118,7 +125,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         if epoch % 2 == 0 {
-            println!("Epoch {}: Loss = {:.4}", epoch + 1, epoch_loss / train_triples.len() as f32);
+            println!(
+                "Epoch {}: Loss = {:.4}",
+                epoch + 1,
+                epoch_loss / train_triples.len() as f32
+            );
         }
     }
 
@@ -136,4 +147,3 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-

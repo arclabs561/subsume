@@ -248,7 +248,10 @@ pub mod plotting {
             .max(0.1);
 
         let mut chart = ChartBuilder::on(&root)
-            .caption("Optimizer Comparison (Final MRR)", ("sans-serif", 40).into_font())
+            .caption(
+                "Optimizer Comparison (Final MRR)",
+                ("sans-serif", 40).into_font(),
+            )
             .margin(5)
             .x_label_area_size(60)
             .y_label_area_size(40)
@@ -275,8 +278,15 @@ pub mod plotting {
         let root = BitMapBackend::new(output_path, (800, 600)).into_drawing_area();
         root.fill(&WHITE)?;
 
-        let max_mrr = results.iter().map(|(_, _, mrr)| *mrr).fold(0.0f32, f32::max).max(0.1);
-        let min_lr = results.iter().map(|(_, lr, _)| *lr).fold(f32::INFINITY, f32::min);
+        let max_mrr = results
+            .iter()
+            .map(|(_, _, mrr)| *mrr)
+            .fold(0.0f32, f32::max)
+            .max(0.1);
+        let min_lr = results
+            .iter()
+            .map(|(_, lr, _)| *lr)
+            .fold(f32::INFINITY, f32::min);
         let max_lr = results.iter().map(|(_, lr, _)| *lr).fold(0.0f32, f32::max);
 
         let mut chart = ChartBuilder::on(&root)
@@ -284,7 +294,10 @@ pub mod plotting {
             .margin(5)
             .x_label_area_size(40)
             .y_label_area_size(40)
-            .build_cartesian_2d((min_lr.log10() - 0.5)..(max_lr.log10() + 0.5), 0f32..max_mrr)?;
+            .build_cartesian_2d(
+                (min_lr.log10() - 0.5)..(max_lr.log10() + 0.5),
+                0f32..max_mrr,
+            )?;
 
         chart.configure_mesh().draw()?;
 
@@ -314,7 +327,11 @@ pub mod plotting {
         let root = BitMapBackend::new(output_path, (800, 600)).into_drawing_area();
         root.fill(&WHITE)?;
 
-        let max_mrr = results.iter().map(|(_, mrr)| *mrr).fold(0.0f32, f32::max).max(0.1);
+        let max_mrr = results
+            .iter()
+            .map(|(_, mrr)| *mrr)
+            .fold(0.0f32, f32::max)
+            .max(0.1);
         let min_batch = results.iter().map(|(bs, _)| *bs).min().unwrap_or(1);
         let max_batch = results.iter().map(|(bs, _)| *bs).max().unwrap_or(100);
 
@@ -391,4 +408,3 @@ pub mod plotting {
         Ok(())
     }
 }
-

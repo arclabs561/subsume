@@ -22,18 +22,16 @@
 //! ```
 
 use ndarray::Array1;
+use std::collections::{HashMap, HashSet};
+use std::env;
+use std::path::Path;
 use subsume_core::dataset::{load_dataset, Dataset};
 use subsume_core::trainer::{
     evaluate_link_prediction, generate_negative_samples, NegativeSamplingStrategy, TrainingConfig,
 };
-use subsume_core::training::{
-    diagnostics::TrainingStats,
-};
+use subsume_core::training::diagnostics::TrainingStats;
 use subsume_core::Box as CoreBox;
 use subsume_ndarray::{Adam, NdarrayBox};
-use std::collections::{HashMap, HashSet};
-use std::env;
-use std::path::Path;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Real Training Example: WN18RR Link Prediction");
@@ -57,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!("2. Extract to: data/wn18rr/");
             eprintln!("3. Ensure files exist: train.txt, valid.txt, test.txt");
             eprintln!("\nFor now, using synthetic data...\n");
-            
+
             // Fallback to synthetic data
             create_synthetic_dataset()
         }
@@ -77,13 +75,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize box embeddings
     let embedding_dim = 50; // Standard dimension for box embeddings
     let mut entity_boxes: HashMap<String, NdarrayBox> = HashMap::new();
-    
-    println!("Initializing {} box embeddings (dim={})...", entities.len(), embedding_dim);
-    
+
+    println!(
+        "Initializing {} box embeddings (dim={})...",
+        entities.len(),
+        embedding_dim
+    );
+
     // Initialize with small random boxes (centered around origin)
     use rand::Rng;
     let mut rng = rand::thread_rng();
-    
+
     for entity in &entities {
         // Random initialization: boxes near origin with small size
         let center: Vec<f32> = (0..embedding_dim)
@@ -92,16 +94,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let size: Vec<f32> = (0..embedding_dim)
             .map(|_| rng.gen_range(0.1..0.3))
             .collect();
-        
-        let min = Array1::from_iter(
-            center.iter().zip(size.iter())
-                .map(|(c, s)| c - s / 2.0)
-        );
-        let max = Array1::from_iter(
-            center.iter().zip(size.iter())
-                .map(|(c, s)| c + s / 2.0)
-        );
-        
+
+        let min = Array1::from_iter(center.iter().zip(size.iter()).map(|(c, s)| c - s / 2.0));
+        let max = Array1::from_iter(center.iter().zip(size.iter()).map(|(c, s)| c + s / 2.0));
+
         let box_ = NdarrayBox::new(min, max, 1.0)?;
         entity_boxes.insert(entity.clone(), box_);
     }
@@ -168,7 +164,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // Negative samples: minimize containment
                     for neg in negatives.iter().take(config.negative_samples) {
                         if let Some(neg_tail_box) = entity_boxes.get(&neg.tail) {
-                            let neg_score = head_box.containment_prob(neg_tail_box, config.temperature)?;
+                            let neg_score =
+                                head_box.containment_prob(neg_tail_box, config.temperature)?;
                             // Margin-based loss: max(0, margin - pos_score + neg_score)
                             batch_loss += (config.margin - pos_score + neg_score).max(0.0);
                         }
@@ -178,7 +175,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // Clone tail values before mutable borrow
                     let tail_min = tail_box.min().to_owned();
                     let tail_max = tail_box.max().to_owned();
-                    
+
                     let head_box_mut = entity_boxes.get_mut(&triple.head).unwrap();
                     let mut head_min = head_box_mut.min().to_owned();
 
@@ -189,7 +186,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .map(|(h, t)| batch_loss * 0.01 * (t - h))
                         .collect();
                     let grad_min = Array1::from_vec(grad_min_vec);
-                    optimizer.update(&format!("{}_min", triple.head), &mut head_min, grad_min.view());
+                    optimizer.update(
+                        &format!("{}_min", triple.head),
+                        &mut head_min,
+                        grad_min.view(),
+                    );
 
                     let mut head_max = head_box_mut.max().to_owned();
                     let grad_max_vec: Vec<f32> = head_max
@@ -198,7 +199,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .map(|(h, t)| batch_loss * 0.01 * (t - h))
                         .collect();
                     let grad_max = Array1::from_vec(grad_max_vec);
-                    optimizer.update(&format!("{}_max", triple.head), &mut head_max, grad_max.view());
+                    optimizer.update(
+                        &format!("{}_max", triple.head),
+                        &mut head_max,
+                        grad_max.view(),
+                    );
 
                     *head_box_mut = NdarrayBox::new(head_min, head_max, config.temperature)?;
 
@@ -211,7 +216,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let avg_loss = epoch_loss / (batch_count as f32).max(1.0);
 
         // Evaluate on validation set
-        let valid_results = evaluate_link_prediction::<NdarrayBox>(&dataset.valid, &entity_boxes, None)?;
+        let valid_results =
+            evaluate_link_prediction::<NdarrayBox>(&dataset.valid, &entity_boxes, None)?;
         let valid_mrr = valid_results.mrr;
 
         // Record training stats
@@ -244,8 +250,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if config.early_stopping_patience.is_some()
             && patience_counter >= config.early_stopping_patience.unwrap()
         {
-            println!("\nEarly stopping at epoch {} (no improvement for {} epochs)", 
-                epoch + 1, patience_counter);
+            println!(
+                "\nEarly stopping at epoch {} (no improvement for {} epochs)",
+                epoch + 1,
+                patience_counter
+            );
             break;
         }
     }
@@ -266,10 +275,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Print training summary
     println!("\n=== Training Summary ===");
     if let Some((mean, min, max)) = training_stats.loss_stats() {
-        println!("Final loss - Mean: {:.4}, Min: {:.4}, Max: {:.4}", mean, min, max);
+        println!(
+            "Final loss - Mean: {:.4}, Min: {:.4}, Max: {:.4}",
+            mean, min, max
+        );
     }
     if let Some((mean, min, max)) = training_stats.volume_stats() {
-        println!("Volume - Mean: {:.4}, Min: {:.4}, Max: {:.4}", mean, min, max);
+        println!(
+            "Volume - Mean: {:.4}, Min: {:.4}, Max: {:.4}",
+            mean, min, max
+        );
     }
     println!("Best valid MRR: {:.4}", best_valid_mrr);
 
@@ -279,25 +294,52 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// Create synthetic dataset for testing when real dataset is not available.
 fn create_synthetic_dataset() -> Dataset {
     use subsume_core::dataset::Triple;
-    
+
     // Create a small synthetic knowledge graph
     let train = vec![
-        Triple { head: "animal".to_string(), relation: "hypernym".to_string(), tail: "entity".to_string() },
-        Triple { head: "mammal".to_string(), relation: "hypernym".to_string(), tail: "animal".to_string() },
-        Triple { head: "dog".to_string(), relation: "hypernym".to_string(), tail: "mammal".to_string() },
-        Triple { head: "cat".to_string(), relation: "hypernym".to_string(), tail: "mammal".to_string() },
-        Triple { head: "bird".to_string(), relation: "hypernym".to_string(), tail: "animal".to_string() },
-        Triple { head: "sparrow".to_string(), relation: "hypernym".to_string(), tail: "bird".to_string() },
+        Triple {
+            head: "animal".to_string(),
+            relation: "hypernym".to_string(),
+            tail: "entity".to_string(),
+        },
+        Triple {
+            head: "mammal".to_string(),
+            relation: "hypernym".to_string(),
+            tail: "animal".to_string(),
+        },
+        Triple {
+            head: "dog".to_string(),
+            relation: "hypernym".to_string(),
+            tail: "mammal".to_string(),
+        },
+        Triple {
+            head: "cat".to_string(),
+            relation: "hypernym".to_string(),
+            tail: "mammal".to_string(),
+        },
+        Triple {
+            head: "bird".to_string(),
+            relation: "hypernym".to_string(),
+            tail: "animal".to_string(),
+        },
+        Triple {
+            head: "sparrow".to_string(),
+            relation: "hypernym".to_string(),
+            tail: "bird".to_string(),
+        },
     ];
-    
-    let valid = vec![
-        Triple { head: "fish".to_string(), relation: "hypernym".to_string(), tail: "animal".to_string() },
-    ];
-    
-    let test = vec![
-        Triple { head: "whale".to_string(), relation: "hypernym".to_string(), tail: "mammal".to_string() },
-    ];
-    
+
+    let valid = vec![Triple {
+        head: "fish".to_string(),
+        relation: "hypernym".to_string(),
+        tail: "animal".to_string(),
+    }];
+
+    let test = vec![Triple {
+        head: "whale".to_string(),
+        relation: "hypernym".to_string(),
+        tail: "mammal".to_string(),
+    }];
+
     Dataset::new(train, valid, test)
 }
-

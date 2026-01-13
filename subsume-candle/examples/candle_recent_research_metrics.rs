@@ -45,7 +45,10 @@ fn main() -> Result<(), subsume_core::BoxError> {
     let depth_mammal_dog = distance::depth_distance(&mammal, &dog, 1.0, 0.1)?;
     let depth_animal_dog = distance::depth_distance(&animal, &dog, 1.0, 0.1)?;
 
-    println!("Depth distance (Animal, Mammal): {:.4}", depth_animal_mammal);
+    println!(
+        "Depth distance (Animal, Mammal): {:.4}",
+        depth_animal_mammal
+    );
     println!("Depth distance (Mammal, Dog):    {:.4}", depth_mammal_dog);
     println!("Depth distance (Animal, Dog):     {:.4}", depth_animal_dog);
     println!();
@@ -54,13 +57,22 @@ fn main() -> Result<(), subsume_core::BoxError> {
     println!("2. Boundary Distance (RegD 2025)");
     println!("---------------------------------");
     if let Some(boundary_animal_mammal) = distance::boundary_distance(&animal, &mammal, 1.0)? {
-        println!("Boundary distance (Animal ⊇ Mammal): {:.4}", boundary_animal_mammal);
+        println!(
+            "Boundary distance (Animal ⊇ Mammal): {:.4}",
+            boundary_animal_mammal
+        );
     }
     if let Some(boundary_mammal_dog) = distance::boundary_distance(&mammal, &dog, 1.0)? {
-        println!("Boundary distance (Mammal ⊇ Dog):    {:.4}", boundary_mammal_dog);
+        println!(
+            "Boundary distance (Mammal ⊇ Dog):    {:.4}",
+            boundary_mammal_dog
+        );
     }
     if let Some(boundary_animal_dog) = distance::boundary_distance(&animal, &dog, 1.0)? {
-        println!("Boundary distance (Animal ⊇ Dog):     {:.4}", boundary_animal_dog);
+        println!(
+            "Boundary distance (Animal ⊇ Dog):     {:.4}",
+            boundary_animal_dog
+        );
     }
     println!();
 
@@ -74,9 +86,18 @@ fn main() -> Result<(), subsume_core::BoxError> {
     let dist_fido_mammal = distance::vector_to_box_distance(&entity_fido, &mammal)?;
     let dist_fido_dog = distance::vector_to_box_distance(&entity_fido, &dog)?;
 
-    println!("Distance from entity 'Fido' to Animal box: {:.4}", dist_fido_animal);
-    println!("Distance from entity 'Fido' to Mammal box: {:.4}", dist_fido_mammal);
-    println!("Distance from entity 'Fido' to Dog box:    {:.4}", dist_fido_dog);
+    println!(
+        "Distance from entity 'Fido' to Animal box: {:.4}",
+        dist_fido_animal
+    );
+    println!(
+        "Distance from entity 'Fido' to Mammal box: {:.4}",
+        dist_fido_mammal
+    );
+    println!(
+        "Distance from entity 'Fido' to Dog box:    {:.4}",
+        dist_fido_dog
+    );
     println!();
 
     // 4. Depth Similarity
@@ -86,9 +107,11 @@ fn main() -> Result<(), subsume_core::BoxError> {
     let sim_animal_mammal = depth_similarity(&animal, &mammal, 1.0, 0.1)?;
     let sim_mammal_dog = depth_similarity(&mammal, &dog, 1.0, 0.1)?;
 
-    println!("Depth similarity (Animal, Mammal): {:.4}", sim_animal_mammal);
+    println!(
+        "Depth similarity (Animal, Mammal): {:.4}",
+        sim_animal_mammal
+    );
     println!("Depth similarity (Mammal, Dog):    {:.4}", sim_mammal_dog);
 
     Ok(())
 }
-

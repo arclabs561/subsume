@@ -59,11 +59,7 @@ pub struct Dataset {
 
 impl Dataset {
     /// Create a new dataset from triples.
-    pub fn new(
-        train: Vec<Triple>,
-        valid: Vec<Triple>,
-        test: Vec<Triple>,
-    ) -> Self {
+    pub fn new(train: Vec<Triple>, valid: Vec<Triple>, test: Vec<Triple>) -> Self {
         Self {
             train,
             valid,
@@ -76,7 +72,9 @@ impl Dataset {
     /// Get all unique entities from the dataset.
     pub fn entities(&self) -> std::collections::HashSet<String> {
         let mut entities = std::collections::HashSet::new();
-        for triple in self.train.iter()
+        for triple in self
+            .train
+            .iter()
             .chain(self.valid.iter())
             .chain(self.test.iter())
         {
@@ -89,7 +87,9 @@ impl Dataset {
     /// Get all unique relations from the dataset.
     pub fn relations(&self) -> std::collections::HashSet<String> {
         let mut relations = std::collections::HashSet::new();
-        for triple in self.train.iter()
+        for triple in self
+            .train
+            .iter()
             .chain(self.valid.iter())
             .chain(self.test.iter())
         {
@@ -185,7 +185,7 @@ fn load_triples(file_path: &Path) -> Result<Vec<Triple>, DatasetError> {
     for (line_num, line_result) in reader.lines().enumerate() {
         let line = line_result?;
         let trimmed = line.trim();
-        
+
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue; // Skip empty lines and comments
         }
@@ -231,7 +231,7 @@ pub fn load_map(file_path: &Path) -> Result<HashMap<String, String>, DatasetErro
     for (line_num, line_result) in reader.lines().enumerate() {
         let line = line_result?;
         let trimmed = line.trim();
-        
+
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
@@ -277,15 +277,16 @@ pub fn download_dataset(_name: &str, _output_dir: &Path) -> Result<(), DatasetEr
         "Dataset download not yet implemented. Please download datasets manually from:\n\
          - WN18RR: https://github.com/kkteru/grail\n\
          - FB15k-237: https://github.com/TimDettmers/ConvE\n\
-         - YAGO3-10: https://github.com/TimDettmers/ConvE".to_string(),
+         - YAGO3-10: https://github.com/TimDettmers/ConvE"
+            .to_string(),
     ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
     use std::io::Write;
+    use tempfile::tempdir;
 
     #[test]
     fn test_load_triples_success() -> Result<(), DatasetError> {
@@ -368,8 +369,16 @@ mod tests {
     fn test_dataset_entities() {
         let dataset = Dataset::new(
             vec![
-                Triple { head: "e1".to_string(), relation: "r1".to_string(), tail: "e2".to_string() },
-                Triple { head: "e2".to_string(), relation: "r1".to_string(), tail: "e3".to_string() },
+                Triple {
+                    head: "e1".to_string(),
+                    relation: "r1".to_string(),
+                    tail: "e2".to_string(),
+                },
+                Triple {
+                    head: "e2".to_string(),
+                    relation: "r1".to_string(),
+                    tail: "e3".to_string(),
+                },
             ],
             vec![],
             vec![],
@@ -384,9 +393,21 @@ mod tests {
     #[test]
     fn test_dataset_stats() {
         let dataset = Dataset::new(
-            vec![Triple { head: "e1".to_string(), relation: "r1".to_string(), tail: "e2".to_string() }],
-            vec![Triple { head: "e2".to_string(), relation: "r1".to_string(), tail: "e3".to_string() }],
-            vec![Triple { head: "e3".to_string(), relation: "r1".to_string(), tail: "e4".to_string() }],
+            vec![Triple {
+                head: "e1".to_string(),
+                relation: "r1".to_string(),
+                tail: "e2".to_string(),
+            }],
+            vec![Triple {
+                head: "e2".to_string(),
+                relation: "r1".to_string(),
+                tail: "e3".to_string(),
+            }],
+            vec![Triple {
+                head: "e3".to_string(),
+                relation: "r1".to_string(),
+                tail: "e4".to_string(),
+            }],
         );
         let stats = dataset.stats();
         assert_eq!(stats.num_train, 1);

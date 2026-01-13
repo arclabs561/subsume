@@ -7,21 +7,26 @@
 mod tests {
     use crate::NdarrayBox;
     use ndarray::Array1;
-    use subsume_core::dataset::Triple;
-    use subsume_core::trainer::{evaluate_link_prediction, generate_negative_samples, log_training_result, EvaluationResults, HyperparameterSearch, NegativeSamplingStrategy, TrainingConfig, TrainingResult};
     use std::collections::{HashMap, HashSet};
+    use subsume_core::dataset::Triple;
+    use subsume_core::trainer::{
+        evaluate_link_prediction, generate_negative_samples, log_training_result,
+        EvaluationResults, HyperparameterSearch, NegativeSamplingStrategy, TrainingConfig,
+        TrainingResult,
+    };
 
     #[test]
     fn test_evaluate_link_prediction() {
         // Create a simple hierarchy: animal -> mammal -> dog
         let mut entity_boxes: HashMap<String, NdarrayBox> = HashMap::new();
-        
+
         // Animal box (large, contains everything)
         let animal = NdarrayBox::new(
             Array1::from_vec(vec![0.0, 0.0]),
             Array1::from_vec(vec![10.0, 10.0]),
             1.0,
-        ).unwrap();
+        )
+        .unwrap();
         entity_boxes.insert("animal".to_string(), animal);
 
         // Mammal box (medium, contained in animal)
@@ -29,7 +34,8 @@ mod tests {
             Array1::from_vec(vec![2.0, 2.0]),
             Array1::from_vec(vec![8.0, 8.0]),
             1.0,
-        ).unwrap();
+        )
+        .unwrap();
         entity_boxes.insert("mammal".to_string(), mammal);
 
         // Dog box (small, contained in mammal)
@@ -37,7 +43,8 @@ mod tests {
             Array1::from_vec(vec![4.0, 4.0]),
             Array1::from_vec(vec![6.0, 6.0]),
             1.0,
-        ).unwrap();
+        )
+        .unwrap();
         entity_boxes.insert("dog".to_string(), dog);
 
         // Bird box (disjoint from mammal)
@@ -45,7 +52,8 @@ mod tests {
             Array1::from_vec(vec![12.0, 12.0]),
             Array1::from_vec(vec![15.0, 15.0]),
             1.0,
-        ).unwrap();
+        )
+        .unwrap();
         entity_boxes.insert("bird".to_string(), bird);
 
         // Test triples: animal -> mammal should rank mammal highly
@@ -62,13 +70,14 @@ mod tests {
             },
         ];
 
-        let results = evaluate_link_prediction::<NdarrayBox>(&test_triples, &entity_boxes, None).unwrap();
+        let results =
+            evaluate_link_prediction::<NdarrayBox>(&test_triples, &entity_boxes, None).unwrap();
 
         // Animal -> mammal should have high rank (mammal should be near top)
         // Since mammal is contained in animal, it should rank highly
         assert!(results.mrr > 0.0, "MRR should be positive");
         assert!(results.hits_at_10 > 0.0, "Hits@10 should be positive");
-        
+
         // All metrics should be in valid ranges
         assert!(results.mrr >= 0.0 && results.mrr <= 1.0);
         assert!(results.hits_at_1 >= 0.0 && results.hits_at_1 <= 1.0);
@@ -81,38 +90,40 @@ mod tests {
     fn test_evaluate_link_prediction_with_negative_samples() {
         // Test that negative sampling works with evaluate_link_prediction
         let mut entity_boxes: HashMap<String, NdarrayBox> = HashMap::new();
-        
+
         let e1 = NdarrayBox::new(
             Array1::from_vec(vec![0.0, 0.0]),
             Array1::from_vec(vec![2.0, 2.0]),
             1.0,
-        ).unwrap();
+        )
+        .unwrap();
         entity_boxes.insert("e1".to_string(), e1);
 
         let e2 = NdarrayBox::new(
             Array1::from_vec(vec![1.0, 1.0]),
             Array1::from_vec(vec![3.0, 3.0]),
             1.0,
-        ).unwrap();
+        )
+        .unwrap();
         entity_boxes.insert("e2".to_string(), e2);
 
         let e3 = NdarrayBox::new(
             Array1::from_vec(vec![10.0, 10.0]),
             Array1::from_vec(vec![12.0, 12.0]),
             1.0,
-        ).unwrap();
+        )
+        .unwrap();
         entity_boxes.insert("e3".to_string(), e3);
 
-        let test_triples = vec![
-            Triple {
-                head: "e1".to_string(),
-                relation: "r1".to_string(),
-                tail: "e2".to_string(),
-            },
-        ];
+        let test_triples = vec![Triple {
+            head: "e1".to_string(),
+            relation: "r1".to_string(),
+            tail: "e2".to_string(),
+        }];
 
-        let results = evaluate_link_prediction::<NdarrayBox>(&test_triples, &entity_boxes, None).unwrap();
-        
+        let results =
+            evaluate_link_prediction::<NdarrayBox>(&test_triples, &entity_boxes, None).unwrap();
+
         // e1 -> e2 should rank e2 highly (they overlap)
         assert!(results.mrr > 0.0);
     }
@@ -133,12 +144,12 @@ mod tests {
         assert!(!search.batch_sizes.is_empty());
         assert!(!search.dimensions.is_empty());
         assert!(!search.regularization_weights.is_empty());
-        
+
         // Verify all learning rates are positive
         for lr in &search.learning_rates {
             assert!(*lr > 0.0);
         }
-        
+
         // Verify all batch sizes are positive
         for bs in &search.batch_sizes {
             assert!(*bs > 0);
@@ -186,10 +197,14 @@ mod tests {
             NegativeSamplingStrategy::CorruptBoth,
         ] {
             let negatives = generate_negative_samples(&triple, &entities, &strategy, 10);
-            
+
             // Should generate some negatives
-            assert!(!negatives.is_empty(), "Strategy {:?} should generate negatives", strategy);
-            
+            assert!(
+                !negatives.is_empty(),
+                "Strategy {:?} should generate negatives",
+                strategy
+            );
+
             // All negatives should differ from positive
             for neg in &negatives {
                 assert_ne!(neg, &triple);
@@ -204,9 +219,10 @@ mod tests {
     fn test_evaluate_link_prediction_empty_triples() {
         let entity_boxes: HashMap<String, NdarrayBox> = HashMap::new();
         let test_triples: Vec<Triple> = vec![];
-        
-        let results = evaluate_link_prediction::<NdarrayBox>(&test_triples, &entity_boxes, None).unwrap();
-        
+
+        let results =
+            evaluate_link_prediction::<NdarrayBox>(&test_triples, &entity_boxes, None).unwrap();
+
         // Empty triples should give zero metrics
         assert_eq!(results.mrr, 0.0);
         assert_eq!(results.hits_at_1, 0.0);
@@ -222,20 +238,18 @@ mod tests {
             Array1::from_vec(vec![0.0, 0.0]),
             Array1::from_vec(vec![1.0, 1.0]),
             1.0,
-        ).unwrap();
+        )
+        .unwrap();
         entity_boxes.insert("e1".to_string(), e1);
 
         // Try to evaluate with missing entity
-        let test_triples = vec![
-            Triple {
-                head: "missing".to_string(),
-                relation: "r1".to_string(),
-                tail: "e1".to_string(),
-            },
-        ];
+        let test_triples = vec![Triple {
+            head: "missing".to_string(),
+            relation: "r1".to_string(),
+            tail: "e1".to_string(),
+        }];
 
         let result = evaluate_link_prediction::<NdarrayBox>(&test_triples, &entity_boxes, None);
         assert!(result.is_err(), "Should error on missing entity");
     }
 }
-

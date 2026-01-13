@@ -37,8 +37,14 @@ fn main() -> Result<(), subsume_core::BoxError> {
     let dist_fido_animal = distance::vector_to_box_distance(&entity_fido, &animal)?;
     let dist_fido_mammal = distance::vector_to_box_distance(&entity_fido, &mammal)?;
 
-    println!("Distance from entity 'Fido' to Animal box: {:.4}", dist_fido_animal);
-    println!("Distance from entity 'Fido' to Mammal box: {:.4}", dist_fido_mammal);
+    println!(
+        "Distance from entity 'Fido' to Animal box: {:.4}",
+        dist_fido_animal
+    );
+    println!(
+        "Distance from entity 'Fido' to Mammal box: {:.4}",
+        dist_fido_mammal
+    );
     println!();
 
     // Concept-concept relations (box-box)
@@ -52,4 +58,3 @@ fn main() -> Result<(), subsume_core::BoxError> {
 
     Ok(())
 }
-

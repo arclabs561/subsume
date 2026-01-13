@@ -7,6 +7,7 @@
 //! 4. Using all diagnostic tools
 
 use ndarray::Array1;
+use std::collections::{HashMap, HashSet};
 use subsume_core::dataset::Triple;
 use subsume_core::trainer::{
     evaluate_link_prediction, generate_negative_samples, NegativeSamplingStrategy, TrainingConfig,
@@ -14,7 +15,6 @@ use subsume_core::trainer::{
 use subsume_core::training::diagnostics::{LossComponents, TrainingStats};
 use subsume_core::Box as CoreBox;
 use subsume_ndarray::NdarrayBox;
-use std::collections::{HashMap, HashSet};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Full Training Loop with Dataset Integration");
@@ -22,19 +22,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // In production, you would load a real dataset:
     // let dataset = load_dataset("data/wn18rr")?;
-    
+
     // For this example, create synthetic data
     println!("Creating synthetic knowledge graph...");
     let train_triples = vec![
-        Triple { head: "animal".to_string(), relation: "is_a".to_string(), tail: "mammal".to_string() },
-        Triple { head: "mammal".to_string(), relation: "is_a".to_string(), tail: "dog".to_string() },
-        Triple { head: "mammal".to_string(), relation: "is_a".to_string(), tail: "cat".to_string() },
-        Triple { head: "animal".to_string(), relation: "is_a".to_string(), tail: "bird".to_string() },
+        Triple {
+            head: "animal".to_string(),
+            relation: "is_a".to_string(),
+            tail: "mammal".to_string(),
+        },
+        Triple {
+            head: "mammal".to_string(),
+            relation: "is_a".to_string(),
+            tail: "dog".to_string(),
+        },
+        Triple {
+            head: "mammal".to_string(),
+            relation: "is_a".to_string(),
+            tail: "cat".to_string(),
+        },
+        Triple {
+            head: "animal".to_string(),
+            relation: "is_a".to_string(),
+            tail: "bird".to_string(),
+        },
     ];
-    
-    let test_triples = vec![
-        Triple { head: "bird".to_string(), relation: "is_a".to_string(), tail: "sparrow".to_string() },
-    ];
+
+    let test_triples = vec![Triple {
+        head: "bird".to_string(),
+        relation: "is_a".to_string(),
+        tail: "sparrow".to_string(),
+    }];
 
     // Collect all entities
     let mut entities = HashSet::new();
@@ -118,30 +136,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         let avg_loss = epoch_loss / batch_count as f32;
-        
+
         // Record training stats
         let avg_volume = entity_boxes
             .values()
             .map(|b| b.volume(config.temperature).unwrap_or(0.0))
             .sum::<f32>()
             / entity_boxes.len() as f32;
-        
-        training_stats.record(avg_loss, avg_volume, 0.1); // Simplified gradient norm
-        
-        loss_components = LossComponents::new(avg_loss, 0.0, config.regularization_weight * avg_volume);
 
-        println!("Epoch {}: Loss = {:.4}, Avg Volume = {:.4}", epoch + 1, avg_loss, avg_volume);
+        training_stats.record(avg_loss, avg_volume, 0.1); // Simplified gradient norm
+
+        loss_components =
+            LossComponents::new(avg_loss, 0.0, config.regularization_weight * avg_volume);
+
+        println!(
+            "Epoch {}: Loss = {:.4}, Avg Volume = {:.4}",
+            epoch + 1,
+            avg_loss,
+            avg_volume
+        );
     }
 
     println!("\nTraining complete!\n");
 
     // Evaluate on test set
     println!("Evaluating on test set...");
-    let results = evaluate_link_prediction::<NdarrayBox>(
-        &test_triples,
-        &entity_boxes,
-        None,
-    )?;
+    let results = evaluate_link_prediction::<NdarrayBox>(&test_triples, &entity_boxes, None)?;
 
     println!("\nTest Results:");
     println!("  MRR:      {:.4}", results.mrr);
@@ -172,4 +192,3 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-

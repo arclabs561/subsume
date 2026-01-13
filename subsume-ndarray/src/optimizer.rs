@@ -80,13 +80,14 @@ impl Adam {
     /// - `grad`: Gradients for this parameter
     pub fn update(&mut self, param_name: &str, param: &mut Array1<f32>, grad: ArrayView1<f32>) {
         // Initialize state if needed
-        let state = self.states.entry(param_name.to_string()).or_insert_with(|| {
-            AdamState {
+        let state = self
+            .states
+            .entry(param_name.to_string())
+            .or_insert_with(|| AdamState {
                 m: Array1::zeros(param.len()),
                 v: Array1::zeros(param.len()),
                 t: 0,
-            }
-        });
+            });
 
         state.t += 1;
 
@@ -205,13 +206,14 @@ impl AdamW {
     /// - `grad`: Gradients for this parameter
     pub fn update(&mut self, param_name: &str, param: &mut Array1<f32>, grad: ArrayView1<f32>) {
         // Initialize state if needed
-        let state = self.states.entry(param_name.to_string()).or_insert_with(|| {
-            AdamState {
+        let state = self
+            .states
+            .entry(param_name.to_string())
+            .or_insert_with(|| AdamState {
                 m: Array1::zeros(param.len()),
                 v: Array1::zeros(param.len()),
                 t: 0,
-            }
-        });
+            });
 
         state.t += 1;
 
@@ -344,10 +346,10 @@ mod tests {
 
         // First update
         optimizer.update("param1", &mut param, grad);
-        
+
         // Parameter should have changed
         assert_ne!(param, array![1.0, 2.0, 3.0]);
-        
+
         // Should decrease (gradient is positive, so we subtract)
         assert!(param[0] < 1.0);
     }
@@ -360,7 +362,7 @@ mod tests {
         let grad = grad_array.view();
 
         optimizer.update("param1", &mut param, grad);
-        
+
         // SGD: param = param - lr * grad
         // Expected: [1.0 - 0.01*0.1, 2.0 - 0.01*0.2] = [0.999, 1.998]
         assert!((param[0] - 0.999).abs() < 1e-5);
@@ -376,13 +378,13 @@ mod tests {
 
         // First update
         optimizer.update("param1", &mut param, grad);
-        
+
         // Parameter should have changed
         assert_ne!(param, array![1.0, 2.0, 3.0]);
-        
+
         // Should decrease (gradient is positive, so we subtract)
         assert!(param[0] < 1.0);
-        
+
         // Weight decay should also be applied
         // After first step, weight decay effect should be visible
         let old_param = param.clone();
@@ -396,10 +398,12 @@ mod tests {
         let mut optimizer = AdamW::new(0.01, 0.1); // High weight decay
         let mut param = array![1.0];
         let grad_array = array![0.0]; // Zero gradient
-        
+
         // With zero gradient but weight decay, param should shrink
         optimizer.update("param1", &mut param, grad_array.view());
-        assert!(param[0] < 1.0, "Weight decay should shrink parameter even with zero gradient");
+        assert!(
+            param[0] < 1.0,
+            "Weight decay should shrink parameter even with zero gradient"
+        );
     }
 }
-

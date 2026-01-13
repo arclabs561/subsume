@@ -21,14 +21,14 @@
 //! - [`docs/typst-output/pdf/07-applications.pdf`](../../../docs/typst-output/pdf/07-applications.pdf) - Modern applications and extensions
 
 use ndarray::Array1;
+use std::collections::{HashMap, HashSet};
+use std::env;
+use std::path::Path;
 use subsume_core::boxe::{boxe_loss, boxe_score, Bump};
 use subsume_core::dataset::load_dataset;
 use subsume_core::trainer::{evaluate_link_prediction, TrainingConfig};
 use subsume_core::Box as CoreBox;
 use subsume_ndarray::{AdamW, NdarrayBox};
-use std::collections::{HashMap, HashSet};
-use std::env;
-use std::path::Path;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Real BoxE Training Example");
@@ -51,8 +51,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let stats = dataset.stats();
-    println!("Dataset: {} entities, {} relations", stats.num_entities, stats.num_relations);
-    println!("Train: {}, Valid: {}, Test: {}\n", stats.num_train, stats.num_valid, stats.num_test);
+    println!(
+        "Dataset: {} entities, {} relations",
+        stats.num_entities, stats.num_relations
+    );
+    println!(
+        "Train: {}, Valid: {}, Test: {}\n",
+        stats.num_train, stats.num_valid, stats.num_test
+    );
 
     let entities: HashSet<String> = dataset.entities();
     let relations: HashSet<String> = dataset.relations();
@@ -60,10 +66,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize entity boxes
     let embedding_dim = 50;
     let mut entity_boxes: HashMap<String, NdarrayBox> = HashMap::new();
-    
+
     use rand::Rng;
     let mut rng = rand::thread_rng();
-    
+
     println!("Initializing {} entity boxes...", entities.len());
     for entity in &entities {
         let center: Vec<f32> = (0..embedding_dim)
@@ -72,22 +78,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let size: Vec<f32> = (0..embedding_dim)
             .map(|_| rng.gen_range(0.1..0.3))
             .collect();
-        
-        let min = Array1::from_iter(
-            center.iter().zip(size.iter())
-                .map(|(c, s)| c - s / 2.0)
-        );
-        let max = Array1::from_iter(
-            center.iter().zip(size.iter())
-                .map(|(c, s)| c + s / 2.0)
-        );
-        
+
+        let min = Array1::from_iter(center.iter().zip(size.iter()).map(|(c, s)| c - s / 2.0));
+        let max = Array1::from_iter(center.iter().zip(size.iter()).map(|(c, s)| c + s / 2.0));
+
         entity_boxes.insert(entity.clone(), NdarrayBox::new(min, max, 1.0)?);
     }
 
     // Initialize relation bumps (translational vectors)
     let mut relation_bumps: HashMap<String, Bump> = HashMap::new();
-    
+
     println!("Initializing {} relation bumps...", relations.len());
     for relation in &relations {
         let translation: Vec<f32> = (0..embedding_dim)
@@ -172,7 +172,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         // Clone tail values before mutable borrow
                         let tail_min = tail_box.min().to_owned();
                         let tail_max = tail_box.max().to_owned();
-                        
+
                         let head_box_mut = entity_boxes.get_mut(&triple.head).unwrap();
                         let mut head_min = head_box_mut.min().to_owned();
 
@@ -182,7 +182,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .map(|(h, t)| loss * 0.01 * (t - h))
                             .collect();
                         let grad_min = Array1::from_vec(grad_min_vec);
-                        entity_optimizer.update(&format!("{}_min", triple.head), &mut head_min, grad_min.view());
+                        entity_optimizer.update(
+                            &format!("{}_min", triple.head),
+                            &mut head_min,
+                            grad_min.view(),
+                        );
 
                         let mut head_max = head_box_mut.max().to_owned();
                         let grad_max_vec: Vec<f32> = head_max
@@ -191,19 +195,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .map(|(h, t)| loss * 0.01 * (t - h))
                             .collect();
                         let grad_max = Array1::from_vec(grad_max_vec);
-                        entity_optimizer.update(&format!("{}_max", triple.head), &mut head_max, grad_max.view());
-                        
+                        entity_optimizer.update(
+                            &format!("{}_max", triple.head),
+                            &mut head_max,
+                            grad_max.view(),
+                        );
+
                         *head_box_mut = NdarrayBox::new(head_min, head_max, 1.0)?;
 
                         // Update relation bump (simplified)
                         let bump_mut = relation_bumps.get_mut(&triple.relation).unwrap();
-                        let mut bump_translation = Array1::from_iter(bump_mut.translation.iter().cloned());
-                        let bump_grad_vec: Vec<f32> = bump_translation
-                            .iter()
-                            .map(|_| loss * 0.005)
-                            .collect();
+                        let mut bump_translation =
+                            Array1::from_iter(bump_mut.translation.iter().cloned());
+                        let bump_grad_vec: Vec<f32> =
+                            bump_translation.iter().map(|_| loss * 0.005).collect();
                         let bump_grad = Array1::from_vec(bump_grad_vec);
-                        relation_optimizer.update(&format!("{}_bump", triple.relation), &mut bump_translation, bump_grad.view());
+                        relation_optimizer.update(
+                            &format!("{}_bump", triple.relation),
+                            &mut bump_translation,
+                            bump_grad.view(),
+                        );
                         bump_mut.translation = bump_translation.to_vec();
                     }
                 }
@@ -216,8 +227,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if epoch % 10 == 0 || epoch == config.epochs - 1 {
             // Evaluate on validation set
             let valid_subset: Vec<_> = dataset.valid.iter().take(500).cloned().collect();
-            let valid_results = evaluate_link_prediction::<NdarrayBox>(&valid_subset, &entity_boxes, None)?;
-            
+            let valid_results =
+                evaluate_link_prediction::<NdarrayBox>(&valid_subset, &entity_boxes, None)?;
+
             println!(
                 "Epoch {}: Loss = {:.4}, Valid MRR = {:.4}, Hits@10 = {:.4}",
                 epoch + 1,
@@ -242,4 +254,3 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-

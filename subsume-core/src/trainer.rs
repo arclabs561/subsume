@@ -236,8 +236,8 @@ impl Default for TrainingConfig {
             negative_strategy: NegativeSamplingStrategy::CorruptTail,
             regularization_weight: 0.01,
             temperature: 1.0,
-            weight_decay: 1e-5, // Paper range: 1e-5 to 1e-3
-            margin: 1.0, // Margin for ranking loss
+            weight_decay: 1e-5,                // Paper range: 1e-5 to 1e-3
+            margin: 1.0,                       // Margin for ranking loss
             early_stopping_patience: Some(10), // Early stopping after 10 epochs without improvement
         }
     }
@@ -295,7 +295,7 @@ pub fn generate_negative_samples(
     let mut negatives = Vec::new();
 
     let mut rng = rand::thread_rng();
-    
+
     for _ in 0..n {
         let negative = match strategy {
             NegativeSamplingStrategy::Uniform => {
@@ -544,7 +544,11 @@ mod tests {
         );
 
         // May generate fewer than 5 if some negatives match the positive
-        assert!(negatives.len() >= 3, "Expected at least 3 negatives, got {}", negatives.len());
+        assert!(
+            negatives.len() >= 3,
+            "Expected at least 3 negatives, got {}",
+            negatives.len()
+        );
         for neg in negatives {
             assert_eq!(neg.head, "e1");
             assert_eq!(neg.relation, "r1");
@@ -573,8 +577,12 @@ mod tests {
             NegativeSamplingStrategy::CorruptBoth,
         ] {
             let negatives = generate_negative_samples(&triple, &entities, &strategy, 10);
-            assert!(!negatives.is_empty(), "Strategy {:?} should generate negatives", strategy);
-            
+            assert!(
+                !negatives.is_empty(),
+                "Strategy {:?} should generate negatives",
+                strategy
+            );
+
             for neg in &negatives {
                 assert_ne!(neg, &triple, "Negative should differ from positive");
             }
@@ -603,13 +611,13 @@ mod tests {
         // Test file logging
         let temp_file = std::env::temp_dir().join("test_training_result.txt");
         log_training_result(&result, Some(temp_file.to_str().unwrap())).unwrap();
-        
+
         // Verify file was created and contains expected content
         let content = std::fs::read_to_string(&temp_file).unwrap();
         assert!(content.contains("Training Results"));
         assert!(content.contains("0.5000")); // MRR
         assert!(content.contains("2")); // Best epoch
-        
+
         // Cleanup
         let _ = std::fs::remove_file(&temp_file);
     }
@@ -630,7 +638,7 @@ mod tests {
         // This test requires a backend implementation
         // We'll test the logic with a mock, but full integration test should be in backend tests
         // For now, just verify the function signature and error handling
-        
+
         // Test with empty triples
         let _empty_boxes: HashMap<String, ()> = HashMap::new();
         // Can't actually call evaluate_link_prediction without a Box implementation

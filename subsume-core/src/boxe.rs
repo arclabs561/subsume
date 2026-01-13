@@ -278,4 +278,3 @@ mod tests {
         assert!((loss - 1.8).abs() < 1e-5); // margin - 0.1 + 0.9 = 1.8
     }
 }
-
