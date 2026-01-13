@@ -68,15 +68,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut entity_boxes: HashMap<String, NdarrayBox> = HashMap::new();
 
     use rand::Rng;
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     println!("Initializing {} entity boxes...", entities.len());
     for entity in &entities {
         let center: Vec<f32> = (0..embedding_dim)
-            .map(|_| rng.gen_range(-0.1..0.1))
+            .map(|_| rng.random_range(-0.1..0.1))
             .collect();
         let size: Vec<f32> = (0..embedding_dim)
-            .map(|_| rng.gen_range(0.1..0.3))
+            .map(|_| rng.random_range(0.1..0.3))
             .collect();
 
         let min = Array1::from_iter(center.iter().zip(size.iter()).map(|(c, s)| c - s / 2.0));
@@ -91,7 +91,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Initializing {} relation bumps...", relations.len());
     for relation in &relations {
         let translation: Vec<f32> = (0..embedding_dim)
-            .map(|_| rng.gen_range(-0.05..0.05))
+            .map(|_| rng.random_range(-0.05..0.05))
             .collect();
         relation_bumps.insert(relation.clone(), Bump::new(translation));
     }
@@ -151,7 +151,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let mut neg_tail = triple.tail.clone();
                     while neg_tail == triple.tail {
                         let entity_vec: Vec<&String> = entities.iter().collect();
-                        neg_tail = entity_vec[rng.gen_range(0..entity_vec.len())].clone();
+                        neg_tail = entity_vec[rng.random_range(0..entity_vec.len())].clone();
                     }
 
                     if let Some(neg_tail_box) = entity_boxes.get(&neg_tail) {

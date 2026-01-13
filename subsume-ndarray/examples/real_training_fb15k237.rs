@@ -82,14 +82,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     use rand::Rng;
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     for entity in &entities {
         let center: Vec<f32> = (0..embedding_dim)
-            .map(|_| rng.gen_range(-0.1..0.1))
+            .map(|_| rng.random_range(-0.1..0.1))
             .collect();
         let size: Vec<f32> = (0..embedding_dim)
-            .map(|_| rng.gen_range(0.1..0.3))
+            .map(|_| rng.random_range(0.1..0.3))
             .collect();
 
         let min = Array1::from_iter(center.iter().zip(size.iter()).map(|(c, s)| c - s / 2.0));

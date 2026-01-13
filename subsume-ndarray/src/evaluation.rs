@@ -149,7 +149,7 @@ pub mod plotting {
     /// Generate loss curve plot.
     pub fn plot_loss_curve(
         metrics: &EvaluationMetrics,
-        output_path: &Path,
+        output_path: &std::path::Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let root = BitMapBackend::new(output_path, (800, 600)).into_drawing_area();
         root.fill(&WHITE)?;
@@ -188,7 +188,7 @@ pub mod plotting {
     /// Generate MRR curve plot.
     pub fn plot_mrr_curve(
         metrics: &EvaluationMetrics,
-        output_path: &Path,
+        output_path: &std::path::Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let root = BitMapBackend::new(output_path, (800, 600)).into_drawing_area();
         root.fill(&WHITE)?;
@@ -234,7 +234,7 @@ pub mod plotting {
     /// Generate optimizer comparison plot.
     pub fn plot_optimizer_comparison(
         comparison: &OptimizerComparison,
-        output_path: &Path,
+        output_path: &std::path::Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let root = BitMapBackend::new(output_path, (1000, 600)).into_drawing_area();
         root.fill(&WHITE)?;
@@ -273,7 +273,7 @@ pub mod plotting {
     /// Generate learning rate comparison plot.
     pub fn plot_learning_rate_comparison(
         results: &[(String, f32, f32)], // (config_name, lr, mrr)
-        output_path: &Path,
+        output_path: &std::path::Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let root = BitMapBackend::new(output_path, (800, 600)).into_drawing_area();
         root.fill(&WHITE)?;
@@ -304,10 +304,10 @@ pub mod plotting {
         chart
             .draw_series(LineSeries::new(
                 results.iter().map(|(_, lr, mrr)| (lr.log10(), *mrr)),
-                &RED.stroke_width(2),
+                RED.stroke_width(2),
             ))?
             .label("MRR")
-            .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &RED));
+            .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], RED));
 
         chart
             .configure_series_labels()
@@ -322,7 +322,7 @@ pub mod plotting {
     /// Generate batch size comparison plot.
     pub fn plot_batch_size_comparison(
         results: &[(usize, f32)], // (batch_size, mrr)
-        output_path: &Path,
+        output_path: &std::path::Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let root = BitMapBackend::new(output_path, (800, 600)).into_drawing_area();
         root.fill(&WHITE)?;
@@ -347,10 +347,10 @@ pub mod plotting {
         chart
             .draw_series(LineSeries::new(
                 results.iter().map(|(bs, mrr)| (*bs, *mrr)),
-                &BLUE.stroke_width(2),
+                BLUE.stroke_width(2),
             ))?
             .label("MRR")
-            .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &BLUE));
+            .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], BLUE));
 
         chart
             .configure_series_labels()
@@ -370,7 +370,7 @@ pub mod plotting {
 
     pub fn plot_loss_curve(
         _metrics: &EvaluationMetrics,
-        _output_path: &Path,
+        _output_path: &std::path::Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("Plotting feature not enabled. Install with --features plotting");
         Ok(())
@@ -378,7 +378,7 @@ pub mod plotting {
 
     pub fn plot_mrr_curve(
         _metrics: &EvaluationMetrics,
-        _output_path: &Path,
+        _output_path: &std::path::Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("Plotting feature not enabled. Install with --features plotting");
         Ok(())
@@ -386,7 +386,7 @@ pub mod plotting {
 
     pub fn plot_optimizer_comparison(
         _comparison: &OptimizerComparison,
-        _output_path: &Path,
+        _output_path: &std::path::Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("Plotting feature not enabled. Install with --features plotting");
         Ok(())
@@ -394,7 +394,7 @@ pub mod plotting {
 
     pub fn plot_learning_rate_comparison(
         _results: &[(String, f32, f32)],
-        _output_path: &Path,
+        _output_path: &std::path::Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("Plotting feature not enabled. Install with --features plotting");
         Ok(())
@@ -402,7 +402,7 @@ pub mod plotting {
 
     pub fn plot_batch_size_comparison(
         _results: &[(usize, f32)],
-        _output_path: &Path,
+        _output_path: &std::path::Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("Plotting feature not enabled. Install with --features plotting");
         Ok(())

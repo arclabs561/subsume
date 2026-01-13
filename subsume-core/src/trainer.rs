@@ -294,15 +294,15 @@ pub fn generate_negative_samples(
     let entities_vec: Vec<&String> = entities.iter().collect();
     let mut negatives = Vec::new();
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     for _ in 0..n {
         let negative = match strategy {
             NegativeSamplingStrategy::Uniform => {
                 // Randomly corrupt either head or tail
-                if rng.gen::<bool>() {
+                if rng.random::<bool>() {
                     Triple {
-                        head: entities_vec[rng.gen_range(0..entities_vec.len())].clone(),
+                        head: entities_vec[rng.random_range(0..entities_vec.len())].clone(),
                         relation: triple.relation.clone(),
                         tail: triple.tail.clone(),
                     }
@@ -310,24 +310,24 @@ pub fn generate_negative_samples(
                     Triple {
                         head: triple.head.clone(),
                         relation: triple.relation.clone(),
-                        tail: entities_vec[rng.gen_range(0..entities_vec.len())].clone(),
+                        tail: entities_vec[rng.random_range(0..entities_vec.len())].clone(),
                     }
                 }
             }
             NegativeSamplingStrategy::CorruptHead => Triple {
-                head: entities_vec[rng.gen_range(0..entities_vec.len())].clone(),
+                head: entities_vec[rng.random_range(0..entities_vec.len())].clone(),
                 relation: triple.relation.clone(),
                 tail: triple.tail.clone(),
             },
             NegativeSamplingStrategy::CorruptTail => Triple {
                 head: triple.head.clone(),
                 relation: triple.relation.clone(),
-                tail: entities_vec[rng.gen_range(0..entities_vec.len())].clone(),
+                tail: entities_vec[rng.random_range(0..entities_vec.len())].clone(),
             },
             NegativeSamplingStrategy::CorruptBoth => Triple {
-                head: entities_vec[rng.gen_range(0..entities_vec.len())].clone(),
+                head: entities_vec[rng.random_range(0..entities_vec.len())].clone(),
                 relation: triple.relation.clone(),
-                tail: entities_vec[rng.gen_range(0..entities_vec.len())].clone(),
+                tail: entities_vec[rng.random_range(0..entities_vec.len())].clone(),
             },
         };
 
