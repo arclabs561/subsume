@@ -15,12 +15,16 @@ readme = "README.md"
 
 [dependencies]
 subsume-core = { path = "../subsume-core" }
-candle-core = "0.4"
 serde = { workspace = true }
 thiserror = { workspace = true }
-# Force half to 2.3.1 to match candle-core's expectation (candle-core uses half 2.3.1)
-# This prevents newer half 2.7.1 from being pulled in transitively
-half = "=2.3.1"
+
+# ML Backend: Candle
+# This crate provides the Candle implementation of subsume-core traits.
+# For other backends, use:
+#   - subsume-ndarray (pure ndarray, no ML framework)
+#   - subsume-burn (future: Burn framework)
+#   - subsume-ort (future: ONNX Runtime inference)
+candle-core = "0.9"
 
 [dev-dependencies]
 criterion = "0.5"
