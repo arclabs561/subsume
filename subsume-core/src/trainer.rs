@@ -526,8 +526,10 @@ pub fn log_training_result(result: &TrainingResult, path: Option<&str>) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
     #[test]
+    #[cfg(feature = "rand")]
     fn test_generate_negative_samples() {
         let triple = Triple {
             head: "e1".to_string(),
@@ -562,6 +564,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "rand")]
     fn test_generate_negative_samples_all_strategies() {
         let triple = Triple {
             head: "e1".to_string(),
