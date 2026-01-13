@@ -1,45 +1,29 @@
 # subsume
 
-Geometric box embeddings for containment / entailment.
+Geometric box embeddings for modeling containment ("is-a") and entailment relationships.
 
-## Overview
-
-Represent a concept as an axis-aligned hyperrectangle. Subsumption is modeled by containment.
-
-```text
-B ⊆ A  ⇔  A subsumes B
-```
-
-## Example
+Dual-licensed under MIT or Apache-2.0.
 
 ```rust
 use subsume_ndarray::NdarrayBox;
-use subsume_core::Box;
 use ndarray::array;
 
-let premise = NdarrayBox::new(array![0.0, 0.0, 0.0], array![1.0, 1.0, 1.0], 1.0)?;
+// Box A: [0,0,0] to [1,1,1]
+let premise = NdarrayBox::new(array![0., 0., 0.], array![1., 1., 1.], 1.0)?;
+
+// Box B: [0.2,0.2,0.2] to [0.8,0.8,0.8] (inside A)
 let hypothesis = NdarrayBox::new(array![0.2, 0.2, 0.2], array![0.8, 0.8, 0.8], 1.0)?;
 
+// Probability that A contains B
 let p = premise.containment_prob(&hypothesis, 1.0)?;
-println!("P(hypothesis ⊆ premise) = {p:.3}");
+println!("P(B ⊆ A) = {:.2}", p);
 ```
 
-## Crates
+## Features
 
-- `subsume-core`: traits and shared types
-- `subsume-ndarray`: `ndarray` backend
-- `subsume-candle`: `candle` backend
+- **Gumbel Box**: Probabilistic boxes for training stability
+- **Backends**: `ndarray` (CPU) and `candle` (GPU/Metal)
+- **Training**: Volume regularization, temperature scheduling
+- **Inference**: Fast containment and overlap scoring
 
-## Documentation
-
-Start at `docs/READING_GUIDE.md`.
-
-## References
-
-- Vilnis et al. (2018): Probabilistic Embedding of Knowledge Graphs with Box Lattice Measures
-- Dasgupta et al. (2020): Improving Local Identifiability in Probabilistic Box Embeddings
-- Boratko et al. (2020): BoxE
-
-## License
-
-MIT OR Apache-2.0
+See [`docs/`](docs/) for mathematical foundations and research details.
