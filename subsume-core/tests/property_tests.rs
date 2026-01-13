@@ -18,8 +18,8 @@
 
 use proptest::prelude::*;
 use subsume_core::{
-    clamp_temperature, clamp_temperature_default, gumbel_membership_prob,
-    safe_init_bounds, stable_sigmoid, MIN_TEMPERATURE, MAX_TEMPERATURE,
+    clamp_temperature, clamp_temperature_default, gumbel_membership_prob, safe_init_bounds,
+    stable_sigmoid, MAX_TEMPERATURE, MIN_TEMPERATURE,
 };
 
 const TOL: f32 = 1e-5;
@@ -33,7 +33,11 @@ fn valid_bounds(dim: usize) -> impl Strategy<Value = (Vec<f32>, Vec<f32>)> {
     prop::collection::vec(-10.0f32..10.0, dim).prop_flat_map(move |mins| {
         let mins_clone = mins.clone();
         prop::collection::vec(0.01f32..5.0, dim).prop_map(move |widths| {
-            let maxs: Vec<f32> = mins_clone.iter().zip(widths.iter()).map(|(m, w)| m + w).collect();
+            let maxs: Vec<f32> = mins_clone
+                .iter()
+                .zip(widths.iter())
+                .map(|(m, w)| m + w)
+                .collect();
             (mins_clone.clone(), maxs)
         })
     })
@@ -76,7 +80,7 @@ proptest! {
     fn stable_sigmoid_monotonic(x in -50.0f32..50.0, delta in 0.01f32..10.0) {
         let s1 = stable_sigmoid(x);
         let s2 = stable_sigmoid(x + delta);
-        prop_assert!(s2 >= s1, "sigmoid should be monotonic: sigmoid({}) = {}, sigmoid({}) = {}", 
+        prop_assert!(s2 >= s1, "sigmoid should be monotonic: sigmoid({}) = {}, sigmoid({}) = {}",
             x, s1, x + delta, s2);
     }
 
@@ -104,7 +108,7 @@ proptest! {
     #[test]
     fn temperature_clamping_works(raw_temp in -100.0f32..200.0) {
         let clamped = clamp_temperature(raw_temp, MIN_TEMPERATURE, MAX_TEMPERATURE);
-        
+
         prop_assert!(clamped >= MIN_TEMPERATURE, "Clamped temp should be >= MIN_TEMPERATURE");
         prop_assert!(clamped <= MAX_TEMPERATURE, "Clamped temp should be <= MAX_TEMPERATURE");
     }
@@ -112,7 +116,7 @@ proptest! {
     #[test]
     fn temperature_default_clamp_works(raw_temp in -100.0f32..200.0) {
         let clamped = clamp_temperature_default(raw_temp);
-        
+
         prop_assert!(clamped >= MIN_TEMPERATURE, "Clamped temp should be >= MIN_TEMPERATURE");
         prop_assert!(clamped <= MAX_TEMPERATURE, "Clamped temp should be <= MAX_TEMPERATURE");
     }
@@ -126,10 +130,10 @@ proptest! {
         // With x < min, the point is outside the box
         let low_temp = 0.1f32;
         let high_temp = 5.0f32;
-        
+
         let p_cold = gumbel_membership_prob(x, min, max, low_temp);
         let p_hot = gumbel_membership_prob(x, min, max, high_temp);
-        
+
         // Just verify both are valid probabilities
         prop_assert!(p_cold >= 0.0 && p_cold <= 1.0);
         prop_assert!(p_hot >= 0.0 && p_hot <= 1.0);
@@ -156,11 +160,11 @@ proptest! {
             (center_min, center_max),
             (size_min, size_max)
         );
-        
+
         // The result should be valid bounds
         prop_assert!(!min_z.is_nan(), "min_z should not be NaN");
         prop_assert!(!max_Z.is_nan(), "max_Z should not be NaN");
-        
+
         // min should be less than max
         prop_assert!(min_z < max_Z, "min_z ({}) should be < max_Z ({})", min_z, max_Z);
     }
@@ -177,25 +181,25 @@ fn containment_transitivity_hard_boxes() {
     // A is a large box
     let a_min = vec![-5.0f32, -5.0];
     let a_max = vec![5.0f32, 5.0];
-    
+
     // B is inside A
     let b_min = vec![-2.0f32, -2.0];
     let b_max = vec![2.0f32, 2.0];
-    
+
     // C is inside B
     let c_min = vec![-1.0f32, -1.0];
     let c_max = vec![1.0f32, 1.0];
-    
+
     // Check A contains B (all b_min >= a_min and all b_max <= a_max)
     let a_contains_b = a_min.iter().zip(b_min.iter()).all(|(a, b)| a <= b)
         && a_max.iter().zip(b_max.iter()).all(|(a, b)| a >= b);
     assert!(a_contains_b, "A should contain B");
-    
+
     // Check B contains C
     let b_contains_c = b_min.iter().zip(c_min.iter()).all(|(b, c)| b <= c)
         && b_max.iter().zip(c_max.iter()).all(|(b, c)| b >= c);
     assert!(b_contains_c, "B should contain C");
-    
+
     // Check A contains C (transitivity)
     let a_contains_c = a_min.iter().zip(c_min.iter()).all(|(a, c)| a <= c)
         && a_max.iter().zip(c_max.iter()).all(|(a, c)| a >= c);
@@ -211,17 +215,28 @@ fn disjoint_boxes_have_zero_intersection() {
     // Box A: [0, 1] in each dimension
     let a_min = vec![0.0f32, 0.0];
     let a_max = vec![1.0f32, 1.0];
-    
+
     // Box B: [2, 3] in each dimension (disjoint)
     let b_min = vec![2.0f32, 2.0];
     let b_max = vec![3.0f32, 3.0];
-    
+
     // Compute intersection
-    let int_min: Vec<f32> = a_min.iter().zip(b_min.iter()).map(|(a, b)| a.max(*b)).collect();
-    let int_max: Vec<f32> = a_max.iter().zip(b_max.iter()).map(|(a, b)| a.min(*b)).collect();
-    
+    let int_min: Vec<f32> = a_min
+        .iter()
+        .zip(b_min.iter())
+        .map(|(a, b)| a.max(*b))
+        .collect();
+    let int_max: Vec<f32> = a_max
+        .iter()
+        .zip(b_max.iter())
+        .map(|(a, b)| a.min(*b))
+        .collect();
+
     // Check if intersection is empty (min > max in some dimension)
-    let is_empty = int_min.iter().zip(int_max.iter()).any(|(min, max)| min > max);
+    let is_empty = int_min
+        .iter()
+        .zip(int_max.iter())
+        .any(|(min, max)| min > max);
     assert!(is_empty, "Disjoint boxes should have empty intersection");
 }
 
@@ -230,18 +245,32 @@ fn nested_boxes_intersection_equals_inner() {
     // Outer box
     let a_min = vec![-2.0f32, -2.0];
     let a_max = vec![2.0f32, 2.0];
-    
+
     // Inner box (fully contained)
     let b_min = vec![-1.0f32, -1.0];
     let b_max = vec![1.0f32, 1.0];
-    
+
     // Compute intersection
-    let int_min: Vec<f32> = a_min.iter().zip(b_min.iter()).map(|(a, b)| a.max(*b)).collect();
-    let int_max: Vec<f32> = a_max.iter().zip(b_max.iter()).map(|(a, b)| a.min(*b)).collect();
-    
+    let int_min: Vec<f32> = a_min
+        .iter()
+        .zip(b_min.iter())
+        .map(|(a, b)| a.max(*b))
+        .collect();
+    let int_max: Vec<f32> = a_max
+        .iter()
+        .zip(b_max.iter())
+        .map(|(a, b)| a.min(*b))
+        .collect();
+
     // Intersection should equal inner box
-    assert_eq!(int_min, b_min, "Intersection min should equal inner box min");
-    assert_eq!(int_max, b_max, "Intersection max should equal inner box max");
+    assert_eq!(
+        int_min, b_min,
+        "Intersection min should equal inner box min"
+    );
+    assert_eq!(
+        int_max, b_max,
+        "Intersection max should equal inner box max"
+    );
 }
 
 // =============================================================================
@@ -257,10 +286,10 @@ proptest! {
     ) {
         let sigmoid_x = stable_sigmoid(x);
         let sigmoid_y = stable_sigmoid(y);
-        
+
         prop_assert!(!sigmoid_x.is_nan(), "stable_sigmoid({}) is NaN", x);
         prop_assert!(!sigmoid_y.is_nan(), "stable_sigmoid({}) is NaN", y);
-        
+
         // Only test membership when we have valid bounds
         if x < y {
             let membership = gumbel_membership_prob(0.0, x, y, temp);
@@ -273,12 +302,12 @@ proptest! {
         sign in prop::bool::ANY
     ) {
         let extreme = if sign { 1000.0f32 } else { -1000.0f32 };
-        
+
         // These should not panic or return NaN
         let s = stable_sigmoid(extreme);
         prop_assert!(!s.is_nan());
         prop_assert!(s >= 0.0 && s <= 1.0);
-        
+
         // Extreme temperature clamping
         let temp = clamp_temperature_default(extreme);
         prop_assert!(temp > 0.0);

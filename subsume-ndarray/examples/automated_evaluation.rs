@@ -7,16 +7,16 @@
 //! 4. Saving results to files
 
 use ndarray::Array1;
-use subsume_core::dataset::Triple;
-use subsume_core::trainer::{evaluate_link_prediction, TrainingConfig};
-use subsume_core::Box as CoreBox;
-use subsume_ndarray::evaluation::{EvaluationConfig, EvaluationMetrics, OptimizerComparison};
-#[cfg(feature = "plotting")]
-use subsume_ndarray::evaluation::plotting;
-use subsume_ndarray::{Adam, AdamW, NdarrayBox, SGD};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::Instant;
+use subsume_core::dataset::Triple;
+use subsume_core::trainer::{evaluate_link_prediction, TrainingConfig};
+use subsume_core::Box as CoreBox;
+#[cfg(feature = "plotting")]
+use subsume_ndarray::evaluation::plotting;
+use subsume_ndarray::evaluation::{EvaluationConfig, EvaluationMetrics, OptimizerComparison};
+use subsume_ndarray::{Adam, AdamW, NdarrayBox, SGD};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Automated Evaluation with Visualization");
@@ -174,12 +174,12 @@ where
                         .map(|(h, t)| loss * (t - h))
                         .collect();
                     let grad_min = Array1::from_vec(grad_min_vec);
-                    optimizer.update(&format!("{}_min", triple.head), &mut head_min, grad_min.view());
-                    *head_box_mut = NdarrayBox::new(
-                        head_min,
-                        head_max_owned,
-                        1.0,
-                    )?;
+                    optimizer.update(
+                        &format!("{}_min", triple.head),
+                        &mut head_min,
+                        grad_min.view(),
+                    );
+                    *head_box_mut = NdarrayBox::new(head_min, head_max_owned, 1.0)?;
                 }
             }
             batch_count += 1;
@@ -189,7 +189,8 @@ where
         let epoch_time = epoch_start.elapsed().as_secs_f64();
 
         // Evaluate
-        let eval_results = evaluate_link_prediction::<NdarrayBox>(test_triples, &entity_boxes, None)?;
+        let eval_results =
+            evaluate_link_prediction::<NdarrayBox>(test_triples, &entity_boxes, None)?;
         let mrr = eval_results.mrr;
 
         metrics.record_epoch(avg_loss, mrr, epoch_time);
@@ -197,7 +198,9 @@ where
         if epoch % 10 == 0 {
             println!(
                 "  Epoch {}: Loss = {:.4}, MRR = {:.4}",
-                epoch + 1, avg_loss, mrr
+                epoch + 1,
+                avg_loss,
+                mrr
             );
         }
     }
@@ -246,4 +249,3 @@ impl OptimizerTrait for SGD {
         self.update(name, param, grad);
     }
 }
-
