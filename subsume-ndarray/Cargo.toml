@@ -14,7 +14,7 @@ documentation = "https://docs.rs/subsume-ndarray"
 readme = "README.md"
 
 [dependencies]
-subsume-core = { path = "../subsume-core" }
+subsume-core = { path = "../subsume-core", features = ["rand"] }
 ndarray = { version = "0.16", features = ["serde-1"] }
 serde = { workspace = true }
 serde_json = "1.0"
@@ -25,6 +25,7 @@ rand = { workspace = true }
 [features]
 default = []
 plotting = ["plotters"]
+rand = []  # For cfg gating in tests
 
 [dev-dependencies]
 criterion = "0.5"

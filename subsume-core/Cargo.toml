@@ -16,7 +16,11 @@ readme = "README.md"
 [dependencies]
 serde = { workspace = true }
 thiserror = { workspace = true }
-rand = { workspace = true }
+rand = { workspace = true, optional = true }
+
+[features]
+default = []
+rand = ["dep:rand"]
 
 [dev-dependencies]
 criterion = "0.5"

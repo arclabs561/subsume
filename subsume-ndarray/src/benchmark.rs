@@ -386,8 +386,11 @@ impl BenchmarkSuite {
 
 /// Trait for optimizers in benchmarks.
 pub trait OptimizerTrait {
+    /// Update parameters given gradients.
     fn update(&mut self, name: &str, param: &mut Array1<f32>, grad: ndarray::ArrayView1<f32>);
+    /// Reset optimizer state (e.g., momentum buffers).
     fn reset(&mut self);
+    /// Update the learning rate.
     fn set_learning_rate(&mut self, lr: f32);
 }
 

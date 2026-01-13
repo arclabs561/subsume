@@ -79,9 +79,11 @@ pub use distance::{boundary_distance, depth_distance, depth_similarity, vector_t
 pub use embedding::{BoxCollection, BoxEmbedding};
 pub use gumbel::GumbelBox;
 pub use trainer::{
-    evaluate_link_prediction, generate_negative_samples, log_training_result, EvaluationResults,
+    evaluate_link_prediction, log_training_result, EvaluationResults,
     HyperparameterSearch, NegativeSamplingStrategy, TrainingConfig, TrainingResult,
 };
+#[cfg(feature = "rand")]
+pub use trainer::generate_negative_samples;
 pub use training::{
     calibration::{
         adaptive_calibration_error, brier_score, expected_calibration_error, reliability_diagram,

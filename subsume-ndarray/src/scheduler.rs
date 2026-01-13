@@ -7,7 +7,7 @@
 //! # Example
 //!
 //! ```rust
-//! use subsume_ndarray::{Adam, scheduler::CosineAnnealingLr};
+//! use subsume_ndarray::{Adam, scheduler::{CosineAnnealingLr, LrScheduler}};
 //!
 //! let mut optimizer = Adam::new(1e-3);
 //! let mut scheduler = CosineAnnealingLr::new(1e-3, 1e-5, 1000);

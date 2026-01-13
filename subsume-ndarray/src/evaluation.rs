@@ -45,10 +45,13 @@ pub struct EvaluationMetrics {
     pub validation_mrr: Vec<f32>,
     /// Training time per epoch (seconds)
     pub epoch_times: Vec<f64>,
-    /// Final metrics
+    /// Final Mean Reciprocal Rank
     pub final_mrr: f32,
+    /// Final Hits@1 (fraction of correct top-1 predictions)
     pub final_hits_at_1: f32,
+    /// Final Hits@10 (fraction of correct top-10 predictions)
     pub final_hits_at_10: f32,
+    /// Total training time in seconds
     pub total_training_time: f64,
 }
 
