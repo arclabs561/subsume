@@ -32,6 +32,7 @@ pub mod evaluation;
 mod ndarray_box;
 mod ndarray_gumbel;
 pub mod optimizer;
+pub mod scheduler;
 
 #[cfg(test)]
 mod matrix_e2e_tests;
