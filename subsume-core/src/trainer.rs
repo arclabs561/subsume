@@ -65,7 +65,9 @@ use crate::dataset::Triple;
 use crate::training::metrics::{hits_at_k, mean_rank, mean_reciprocal_rank};
 #[cfg(feature = "rand")]
 use rand::Rng;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+#[cfg(feature = "rand")]
+use std::collections::HashSet;
 
 /// Negative sampling strategy for training.
 ///
