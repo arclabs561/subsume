@@ -37,7 +37,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.75.0
       - uses: Swatinem/rust-cache@v2
 
+      # Note: candle/criterion deps require Rust 1.80+ (rayon 1.11)
+      # MSRV check only tests core functionality without ML backends
       - name: Check MSRV
         run: |
           rm -f Cargo.lock  # v4 lock file requires Cargo 1.83+
-          cargo check --all-features
+          cargo check -p subsume-core
+          cargo check -p subsume-ndarray
