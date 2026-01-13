@@ -417,7 +417,10 @@ impl RestrictionMap for DenseRestriction {
             });
         }
 
+        // Matrix multiplication: result = A * x
+        // Using explicit indexing for clarity in matrix math
         let mut result = vec![0.0; self.rows];
+        #[allow(clippy::needless_range_loop)]
         for i in 0..self.rows {
             for j in 0..self.cols {
                 result[i] += self.data[i * self.cols + j] * x[j];
@@ -434,7 +437,9 @@ impl RestrictionMap for DenseRestriction {
             });
         }
 
+        // Matrix transpose multiplication: result = A^T * x
         let mut result = vec![0.0; self.cols];
+        #[allow(clippy::needless_range_loop)]
         for j in 0..self.cols {
             for i in 0..self.rows {
                 result[j] += self.data[i * self.cols + j] * x[i];
@@ -444,7 +449,9 @@ impl RestrictionMap for DenseRestriction {
     }
 
     fn as_matrix(&self) -> Vec<Vec<Self::Scalar>> {
+        // Convert flat storage to row-major matrix
         let mut matrix = vec![vec![0.0; self.cols]; self.rows];
+        #[allow(clippy::needless_range_loop)]
         for i in 0..self.rows {
             for j in 0..self.cols {
                 matrix[i][j] = self.data[i * self.cols + j];
