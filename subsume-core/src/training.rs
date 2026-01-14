@@ -3188,18 +3188,18 @@ mod tests {
     #[test]
     fn test_numerical_stability_edge_cases() {
         // Very small volumes
-        let tiny_vols = vec![1e-10, 1e-9, 1e-8];
+        let tiny_vols = [1e-10, 1e-9, 1e-8];
         let dist_tiny = quality::VolumeDistribution::from_volumes(tiny_vols.iter().copied());
         assert!(dist_tiny.min > 0.0);
         assert!(!dist_tiny.min.is_nan());
 
         // Very large volumes
-        let large_vols = vec![1e10, 1e11, 1e12];
+        let large_vols = [1e10, 1e11, 1e12];
         let dist_large = quality::VolumeDistribution::from_volumes(large_vols.iter().copied());
         assert!(!dist_large.max.is_infinite() || dist_large.max == f32::INFINITY);
 
         // Mixed scales
-        let mixed_vols = vec![1e-10, 1.0, 1e10];
+        let mixed_vols = [1e-10, 1.0, 1e10];
         let dist_mixed = quality::VolumeDistribution::from_volumes(mixed_vols.iter().copied());
         assert!(dist_mixed.cv > 0.0); // Should have high coefficient of variation
     }

@@ -788,20 +788,20 @@ mod tests {
     #[test]
     fn test_log_space_volume() {
         // Simple case
-        let side_lengths = vec![1.0, 2.0, 0.5];
+        let side_lengths = [1.0, 2.0, 0.5];
         let (log_vol, vol) = log_space_volume(side_lengths.iter().copied());
         assert!((vol - 1.0).abs() < 1e-6); // 1.0 * 2.0 * 0.5 = 1.0
         assert!((log_vol - 0.0).abs() < 1e-6); // ln(1.0) = 0.0
 
         // High-dimensional case (would underflow with direct multiplication)
-        let many_small = vec![0.1; 20];
+        let many_small = [0.1; 20];
         let (log_vol_hd, vol_hd) = log_space_volume(many_small.iter().copied());
         assert!(log_vol_hd.is_finite());
         assert!(vol_hd > 0.0);
         assert!(vol_hd < 1.0);
 
         // Zero volume case
-        let with_zero = vec![1.0, 0.0, 2.0];
+        let with_zero = [1.0, 0.0, 2.0];
         let (log_vol_zero, vol_zero) = log_space_volume(with_zero.iter().copied());
         assert_eq!(log_vol_zero, f32::NEG_INFINITY);
         assert_eq!(vol_zero, 0.0);
