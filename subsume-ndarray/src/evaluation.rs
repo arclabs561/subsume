@@ -154,7 +154,7 @@ pub mod plotting {
         metrics: &EvaluationMetrics,
         output_path: &std::path::Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let root = BitMapBackend::new(output_path, (800, 600)).into_drawing_area();
+        let root = SVGBackend::new(output_path, (800, 600)).into_drawing_area();
         root.fill(&WHITE)?;
 
         let mut chart = ChartBuilder::on(&root)
@@ -193,7 +193,7 @@ pub mod plotting {
         metrics: &EvaluationMetrics,
         output_path: &std::path::Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let root = BitMapBackend::new(output_path, (800, 600)).into_drawing_area();
+        let root = SVGBackend::new(output_path, (800, 600)).into_drawing_area();
         root.fill(&WHITE)?;
 
         let max_mrr = metrics
@@ -239,7 +239,7 @@ pub mod plotting {
         comparison: &OptimizerComparison,
         output_path: &std::path::Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let root = BitMapBackend::new(output_path, (1000, 600)).into_drawing_area();
+        let root = SVGBackend::new(output_path, (1000, 600)).into_drawing_area();
         root.fill(&WHITE)?;
 
         let optimizers: Vec<&String> = comparison.results.keys().collect();
@@ -278,7 +278,7 @@ pub mod plotting {
         results: &[(String, f32, f32)], // (config_name, lr, mrr)
         output_path: &std::path::Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let root = BitMapBackend::new(output_path, (800, 600)).into_drawing_area();
+        let root = SVGBackend::new(output_path, (800, 600)).into_drawing_area();
         root.fill(&WHITE)?;
 
         let max_mrr = results
@@ -327,7 +327,7 @@ pub mod plotting {
         results: &[(usize, f32)], // (batch_size, mrr)
         output_path: &std::path::Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let root = BitMapBackend::new(output_path, (800, 600)).into_drawing_area();
+        let root = SVGBackend::new(output_path, (800, 600)).into_drawing_area();
         root.fill(&WHITE)?;
 
         let max_mrr = results
