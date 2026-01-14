@@ -92,16 +92,18 @@ fn bench_vector_to_box_vs_containment(c: &mut Criterion) {
         group.bench_with_input(
             BenchmarkId::new("vector_to_box", dim),
             &(&point, &box_),
-            |b, (p, b)| b.iter(|| distance::vector_to_box_distance(black_box(p), black_box(b))),
+            |bencher, (p, b)| {
+                bencher.iter(|| distance::vector_to_box_distance(black_box(p), black_box(b)))
+            },
         );
 
         // Benchmark containment check (alternative approach)
         group.bench_with_input(
             BenchmarkId::new("containment_check", dim),
             &(&point, &box_),
-            |b, (p, b)| {
+            |bencher, (p, b)| {
                 // Create a zero-volume box at point and check containment
-                b.iter(|| {
+                bencher.iter(|| {
                     // Simplified: just check if point is in bounds
                     let mut inside = true;
                     for i in 0..b.dim() {
