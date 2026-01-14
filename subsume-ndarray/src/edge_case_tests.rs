@@ -193,8 +193,8 @@ mod edge_case_tests {
         let prob_high = gumbel_high_temp.membership_probability(&point).unwrap();
 
         // Both should be valid probabilities
-        assert!(prob_low >= 0.0 && prob_low <= 1.0);
-        assert!(prob_high >= 0.0 && prob_high <= 1.0);
+        assert!((0.0..=1.0).contains(&prob_low));
+        assert!((0.0..=1.0).contains(&prob_high));
     }
 
     #[test]

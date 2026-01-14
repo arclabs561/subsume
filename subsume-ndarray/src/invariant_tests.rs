@@ -494,7 +494,7 @@ mod invariant_tests {
             // Point should be contained in normal box if point is within bounds
             if let Ok(prob) = normal_box.containment_prob(&point_box, 1.0) {
                 prop_assert!(
-                    prob >= 0.0 && prob <= 1.0,
+                    (0.0..=1.0).contains(&prob),
                     "Zero-volume containment probability out of bounds: {}",
                     prob
                 );
