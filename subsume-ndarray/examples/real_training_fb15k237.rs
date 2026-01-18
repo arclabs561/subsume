@@ -23,7 +23,8 @@ use std::env;
 use std::path::Path;
 use subsume_core::dataset::load_dataset;
 use subsume_core::trainer::{
-    evaluate_link_prediction, generate_negative_samples, NegativeSamplingStrategy, TrainingConfig,
+    evaluate_link_prediction_filtered, generate_negative_samples, FilteredTripleIndex,
+    NegativeSamplingStrategy, TrainingConfig,
 };
 use subsume_core::training::diagnostics::TrainingStats;
 use subsume_core::Box as CoreBox;
@@ -67,6 +68,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "Using {} training triples (subset for demo)",
         train_subset.len()
+    );
+
+    // Filtered ranking index for the subset we actually train/evaluate on.
+    let valid_subset_for_filter: Vec<_> = dataset.valid.iter().take(1000).cloned().collect();
+    let test_subset_for_filter: Vec<_> = dataset.test.iter().take(1000).cloned().collect();
+    let filter = FilteredTripleIndex::from_triples(
+        train_subset
+            .iter()
+            .chain(valid_subset_for_filter.iter())
+            .chain(test_subset_for_filter.iter()),
     );
 
     let entities: HashSet<String> = dataset.entities();
@@ -213,7 +224,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Validation
         let valid_subset: Vec<_> = dataset.valid.iter().take(1000).cloned().collect();
         let valid_results =
-            evaluate_link_prediction::<NdarrayBox>(&valid_subset, &entity_boxes, None)?;
+            evaluate_link_prediction_filtered::<NdarrayBox>(&valid_subset, &entity_boxes, None, &filter)?;
         let valid_mrr = valid_results.mrr;
 
         let avg_volume = entity_boxes
@@ -251,7 +262,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Test evaluation
     let test_subset: Vec<_> = dataset.test.iter().take(1000).cloned().collect();
-    let test_results = evaluate_link_prediction::<NdarrayBox>(&test_subset, &entity_boxes, None)?;
+    let test_results =
+        evaluate_link_prediction_filtered::<NdarrayBox>(&test_subset, &entity_boxes, None, &filter)?;
 
     println!("=== Final Test Results ===");
     println!("MRR:      {:.4}", test_results.mrr);

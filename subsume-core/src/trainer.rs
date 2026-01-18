@@ -21,9 +21,7 @@ use crate::training::metrics::{hits_at_k, mean_rank, mean_reciprocal_rank};
 use crate::BoxError;
 #[cfg(feature = "rand")]
 use rand::Rng;
-use std::collections::HashMap;
-#[cfg(feature = "rand")]
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// Negative sampling strategy for training.
 ///
@@ -449,6 +447,161 @@ pub fn generate_negative_samples_from_pool_with_rng<R: Rng>(
     negatives
 }
 
+/// An index of “known true” triples for filtered link prediction evaluation.
+///
+/// In standard KGE evaluation (e.g. FB15k-237, WN18RR), **filtered ranking** removes any
+/// candidate that is already a true triple in train/valid/test, except for the test triple
+/// being evaluated. This avoids penalizing the model for ranking other true answers above
+/// the held-out one.
+///
+/// This index is intentionally shaped for the most common evaluation query we currently
+/// support in `subsume-core`:
+/// - tail prediction: \((h, r, ?)\)
+///
+/// Notes:
+/// - Building this index **allocates**, but using it during evaluation does not.
+/// - Memory can be large for big KGs; a future iteration should intern IDs to integers.
+#[derive(Debug, Default, Clone)]
+pub struct FilteredTripleIndex {
+    tails_by_head_rel: HashMap<String, HashMap<String, HashSet<String>>>,
+}
+
+impl FilteredTripleIndex {
+    /// Build a filtered-ranking index from an iterator of triples.
+    pub fn from_triples<'a, I>(triples: I) -> Self
+    where
+        I: IntoIterator<Item = &'a Triple>,
+    {
+        let mut index = Self::default();
+        index.extend(triples);
+        index
+    }
+
+    /// Extend the index with more known-true triples.
+    pub fn extend<'a, I>(&mut self, triples: I)
+    where
+        I: IntoIterator<Item = &'a Triple>,
+    {
+        for t in triples {
+            self.tails_by_head_rel
+                .entry(t.head.clone())
+                .or_default()
+                .entry(t.relation.clone())
+                .or_default()
+                .insert(t.tail.clone());
+        }
+    }
+
+    /// True iff `(head, relation, tail)` is a known true triple.
+    #[inline]
+    pub fn is_known_tail(&self, head: &str, relation: &str, tail: &str) -> bool {
+        self.tails_by_head_rel
+            .get(head)
+            .and_then(|by_rel| by_rel.get(relation))
+            .is_some_and(|tails| tails.contains(tail))
+    }
+}
+
+fn evaluate_link_prediction_inner<B>(
+    test_triples: &[Triple],
+    entity_boxes: &HashMap<String, B>,
+    _relation_boxes: Option<&HashMap<String, B>>,
+    filter: Option<&FilteredTripleIndex>,
+) -> Result<EvaluationResults, crate::BoxError>
+where
+    B: crate::Box<Scalar = f32>,
+{
+    let mut ranks = Vec::new();
+
+    for triple in test_triples {
+        // Get head and relation boxes
+        let head_box = entity_boxes
+            .get(&triple.head)
+            .ok_or_else(|| crate::BoxError::Internal(format!("Missing entity: {}", triple.head)))?;
+
+        // For simplicity, use head box directly (can be extended for relation-specific boxes)
+        let query_box = head_box;
+
+        let skip_candidate = |candidate: &str| {
+            filter.is_some_and(|f| {
+                // Filter out other known-true tails for this (head, relation) query, but keep the
+                // actual test triple tail.
+                candidate != triple.tail.as_str()
+                    && f.is_known_tail(triple.head.as_str(), triple.relation.as_str(), candidate)
+            })
+        };
+
+        // Optimization: compute the rank in O(|E|) without sorting the full candidate list.
+        //
+        // We compute:
+        // - `tail_score` (if the tail exists in the candidate set)
+        // - count how many candidates have strictly greater score
+        // - deterministic tie-break: among equal scores, rank by lexicographic entity id
+        //
+        // This avoids O(|E| log |E|) sorting work and avoids cloning entity IDs.
+        let tail_score = match entity_boxes.get(&triple.tail) {
+            Some(tail_box) => {
+                let s = query_box.containment_prob(tail_box, 1.0)?;
+                if s.is_nan() {
+                    return Err(crate::BoxError::Internal(
+                        "NaN containment score encountered (tail)".to_string(),
+                    ));
+                }
+                Some(s)
+            }
+            None => None,
+        };
+
+        let mut better = 0usize;
+        let mut tie_before = 0usize;
+        for (entity, box_) in entity_boxes {
+            if entity == &triple.tail {
+                continue;
+            }
+            if skip_candidate(entity.as_str()) {
+                continue;
+            }
+
+            let score = query_box.containment_prob(box_, 1.0)?;
+            if score.is_nan() {
+                return Err(crate::BoxError::Internal(
+                    "NaN containment score encountered".to_string(),
+                ));
+            }
+
+            if let Some(tail_score) = tail_score {
+                if score > tail_score {
+                    better += 1;
+                } else if score == tail_score && entity.as_str() < triple.tail.as_str() {
+                    tie_before += 1;
+                }
+            }
+        }
+
+        let rank = if tail_score.is_some() {
+            better + tie_before + 1
+        } else {
+            usize::MAX
+        };
+
+        ranks.push(rank);
+    }
+
+    let mrr = mean_reciprocal_rank(ranks.iter().copied());
+    let hits_at_1 = hits_at_k(ranks.iter().copied(), 1);
+    let hits_at_3 = hits_at_k(ranks.iter().copied(), 3);
+    let hits_at_10 = hits_at_k(ranks.iter().copied(), 10);
+    let mean_rank = mean_rank(ranks.iter().copied());
+
+    Ok(EvaluationResults {
+        mrr,
+        hits_at_1,
+        hits_at_3,
+        hits_at_10,
+        mean_rank,
+    })
+}
+
 /// Evaluate link prediction performance.
 ///
 /// # Research Background
@@ -508,84 +661,23 @@ pub fn evaluate_link_prediction<B>(
 where
     B: crate::Box<Scalar = f32>,
 {
-    let mut ranks = Vec::new();
+    evaluate_link_prediction_inner(test_triples, entity_boxes, _relation_boxes, None)
+}
 
-    for triple in test_triples {
-        // Get head and relation boxes
-        let head_box = entity_boxes
-            .get(&triple.head)
-            .ok_or_else(|| crate::BoxError::Internal(format!("Missing entity: {}", triple.head)))?;
-
-        // For simplicity, use head box directly (can be extended for relation-specific boxes)
-        let query_box = head_box;
-
-        // Optimization: compute the rank in O(|E|) without sorting the full candidate list.
-        //
-        // We compute:
-        // - `tail_score` (if the tail exists in the candidate set)
-        // - count how many candidates have strictly greater score
-        // - deterministic tie-break: among equal scores, rank by lexicographic entity id
-        //
-        // This avoids O(|E| log |E|) sorting work and avoids cloning entity IDs.
-        let tail_score = match entity_boxes.get(&triple.tail) {
-            Some(tail_box) => {
-                let s = query_box.containment_prob(tail_box, 1.0)?;
-                if s.is_nan() {
-                    return Err(crate::BoxError::Internal(
-                        "NaN containment score encountered (tail)".to_string(),
-                    ));
-                }
-                Some(s)
-            }
-            None => None,
-        };
-
-        let mut better = 0usize;
-        let mut tie_before = 0usize;
-        for (entity, box_) in entity_boxes {
-            // Avoid recomputing the tail score if present.
-            if entity == &triple.tail {
-                continue;
-            }
-
-            let score = query_box.containment_prob(box_, 1.0)?;
-            if score.is_nan() {
-                return Err(crate::BoxError::Internal(
-                    "NaN containment score encountered".to_string(),
-                ));
-            }
-
-            if let Some(tail_score) = tail_score {
-                if score > tail_score {
-                    better += 1;
-                } else if score == tail_score && entity.as_str() < triple.tail.as_str() {
-                    tie_before += 1;
-                }
-            }
-        }
-
-        let rank = if tail_score.is_some() {
-            better + tie_before + 1
-        } else {
-            usize::MAX
-        };
-
-        ranks.push(rank);
-    }
-
-    let mrr = mean_reciprocal_rank(ranks.iter().copied());
-    let hits_at_1 = hits_at_k(ranks.iter().copied(), 1);
-    let hits_at_3 = hits_at_k(ranks.iter().copied(), 3);
-    let hits_at_10 = hits_at_k(ranks.iter().copied(), 10);
-    let mean_rank = mean_rank(ranks.iter().copied());
-
-    Ok(EvaluationResults {
-        mrr,
-        hits_at_1,
-        hits_at_3,
-        hits_at_10,
-        mean_rank,
-    })
+/// Evaluate link prediction in the **filtered** setting.
+///
+/// Filtered ranking excludes any candidate tail \(t'\) such that \((h, r, t')\) is known true
+/// (in train/valid/test), except for the test triple’s own tail.
+pub fn evaluate_link_prediction_filtered<B>(
+    test_triples: &[Triple],
+    entity_boxes: &HashMap<String, B>,
+    _relation_boxes: Option<&HashMap<String, B>>,
+    filter: &FilteredTripleIndex,
+) -> Result<EvaluationResults, crate::BoxError>
+where
+    B: crate::Box<Scalar = f32>,
+{
+    evaluate_link_prediction_inner(test_triples, entity_boxes, _relation_boxes, Some(filter))
 }
 
 /// Training result with metrics and history.
@@ -851,6 +943,35 @@ mod tests {
             l_overlap >= l_disjoint,
             "negative loss should not decrease when overlap increases (got disjoint={l_disjoint}, overlap={l_overlap})"
         );
+    }
+
+    #[test]
+    fn filtered_triple_index_membership() {
+        let triples = vec![
+            Triple {
+                head: "h".to_string(),
+                relation: "r".to_string(),
+                tail: "t1".to_string(),
+            },
+            Triple {
+                head: "h".to_string(),
+                relation: "r".to_string(),
+                tail: "t2".to_string(),
+            },
+            Triple {
+                head: "h".to_string(),
+                relation: "r2".to_string(),
+                tail: "t3".to_string(),
+            },
+        ];
+
+        let idx = FilteredTripleIndex::from_triples(triples.iter());
+
+        assert!(idx.is_known_tail("h", "r", "t1"));
+        assert!(idx.is_known_tail("h", "r", "t2"));
+        assert!(!idx.is_known_tail("h", "r", "t3"));
+        assert!(idx.is_known_tail("h", "r2", "t3"));
+        assert!(!idx.is_known_tail("missing", "r", "t1"));
     }
 
     #[test]

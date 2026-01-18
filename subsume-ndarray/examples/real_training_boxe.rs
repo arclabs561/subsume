@@ -26,7 +26,7 @@ use std::env;
 use std::path::Path;
 use subsume_core::boxe::{boxe_loss, boxe_score, Bump};
 use subsume_core::dataset::load_dataset;
-use subsume_core::trainer::{evaluate_link_prediction, TrainingConfig};
+use subsume_core::trainer::{evaluate_link_prediction_filtered, FilteredTripleIndex, TrainingConfig};
 use subsume_core::Box as CoreBox;
 use subsume_ndarray::{AdamW, NdarrayBox};
 
@@ -62,6 +62,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let entities: HashSet<String> = dataset.entities();
     let relations: HashSet<String> = dataset.relations();
+
+    let filter = FilteredTripleIndex::from_triples(
+        dataset
+            .train
+            .iter()
+            .chain(dataset.valid.iter())
+            .chain(dataset.test.iter()),
+    );
 
     // Initialize entity boxes
     let embedding_dim = 50;
@@ -228,8 +236,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if epoch % 10 == 0 || epoch == config.epochs - 1 {
             // Evaluate on validation set
             let valid_subset: Vec<_> = dataset.valid.iter().take(500).cloned().collect();
-            let valid_results =
-                evaluate_link_prediction::<NdarrayBox>(&valid_subset, &entity_boxes, None)?;
+            let valid_results = evaluate_link_prediction_filtered::<NdarrayBox>(
+                &valid_subset,
+                &entity_boxes,
+                None,
+                &filter,
+            )?;
 
             println!(
                 "Epoch {}: Loss = {:.4}, Valid MRR = {:.4}, Hits@10 = {:.4}",
@@ -245,7 +257,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Final evaluation
     let test_subset: Vec<_> = dataset.test.iter().take(1000).cloned().collect();
-    let test_results = evaluate_link_prediction::<NdarrayBox>(&test_subset, &entity_boxes, None)?;
+    let test_results =
+        evaluate_link_prediction_filtered::<NdarrayBox>(&test_subset, &entity_boxes, None, &filter)?;
 
     println!("=== Final Test Results ===");
     println!("MRR:      {:.4}", test_results.mrr);

@@ -27,7 +27,8 @@ use std::env;
 use std::path::Path;
 use subsume_core::dataset::{load_dataset, Dataset};
 use subsume_core::trainer::{
-    evaluate_link_prediction, generate_negative_samples, NegativeSamplingStrategy, TrainingConfig,
+    evaluate_link_prediction_filtered, generate_negative_samples, FilteredTripleIndex,
+    NegativeSamplingStrategy, TrainingConfig,
 };
 use subsume_core::training::diagnostics::TrainingStats;
 use subsume_core::Box as CoreBox;
@@ -71,6 +72,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Collect all entities
     let entities: HashSet<String> = dataset.entities();
+
+    // Filtered ranking (standard KGE protocol): remove other known-true tails for (h, r, ?).
+    let filter = FilteredTripleIndex::from_triples(
+        dataset
+            .train
+            .iter()
+            .chain(dataset.valid.iter())
+            .chain(dataset.test.iter()),
+    );
 
     // Initialize box embeddings
     let embedding_dim = 50; // Standard dimension for box embeddings
@@ -217,8 +227,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let avg_loss = epoch_loss / (batch_count as f32).max(1.0);
 
         // Evaluate on validation set
-        let valid_results =
-            evaluate_link_prediction::<NdarrayBox>(&dataset.valid, &entity_boxes, None)?;
+        let valid_results = evaluate_link_prediction_filtered::<NdarrayBox>(
+            &dataset.valid,
+            &entity_boxes,
+            None,
+            &filter,
+        )?;
         let valid_mrr = valid_results.mrr;
 
         // Record training stats
@@ -264,7 +278,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Final evaluation on test set
     println!("Evaluating on test set...");
-    let test_results = evaluate_link_prediction::<NdarrayBox>(&dataset.test, &entity_boxes, None)?;
+    let test_results = evaluate_link_prediction_filtered::<NdarrayBox>(
+        &dataset.test,
+        &entity_boxes,
+        None,
+        &filter,
+    )?;
 
     println!("\n=== Final Test Results ===");
     println!("MRR:      {:.4}", test_results.mrr);

@@ -9,3 +9,9 @@
 [target.'cfg(all())']
 # Allow some clippy warnings in examples and tests
 # These are stylistic and acceptable given our project structure
+
+[alias]
+# Prefer nextest for routine runs. Keep `cargo test` available as-is.
+t = "nextest run"
+xtest = "nextest run"
+xtest-all = "nextest run --all-features"
