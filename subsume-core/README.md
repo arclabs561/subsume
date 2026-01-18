@@ -38,3 +38,15 @@ Based on:
 - Messner et al. (2022): "Temporal Knowledge Graph Completion with Box Embeddings" (BoxTE)
 - Chen et al. (2021): "Uncertainty-Aware Knowledge Graph Embeddings" (UKGE)
 
+## Evaluation nuance (why some code looks “too careful”)
+
+- **Deterministic ranking**: link prediction metrics (MRR / Hits@K / mean rank) are sensitive to
+  tie-handling. We intentionally define a deterministic tie-break (lexicographic entity id) so:
+  \[
+  \text{same model + same data} \Rightarrow \text{same metrics}
+  \]
+  even when many candidates share identical scores.
+- **NaN handling**: containment computations can produce NaNs if upstream geometry violates
+  invariants (e.g., invalid boxes). We treat NaNs as hard errors in evaluation to avoid silently
+  reporting nonsense metrics.
+

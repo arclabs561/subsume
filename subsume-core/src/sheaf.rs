@@ -361,12 +361,12 @@ impl DenseRestriction {
         let mut rng = rand::rng();
 
         // Generate random matrix
-        let mut data: Vec<f32> = (0..dim * dim).map(|_| rng.random::<f32>() - 0.5).collect();
+        let mut data: Vec<f32> = (0..dim * dim).map(|_| rng.random_range(-0.5..0.5)).collect();
 
         // Simple Gram-Schmidt orthogonalization
         for i in 0..dim {
             // Normalize column i
-            let mut norm = 0.0;
+            let mut norm: f32 = 0.0;
             for j in 0..dim {
                 norm += data[j * dim + i] * data[j * dim + i];
             }

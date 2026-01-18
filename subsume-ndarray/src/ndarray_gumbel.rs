@@ -96,6 +96,12 @@ impl Box for NdarrayGumbelBox {
     fn distance(&self, other: &Self) -> Result<Self::Scalar, BoxError> {
         self.inner.distance(&other.inner)
     }
+
+    fn truncate(&self, k: usize) -> Result<Self, BoxError> {
+        Ok(Self {
+            inner: self.inner.truncate(k)?,
+        })
+    }
 }
 
 impl GumbelBox for NdarrayGumbelBox {

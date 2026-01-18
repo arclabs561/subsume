@@ -77,6 +77,7 @@ fn main() -> Result<(), std::boxed::Box<dyn std::error::Error>> {
         weight_decay: 1e-5,
         margin: 1.0,
         early_stopping_patience: Some(5),
+        ..TrainingConfig::default()
     };
 
     // Create Adam optimizer (paper standard)

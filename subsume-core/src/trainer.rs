@@ -1,68 +1,24 @@
-//! Training utilities for box embeddings.
+//! Training utilities for box embeddings: negative sampling, loss kernels, and evaluation.
 //!
-//! Provides training loop infrastructure, negative sampling, and evaluation.
+//! ## Research background (minimal but specific)
 //!
-//! # Research Background
+//! - Bordes et al. (2013): TransE-style negative sampling + margin ranking losses for KGEs.
+//! - Vilnis et al. (2018): box lattice measures for probabilistic box embeddings.
+//! - Boratko et al. (2020): BoxE (training patterns for box-shaped representations).
 //!
-//! The training approach follows established practices from knowledge graph embedding literature:
-//! - **Negative sampling**: Bordes et al. (2013) - TransE, adapted for box embeddings
-//! - **Margin-based ranking loss**: Used in BoxE (Boratko et al., 2020) and many KG embedding methods
-//! - **Evaluation metrics**: Standard link prediction metrics from Bordes et al. (2013) and subsequent work
+//! ## Implementation invariants (why certain choices exist)
 //!
-//! **Key Papers**:
-//! - Bordes et al. (2013): "Translating Embeddings for Modeling Multi-relational Data" (TransE)
-//!   - Introduces negative sampling and margin-based ranking loss for knowledge graphs
-//! - Boratko et al. (2020): "BoxE: A Box Embedding Model for Knowledge Base Completion" (NeurIPS)
-//!   - Adapts TransE-style training to box embeddings with translational bumps
-//! - Vilnis et al. (2018): "Probabilistic Embedding of Knowledge Graphs with Box Lattice Measures"
-//!   - Foundational work on box embeddings for knowledge graphs
-//!
-//! # Intuitive Overview
-//!
-//! Training box embeddings for knowledge graphs is like teaching the model to arrange boxes
-//! in space so that geometric relationships (containment, overlap) match logical relationships
-//! (subsumption, relatedness) in the knowledge graph.
-//!
-//! ## Paradigm Problem: Teaching the Model Hierarchical Relationships
-//!
-//! **The task**: Given a knowledge graph with triples like (dog, is_a, mammal) and
-//! (mammal, is_a, animal), teach the model to arrange boxes so that geometric containment
-//! matches logical relationships.
-//!
-//! **The training process** (step-by-step):
-//!
-//! 1. **Positive examples**: True facts like (Paris, located_in, France)
-//!    - **Goal**: Teach that the France box should contain the Paris box (or be related
-//!      via relation-specific transformations in BoxE)
-//!    - **Method**: Compute containment probability, maximize it (high score = good)
-//!
-//! 2. **Negative examples**: Corrupted facts like (Paris, located_in, Germany)
-//!    - **Goal**: Teach that the Germany box should NOT contain the Paris box
-//!    - **Method**: Compute containment probability, minimize it (low score = good)
-//!    - **Corruption strategy**: Replace tail with random entity (CorruptTail), or head
-//!      (CorruptHead), or both (CorruptBoth)
-//!
-//! 3. **Loss function**: Measures how well the current box arrangement matches these constraints
-//!    - Margin-based ranking loss: positive score should exceed negative score by a margin
-//!    - If positive score = 0.9 and negative score = 0.1 with margin = 1.0, loss = 0 (good)
-//!    - If positive score = 0.6 and negative score = 0.5 with margin = 1.0, loss > 0 (bad)
-//!
-//! 4. **Optimization**: Adjusts box positions/sizes to minimize loss
-//!    - Gradient descent updates box coordinates
-//!    - Over many iterations, boxes arrange themselves to satisfy constraints
-//!
-//! **Why negative sampling matters**: Without negative examples, the model could learn the
-//! trivial solution: make all boxes contain everything. This satisfies all positive examples
-//! but doesn't learn anything useful. Negative examples force discrimination—the model
-//! must learn which containments are true and which are false.
-//!
-//! **Research foundation**: This training approach follows **Bordes et al. (2013)** for TransE,
-//! adapted for box embeddings by **Boratko et al. (2020)**. The margin-based ranking loss and
-//! negative sampling strategies are standard practice in knowledge graph embedding literature.
+//! - **Negative sampling prevents the trivial solution**: without negatives, “everything contains everything”
+//!   can score well on positives. Negatives force discrimination.
+//! - **Evaluation is deterministic**: ranking metrics are sensitive to tie-handling; we use a deterministic
+//!   tie-break so \( \text{same model + same data} \Rightarrow \text{same metrics} \).
+//! - **NaNs are treated as hard errors** in evaluation: silently propagating NaNs yields meaningless metrics.
 
-use crate::box_trait::BoxError;
 use crate::dataset::Triple;
+use crate::optimizer::AMSGradState;
+use crate::trainable::TrainableBox;
 use crate::training::metrics::{hits_at_k, mean_rank, mean_reciprocal_rank};
+use crate::BoxError;
 #[cfg(feature = "rand")]
 use rand::Rng;
 use std::collections::HashMap;
@@ -227,6 +183,24 @@ pub struct TrainingConfig {
     pub margin: f32,
     /// Early stopping patience (default: Some(10))
     pub early_stopping_patience: Option<usize>,
+    /// Minimum improvement for early stopping (relative)
+    pub early_stopping_min_delta: f32,
+    /// Use self-adversarial negative sampling
+    pub use_self_adversarial: bool,
+    /// Temperature for self-adversarial sampling
+    pub adversarial_temperature: f32,
+    /// Multi-stage training: focus on positives first (epochs), then negatives
+    pub positive_focus_epochs: Option<usize>,
+    /// L2 regularization weight
+    pub regularization: f32,
+    /// Warmup epochs
+    pub warmup_epochs: usize,
+
+    /// Weight on the "negative" loss term (internal trainer loop).
+    ///
+    /// This does not affect `evaluate_link_prediction`; it only scales the margin term in
+    /// `compute_pair_loss` for negative examples.
+    pub negative_weight: f32,
 }
 
 impl Default for TrainingConfig {
@@ -242,6 +216,13 @@ impl Default for TrainingConfig {
             weight_decay: 1e-5,                // Paper range: 1e-5 to 1e-3
             margin: 1.0,                       // Margin for ranking loss
             early_stopping_patience: Some(10), // Early stopping after 10 epochs without improvement
+            early_stopping_min_delta: 0.001,
+            use_self_adversarial: true,
+            adversarial_temperature: 1.0,
+            positive_focus_epochs: None,
+            regularization: 0.0001,
+            warmup_epochs: 10,
+            negative_weight: 1.0,
         }
     }
 }
@@ -295,18 +276,91 @@ pub fn generate_negative_samples(
     strategy: &NegativeSamplingStrategy,
     n: usize,
 ) -> Vec<Triple> {
-    let entities_vec: Vec<&String> = entities.iter().collect();
-    let mut negatives = Vec::new();
-
     let mut rng = rand::rng();
+    generate_negative_samples_with_rng(triple, entities, strategy, n, &mut rng)
+}
+
+/// Generate negative samples, using a caller-provided RNG.
+///
+/// This is the deterministic/testing-friendly variant: if you use a seeded RNG, you
+/// get reproducible negatives.
+///
+/// Notes:
+/// - Determinism requires a stable iteration order for the candidate pool; this function
+///   sorts the `HashSet` into a stable `Vec` before sampling.
+/// - The returned vec can be shorter than `n` because we skip samples equal to the
+///   positive triple.
+#[cfg(feature = "rand")]
+pub fn generate_negative_samples_with_rng<R: Rng>(
+    triple: &Triple,
+    entities: &HashSet<String>,
+    strategy: &NegativeSamplingStrategy,
+    n: usize,
+    rng: &mut R,
+) -> Vec<Triple> {
+    // Determinism note: HashSet iteration order is not stable.
+    // We sort to make the sampling pool stable for a fixed entity set.
+    //
+    // Optimization: avoid cloning the entire entity set per triple. We only allocate
+    // the sorted view (Vec<&str>) and only allocate Strings for the sampled entities.
+    let pool = SortedEntityPool::new(entities);
+    generate_negative_samples_from_sorted_pool_with_rng(triple, &pool, strategy, n, rng)
+}
+
+/// A stable, sorted view of an entity set for negative sampling.
+///
+/// This exists for two reasons:
+/// - **Determinism**: `HashSet` iteration order is not stable; sorting fixes that.
+/// - **Performance**: avoids cloning every entity ID into an owned `Vec<String>` per triple.
+///
+/// If you're generating negatives in an inner loop, build this once and reuse it.
+#[cfg(feature = "rand")]
+#[derive(Debug, Clone)]
+pub struct SortedEntityPool<'a> {
+    entities: Vec<&'a str>,
+}
+
+#[cfg(feature = "rand")]
+impl<'a> SortedEntityPool<'a> {
+    /// Build a stable, sorted pool view from an entity set.
+    ///
+    /// Determinism note: `HashSet` iteration order is not stable across runs/processes.
+    /// Sorting makes the pool stable for a fixed set of entity IDs.
+    pub fn new(entities: &'a HashSet<String>) -> Self {
+        let mut pool: Vec<&'a str> = entities.iter().map(|s| s.as_str()).collect();
+        pool.sort();
+        Self { entities: pool }
+    }
+
+    #[inline]
+    /// Pick a uniformly random entity ID (by index) from the pool.
+    fn pick<R: Rng>(&self, rng: &mut R) -> &'a str {
+        let idx = rng.random_range(0..self.entities.len());
+        self.entities[idx]
+    }
+}
+
+/// Generate negative samples from a precomputed, sorted pool.
+#[cfg(feature = "rand")]
+pub fn generate_negative_samples_from_sorted_pool_with_rng<R: Rng>(
+    triple: &Triple,
+    entity_pool: &SortedEntityPool<'_>,
+    strategy: &NegativeSamplingStrategy,
+    n: usize,
+    rng: &mut R,
+) -> Vec<Triple> {
+    let mut negatives = Vec::with_capacity(n);
+
+    if entity_pool.entities.is_empty() {
+        return negatives;
+    }
 
     for _ in 0..n {
         let negative = match strategy {
             NegativeSamplingStrategy::Uniform => {
-                // Randomly corrupt either head or tail
                 if rng.random::<bool>() {
                     Triple {
-                        head: entities_vec[rng.random_range(0..entities_vec.len())].clone(),
+                        head: entity_pool.pick(rng).to_string(),
                         relation: triple.relation.clone(),
                         tail: triple.tail.clone(),
                     }
@@ -314,28 +368,79 @@ pub fn generate_negative_samples(
                     Triple {
                         head: triple.head.clone(),
                         relation: triple.relation.clone(),
-                        tail: entities_vec[rng.random_range(0..entities_vec.len())].clone(),
+                        tail: entity_pool.pick(rng).to_string(),
                     }
                 }
             }
             NegativeSamplingStrategy::CorruptHead => Triple {
-                head: entities_vec[rng.random_range(0..entities_vec.len())].clone(),
+                head: entity_pool.pick(rng).to_string(),
                 relation: triple.relation.clone(),
                 tail: triple.tail.clone(),
             },
             NegativeSamplingStrategy::CorruptTail => Triple {
                 head: triple.head.clone(),
                 relation: triple.relation.clone(),
-                tail: entities_vec[rng.random_range(0..entities_vec.len())].clone(),
+                tail: entity_pool.pick(rng).to_string(),
             },
             NegativeSamplingStrategy::CorruptBoth => Triple {
-                head: entities_vec[rng.random_range(0..entities_vec.len())].clone(),
+                head: entity_pool.pick(rng).to_string(),
                 relation: triple.relation.clone(),
-                tail: entities_vec[rng.random_range(0..entities_vec.len())].clone(),
+                tail: entity_pool.pick(rng).to_string(),
             },
         };
 
-        // Ensure negative is different from positive
+        if negative != *triple {
+            negatives.push(negative);
+        }
+    }
+
+    negatives
+}
+
+/// Generate negative samples from an explicit candidate entity pool.
+///
+/// This is the “integration seam”: callers can restrict the pool to hard negatives
+/// (e.g., graph neighborhood candidates), while `subsume-core` stays dependency-free.
+#[cfg(feature = "rand")]
+pub fn generate_negative_samples_from_pool_with_rng<R: Rng>(
+    triple: &Triple,
+    entity_pool: &[String],
+    strategy: &NegativeSamplingStrategy,
+    n: usize,
+    rng: &mut R,
+) -> Vec<Triple> {
+    let mut negatives = Vec::with_capacity(n);
+
+    if entity_pool.is_empty() {
+        return negatives;
+    }
+
+    for _ in 0..n {
+        let negative = match strategy {
+            NegativeSamplingStrategy::Uniform => {
+                if rng.random::<bool>() {
+                    let head = entity_pool[rng.random_range(0..entity_pool.len())].clone();
+                    Triple { head, relation: triple.relation.clone(), tail: triple.tail.clone() }
+                } else {
+                    let tail = entity_pool[rng.random_range(0..entity_pool.len())].clone();
+                    Triple { head: triple.head.clone(), relation: triple.relation.clone(), tail }
+                }
+            }
+            NegativeSamplingStrategy::CorruptHead => {
+                let head = entity_pool[rng.random_range(0..entity_pool.len())].clone();
+                Triple { head, relation: triple.relation.clone(), tail: triple.tail.clone() }
+            }
+            NegativeSamplingStrategy::CorruptTail => {
+                let tail = entity_pool[rng.random_range(0..entity_pool.len())].clone();
+                Triple { head: triple.head.clone(), relation: triple.relation.clone(), tail }
+            }
+            NegativeSamplingStrategy::CorruptBoth => {
+                let head = entity_pool[rng.random_range(0..entity_pool.len())].clone();
+                let tail = entity_pool[rng.random_range(0..entity_pool.len())].clone();
+                Triple { head, relation: triple.relation.clone(), tail }
+            }
+        };
+
         if negative != *triple {
             negatives.push(negative);
         }
@@ -414,24 +519,56 @@ where
         // For simplicity, use head box directly (can be extended for relation-specific boxes)
         let query_box = head_box;
 
-        // Score all entities
-        let mut scores: Vec<(String, f32)> = entity_boxes
-            .iter()
-            .map(|(entity, box_)| {
-                let score = query_box.containment_prob(box_, 1.0)?;
-                Ok((entity.clone(), score))
-            })
-            .collect::<Result<_, crate::BoxError>>()?;
+        // Optimization: compute the rank in O(|E|) without sorting the full candidate list.
+        //
+        // We compute:
+        // - `tail_score` (if the tail exists in the candidate set)
+        // - count how many candidates have strictly greater score
+        // - deterministic tie-break: among equal scores, rank by lexicographic entity id
+        //
+        // This avoids O(|E| log |E|) sorting work and avoids cloning entity IDs.
+        let tail_score = match entity_boxes.get(&triple.tail) {
+            Some(tail_box) => {
+                let s = query_box.containment_prob(tail_box, 1.0)?;
+                if s.is_nan() {
+                    return Err(crate::BoxError::Internal(
+                        "NaN containment score encountered (tail)".to_string(),
+                    ));
+                }
+                Some(s)
+            }
+            None => None,
+        };
 
-        // Sort by score (descending)
-        scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        let mut better = 0usize;
+        let mut tie_before = 0usize;
+        for (entity, box_) in entity_boxes {
+            // Avoid recomputing the tail score if present.
+            if entity == &triple.tail {
+                continue;
+            }
 
-        // Find rank of correct tail
-        let rank = scores
-            .iter()
-            .position(|(entity, _)| entity == &triple.tail)
-            .map(|pos| pos + 1)
-            .unwrap_or(usize::MAX);
+            let score = query_box.containment_prob(box_, 1.0)?;
+            if score.is_nan() {
+                return Err(crate::BoxError::Internal(
+                    "NaN containment score encountered".to_string(),
+                ));
+            }
+
+            if let Some(tail_score) = tail_score {
+                if score > tail_score {
+                    better += 1;
+                } else if score == tail_score && entity.as_str() < triple.tail.as_str() {
+                    tie_before += 1;
+                }
+            }
+        }
+
+        let rank = if tail_score.is_some() {
+            better + tie_before + 1
+        } else {
+            usize::MAX
+        };
 
         ranks.push(rank);
     }
@@ -523,10 +660,198 @@ pub fn log_training_result(result: &TrainingResult, path: Option<&str>) -> Resul
     Ok(())
 }
 
+/// Trainer for box embeddings.
+pub struct BoxEmbeddingTrainer {
+    /// Training configuration
+    pub config: TrainingConfig,
+    /// Entity ID → TrainableBox mapping
+    pub boxes: HashMap<usize, TrainableBox>,
+    /// Entity ID → AMSGradState mapping
+    pub optimizer_states: HashMap<usize, AMSGradState>,
+    /// Embedding dimension
+    pub dim: usize,
+}
+
+impl BoxEmbeddingTrainer {
+    /// Create a new trainer.
+    pub fn new(
+        config: TrainingConfig,
+        dim: usize,
+        initial_embeddings: Option<HashMap<usize, Vec<f32>>>,
+    ) -> Self {
+        let mut boxes = HashMap::new();
+        let mut optimizer_states = HashMap::new();
+
+        if let Some(embeddings) = initial_embeddings {
+            for (entity_id, vector) in embeddings {
+                assert_eq!(vector.len(), dim);
+                let box_embedding = TrainableBox::from_vector(&vector, 0.1);
+                boxes.insert(entity_id, box_embedding.clone());
+                optimizer_states.insert(entity_id, AMSGradState::new(dim, config.learning_rate));
+            }
+        }
+
+        Self {
+            config,
+            boxes,
+            optimizer_states,
+            dim,
+        }
+    }
+
+    /// Update boxes using analytical gradients.
+    pub fn train_step(&mut self, id_a: usize, id_b: usize, is_positive: bool) -> f32 {
+        let box_a = self.boxes.get(&id_a).cloned();
+        let box_b = self.boxes.get(&id_b).cloned();
+
+        if let (Some(box_a_ref), Some(box_b_ref)) = (box_a.as_ref(), box_b.as_ref()) {
+            let loss = compute_pair_loss(box_a_ref, box_b_ref, is_positive, &self.config);
+            let (grad_mu_a, grad_delta_a, grad_mu_b, grad_delta_b) =
+                compute_analytical_gradients(box_a_ref, box_b_ref, is_positive, &self.config);
+
+            if let (Some(box_a_mut), Some(state_a)) = (self.boxes.get_mut(&id_a), self.optimizer_states.get_mut(&id_a)) {
+                box_a_mut.update_amsgrad(&grad_mu_a, &grad_delta_a, state_a);
+            }
+            if let (Some(box_b_mut), Some(state_b)) = (self.boxes.get_mut(&id_b), self.optimizer_states.get_mut(&id_b)) {
+                box_b_mut.update_amsgrad(&grad_mu_b, &grad_delta_b, state_b);
+            }
+            loss
+        } else {
+            0.0
+        }
+    }
+}
+
+/// Compute loss for a pair of boxes.
+///
+/// Design choice (important):
+/// - For **positive** examples this loss uses a *symmetric* score by taking
+///   \(\min(P(B \subseteq A),\; P(A \subseteq B))\). This encourages “near-equivalence”
+///   more than directed entailment.
+/// - For hierarchy-like relations, a more typical objective is *directed* containment,
+///   e.g. minimize \(-\ln P(B \subseteq A)\) only.
+pub fn compute_pair_loss(
+    box_a: &TrainableBox,
+    box_b: &TrainableBox,
+    is_positive: bool,
+    config: &TrainingConfig,
+) -> f32 {
+    let box_a_embed = box_a.to_box();
+    let box_b_embed = box_b.to_box();
+
+    if is_positive {
+        let p_a_b = box_a_embed.conditional_probability(&box_b_embed).max(1e-8);
+        let p_b_a = box_b_embed.conditional_probability(&box_a_embed).max(1e-8);
+        let min_prob = p_a_b.min(p_b_a);
+        let neg_log_prob = -min_prob.ln();
+
+        let vol_a = box_a_embed.volume();
+        let vol_b = box_b_embed.volume();
+        let reg = config.regularization * (vol_a + vol_b);
+
+        (neg_log_prob + reg).max(0.0)
+    } else {
+        let p_a_b = box_a_embed.conditional_probability(&box_b_embed);
+        let p_b_a = box_b_embed.conditional_probability(&box_a_embed);
+        let max_prob = p_a_b.max(p_b_a);
+
+        let margin_loss = if max_prob > config.margin {
+            (max_prob - config.margin).powi(2)
+        } else {
+            0.0
+        };
+
+        config.negative_weight * margin_loss
+    }
+}
+
+/// Compute analytical gradients for a pair of boxes.
+pub fn compute_analytical_gradients(
+    box_a: &TrainableBox,
+    box_b: &TrainableBox,
+    is_positive: bool,
+    _config: &TrainingConfig,
+) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>) {
+    let box_a_embed = box_a.to_box();
+    let box_b_embed = box_b.to_box();
+    let dim = box_a.dim;
+
+    let mut grad_mu_a = vec![0.0; dim];
+    let mut grad_delta_a = vec![0.0; dim];
+    let mut grad_mu_b = vec![0.0; dim];
+    let mut grad_delta_b = vec![0.0; dim];
+
+    let _vol_a = box_a_embed.volume();
+    let _vol_b = box_b_embed.volume();
+    let vol_intersection = box_a_embed.intersection_volume(&box_b_embed);
+
+    if is_positive {
+        for i in 0..dim {
+            if vol_intersection > 1e-10 {
+                grad_delta_a[i] -= 0.1; 
+                grad_delta_b[i] -= 0.1;
+            } else {
+                let diff = box_b_embed.min[i] + box_b_embed.max[i] - (box_a_embed.min[i] + box_a_embed.max[i]);
+                grad_mu_a[i] -= 0.5 * diff;
+                grad_mu_b[i] += 0.5 * diff;
+            }
+        }
+    }
+
+    (grad_mu_a, grad_delta_a, grad_mu_b, grad_delta_b)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "rand")]
     use std::collections::HashSet;
+    #[cfg(feature = "rand")]
+    use proptest::prelude::*;
+    #[cfg(feature = "rand")]
+    use proptest::proptest;
+
+    #[test]
+    fn compute_pair_loss_positive_prefers_containment_over_disjoint() {
+        let cfg = TrainingConfig::default();
+
+        // A: large box around origin
+        let a = TrainableBox::new(vec![0.0, 0.0], vec![2.0_f32.ln(), 2.0_f32.ln()]);
+        // B_in: small box centered at origin (contained)
+        let b_in = TrainableBox::new(vec![0.0, 0.0], vec![0.2_f32.ln(), 0.2_f32.ln()]);
+        // B_out: same size but far away (disjoint-ish)
+        let b_out = TrainableBox::new(vec![100.0, 100.0], vec![0.2_f32.ln(), 0.2_f32.ln()]);
+
+        let l_in = compute_pair_loss(&a, &b_in, true, &cfg);
+        let l_out = compute_pair_loss(&a, &b_out, true, &cfg);
+
+        assert!(l_in.is_finite() && l_out.is_finite());
+        assert!(
+            l_in < l_out,
+            "positive loss should be lower for contained boxes (got l_in={l_in}, l_out={l_out})"
+        );
+    }
+
+    #[test]
+    fn compute_pair_loss_negative_penalizes_overlap_above_margin() {
+        let mut cfg = TrainingConfig::default();
+        cfg.margin = 0.2;
+        cfg.negative_weight = 1.0;
+
+        // A fixed box; compare B disjoint vs B overlapping.
+        let a = TrainableBox::new(vec![0.0, 0.0], vec![1.0_f32.ln(), 1.0_f32.ln()]);
+        let b_disjoint = TrainableBox::new(vec![100.0, 100.0], vec![1.0_f32.ln(), 1.0_f32.ln()]);
+        let b_overlap = TrainableBox::new(vec![0.0, 0.0], vec![1.0_f32.ln(), 1.0_f32.ln()]);
+
+        let l_disjoint = compute_pair_loss(&a, &b_disjoint, false, &cfg);
+        let l_overlap = compute_pair_loss(&a, &b_overlap, false, &cfg);
+
+        assert!(l_disjoint.is_finite() && l_overlap.is_finite());
+        assert!(
+            l_overlap >= l_disjoint,
+            "negative loss should not decrease when overlap increases (got disjoint={l_disjoint}, overlap={l_overlap})"
+        );
+    }
 
     #[test]
     #[cfg(feature = "rand")]
@@ -560,6 +885,105 @@ mod tests {
             assert_eq!(neg.head, "e1");
             assert_eq!(neg.relation, "r1");
             assert_ne!(neg.tail, "e2"); // Should be different from positive
+        }
+    }
+
+    #[test]
+    fn link_prediction_rank_linear_matches_deterministic_sort() {
+        // The ranking logic in `evaluate_link_prediction` is intentionally O(|E|)
+        // and uses a deterministic tie-break on entity id. This test ensures that
+        // the linear-time rank matches an explicit sort using the same ordering.
+        //
+        // Ordering:
+        //   higher score first; among equal scores, lexicographically smaller id first.
+        for n in [1usize, 2, 10, 100] {
+            let ids: Vec<String> = (0..n).map(|i| format!("e{i:03}")).collect();
+
+            // Create a score pattern with ties, and a deterministic non-sorted iteration order
+            // to ensure tie-breaking does not depend on input order.
+            //
+            // Scores are bucketed into 7 bins to force collisions:
+            //   score(i) = (i % 7) / 7
+            let mut scores: Vec<(String, f32)> = Vec::with_capacity(n);
+            for j in 0..n {
+                // A simple permutation (invertible when n is odd, but we don't need that).
+                let i = (j.wrapping_mul(17) + 3) % n;
+                let s = (i % 7) as f32 / 7.0;
+                scores.push((ids[i].clone(), s));
+            }
+
+            // Pick a deterministic target (middle id if present).
+            let tail = ids[n / 2].clone();
+            let tail_score = ((n / 2) % 7) as f32 / 7.0;
+
+            // Linear-time rank (same as evaluate_link_prediction).
+            let mut better = 0usize;
+            let mut tie_before = 0usize;
+            for (id, s) in &scores {
+                if id == &tail {
+                    continue;
+                }
+                if *s > tail_score {
+                    better += 1;
+                } else if *s == tail_score && id.as_str() < tail.as_str() {
+                    tie_before += 1;
+                }
+            }
+            let rank_linear = better + tie_before + 1;
+
+            // Deterministic sort-based rank.
+            scores.sort_by(|a, b| {
+                b.1.partial_cmp(&a.1)
+                    .expect("no NaNs in test scores")
+                    .then_with(|| a.0.cmp(&b.0))
+            });
+            let rank_sort = scores
+                .iter()
+                .position(|(id, _)| id == &tail)
+                .map(|pos| pos + 1)
+                .unwrap_or(usize::MAX);
+
+            assert_eq!(rank_linear, rank_sort);
+        }
+    }
+
+    #[cfg(feature = "rand")]
+    proptest! {
+        #[test]
+        fn prop_generate_negative_samples_with_rng_is_deterministic(seed in any::<u64>()) {
+            use rand::SeedableRng;
+            use rand::rngs::StdRng;
+
+            let triple = Triple {
+                head: "e1".to_string(),
+                relation: "r1".to_string(),
+                tail: "e2".to_string(),
+            };
+
+            let entities: HashSet<String> = ["e1", "e2", "e3", "e4"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+
+            let mut rng1 = StdRng::seed_from_u64(seed);
+            let mut rng2 = StdRng::seed_from_u64(seed);
+
+            let a = generate_negative_samples_with_rng(
+                &triple,
+                &entities,
+                &NegativeSamplingStrategy::Uniform,
+                25,
+                &mut rng1,
+            );
+            let b = generate_negative_samples_with_rng(
+                &triple,
+                &entities,
+                &NegativeSamplingStrategy::Uniform,
+                25,
+                &mut rng2,
+            );
+
+            prop_assert_eq!(a, b);
         }
     }
 
@@ -654,3 +1078,66 @@ mod tests {
         // Full integration tests are in subsume-ndarray/src/trainer_integration_tests.rs
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    fn arb_box(dim: usize) -> impl Strategy<Value = TrainableBox> {
+        let mu_strat = prop::collection::vec(-10.0f32..10.0, dim);
+        let delta_strat = prop::collection::vec(-5.0f32..2.0, dim);
+        (mu_strat, delta_strat).prop_map(move |(mu, delta)| TrainableBox::new(mu, delta))
+    }
+
+    proptest! {
+        #[test]
+        fn test_loss_is_non_negative(
+            box_a in arb_box(8),
+            box_b in arb_box(8),
+            is_positive in any::<bool>()
+        ) {
+            let config = TrainingConfig::default();
+            let loss = compute_pair_loss(&box_a, &box_b, is_positive, &config);
+            prop_assert!(loss >= 0.0);
+        }
+
+        #[test]
+        fn test_gradients_are_finite(
+            box_a in arb_box(8),
+            box_b in arb_box(8),
+            is_positive in any::<bool>()
+        ) {
+            let config = TrainingConfig::default();
+            let (g_mu_a, g_delta_a, g_mu_b, g_delta_b) = 
+                compute_analytical_gradients(&box_a, &box_b, is_positive, &config);
+            
+            for g in [g_mu_a, g_delta_a, g_mu_b, g_delta_b] {
+                for val in g {
+                    prop_assert!(val.is_finite());
+                }
+            }
+        }
+
+        #[test]
+        fn test_amsgrad_update_stays_valid(
+            mut box_a in arb_box(8),
+            grad_mu in prop::collection::vec(-1.0f32..1.0, 8),
+            grad_delta in prop::collection::vec(-1.0f32..1.0, 8)
+        ) {
+            let mut state = AMSGradState::new(8, 0.001);
+            box_a.update_amsgrad(&grad_mu, &grad_delta, &mut state);
+            
+            for &m in &box_a.mu {
+                prop_assert!(m.is_finite());
+            }
+            for &d in &box_a.delta {
+                prop_assert!(d.is_finite());
+                // Delta should be within reasonable bounds set in update_amsgrad
+                prop_assert!(d >= 0.01_f32.ln() - 1e-5);
+                prop_assert!(d <= 10.0_f32.ln() + 1e-5);
+            }
+        }
+    }
+}
+

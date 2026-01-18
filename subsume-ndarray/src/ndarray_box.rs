@@ -340,4 +340,22 @@ impl Box for NdarrayBox {
 
         Ok(dist_sq.sqrt())
     }
+
+    fn truncate(&self, k: usize) -> Result<Self, BoxError> {
+        let d = self.dim();
+        if k > d {
+            return Err(BoxError::DimensionMismatch {
+                expected: d,
+                actual: k,
+            });
+        }
+        if k == d {
+            return Ok(self.clone());
+        }
+        Self::new(
+            self.min.slice(ndarray::s![..k]).to_owned(),
+            self.max.slice(ndarray::s![..k]).to_owned(),
+            self.temperature,
+        )
+    }
 }

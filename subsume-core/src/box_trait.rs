@@ -337,6 +337,12 @@ pub trait Box: Sized {
     ///
     /// Returns `BoxError::DimensionMismatch` if boxes have different dimensions.
     fn distance(&self, other: &Self) -> Result<Self::Scalar, BoxError>;
+
+    /// Truncate the box to the first `k` dimensions (Matryoshka principle).
+    /// 
+    /// This allows for coarse-to-fine reasoning where lower dimensions encode
+    /// broad categories and higher dimensions encode fine-grained details.
+    fn truncate(&self, k: usize) -> Result<Self, BoxError>;
 }
 
 /// Errors that can occur during box operations.
@@ -365,6 +371,15 @@ pub enum BoxError {
     /// Box has zero or negative volume.
     #[error("Box has zero or negative volume")]
     ZeroVolume,
+
+    /// Matryoshka dimension violation (requested dim > actual dim).
+    #[error("Matryoshka dimension mismatch: requested {requested}, actual {actual}")]
+    MatryoshkaMismatch {
+        /// Requested truncated dimension.
+        requested: usize,
+        /// Actual full dimension.
+        actual: usize,
+    },
 
     /// Internal error from tensor/array operations.
     #[error("Internal error: {0}")]

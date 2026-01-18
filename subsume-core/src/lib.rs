@@ -61,12 +61,16 @@
 pub mod box_trait;
 pub mod boxe;
 pub mod center_offset;
+pub mod quasimetric;
 pub mod dataset;
 pub mod distance;
 pub mod embedding;
 pub mod gumbel;
 pub mod hyperbolic;
+pub mod optimizer;
 pub mod sheaf;
+pub mod hyperbolic_box;
+pub mod trainable;
 pub mod trainer;
 pub mod training;
 pub mod utils;
@@ -78,8 +82,16 @@ pub use dataset::{Dataset, DatasetError, DatasetStats, Triple};
 pub use distance::{boundary_distance, depth_distance, depth_similarity, vector_to_box_distance};
 pub use embedding::{BoxCollection, BoxEmbedding};
 pub use gumbel::GumbelBox;
+pub use optimizer::{get_learning_rate, AMSGradState};
+pub use trainable::TrainableBox;
 #[cfg(feature = "rand")]
-pub use trainer::generate_negative_samples;
+pub use trainer::{
+    generate_negative_samples,
+    generate_negative_samples_from_pool_with_rng,
+    generate_negative_samples_from_sorted_pool_with_rng,
+    generate_negative_samples_with_rng,
+    SortedEntityPool,
+};
 pub use trainer::{
     evaluate_link_prediction, log_training_result, EvaluationResults, HyperparameterSearch,
     NegativeSamplingStrategy, TrainingConfig, TrainingResult,

@@ -252,6 +252,30 @@ impl Box for CandleBox {
 
         Ok(dist_sq.sqrt())
     }
+
+    fn truncate(&self, k: usize) -> std::result::Result<Self, BoxError> {
+        let d = self.dim();
+        if k > d {
+            return Err(BoxError::DimensionMismatch {
+                expected: d,
+                actual: k,
+            });
+        }
+        if k == d {
+            return Ok(self.clone());
+        }
+
+        // Expect 1-D tensors of shape [d].
+        let min_t = self
+            .min
+            .narrow(0, 0, k)
+            .map_err(|e| BoxError::Internal(e.to_string()))?;
+        let max_t = self
+            .max
+            .narrow(0, 0, k)
+            .map_err(|e| BoxError::Internal(e.to_string()))?;
+        Self::new(min_t, max_t, self.temperature)
+    }
 }
 
 impl Serialize for CandleBox {

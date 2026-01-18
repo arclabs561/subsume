@@ -153,7 +153,7 @@ proptest! {
         size_max in 1.0f32..3.0
     ) {
         // Test that safe_init_bounds produces valid bounds
-        let (min_z, max_Z) = safe_init_bounds(
+        let (min_z, max_z) = safe_init_bounds(
             0, // dimension
             10, // num_boxes
             0,  // box_index
@@ -163,10 +163,10 @@ proptest! {
 
         // The result should be valid bounds
         prop_assert!(!min_z.is_nan(), "min_z should not be NaN");
-        prop_assert!(!max_Z.is_nan(), "max_Z should not be NaN");
+        prop_assert!(!max_z.is_nan(), "max_z should not be NaN");
 
         // min should be less than max
-        prop_assert!(min_z < max_Z, "min_z ({}) should be < max_Z ({})", min_z, max_Z);
+        prop_assert!(min_z < max_z, "min_z ({}) should be < max_z ({})", min_z, max_z);
     }
 }
 
@@ -271,6 +271,60 @@ fn nested_boxes_intersection_equals_inner() {
         int_max, b_max,
         "Intersection max should equal inner box max"
     );
+}
+
+// =============================================================================
+// Optimizer schedule + ranking metrics (small, deterministic checks)
+// =============================================================================
+
+#[test]
+fn learning_rate_schedule_warmup_and_bounds() {
+    // The schedule is defined as:
+    // - warmup: 0.1*lr -> lr linearly
+    // - then cosine decay: lr -> 0.1*lr
+    let base_lr = 1e-3_f32;
+    let total_epochs = 100;
+    let warmup_epochs = 10;
+
+    let lr0 = subsume_core::get_learning_rate(0, total_epochs, base_lr, warmup_epochs);
+    let lr_mid_warmup = subsume_core::get_learning_rate(5, total_epochs, base_lr, warmup_epochs);
+    let lr_end_warmup = subsume_core::get_learning_rate(10, total_epochs, base_lr, warmup_epochs);
+    let lr_final = subsume_core::get_learning_rate(99, total_epochs, base_lr, warmup_epochs);
+
+    // Warmup should increase.
+    assert!(lr_mid_warmup >= lr0);
+    assert!((lr_end_warmup - base_lr).abs() < 1e-9);
+
+    // Bounds: should stay within [0.1*base_lr, base_lr]
+    let min_lr = base_lr * 0.1;
+    for lr in [lr0, lr_mid_warmup, lr_end_warmup, lr_final] {
+        assert!(lr >= min_lr - 1e-12);
+        assert!(lr <= base_lr + 1e-12);
+        assert!(lr.is_finite());
+    }
+}
+
+#[test]
+fn ranking_metrics_match_known_values() {
+    use subsume_core::training::metrics::{hits_at_k, mean_rank, mean_reciprocal_rank, ndcg};
+
+    let ranks = vec![1usize, 3, 2, 5];
+    let mrr = mean_reciprocal_rank(ranks.iter().copied());
+    // (1 + 1/3 + 1/2 + 1/5) / 4 = 0.50833...
+    assert!((mrr - 0.5083333).abs() < 1e-6);
+
+    let hits3 = hits_at_k(ranks.iter().copied(), 3);
+    assert!((hits3 - 0.75).abs() < 1e-6);
+
+    let mr = mean_rank(ranks.iter().copied());
+    assert!((mr - 2.75).abs() < 1e-6);
+
+    let ranked = vec![0.9f32, 0.5, 0.8, 0.2];
+    let ideal = vec![0.9f32, 0.8, 0.5, 0.2];
+    let score = ndcg(ranked.iter().copied(), ideal.iter().copied());
+    assert!(score <= 1.0 + 1e-6);
+    assert!(score >= 0.0 - 1e-6);
+    assert!(score > 0.9);
 }
 
 // =============================================================================

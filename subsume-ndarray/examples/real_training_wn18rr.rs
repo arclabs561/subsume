@@ -114,6 +114,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         weight_decay: 1e-5,
         margin: 1.0,
         early_stopping_patience: Some(10),
+        ..TrainingConfig::default()
     };
 
     println!("Training Configuration:");

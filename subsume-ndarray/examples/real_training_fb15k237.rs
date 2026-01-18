@@ -111,6 +111,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         weight_decay: 1e-4, // Higher weight decay for regularization
         margin: 1.0,
         early_stopping_patience: Some(5),
+        ..TrainingConfig::default()
     };
 
     println!("Training Configuration:");

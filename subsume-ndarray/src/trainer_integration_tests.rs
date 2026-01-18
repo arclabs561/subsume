@@ -7,10 +7,12 @@
 mod tests {
     use crate::NdarrayBox;
     use ndarray::Array1;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
     use std::collections::{HashMap, HashSet};
     use subsume_core::dataset::Triple;
     use subsume_core::trainer::{
-        evaluate_link_prediction, generate_negative_samples, log_training_result,
+        evaluate_link_prediction, generate_negative_samples, generate_negative_samples_from_pool_with_rng, log_training_result,
         EvaluationResults, HyperparameterSearch, NegativeSamplingStrategy, TrainingConfig,
         TrainingResult,
     };
@@ -212,6 +214,44 @@ mod tests {
                 assert!(entities.contains(&neg.head));
                 assert!(entities.contains(&neg.tail));
             }
+        }
+    }
+
+    #[test]
+    fn test_generate_negative_samples_from_pool_is_deterministic() {
+        let triple = Triple {
+            head: "animal".to_string(),
+            relation: "is_a".to_string(),
+            tail: "mammal".to_string(),
+        };
+
+        // Pool is intentionally small: this simulates “hard negatives from neighborhood”.
+        let pool: Vec<String> = ["dog", "cat", "bird"].iter().map(|s| s.to_string()).collect();
+
+        let mut rng1 = StdRng::seed_from_u64(123);
+        let mut rng2 = StdRng::seed_from_u64(123);
+
+        let n1 = generate_negative_samples_from_pool_with_rng(
+            &triple,
+            &pool,
+            &NegativeSamplingStrategy::CorruptTail,
+            10,
+            &mut rng1,
+        );
+        let n2 = generate_negative_samples_from_pool_with_rng(
+            &triple,
+            &pool,
+            &NegativeSamplingStrategy::CorruptTail,
+            10,
+            &mut rng2,
+        );
+
+        assert_eq!(n1, n2, "seeded RNG should yield reproducible negatives");
+        for neg in n1 {
+            assert_eq!(neg.head, "animal");
+            assert_eq!(neg.relation, "is_a");
+            assert!(pool.contains(&neg.tail));
+            assert_ne!(neg.tail, "mammal");
         }
     }
 

@@ -1,5 +1,8 @@
 # subsume
 
+[![Documentation](https://docs.rs/subsume/badge.svg)](https://docs.rs/subsume)
+
+
 Geometric box embeddings for modeling containment ("is-a") and entailment relationships.
 
 Dual-licensed under MIT or Apache-2.0.

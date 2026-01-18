@@ -77,6 +77,12 @@ impl Box for CandleGumbelBox {
     fn distance(&self, other: &Self) -> std::result::Result<Self::Scalar, BoxError> {
         self.inner.distance(&other.inner)
     }
+
+    fn truncate(&self, k: usize) -> std::result::Result<Self, BoxError> {
+        Ok(Self {
+            inner: self.inner.truncate(k)?,
+        })
+    }
 }
 
 impl GumbelBox for CandleGumbelBox {

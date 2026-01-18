@@ -14,7 +14,7 @@ documentation = "https://docs.rs/subsume-ndarray"
 readme = "README.md"
 
 [dependencies]
-subsume-core = { path = "../subsume-core", features = ["rand"] }
+subsume-core = { path = "../subsume-core", version = "0.1.0", features = ["rand"] }
 ndarray = { version = "0.16", features = ["serde-1"] }
 serde = { workspace = true }
 serde_json = "1.0"
