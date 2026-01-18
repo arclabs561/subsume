@@ -235,6 +235,189 @@ fn bench_link_prediction_ranking(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_link_prediction_evaluation(c: &mut Criterion) {
+    use std::collections::HashMap;
+    use subsume_core::dataset::{TripleIds, Vocab};
+    use subsume_core::trainer::{
+        evaluate_link_prediction_interned, evaluate_link_prediction_interned_filtered,
+        evaluate_link_prediction_filtered, FilteredTripleIndex, FilteredTripleIndexIds,
+    };
+    use subsume_core::{Box, BoxError};
+
+    #[derive(Clone, Copy, Debug)]
+    struct ScoreBox {
+        id: usize,
+    }
+
+    static UNIT: () = ();
+
+    impl Box for ScoreBox {
+        type Scalar = f32;
+        type Vector = ();
+
+        fn min(&self) -> &Self::Vector {
+            &UNIT
+        }
+
+        fn max(&self) -> &Self::Vector {
+            &UNIT
+        }
+
+        fn dim(&self) -> usize {
+            0
+        }
+
+        fn volume(&self, _temperature: Self::Scalar) -> Result<Self::Scalar, BoxError> {
+            Ok(1.0)
+        }
+
+        fn intersection(&self, _other: &Self) -> Result<Self, BoxError> {
+            Ok(*self)
+        }
+
+        fn containment_prob(
+            &self,
+            other: &Self,
+            _temperature: Self::Scalar,
+        ) -> Result<Self::Scalar, BoxError> {
+            // Deterministic score with ties; cheap so this benchmark isolates overhead.
+            Ok(((other.id % 997) as f32) / 997.0)
+        }
+
+        fn overlap_prob(
+            &self,
+            other: &Self,
+            temperature: Self::Scalar,
+        ) -> Result<Self::Scalar, BoxError> {
+            // Not used here; provide something total.
+            self.containment_prob(other, temperature)
+        }
+
+        fn union(&self, _other: &Self) -> Result<Self, BoxError> {
+            Ok(*self)
+        }
+
+        fn center(&self) -> Result<Self::Vector, BoxError> {
+            Ok(())
+        }
+
+        fn distance(&self, _other: &Self) -> Result<Self::Scalar, BoxError> {
+            Ok(0.0)
+        }
+
+        fn truncate(&self, _k: usize) -> Result<Self, BoxError> {
+            Ok(*self)
+        }
+    }
+
+    let mut group = c.benchmark_group("link_prediction_eval");
+
+    for n in [1_000usize, 10_000, 100_000] {
+        // Build entity labels once (used only for deterministic tie-breaking).
+        let mut entities = Vocab::default();
+        let mut id_to_name: Vec<String> = Vec::with_capacity(n);
+        for i in 0..n {
+            let s = format!("e{i:06}");
+            entities.intern(s.clone());
+            id_to_name.push(s);
+        }
+
+        // Candidate boxes (interned form).
+        let entity_boxes_vec: Vec<ScoreBox> = (0..n).map(|id| ScoreBox { id }).collect();
+
+        // Candidate boxes (string keyed form).
+        let entity_boxes_map: HashMap<String, ScoreBox> = id_to_name
+            .iter()
+            .enumerate()
+            .map(|(id, name)| (name.clone(), ScoreBox { id }))
+            .collect();
+
+        // One test triple.
+        let head = 0usize;
+        let tail = n / 2;
+        let relation = 0usize;
+
+        let triples_ids = vec![TripleIds { head, relation, tail }];
+
+        let triples_strings = vec![subsume_core::Triple {
+            head: id_to_name[head].clone(),
+            relation: "r".to_string(),
+            tail: id_to_name[tail].clone(),
+        }];
+
+        // Filter: mark 10% of tails as "known true".
+        let mut filter_ids = FilteredTripleIndexIds::default();
+        filter_ids.extend(triples_ids.iter());
+        // Add some extra known tails (excluding the target tail).
+        for t in (0..n).step_by(10) {
+            if t != tail {
+                filter_ids.extend([TripleIds {
+                    head,
+                    relation,
+                    tail: t,
+                }]
+                .iter());
+            }
+        }
+
+        let mut filter_str = FilteredTripleIndex::default();
+        // equivalent for strings
+        let mut known = Vec::new();
+        for t in (0..n).step_by(10) {
+            if t != tail {
+                known.push(subsume_core::Triple {
+                    head: id_to_name[head].clone(),
+                    relation: "r".to_string(),
+                    tail: id_to_name[t].clone(),
+                });
+            }
+        }
+        filter_str.extend(known.iter());
+
+        group.bench_with_input(BenchmarkId::new("string_filtered", n), &n, |b, &_n| {
+            b.iter(|| {
+                let r = evaluate_link_prediction_filtered::<ScoreBox>(
+                    black_box(&triples_strings),
+                    black_box(&entity_boxes_map),
+                    None,
+                    black_box(&filter_str),
+                )
+                .unwrap();
+                black_box(r.mean_rank)
+            })
+        });
+
+        group.bench_with_input(BenchmarkId::new("interned_unfiltered", n), &n, |b, &_n| {
+            b.iter(|| {
+                let r = evaluate_link_prediction_interned::<ScoreBox>(
+                    black_box(&triples_ids),
+                    black_box(&entity_boxes_vec),
+                    black_box(&entities),
+                    None,
+                )
+                .unwrap();
+                black_box(r.mean_rank)
+            })
+        });
+
+        group.bench_with_input(BenchmarkId::new("interned_filtered", n), &n, |b, &_n| {
+            b.iter(|| {
+                let r = evaluate_link_prediction_interned_filtered::<ScoreBox>(
+                    black_box(&triples_ids),
+                    black_box(&entity_boxes_vec),
+                    black_box(&entities),
+                    None,
+                    black_box(&filter_ids),
+                )
+                .unwrap();
+                black_box(r.mean_rank)
+            })
+        });
+    }
+
+    group.finish();
+}
+
 fn bench_trainer_kernels(c: &mut Criterion) {
     use subsume_core::trainer::compute_pair_loss;
     use subsume_core::{AMSGradState, TrainableBox};
@@ -279,6 +462,7 @@ criterion_group!(
     bench_coordinate_transforms,
     bench_negative_sampling,
     bench_link_prediction_ranking,
+    bench_link_prediction_evaluation,
     bench_trainer_kernels
 );
 criterion_main!(benches);

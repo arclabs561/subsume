@@ -8,8 +8,6 @@
 //! Motivation: in metric learning terms, PPR-near nodes are often “harder negatives” than uniform
 //! negatives because they share context/topology with the anchor.
 
-#![allow(deprecated)]
-
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use subsume_core::Box as CoreBox;
@@ -37,7 +35,7 @@ impl Adj {
             for j in (i + 1)..n {
                 let same = (i < half) == (j < half);
                 let p = if same { p_in } else { p_out };
-                if rng.gen::<f64>() < p {
+                if rng.random::<f64>() < p {
                     adj[i].push(j);
                     adj[j].push(i);
                 }
@@ -132,14 +130,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 3) Create boxes with a weak community structure:
     //    block A boxes are centered near -1, block B near +1.
     let d = 8usize;
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let mut boxes: HashMap<String, NdarrayBox> = HashMap::new();
     for i in 0..n {
         let block_sign = if i < n / 2 { -1.0f32 } else { 1.0f32 };
         let center: Vec<f32> = (0..d)
-            .map(|_| block_sign + rng.gen_range(-0.2..0.2))
+            .map(|_| block_sign + rng.random_range(-0.2..0.2))
             .collect();
-        let size: Vec<f32> = (0..d).map(|_| rng.gen_range(0.4..0.7)).collect();
+        let size: Vec<f32> = (0..d).map(|_| rng.random_range(0.4..0.7)).collect();
         let min = Array1::from_iter(center.iter().zip(size.iter()).map(|(c, s)| c - s / 2.0));
         let max = Array1::from_iter(center.iter().zip(size.iter()).map(|(c, s)| c + s / 2.0));
         boxes.insert(ids[i].clone(), NdarrayBox::new(min, max, 1.0)?);

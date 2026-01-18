@@ -464,7 +464,7 @@ pub fn generate_negative_samples_from_pool_with_rng<R: Rng>(
 ///
 /// Notes:
 /// - Building this index **allocates**, but using it during evaluation does not.
-/// - Memory can be large for big KGs; a future iteration should intern IDs to integers.
+/// - Memory can be large for big KGs; prefer using `FilteredTripleIndexIds` with interned IDs.
 #[derive(Debug, Default, Clone)]
 pub struct FilteredTripleIndex {
     tails_by_head_rel: HashMap<String, HashMap<String, HashSet<String>>>,
@@ -540,6 +540,59 @@ impl FilteredTripleIndex {
         self.tails_by_head_rel
             .get(head)
             .and_then(|by_rel| by_rel.get(relation))
+    }
+}
+
+/// Like [`FilteredTripleIndex`], but for interned integer IDs.
+///
+/// This is the preferred form for performance-sensitive evaluation, because it avoids
+/// hashing/cloning `String` IDs in the hot loop.
+#[derive(Debug, Default, Clone)]
+pub struct FilteredTripleIndexIds {
+    tails_by_head_rel: HashMap<usize, HashMap<usize, HashSet<usize>>>,
+}
+
+impl FilteredTripleIndexIds {
+    /// Build a filtered-ranking index from an iterator of ID triples.
+    pub fn from_triples<'a, I>(triples: I) -> Self
+    where
+        I: IntoIterator<Item = &'a crate::dataset::TripleIds>,
+    {
+        let mut index = Self::default();
+        index.extend(triples);
+        index
+    }
+
+    /// Extend the index with more known-true triples.
+    pub fn extend<'a, I>(&mut self, triples: I)
+    where
+        I: IntoIterator<Item = &'a crate::dataset::TripleIds>,
+    {
+        for t in triples {
+            self.tails_by_head_rel
+                .entry(t.head)
+                .or_default()
+                .entry(t.relation)
+                .or_default()
+                .insert(t.tail);
+        }
+    }
+
+    /// True iff `(head, relation, tail)` is a known true triple.
+    #[inline]
+    pub fn is_known_tail(&self, head: usize, relation: usize, tail: usize) -> bool {
+        self.tails_by_head_rel
+            .get(&head)
+            .and_then(|by_rel| by_rel.get(&relation))
+            .is_some_and(|tails| tails.contains(&tail))
+    }
+
+    /// Return all known-true tails for the query \((head, relation, ?)\).
+    #[inline]
+    pub fn known_tails(&self, head: usize, relation: usize) -> Option<&HashSet<usize>> {
+        self.tails_by_head_rel
+            .get(&head)
+            .and_then(|by_rel| by_rel.get(&relation))
     }
 }
 
@@ -674,6 +727,129 @@ where
     })
 }
 
+fn evaluate_link_prediction_interned_inner<B>(
+    test_triples: &[crate::dataset::TripleIds],
+    entity_boxes: &[B],
+    entities: &crate::dataset::Vocab,
+    _relation_boxes: Option<&[B]>,
+    filter: Option<&FilteredTripleIndexIds>,
+) -> Result<EvaluationResults, crate::BoxError>
+where
+    B: crate::Box<Scalar = f32>,
+{
+    let mut ranks = Vec::new();
+
+    for triple in test_triples {
+        let head_box = entity_boxes.get(triple.head).ok_or_else(|| {
+            crate::BoxError::Internal(format!("Missing entity id (head): {}", triple.head))
+        })?;
+        let query_box = head_box;
+
+        let tail_box = match entity_boxes.get(triple.tail) {
+            Some(t) => t,
+            None => {
+                ranks.push(usize::MAX);
+                continue;
+            }
+        };
+
+        let tail_name = entities.get(triple.tail).ok_or_else(|| {
+            crate::BoxError::Internal(format!("Missing entity label (tail): {}", triple.tail))
+        })?;
+
+        let tail_score = query_box.containment_prob_fast(tail_box, 1.0)?;
+        if tail_score.is_nan() {
+            return Err(crate::BoxError::Internal(
+                "NaN containment score encountered (tail)".to_string(),
+            ));
+        }
+
+        let mut better = 0usize;
+        let mut tie_before = 0usize;
+        for (entity_id, box_) in entity_boxes.iter().enumerate() {
+            if entity_id == triple.tail {
+                continue;
+            }
+            let score = query_box.containment_prob_fast(box_, 1.0)?;
+            if score.is_nan() {
+                return Err(crate::BoxError::Internal(
+                    "NaN containment score encountered".to_string(),
+                ));
+            }
+
+            if score > tail_score {
+                better += 1;
+            } else if score == tail_score {
+                let name = entities.get(entity_id).ok_or_else(|| {
+                    crate::BoxError::Internal(format!(
+                        "Missing entity label (candidate): {}",
+                        entity_id
+                    ))
+                })?;
+                if name < tail_name {
+                    tie_before += 1;
+                }
+            }
+        }
+
+        if let Some(filter) = filter {
+            if let Some(known_tails) = filter.known_tails(triple.head, triple.relation) {
+                let mut filtered_better = 0usize;
+                let mut filtered_tie_before = 0usize;
+
+                for &known_tail in known_tails {
+                    if known_tail == triple.tail {
+                        continue;
+                    }
+                    let Some(box_) = entity_boxes.get(known_tail) else {
+                        continue;
+                    };
+
+                    let score = query_box.containment_prob_fast(box_, 1.0)?;
+                    if score.is_nan() {
+                        return Err(crate::BoxError::Internal(
+                            "NaN containment score encountered".to_string(),
+                        ));
+                    }
+
+                    if score > tail_score {
+                        filtered_better += 1;
+                    } else if score == tail_score {
+                        let name = entities.get(known_tail).ok_or_else(|| {
+                            crate::BoxError::Internal(format!(
+                                "Missing entity label (filtered): {}",
+                                known_tail
+                            ))
+                        })?;
+                        if name < tail_name {
+                            filtered_tie_before += 1;
+                        }
+                    }
+                }
+
+                better = better.saturating_sub(filtered_better);
+                tie_before = tie_before.saturating_sub(filtered_tie_before);
+            }
+        }
+
+        ranks.push(better + tie_before + 1);
+    }
+
+    let mrr = mean_reciprocal_rank(ranks.iter().copied());
+    let hits_at_1 = hits_at_k(ranks.iter().copied(), 1);
+    let hits_at_3 = hits_at_k(ranks.iter().copied(), 3);
+    let hits_at_10 = hits_at_k(ranks.iter().copied(), 10);
+    let mean_rank = mean_rank(ranks.iter().copied());
+
+    Ok(EvaluationResults {
+        mrr,
+        hits_at_1,
+        hits_at_3,
+        hits_at_10,
+        mean_rank,
+    })
+}
+
 /// Evaluate link prediction performance.
 ///
 /// # Research Background
@@ -750,6 +926,42 @@ where
     B: crate::Box<Scalar = f32>,
 {
     evaluate_link_prediction_inner(test_triples, entity_boxes, _relation_boxes, Some(filter))
+}
+
+/// Evaluate link prediction using interned IDs (`usize`) for entities/relations.
+///
+/// This avoids string hashing/cloning in the candidate loop, which is often the dominant
+/// overhead once the scoring kernel itself is optimized.
+pub fn evaluate_link_prediction_interned<B>(
+    test_triples: &[crate::dataset::TripleIds],
+    entity_boxes: &[B],
+    entities: &crate::dataset::Vocab,
+    _relation_boxes: Option<&[B]>,
+) -> Result<EvaluationResults, crate::BoxError>
+where
+    B: crate::Box<Scalar = f32>,
+{
+    evaluate_link_prediction_interned_inner(test_triples, entity_boxes, entities, _relation_boxes, None)
+}
+
+/// Evaluate link prediction in the **filtered** setting, using interned IDs.
+pub fn evaluate_link_prediction_interned_filtered<B>(
+    test_triples: &[crate::dataset::TripleIds],
+    entity_boxes: &[B],
+    entities: &crate::dataset::Vocab,
+    _relation_boxes: Option<&[B]>,
+    filter: &FilteredTripleIndexIds,
+) -> Result<EvaluationResults, crate::BoxError>
+where
+    B: crate::Box<Scalar = f32>,
+{
+    evaluate_link_prediction_interned_inner(
+        test_triples,
+        entity_boxes,
+        entities,
+        _relation_boxes,
+        Some(filter),
+    )
 }
 
 /// Training result with metrics and history.
