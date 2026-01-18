@@ -244,7 +244,7 @@ impl<B: Box> BoxEmbedding<B> for BoxCollection<B> {
 
             for j in 0..n {
                 let box_j = self.get(j)?;
-                let prob = box_i.overlap_prob(box_j, temperature)?;
+                let prob = box_i.overlap_prob_fast(box_j, temperature)?;
                 row.push(prob);
             }
 
@@ -263,7 +263,7 @@ impl<B: Box> BoxEmbedding<B> for BoxCollection<B> {
         let mut results = Vec::new();
 
         for (i, box_) in self.boxes.iter().enumerate() {
-            let prob = box_.overlap_prob(query, temperature)?;
+            let prob = box_.overlap_prob_fast(query, temperature)?;
             if prob > threshold {
                 results.push(i);
             }

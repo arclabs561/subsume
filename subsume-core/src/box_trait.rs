@@ -234,6 +234,25 @@ pub trait Box: Sized {
         temperature: Self::Scalar,
     ) -> Result<Self::Scalar, BoxError>;
 
+    /// Compute the probability that `self` contains `other` (fast path).
+    ///
+    /// Default implementation forwards to [`Box::containment_prob`].
+    ///
+    /// This method exists because a naive containment implementation often allocates:
+    /// - build an explicit intersection box
+    /// - compute its volume
+    ///
+    /// Backends can override this method to compute intersection volume directly (no allocation),
+    /// or to batch the computation when evaluating a query against many candidates.
+    #[inline]
+    fn containment_prob_fast(
+        &self,
+        other: &Self,
+        temperature: Self::Scalar,
+    ) -> Result<Self::Scalar, BoxError> {
+        self.containment_prob(other, temperature)
+    }
+
     /// Compute the probability that two boxes overlap (non-empty intersection).
     ///
     /// ## Paradigm Problem: Related but Distinct Entities
@@ -308,6 +327,18 @@ pub trait Box: Sized {
         other: &Self,
         temperature: Self::Scalar,
     ) -> Result<Self::Scalar, BoxError>;
+
+    /// Compute overlap probability (fast path).
+    ///
+    /// Default implementation forwards to [`Box::overlap_prob`].
+    #[inline]
+    fn overlap_prob_fast(
+        &self,
+        other: &Self,
+        temperature: Self::Scalar,
+    ) -> Result<Self::Scalar, BoxError> {
+        self.overlap_prob(other, temperature)
+    }
 
     /// Compute the union of two boxes.
     ///

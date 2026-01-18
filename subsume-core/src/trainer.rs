@@ -573,7 +573,7 @@ where
         // This avoids O(|E| log |E|) sorting work and avoids cloning entity IDs.
         let tail_score = match entity_boxes.get(&triple.tail) {
             Some(tail_box) => {
-                let s = query_box.containment_prob(tail_box, 1.0)?;
+                let s = query_box.containment_prob_fast(tail_box, 1.0)?;
                 if s.is_nan() {
                     return Err(crate::BoxError::Internal(
                         "NaN containment score encountered (tail)".to_string(),
@@ -598,7 +598,7 @@ where
                 continue;
             }
 
-            let score = query_box.containment_prob(box_, 1.0)?;
+            let score = query_box.containment_prob_fast(box_, 1.0)?;
             if score.is_nan() {
                 return Err(crate::BoxError::Internal(
                     "NaN containment score encountered".to_string(),
@@ -635,7 +635,7 @@ where
                         continue;
                     };
 
-                    let score = query_box.containment_prob(box_, 1.0)?;
+                    let score = query_box.containment_prob_fast(box_, 1.0)?;
                     if score.is_nan() {
                         return Err(crate::BoxError::Internal(
                             "NaN containment score encountered".to_string(),

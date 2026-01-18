@@ -220,7 +220,7 @@ impl Box for NdarrayBox {
     fn containment_prob(
         &self,
         other: &Self,
-        temperature: Self::Scalar,
+        _temperature: Self::Scalar,
     ) -> Result<Self::Scalar, BoxError> {
         // Containment probability: P(other ⊆ self) = Vol(self ∩ other) / Vol(other).
         //
@@ -292,7 +292,7 @@ impl Box for NdarrayBox {
     fn overlap_prob(
         &self,
         other: &Self,
-        temperature: Self::Scalar,
+        _temperature: Self::Scalar,
     ) -> Result<Self::Scalar, BoxError> {
         // Overlap probability: Vol(self ∩ other) / Vol(self ∪ other).
         //

@@ -25,6 +25,78 @@ pub struct Triple {
     pub tail: String,
 }
 
+/// A compact ID vocabulary for interning strings to integers.
+///
+/// Motivation: training/evaluation hot paths frequently do lookups and comparisons over
+/// entity/relation IDs. Using `usize` IDs enables:
+/// - cheaper hashing (or no hashing in vector-based storage)
+/// - denser data structures (vectors instead of `HashMap<String, _>`)
+/// - lower memory usage for repeated strings
+#[derive(Debug, Clone, Default)]
+pub struct Vocab {
+    to_id: HashMap<String, usize>,
+    from_id: Vec<String>,
+}
+
+impl Vocab {
+    /// Number of interned items.
+    pub fn len(&self) -> usize {
+        self.from_id.len()
+    }
+
+    /// True iff no items are interned.
+    pub fn is_empty(&self) -> bool {
+        self.from_id.is_empty()
+    }
+
+    /// Intern a string, returning its stable ID.
+    pub fn intern(&mut self, s: String) -> usize {
+        if let Some(&id) = self.to_id.get(&s) {
+            return id;
+        }
+        let id = self.from_id.len();
+        self.from_id.push(s.clone());
+        self.to_id.insert(s, id);
+        id
+    }
+
+    /// Get the string for an ID.
+    pub fn get(&self, id: usize) -> Option<&str> {
+        self.from_id.get(id).map(|s| s.as_str())
+    }
+
+    /// Get the ID for a string (if already interned).
+    pub fn id(&self, s: &str) -> Option<usize> {
+        self.to_id.get(s).copied()
+    }
+}
+
+/// A triple stored as interned integer IDs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TripleIds {
+    /// Head entity ID (index into `InternedDataset::entities`).
+    pub head: usize,
+    /// Relation ID (index into `InternedDataset::relations`).
+    pub relation: usize,
+    /// Tail entity ID (index into `InternedDataset::entities`).
+    pub tail: usize,
+}
+
+/// Dataset structure using interned IDs for entities/relations.
+#[derive(Debug, Clone)]
+pub struct InternedDataset {
+    /// Training triples (interned).
+    pub train: Vec<TripleIds>,
+    /// Validation triples (interned).
+    pub valid: Vec<TripleIds>,
+    /// Test triples (interned).
+    pub test: Vec<TripleIds>,
+    /// Entity vocabulary (ID ↔ string).
+    pub entities: Vocab,
+    /// Relation vocabulary (ID ↔ string).
+    pub relations: Vocab,
+}
+
 /// Errors that can occur during dataset operations.
 #[derive(Debug, thiserror::Error)]
 pub enum DatasetError {
@@ -106,6 +178,33 @@ impl Dataset {
             num_train: self.train.len(),
             num_valid: self.valid.len(),
             num_test: self.test.len(),
+        }
+    }
+
+    /// Convert this dataset into an interned representation (consumes `self`).
+    ///
+    /// This is the recommended form for high-performance training/evaluation loops.
+    pub fn into_interned(self) -> InternedDataset {
+        let mut entities = Vocab::default();
+        let mut relations = Vocab::default();
+
+        let mut intern_triple = |t: Triple| -> TripleIds {
+            let head = entities.intern(t.head);
+            let relation = relations.intern(t.relation);
+            let tail = entities.intern(t.tail);
+            TripleIds { head, relation, tail }
+        };
+
+        let train = self.train.into_iter().map(&mut intern_triple).collect();
+        let valid = self.valid.into_iter().map(&mut intern_triple).collect();
+        let test = self.test.into_iter().map(&mut intern_triple).collect();
+
+        InternedDataset {
+            train,
+            valid,
+            test,
+            entities,
+            relations,
         }
     }
 }
@@ -257,6 +356,47 @@ pub fn load_map(file_path: &Path) -> Result<HashMap<String, String>, DatasetErro
         }
     }
     Ok(map)
+}
+
+#[cfg(test)]
+mod intern_tests {
+    use super::*;
+
+    #[test]
+    fn dataset_into_interned_roundtrips_ids() {
+        let ds = Dataset::new(
+            vec![
+                Triple {
+                    head: "a".to_string(),
+                    relation: "r".to_string(),
+                    tail: "b".to_string(),
+                },
+                Triple {
+                    head: "b".to_string(),
+                    relation: "r".to_string(),
+                    tail: "c".to_string(),
+                },
+            ],
+            vec![Triple {
+                head: "a".to_string(),
+                relation: "r".to_string(),
+                tail: "c".to_string(),
+            }],
+            vec![],
+        );
+
+        let interned = ds.into_interned();
+        assert_eq!(interned.relations.len(), 1);
+        assert_eq!(interned.entities.len(), 3);
+        assert_eq!(interned.train.len(), 2);
+        assert_eq!(interned.valid.len(), 1);
+
+        // Spot-check that the IDs refer back to the right strings.
+        let t0 = interned.train[0];
+        assert_eq!(interned.entities.get(t0.head), Some("a"));
+        assert_eq!(interned.relations.get(t0.relation), Some("r"));
+        assert_eq!(interned.entities.get(t0.tail), Some("b"));
+    }
 }
 
 /// Download a standard dataset (placeholder - requires actual download implementation).
