@@ -549,7 +549,10 @@ impl FilteredTripleIndex {
 /// hashing/cloning `String` IDs in the hot loop.
 #[derive(Debug, Default, Clone)]
 pub struct FilteredTripleIndexIds {
-    tails_by_head_rel: HashMap<usize, HashMap<usize, HashSet<usize>>>,
+    // Keyed by (head_id, relation_id).
+    //
+    // Using a flat key avoids a nested HashMap allocation per distinct (head, relation).
+    tails_by_head_rel: HashMap<(usize, usize), HashSet<usize>>,
 }
 
 impl FilteredTripleIndexIds {
@@ -570,9 +573,7 @@ impl FilteredTripleIndexIds {
     {
         for t in triples {
             self.tails_by_head_rel
-                .entry(t.head)
-                .or_default()
-                .entry(t.relation)
+                .entry((t.head, t.relation))
                 .or_default()
                 .insert(t.tail);
         }
@@ -582,17 +583,14 @@ impl FilteredTripleIndexIds {
     #[inline]
     pub fn is_known_tail(&self, head: usize, relation: usize, tail: usize) -> bool {
         self.tails_by_head_rel
-            .get(&head)
-            .and_then(|by_rel| by_rel.get(&relation))
+            .get(&(head, relation))
             .is_some_and(|tails| tails.contains(&tail))
     }
 
     /// Return all known-true tails for the query \((head, relation, ?)\).
     #[inline]
     pub fn known_tails(&self, head: usize, relation: usize) -> Option<&HashSet<usize>> {
-        self.tails_by_head_rel
-            .get(&head)
-            .and_then(|by_rel| by_rel.get(&relation))
+        self.tails_by_head_rel.get(&(head, relation))
     }
 }
 
