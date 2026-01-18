@@ -222,17 +222,12 @@ impl Box for NdarrayBox {
         other: &Self,
         temperature: Self::Scalar,
     ) -> Result<Self::Scalar, BoxError> {
-        // Containment probability: P(other ⊆ self) = Vol(intersection) / Vol(other)
+        // Containment probability: P(other ⊆ self) = Vol(self ∩ other) / Vol(other).
         //
-        // This implements the first-order Taylor approximation for containment probability:
-        //   E[Vol(A ∩ B) / Vol(B)] ≈ E[Vol(A ∩ B)] / E[Vol(B)]
-        //
-        // For hard boxes, this is exact (deterministic volumes). For Gumbel boxes, this
-        // approximation is accurate when the coefficient of variation is small (typically
-        // when β < 0.2). The approximation breaks down when volumes are highly variable.
-        //
-        // See [`docs/typst-output/pdf/containment-probability.pdf`](../../docs/typst-output/pdf/containment-probability.pdf)
-        // for the complete derivation, error analysis, and validity conditions.
+        // IMPORTANT: this is a hot path (training + evaluation). Constructing an explicit
+        // intersection box allocates and is avoidable. We compute the intersection volume
+        // directly in one pass over dimensions, with the same numerical strategy as `volume()`:
+        // use log-space for higher dimensions to avoid underflow/overflow.
 
         if self.dim() != other.dim() {
             return Err(BoxError::DimensionMismatch {
@@ -241,16 +236,57 @@ impl Box for NdarrayBox {
             });
         }
 
-        // P(other ⊆ self) = intersection_volume(other, self) / other.volume()
-        let intersection = self.intersection(other)?;
-        let intersection_vol = intersection.volume(temperature)?;
-        let other_vol = other.volume(temperature)?;
+        use subsume_core::log_space_volume;
 
-        if other_vol <= 0.0 {
-            return Err(BoxError::ZeroVolume);
+        let dim = self.dim();
+
+        if dim > 10 {
+            let mut i = 0usize;
+            let (_log_other, other_vol) = log_space_volume(std::iter::from_fn(|| {
+                if i >= dim {
+                    return None;
+                }
+                let len = (other.max[i] - other.min[i]).max(0.0);
+                i += 1;
+                Some(len)
+            }));
+
+            if other_vol <= 0.0 {
+                return Err(BoxError::ZeroVolume);
+            }
+
+            let mut j = 0usize;
+            let (_log_intersection, intersection_vol) = log_space_volume(std::iter::from_fn(|| {
+                if j >= dim {
+                    return None;
+                }
+                let lo = self.min[j].max(other.min[j]);
+                let hi = self.max[j].min(other.max[j]);
+                let len = (hi - lo).max(0.0);
+                j += 1;
+                Some(len)
+            }));
+
+            Ok((intersection_vol / other_vol).clamp(0.0, 1.0))
+        } else {
+            let mut intersection_vol = 1.0f32;
+            let mut other_vol = 1.0f32;
+
+            for k in 0..dim {
+                let other_len = other.max[k] - other.min[k];
+                other_vol *= other_len.max(0.0);
+
+                let lo = self.min[k].max(other.min[k]);
+                let hi = self.max[k].min(other.max[k]);
+                intersection_vol *= (hi - lo).max(0.0);
+            }
+
+            if other_vol <= 0.0 {
+                return Err(BoxError::ZeroVolume);
+            }
+
+            Ok((intersection_vol / other_vol).clamp(0.0, 1.0))
         }
-
-        Ok((intersection_vol / other_vol).clamp(0.0, 1.0))
     }
 
     fn overlap_prob(
@@ -258,16 +294,72 @@ impl Box for NdarrayBox {
         other: &Self,
         temperature: Self::Scalar,
     ) -> Result<Self::Scalar, BoxError> {
-        // P(self ∩ other ≠ ∅) = intersection_volume / union_volume
-        // Using inclusion-exclusion: P(A ∩ B ≠ ∅) = intersection_vol(A, B) / union_vol(A, B)
-        let intersection = self.intersection(other)?;
-        let intersection_vol = intersection.volume(temperature)?;
+        // Overlap probability: Vol(self ∩ other) / Vol(self ∪ other).
+        //
+        // Same optimization as `containment_prob`: avoid allocating an intersection box.
+        use subsume_core::log_space_volume;
 
-        // Union volume = vol(A) + vol(B) - intersection_vol(A, B)
-        let vol_a = self.volume(temperature)?;
-        let vol_b = other.volume(temperature)?;
+        if self.dim() != other.dim() {
+            return Err(BoxError::DimensionMismatch {
+                expected: self.dim(),
+                actual: other.dim(),
+            });
+        }
+
+        let dim = self.dim();
+
+        let (intersection_vol, vol_a, vol_b) = if dim > 10 {
+            let mut i = 0usize;
+            let (_, vol_a) = log_space_volume(std::iter::from_fn(|| {
+                if i >= dim {
+                    return None;
+                }
+                let len = (self.max[i] - self.min[i]).max(0.0);
+                i += 1;
+                Some(len)
+            }));
+
+            let mut j = 0usize;
+            let (_, vol_b) = log_space_volume(std::iter::from_fn(|| {
+                if j >= dim {
+                    return None;
+                }
+                let len = (other.max[j] - other.min[j]).max(0.0);
+                j += 1;
+                Some(len)
+            }));
+
+            let mut k = 0usize;
+            let (_, intersection_vol) = log_space_volume(std::iter::from_fn(|| {
+                if k >= dim {
+                    return None;
+                }
+                let lo = self.min[k].max(other.min[k]);
+                let hi = self.max[k].min(other.max[k]);
+                let len = (hi - lo).max(0.0);
+                k += 1;
+                Some(len)
+            }));
+
+            (intersection_vol, vol_a, vol_b)
+        } else {
+            let mut intersection_vol = 1.0f32;
+            let mut vol_a = 1.0f32;
+            let mut vol_b = 1.0f32;
+
+            for k in 0..dim {
+                vol_a *= (self.max[k] - self.min[k]).max(0.0);
+                vol_b *= (other.max[k] - other.min[k]).max(0.0);
+
+                let lo = self.min[k].max(other.min[k]);
+                let hi = self.max[k].min(other.max[k]);
+                intersection_vol *= (hi - lo).max(0.0);
+            }
+
+            (intersection_vol, vol_a, vol_b)
+        };
+
         let union_vol = vol_a + vol_b - intersection_vol;
-
         if union_vol <= 0.0 {
             return Ok(0.0);
         }
