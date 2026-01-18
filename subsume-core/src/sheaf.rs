@@ -356,12 +356,13 @@ impl DenseRestriction {
     /// Uses QR decomposition of random matrix.
     /// Useful for connection Laplacians.
     #[cfg(feature = "rand")]
+    #[allow(deprecated)]
     pub fn random_orthogonal(dim: usize) -> Self {
         use rand::Rng;
-        let mut rng = rand::rng();
+        let mut rng = rand::thread_rng();
 
         // Generate random matrix
-        let mut data: Vec<f32> = (0..dim * dim).map(|_| rng.random_range(-0.5..0.5)).collect();
+        let mut data: Vec<f32> = (0..dim * dim).map(|_| rng.gen_range(-0.5..0.5)).collect();
 
         // Simple Gram-Schmidt orthogonalization
         for i in 0..dim {

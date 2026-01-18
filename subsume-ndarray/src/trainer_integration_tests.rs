@@ -10,10 +10,12 @@ mod tests {
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use std::collections::{HashMap, HashSet};
+    use subsume_core::Box;
     use subsume_core::dataset::Triple;
     use subsume_core::trainer::{
-        evaluate_link_prediction, generate_negative_samples, generate_negative_samples_from_pool_with_rng, log_training_result,
-        EvaluationResults, HyperparameterSearch, NegativeSamplingStrategy, TrainingConfig,
+        evaluate_link_prediction, evaluate_link_prediction_filtered, generate_negative_samples,
+        generate_negative_samples_from_pool_with_rng, log_training_result, EvaluationResults,
+        FilteredTripleIndex, HyperparameterSearch, NegativeSamplingStrategy, TrainingConfig,
         TrainingResult,
     };
 
@@ -86,6 +88,123 @@ mod tests {
         assert!(results.hits_at_3 >= 0.0 && results.hits_at_3 <= 1.0);
         assert!(results.hits_at_10 >= 0.0 && results.hits_at_10 <= 1.0);
         assert!(results.mean_rank >= 1.0);
+    }
+
+    #[test]
+    fn test_evaluate_link_prediction_filtered_matches_filtered_sort_rank() {
+        // This test locks down the *filtered ranking* semantics:
+        // - score descending
+        // - tie-break by lexicographic entity id
+        // - filter out other known-true tails for (head, relation), but keep the target tail
+        //
+        // We compute the expected rank by explicit sorting (reference implementation),
+        // then assert that the `subsume-core` linear-time rank gives the same answer.
+
+        let head = NdarrayBox::new(
+            Array1::from_vec(vec![0.0, 0.0]),
+            Array1::from_vec(vec![10.0, 10.0]),
+            1.0,
+        )
+        .unwrap();
+        let t1 = NdarrayBox::new(
+            Array1::from_vec(vec![1.0, 1.0]),
+            Array1::from_vec(vec![2.0, 2.0]),
+            1.0,
+        )
+        .unwrap();
+        let t2 = NdarrayBox::new(
+            Array1::from_vec(vec![3.0, 3.0]),
+            Array1::from_vec(vec![4.0, 4.0]),
+            1.0,
+        )
+        .unwrap();
+
+        let mut entity_boxes: HashMap<String, NdarrayBox> = HashMap::new();
+        entity_boxes.insert("h".to_string(), head);
+        entity_boxes.insert("t1".to_string(), t1);
+        entity_boxes.insert("t2".to_string(), t2);
+
+        // Evaluate the tail "t2".
+        let test_triples = vec![Triple {
+            head: "h".to_string(),
+            relation: "r".to_string(),
+            tail: "t2".to_string(),
+        }];
+
+        // Known true triples include *both* tails for this (h, r) query.
+        let known = vec![
+            Triple {
+                head: "h".to_string(),
+                relation: "r".to_string(),
+                tail: "t1".to_string(),
+            },
+            Triple {
+                head: "h".to_string(),
+                relation: "r".to_string(),
+                tail: "t2".to_string(),
+            },
+        ];
+        let filter = FilteredTripleIndex::from_triples(known.iter());
+
+        // Reference rank via explicit sort.
+        let head_box = entity_boxes.get("h").unwrap();
+        let tail_score = head_box
+            .containment_prob(entity_boxes.get("t2").unwrap(), 1.0)
+            .unwrap();
+        assert!(!tail_score.is_nan());
+
+        let mut candidates: Vec<(String, f32)> = entity_boxes
+            .iter()
+            .filter_map(|(id, b)| {
+                if id == "t2" {
+                    return None;
+                }
+                let s = head_box.containment_prob(b, 1.0).ok()?;
+                if s.is_nan() {
+                    return None;
+                }
+                Some((id.clone(), s))
+            })
+            .collect();
+
+        // Unfiltered rank (reference): count better + ties before + 1.
+        let mut better = 0usize;
+        let mut tie_before = 0usize;
+        for (id, s) in &candidates {
+            if *s > tail_score {
+                better += 1;
+            } else if *s == tail_score && id.as_str() < "t2" {
+                tie_before += 1;
+            }
+        }
+        let rank_unfiltered_ref = better + tie_before + 1;
+
+        // Filtered rank (reference): remove other known-true tails.
+        candidates.retain(|(id, _)| !filter.is_known_tail("h", "r", id.as_str()));
+        let mut better_f = 0usize;
+        let mut tie_before_f = 0usize;
+        for (id, s) in &candidates {
+            if *s > tail_score {
+                better_f += 1;
+            } else if *s == tail_score && id.as_str() < "t2" {
+                tie_before_f += 1;
+            }
+        }
+        let rank_filtered_ref = better_f + tie_before_f + 1;
+
+        let unfiltered =
+            evaluate_link_prediction::<NdarrayBox>(&test_triples, &entity_boxes, None).unwrap();
+        let filtered = evaluate_link_prediction_filtered::<NdarrayBox>(
+            &test_triples,
+            &entity_boxes,
+            None,
+            &filter,
+        )
+        .unwrap();
+
+        assert_eq!(unfiltered.mean_rank, rank_unfiltered_ref as f32);
+        assert_eq!(filtered.mean_rank, rank_filtered_ref as f32);
+        assert!(filtered.mean_rank <= unfiltered.mean_rank);
     }
 
     #[test]

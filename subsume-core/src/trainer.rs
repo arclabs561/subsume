@@ -268,13 +268,14 @@ pub struct EvaluationResults {
 ///
 /// Vector of negative triples (corrupted versions of the positive triple)
 #[cfg(feature = "rand")]
+#[allow(deprecated)]
 pub fn generate_negative_samples(
     triple: &Triple,
     entities: &HashSet<String>,
     strategy: &NegativeSamplingStrategy,
     n: usize,
 ) -> Vec<Triple> {
-    let mut rng = rand::rng();
+    let mut rng = rand::thread_rng();
     generate_negative_samples_with_rng(triple, entities, strategy, n, &mut rng)
 }
 
@@ -332,14 +333,16 @@ impl<'a> SortedEntityPool<'a> {
 
     #[inline]
     /// Pick a uniformly random entity ID (by index) from the pool.
+    #[allow(deprecated)]
     fn pick<R: Rng>(&self, rng: &mut R) -> &'a str {
-        let idx = rng.random_range(0..self.entities.len());
+        let idx = rng.gen_range(0..self.entities.len());
         self.entities[idx]
     }
 }
 
 /// Generate negative samples from a precomputed, sorted pool.
 #[cfg(feature = "rand")]
+#[allow(deprecated)]
 pub fn generate_negative_samples_from_sorted_pool_with_rng<R: Rng>(
     triple: &Triple,
     entity_pool: &SortedEntityPool<'_>,
@@ -356,7 +359,7 @@ pub fn generate_negative_samples_from_sorted_pool_with_rng<R: Rng>(
     for _ in 0..n {
         let negative = match strategy {
             NegativeSamplingStrategy::Uniform => {
-                if rng.random::<bool>() {
+                if rng.gen::<bool>() {
                     Triple {
                         head: entity_pool.pick(rng).to_string(),
                         relation: triple.relation.clone(),
@@ -400,6 +403,7 @@ pub fn generate_negative_samples_from_sorted_pool_with_rng<R: Rng>(
 /// This is the “integration seam”: callers can restrict the pool to hard negatives
 /// (e.g., graph neighborhood candidates), while `subsume-core` stays dependency-free.
 #[cfg(feature = "rand")]
+#[allow(deprecated)]
 pub fn generate_negative_samples_from_pool_with_rng<R: Rng>(
     triple: &Triple,
     entity_pool: &[String],
@@ -416,25 +420,25 @@ pub fn generate_negative_samples_from_pool_with_rng<R: Rng>(
     for _ in 0..n {
         let negative = match strategy {
             NegativeSamplingStrategy::Uniform => {
-                if rng.random::<bool>() {
-                    let head = entity_pool[rng.random_range(0..entity_pool.len())].clone();
+                if rng.gen::<bool>() {
+                    let head = entity_pool[rng.gen_range(0..entity_pool.len())].clone();
                     Triple { head, relation: triple.relation.clone(), tail: triple.tail.clone() }
                 } else {
-                    let tail = entity_pool[rng.random_range(0..entity_pool.len())].clone();
+                    let tail = entity_pool[rng.gen_range(0..entity_pool.len())].clone();
                     Triple { head: triple.head.clone(), relation: triple.relation.clone(), tail }
                 }
             }
             NegativeSamplingStrategy::CorruptHead => {
-                let head = entity_pool[rng.random_range(0..entity_pool.len())].clone();
+                let head = entity_pool[rng.gen_range(0..entity_pool.len())].clone();
                 Triple { head, relation: triple.relation.clone(), tail: triple.tail.clone() }
             }
             NegativeSamplingStrategy::CorruptTail => {
-                let tail = entity_pool[rng.random_range(0..entity_pool.len())].clone();
+                let tail = entity_pool[rng.gen_range(0..entity_pool.len())].clone();
                 Triple { head: triple.head.clone(), relation: triple.relation.clone(), tail }
             }
             NegativeSamplingStrategy::CorruptBoth => {
-                let head = entity_pool[rng.random_range(0..entity_pool.len())].clone();
-                let tail = entity_pool[rng.random_range(0..entity_pool.len())].clone();
+                let head = entity_pool[rng.gen_range(0..entity_pool.len())].clone();
+                let tail = entity_pool[rng.gen_range(0..entity_pool.len())].clone();
                 Triple { head, relation: triple.relation.clone(), tail }
             }
         };
@@ -477,6 +481,20 @@ impl FilteredTripleIndex {
         index
     }
 
+    /// Build a filtered-ranking index from an iterator of **owned** triples.
+    ///
+    /// This avoids cloning `(head, relation, tail)` strings, which can matter when you're
+    /// building an index for a one-shot evaluation and you don't need to retain the original
+    /// triple list.
+    pub fn from_owned_triples<I>(triples: I) -> Self
+    where
+        I: IntoIterator<Item = Triple>,
+    {
+        let mut index = Self::default();
+        index.extend_owned(triples);
+        index
+    }
+
     /// Extend the index with more known-true triples.
     pub fn extend<'a, I>(&mut self, triples: I)
     where
@@ -492,6 +510,21 @@ impl FilteredTripleIndex {
         }
     }
 
+    /// Extend the index with more known-true triples (owned).
+    pub fn extend_owned<I>(&mut self, triples: I)
+    where
+        I: IntoIterator<Item = Triple>,
+    {
+        for t in triples {
+            self.tails_by_head_rel
+                .entry(t.head)
+                .or_default()
+                .entry(t.relation)
+                .or_default()
+                .insert(t.tail);
+        }
+    }
+
     /// True iff `(head, relation, tail)` is a known true triple.
     #[inline]
     pub fn is_known_tail(&self, head: &str, relation: &str, tail: &str) -> bool {
@@ -499,6 +532,14 @@ impl FilteredTripleIndex {
             .get(head)
             .and_then(|by_rel| by_rel.get(relation))
             .is_some_and(|tails| tails.contains(tail))
+    }
+
+    /// Return all known-true tails for the query \((head, relation, ?)\).
+    #[inline]
+    pub fn known_tails(&self, head: &str, relation: &str) -> Option<&HashSet<String>> {
+        self.tails_by_head_rel
+            .get(head)
+            .and_then(|by_rel| by_rel.get(relation))
     }
 }
 
@@ -522,15 +563,6 @@ where
         // For simplicity, use head box directly (can be extended for relation-specific boxes)
         let query_box = head_box;
 
-        let skip_candidate = |candidate: &str| {
-            filter.is_some_and(|f| {
-                // Filter out other known-true tails for this (head, relation) query, but keep the
-                // actual test triple tail.
-                candidate != triple.tail.as_str()
-                    && f.is_known_tail(triple.head.as_str(), triple.relation.as_str(), candidate)
-            })
-        };
-
         // Optimization: compute the rank in O(|E|) without sorting the full candidate list.
         //
         // We compute:
@@ -552,13 +584,17 @@ where
             None => None,
         };
 
+        // If the target tail isn't in the candidate set, the rank is undefined for this query.
+        // (We preserve the old behavior: use usize::MAX, which drives MRR → 0 and MR → large.)
+        let Some(tail_score) = tail_score else {
+            ranks.push(usize::MAX);
+            continue;
+        };
+
         let mut better = 0usize;
         let mut tie_before = 0usize;
         for (entity, box_) in entity_boxes {
             if entity == &triple.tail {
-                continue;
-            }
-            if skip_candidate(entity.as_str()) {
                 continue;
             }
 
@@ -569,20 +605,56 @@ where
                 ));
             }
 
-            if let Some(tail_score) = tail_score {
-                if score > tail_score {
-                    better += 1;
-                } else if score == tail_score && entity.as_str() < triple.tail.as_str() {
-                    tie_before += 1;
-                }
+            if score > tail_score {
+                better += 1;
+            } else if score == tail_score && entity.as_str() < triple.tail.as_str() {
+                tie_before += 1;
             }
         }
 
-        let rank = if tail_score.is_some() {
-            better + tie_before + 1
-        } else {
-            usize::MAX
-        };
+        // Filtered ranking optimization:
+        //
+        // Naively, filtered ranking would do a `HashSet::contains` check per candidate, which
+        // is often the dominant cost. Instead:
+        // 1) compute the unfiltered counts (better/tie_before) in one linear pass
+        // 2) subtract the contribution of the (usually small) set of filtered candidates
+        //
+        // This keeps the hot loop branch-free w.r.t. filtering.
+        if let Some(filter) = filter {
+            if let Some(known_tails) = filter.known_tails(&triple.head, &triple.relation) {
+                let mut filtered_better = 0usize;
+                let mut filtered_tie_before = 0usize;
+
+                for known_tail in known_tails {
+                    if known_tail == &triple.tail {
+                        continue;
+                    }
+
+                    // Only subtract candidates that are actually in the candidate set.
+                    let Some(box_) = entity_boxes.get(known_tail) else {
+                        continue;
+                    };
+
+                    let score = query_box.containment_prob(box_, 1.0)?;
+                    if score.is_nan() {
+                        return Err(crate::BoxError::Internal(
+                            "NaN containment score encountered".to_string(),
+                        ));
+                    }
+
+                    if score > tail_score {
+                        filtered_better += 1;
+                    } else if score == tail_score && known_tail.as_str() < triple.tail.as_str() {
+                        filtered_tie_before += 1;
+                    }
+                }
+
+                better = better.saturating_sub(filtered_better);
+                tie_before = tie_before.saturating_sub(filtered_tie_before);
+            }
+        }
+
+        let rank = better + tie_before + 1;
 
         ranks.push(rank);
     }
@@ -972,6 +1044,27 @@ mod tests {
         assert!(!idx.is_known_tail("h", "r", "t3"));
         assert!(idx.is_known_tail("h", "r2", "t3"));
         assert!(!idx.is_known_tail("missing", "r", "t1"));
+    }
+
+    #[test]
+    fn filtered_triple_index_from_owned_triples_avoids_cloning() {
+        let triples = vec![
+            Triple {
+                head: "h".to_string(),
+                relation: "r".to_string(),
+                tail: "t1".to_string(),
+            },
+            Triple {
+                head: "h".to_string(),
+                relation: "r".to_string(),
+                tail: "t2".to_string(),
+            },
+        ];
+
+        let idx = FilteredTripleIndex::from_owned_triples(triples);
+        assert!(idx.is_known_tail("h", "r", "t1"));
+        assert!(idx.is_known_tail("h", "r", "t2"));
+        assert!(!idx.is_known_tail("h", "r", "t3"));
     }
 
     #[test]

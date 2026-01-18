@@ -129,6 +129,15 @@ fn bench_link_prediction_ranking(c: &mut Criterion) {
             .collect();
         let tail_score = scores[tail_idx];
 
+        // Synthetic filtered candidate lists (mimic "known true triples").
+        // Exclude the tail itself, since filtered ranking keeps the target triple.
+        let filtered_10pct: Vec<usize> = (0..n)
+            .filter(|i| i % 10 == 0 && *i != tail_idx)
+            .collect();
+        let filtered_50pct: Vec<usize> = (0..n)
+            .filter(|i| i % 2 == 0 && *i != tail_idx)
+            .collect();
+
         group.bench_with_input(BenchmarkId::new("sort", n), &n, |b, &_n| {
             b.iter(|| {
                 let mut items: Vec<(usize, f32)> = (0..n).map(|i| (i, scores[i])).collect();
@@ -161,6 +170,64 @@ fn bench_link_prediction_ranking(c: &mut Criterion) {
                     }
                 }
                 black_box(better + tie_before + 1)
+            })
+        });
+
+        group.bench_with_input(BenchmarkId::new("linear_filtered_10pct", n), &n, |b, &_n| {
+            b.iter(|| {
+                let mut better = 0usize;
+                let mut tie_before = 0usize;
+                for i in 0..n {
+                    if i == tail_idx {
+                        continue;
+                    }
+                    let s = scores[i];
+                    if s > tail_score {
+                        better += 1;
+                    } else if s == tail_score && i < tail_idx {
+                        tie_before += 1;
+                    }
+                }
+                let mut filtered_better = 0usize;
+                let mut filtered_tie_before = 0usize;
+                for &i in &filtered_10pct {
+                    let s = scores[i];
+                    if s > tail_score {
+                        filtered_better += 1;
+                    } else if s == tail_score && i < tail_idx {
+                        filtered_tie_before += 1;
+                    }
+                }
+                black_box(better.saturating_sub(filtered_better) + tie_before.saturating_sub(filtered_tie_before) + 1)
+            })
+        });
+
+        group.bench_with_input(BenchmarkId::new("linear_filtered_50pct", n), &n, |b, &_n| {
+            b.iter(|| {
+                let mut better = 0usize;
+                let mut tie_before = 0usize;
+                for i in 0..n {
+                    if i == tail_idx {
+                        continue;
+                    }
+                    let s = scores[i];
+                    if s > tail_score {
+                        better += 1;
+                    } else if s == tail_score && i < tail_idx {
+                        tie_before += 1;
+                    }
+                }
+                let mut filtered_better = 0usize;
+                let mut filtered_tie_before = 0usize;
+                for &i in &filtered_50pct {
+                    let s = scores[i];
+                    if s > tail_score {
+                        filtered_better += 1;
+                    } else if s == tail_score && i < tail_idx {
+                        filtered_tie_before += 1;
+                    }
+                }
+                black_box(better.saturating_sub(filtered_better) + tie_before.saturating_sub(filtered_tie_before) + 1)
             })
         });
     }
