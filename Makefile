@@ -1,4 +1,4 @@
-.PHONY: docs docs-open docs-watch typst-docs typst-preview help
+.PHONY: docs docs-open docs-watch typst-docs typst-preview test check help
 
 help:
 	@echo "Documentation targets:"
@@ -7,14 +7,18 @@ help:
 	@echo "  make docs-watch  - Watch for changes and regenerate (requires cargo-watch)"
 	@echo "  make typst-docs  - Build all Typst math documentation (PDFs)"
 	@echo "  make typst-preview FILE=<name> - Preview Typst document with auto-reload"
+	@echo ""
+	@echo "Testing targets:"
+	@echo "  make test        - Run tests (prefers cargo-nextest if installed)"
+	@echo "  make check       - fmt + clippy + tests"
 
 docs:
-	@echo "📚 Generating rustdoc with KaTeX support..."
+	@echo "Generating rustdoc with KaTeX support..."
 	@RUSTDOCFLAGS="--html-in-header docs/katex-header.html" cargo doc --no-deps
-	@echo "✅ Docs generated at: target/doc/subsume_core/index.html"
+	@echo "Docs generated at: target/doc/subsume_core/index.html"
 
 docs-open: docs
-	@echo "🌐 Opening in browser..."
+	@echo "Opening in browser..."
 	@if command -v open >/dev/null 2>&1; then \
 		open target/doc/subsume_core/index.html; \
 	elif command -v xdg-open >/dev/null 2>&1; then \
@@ -22,15 +26,15 @@ docs-open: docs
 	elif command -v start >/dev/null 2>&1; then \
 		start target/doc/subsume_core/index.html; \
 	else \
-		echo "📖 Open: target/doc/subsume_core/index.html"; \
+		echo "Open: target/doc/subsume_core/index.html"; \
 	fi
 
 docs-watch:
-	@echo "👀 Watching for changes (requires: cargo install cargo-watch)..."
+	@echo "Watching for changes (requires: cargo install cargo-watch)..."
 	@cargo watch -x "doc --no-deps --html-in-header docs/katex-header.html"
 
 typst-docs:
-	@echo "📐 Building Typst math documentation..."
+	@echo "Building Typst math documentation..."
 	@./docs/typst/build.sh
 
 typst-preview:
@@ -40,4 +44,16 @@ typst-preview:
 		exit 1; \
 	fi
 	@./docs/typst/preview.sh $(FILE)
+
+test:
+	@if command -v cargo-nextest >/dev/null 2>&1; then \
+		cargo nextest run; \
+	else \
+		cargo test; \
+	fi
+
+check:
+	cargo fmt --all -- --check
+	cargo clippy --all-targets -- -D warnings
+	$(MAKE) test
 
