@@ -2,10 +2,18 @@
 
 [![Documentation](https://docs.rs/subsume/badge.svg)](https://docs.rs/subsume)
 
-
 Geometric box embeddings for modeling containment ("is-a") and entailment relationships.
 
 Dual-licensed under MIT or Apache-2.0.
+
+## Quickstart
+
+```toml
+[dependencies]
+subsume = "0.1.0"
+subsume-ndarray = "0.1.0"
+ndarray = "0.15"
+```
 
 ```rust
 use subsume_ndarray::NdarrayBox;

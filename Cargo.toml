@@ -1,75 +1,42 @@
-[workspace]
-members = ["subsume-core", "subsume-candle", "subsume-ndarray"]
-resolver = "2"
-
-[workspace.package]
+[package]
+name = "subsume"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.75"
 license = "MIT OR Apache-2.0"
 authors = ["Arc <attobop@gmail.com>"]
+description = "Geometric box embeddings: containment, entailment, overlap. Ndarray and Candle backends."
+keywords = ["embeddings", "box-embeddings", "geometric", "containment", "entailment"]
+categories = ["science", "algorithms"]
+repository = "https://github.com/arclabs561/subsume"
+documentation = "https://docs.rs/subsume"
+readme = "README.md"
+publish = true
 
-[workspace.dependencies]
+[dependencies]
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
-rand = "0.9"
+rand = { version = "0.9", optional = true }
+hyperball = { path = "../hyperball" }
+skel = { git = "https://github.com/arclabs561/skel", tag = "v0.1.0" }
+ndarray = { version = "0.16", features = ["serde-1"], optional = true }
+serde_json = { version = "1.0", optional = true }
+candle-core = { version = "0.9", optional = true }
+
+[features]
+default = ["ndarray-backend"]
+ndarray-backend = ["dep:ndarray", "dep:serde_json", "dep:rand"]
+candle-backend = ["dep:candle-core"]
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
 proptest = "1.5"
+tempfile = "3"
 
-[workspace.lints.rust]
-rust_2018_idioms = { level = "warn", priority = -1 }
-rust_2021_compatibility = { level = "warn", priority = -1 }
-future_incompatible = { level = "warn", priority = -1 }
-nonstandard_style = { level = "warn", priority = -1 }
+[lints.rust]
 missing_docs = "warn"
-missing_doc_code_examples = "warn"
 unsafe_code = "warn"
-unstable_features = "deny"
-unused_import_braces = "warn"
-unused_qualifications = "warn"
-unused_results = "warn"
-trivial_numeric_casts = "warn"
-variant_size_differences = "warn"
-unused_extern_crates = "warn"
-unused_lifetimes = "warn"
-semicolon_in_expressions_from_macros = "warn"
-unsafe_op_in_unsafe_fn = "warn"
-unused_macro_rules = "warn"
 
-[workspace.lints.clippy]
+[lints.clippy]
 correctness = { level = "deny", priority = -1 }
 perf = { level = "warn", priority = -1 }
-cargo = { level = "warn", priority = -1 }
-complexity = { level = "warn", priority = -1 }
-style = { level = "warn", priority = -1 }
-suspicious = { level = "warn", priority = -1 }
-restriction = { level = "allow", priority = -1 }
-unwrap_in_result = "deny"
-unwrap_used = "warn"
-expect_used = "warn"
-mutex_atomic = "warn"
-large_enum_variant = "warn"
-empty_loop = "deny"
-never_loop = "warn"
-doc_markdown = "allow"
-too_many_arguments = "allow"
-type_complexity = "allow"
-multiple_crate_versions = "allow"
-wrong_self_convention = "allow"
-module_name_repetitions = "allow"
-
-[profile.release]
-lto = "thin"
-codegen-units = 1
-debug = 1
-
-[profile.bench]
-lto = "thin"
-codegen-units = 1
-debug = 1
-
-[profile.release-optimized]
-inherits = "release"
-lto = "fat"
-panic = "abort"
-strip = true
-debug = false

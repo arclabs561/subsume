@@ -16,7 +16,7 @@ Historical context and motivation. From points to regions: the evolution of embe
 Geometric containment as logical subsumption. How box containment encodes entailment, hierarchies, and logical consequence.
 
 **PDF:** [`typst-output/pdf/gumbel-box-volume.pdf`](typst-output/pdf/gumbel-box-volume.pdf) | **Markdown:** [`GUMBEL_BOX_VOLUME.md`](GUMBEL_BOX_VOLUME.md)  
-Expected volume for Gumbel boxes. Derivation from Gumbel distributions to Bessel function \(K_0\), with numerical approximation.
+Expected volume for Gumbel boxes. Derivation from Gumbel distributions to Bessel function $K_0$, with numerical approximation.
 
 **PDF:** [`typst-output/pdf/containment-probability.pdf`](typst-output/pdf/containment-probability.pdf) | **Markdown:** [`CONTAINMENT_PROBABILITY.md`](CONTAINMENT_PROBABILITY.md)  
 First-order Taylor approximation for containment probability. Error analysis and validity conditions.

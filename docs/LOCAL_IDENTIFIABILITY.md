@@ -14,9 +14,9 @@ The **local identifiability problem** arises when multiple parameter configurati
 
 **Theorem (Gumbel Solution).** By modeling coordinates as Gumbel random variables, the expected volume computation involves all parameters continuously:
 
-\[
+$$
 \mathbb{E}[\text{Vol}(A \cap B)] = \int \int \text{Vol}(A(\theta_A, \epsilon_A) \cap B(\theta_B, \epsilon_B)) \, dP(\epsilon_A) \, dP(\epsilon_B)
-\]
+$$
 
 This ensemble perspective ensures that different parameter configurations produce different expected loss values, restoring local identifiability.
 
@@ -34,8 +34,8 @@ Gumbel boxes solve this because:
 ## Example
 
 **Hard boxes (disjoint):**
-- Box A: \([0.0, 0.0]\) to \([0.3, 0.3]\)
-- Box B: \([0.7, 0.7]\) to \([1.0, 1.0]\)
+- Box A: $[0.0, 0.0]$ to $[0.3, 0.3]$
+- Box B: $[0.7, 0.7]$ to $[1.0, 1.0]$
 - Intersection volume: \(0\) (zero gradient)
 
 **Gumbel boxes (disjoint):**

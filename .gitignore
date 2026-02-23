@@ -9,6 +9,7 @@ Cargo.lock
 *.swp
 *.swo
 *~
+.cursor/
 .DS_Store
 
 # Proptest regression files
@@ -19,6 +20,10 @@ Cargo.lock
 
 # Documentation
 /doc/
+/docs/node_modules/
+/docs/test-results/
+/docs/rustdoc-math.spec.mjs-snapshots/
+/docs/rustdoc-math-targets.json
 
 # Local test files
 *.test
