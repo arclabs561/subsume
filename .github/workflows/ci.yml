@@ -42,5 +42,4 @@ jobs:
       - name: Check MSRV
         run: |
           rm -f Cargo.lock  # v4 lock file requires Cargo 1.83+
-          cargo check -p subsume-core
-          cargo check -p subsume-ndarray
+          cargo check -p subsume

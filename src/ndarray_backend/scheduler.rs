@@ -7,7 +7,7 @@
 //! # Example
 //!
 //! ```rust
-//! use crate::ndarray_backend::{Adam, scheduler::{CosineAnnealingLr, LrScheduler}};
+//! use subsume::ndarray_backend::{Adam, scheduler::{CosineAnnealingLr, LrScheduler}};
 //!
 //! let mut optimizer = Adam::new(1e-3);
 //! let mut scheduler = CosineAnnealingLr::new(1e-3, 1e-5, 1000);

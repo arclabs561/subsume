@@ -1,8 +1,8 @@
 //! Backend-specific distance implementations for ndarray.
 
 use crate::ndarray_backend::NdarrayBox;
-use ndarray::Array1;
 use crate::{Box, BoxError};
+use ndarray::Array1;
 
 /// Compute distance from a point (vector) to a box.
 ///
@@ -38,7 +38,7 @@ use crate::{Box, BoxError};
 /// # Example
 ///
 /// ```rust
-/// use crate::ndarray_backend::{NdarrayBox, distance::vector_to_box_distance};
+/// use subsume::ndarray_backend::{NdarrayBox, distance::vector_to_box_distance};
 /// use ndarray::array;
 ///
 /// let box_ = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();

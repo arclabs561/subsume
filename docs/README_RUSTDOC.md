@@ -132,8 +132,8 @@ If `cargo doc --open` fails to open:
 cargo doc --no-deps
 
 # Then manually open
-open target/doc/subsume_core/index.html  # macOS
-xdg-open target/doc/subsume_core/index.html  # Linux
+open target/doc/subsume/index.html  # macOS
+xdg-open target/doc/subsume/index.html  # Linux
 ```
 
 ## Comparison: Rust Docs vs Markdown

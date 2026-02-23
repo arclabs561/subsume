@@ -53,9 +53,9 @@ This guide provides recommended reading orders for different audiences and use c
 1. **[`CONCEPTUAL_OVERVIEW.md`](CONCEPTUAL_OVERVIEW.md)** - Understand the problem domain
 2. **[`MATH_TO_CODE_CONNECTIONS.md`](MATH_TO_CODE_CONNECTIONS.md)** - Theory-to-code mappings
 3. **Rust Documentation** (`cargo doc --open`):
-   - `subsume_core::Box` trait
-   - `subsume_core::GumbelBox` trait
-   - `subsume_core::utils` module
+   - `subsume::Box` trait
+   - `subsume::GumbelBox` trait
+   - `subsume::utils` module
 4. **[`MATHEMATICAL_FOUNDATIONS.md`](MATHEMATICAL_FOUNDATIONS.md)** - Reference as needed for formulas
 5. **[`REMAINING_WORK.md`](REMAINING_WORK.md)** - See what's planned/needed
 
@@ -134,7 +134,7 @@ This guide provides recommended reading orders for different audiences and use c
 ### Understanding Numerical Stability
 1. [`LOG_SUM_EXP_INTERSECTION.md`](LOG_SUM_EXP_INTERSECTION.md) - Stable log-sum-exp computation
 2. [`MATH_TO_CODE_CONNECTIONS.md`](MATH_TO_CODE_CONNECTIONS.md) - "Numerical Stability Patterns"
-3. **Rust Documentation** - `subsume_core::utils` module
+3. **Rust Documentation** - `subsume::utils` module
 
 ---
 

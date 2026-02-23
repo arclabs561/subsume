@@ -36,9 +36,8 @@
 //! This crate is **framework-agnostic**. It defines traits that can be implemented
 //! by any tensor/array library:
 //!
-//! - `subsume-candle`: Implementation using `candle_core::Tensor`
-//! - `subsume`: Implementation using `ndarray::Array1`
-//! - Future: `subsume-tch` (PyTorch), `subsume-burn`, etc.
+//! - `ndarray-backend` feature: `NdarrayBox` using `ndarray::Array1`
+//! - `candle-backend` feature: `CandleBox` using `candle_core::Tensor`
 //!
 //! # Example
 //!

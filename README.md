@@ -10,13 +10,12 @@ Dual-licensed under MIT or Apache-2.0.
 
 ```toml
 [dependencies]
-subsume = "0.1.0"
-subsume-ndarray = "0.1.0"
-ndarray = "0.15"
+subsume = { version = "0.1.0", features = ["ndarray-backend"] }
+ndarray = "0.16"
 ```
 
 ```rust
-use subsume_ndarray::NdarrayBox;
+use subsume::ndarray_backend::NdarrayBox;
 use ndarray::array;
 
 // Box A: [0,0,0] to [1,1,1]

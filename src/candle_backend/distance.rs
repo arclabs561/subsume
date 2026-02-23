@@ -1,8 +1,8 @@
 //! Backend-specific distance implementations for candle.
 
 use crate::CandleBox;
-use candle_core::Tensor;
 use crate::{Box, BoxError};
+use candle_core::Tensor;
 
 /// Compute distance from a point (vector) to a box.
 ///

@@ -137,11 +137,11 @@ Random initialization can create problematic configurations:
 **Separation-Based Initialization**:
 - Initialize boxes with minimum separation distance
 - Ensures initial structure without perfect nesting
-- Use `suggest_separation_distance()` to find appropriate separation
+- Use `suggested_min_separation()` to find appropriate separation
 
 **Cross-Pattern Detection**:
 - Detect if initialization creates problematic patterns (perfect nesting, complete overlap)
-- Use `detect_cross_patterns()` to identify issues
+- Use `is_cross_pattern()` and `is_perfectly_nested()` to identify issues
 - Re-initialize if patterns detected
 
 **Volume-Aware Initialization**:
@@ -152,20 +152,21 @@ Random initialization can create problematic configurations:
 ### Practical Initialization Code
 
 ```rust
-use subsume_core::utils::{suggest_separation_distance, detect_cross_patterns};
+use subsume::{suggested_min_separation, is_cross_pattern, is_perfectly_nested};
+use subsume::ndarray_backend::NdarrayBox;
 
 // 1. Initialize boxes with separation
-let separation = suggest_separation_distance(dimension, num_boxes);
+let separation = suggested_min_separation(dimension, (min_vol, max_vol));
 for i in 0..num_boxes {
     let min = random_point_with_separation(separation);
     let max = min + random_size(min_vol, max_vol);
     boxes.push(NdarrayBox::new(min, max, 1.0)?);
 }
 
-// 2. Check for problematic patterns
-if detect_cross_patterns(&boxes, 0.9) {
-    // Re-initialize or adjust
-}
+// 2. Check for problematic patterns (compute overlap/containment probs, then check)
+// if is_cross_pattern(overlap_prob, p_a_b, p_b_a, 0.3) || is_perfectly_nested(p_a_b, p_b_a, 0.95) {
+//     // Re-initialize or adjust
+// }
 ```
 
 ## Numerical Stability: Hidden Pitfalls

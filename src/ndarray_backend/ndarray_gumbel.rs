@@ -1,11 +1,11 @@
 //! Ndarray implementation of GumbelBox trait.
 
 use crate::ndarray_backend::ndarray_box::NdarrayBox;
-use ndarray::Array1;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use crate::{
     gumbel_membership_prob, map_gumbel_to_bounds, sample_gumbel, Box, BoxError, GumbelBox,
 };
+use ndarray::Array1;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// A Gumbel box embedding implemented using `ndarray::Array1<f32>`.
 #[derive(Debug, Clone)]

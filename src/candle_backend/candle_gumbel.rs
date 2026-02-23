@@ -1,11 +1,11 @@
 //! Candle implementation of GumbelBox trait.
 
 use crate::candle_box::CandleBox;
-use candle_core::Tensor;
-use serde::{Deserialize, Serialize};
 use crate::{
     gumbel_membership_prob, map_gumbel_to_bounds, sample_gumbel, Box, BoxError, GumbelBox,
 };
+use candle_core::Tensor;
+use serde::{Deserialize, Serialize};
 
 /// A Gumbel box embedding implemented using `candle_core::Tensor`.
 #[derive(Debug, Clone)]

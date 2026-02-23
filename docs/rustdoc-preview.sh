@@ -26,19 +26,19 @@ if [ "$1" = "--open" ] || [ "$1" = "-o" ]; then
     # Try to open the main index
     if command -v open >/dev/null 2>&1; then
         # macOS
-        open target/doc/subsume_core/index.html
+        open target/doc/subsume/index.html
     elif command -v xdg-open >/dev/null 2>&1; then
         # Linux
-        xdg-open target/doc/subsume_core/index.html
+        xdg-open target/doc/subsume/index.html
     elif command -v start >/dev/null 2>&1; then
         # Windows
-        start target/doc/subsume_core/index.html
+        start target/doc/subsume/index.html
     else
-        echo "📖 Docs generated at: target/doc/subsume_core/index.html"
+        echo "📖 Docs generated at: target/doc/subsume/index.html"
         echo "   Open this file in your browser"
     fi
 else
-    echo "📖 Docs generated at: target/doc/subsume_core/index.html"
+    echo "📖 Docs generated at: target/doc/subsume/index.html"
     echo "   Run with --open to open automatically"
 fi
 

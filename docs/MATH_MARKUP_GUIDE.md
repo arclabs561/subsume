@@ -155,7 +155,7 @@ Martin Gardner's approach to mathematical explanation emphasizes:
 ## Testing Math Rendering
 
 1. **Generate docs**: `RUSTDOCFLAGS="--html-in-header docs/katex-header.html" cargo doc --no-deps`
-2. **Open in browser**: `open target/doc/subsume_core/index.html`
+2. **Open in browser**: `open target/doc/subsume/index.html`
 3. **Check rendering**: Math should render with proper formatting
 4. **Check fallback**: View source to ensure LaTeX is readable even if KaTeX fails
 

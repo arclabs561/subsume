@@ -1,8 +1,8 @@
 //! Candle implementation of Box trait.
 
+use crate::{Box, BoxError};
 use candle_core::Tensor;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use crate::{Box, BoxError};
 
 /// A box embedding implemented using `candle_core::Tensor`.
 #[derive(Debug, Clone)]

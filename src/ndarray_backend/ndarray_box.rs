@@ -1,8 +1,8 @@
 //! Ndarray implementation of Box trait.
 
+use crate::{Box, BoxError};
 use ndarray::Array1;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use crate::{Box, BoxError};
 
 /// A box embedding implemented using `ndarray::Array1<f32>`.
 #[derive(Debug, Clone)]
