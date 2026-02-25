@@ -852,4 +852,401 @@ mod tests {
         let score = consistency_score(&graph).unwrap();
         assert!((score - 1.0).abs() < 1e-6);
     }
+
+    // =========================================================================
+    // DenseRestriction edge cases
+    // =========================================================================
+
+    #[test]
+    fn test_dense_restriction_new_dimension_mismatch() {
+        let result = DenseRestriction::new(vec![1.0, 2.0, 3.0], 2, 2);
+        assert!(matches!(result, Err(SheafError::DimensionMismatch { expected: 4, actual: 3 })));
+    }
+
+    #[test]
+    fn test_dense_restriction_1x1() {
+        let r = DenseRestriction::new(vec![3.0], 1, 1).unwrap();
+        let x = vec![2.0];
+        let y = r.apply(&x).unwrap();
+        assert_eq!(y, vec![6.0]);
+
+        let yt = r.apply_transpose(&vec![2.0]).unwrap();
+        assert_eq!(yt, vec![6.0]); // Transpose of 1x1 is itself
+    }
+
+    #[test]
+    fn test_dense_restriction_apply_wrong_dim() {
+        let r = DenseRestriction::identity(3);
+        let x = vec![1.0, 2.0]; // Wrong dimension
+        let result = r.apply(&x);
+        assert!(matches!(result, Err(SheafError::DimensionMismatch { expected: 3, actual: 2 })));
+    }
+
+    #[test]
+    fn test_dense_restriction_apply_transpose_wrong_dim() {
+        let r = DenseRestriction::new(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], 2, 3).unwrap();
+        let x = vec![1.0, 2.0, 3.0]; // 3 elements but rows = 2
+        let result = r.apply_transpose(&x);
+        assert!(matches!(result, Err(SheafError::DimensionMismatch { expected: 2, actual: 3 })));
+    }
+
+    #[test]
+    fn test_dense_restriction_as_matrix() {
+        let r = DenseRestriction::new(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], 2, 3).unwrap();
+        let m = r.as_matrix();
+        assert_eq!(m.len(), 2);
+        assert_eq!(m[0], vec![1.0, 2.0, 3.0]);
+        assert_eq!(m[1], vec![4.0, 5.0, 6.0]);
+    }
+
+    #[test]
+    fn test_dense_restriction_frobenius_norm() {
+        let r = DenseRestriction::new(vec![3.0, 4.0], 1, 2).unwrap();
+        let norm = r.frobenius_norm();
+        assert!((norm - 5.0).abs() < 1e-6); // sqrt(9 + 16) = 5
+    }
+
+    #[test]
+    fn test_identity_restriction_is_identity() {
+        let r = DenseRestriction::identity(4);
+        assert_eq!(r.in_dim(), 4);
+        assert_eq!(r.out_dim(), 4);
+        let x = vec![1.0, 2.0, 3.0, 4.0];
+        assert_eq!(r.apply(&x).unwrap(), x);
+        assert_eq!(r.apply_transpose(&x).unwrap(), x); // I^T = I
+    }
+
+    // =========================================================================
+    // VecStalk edge cases
+    // =========================================================================
+
+    #[test]
+    fn test_vec_stalk_set_value_dimension_mismatch() {
+        let mut s = VecStalk::new(vec![1.0, 2.0]);
+        let result = s.set_value(vec![1.0]);
+        assert!(matches!(result, Err(SheafError::DimensionMismatch { expected: 2, actual: 1 })));
+    }
+
+    #[test]
+    fn test_vec_stalk_zero() {
+        let s = VecStalk::new(vec![5.0, 6.0, 7.0]);
+        assert_eq!(s.zero(), vec![0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn test_vec_stalk_roundtrip() {
+        let mut s = VecStalk::new(vec![1.0, 2.0]);
+        s.set_value(vec![3.0, 4.0]).unwrap();
+        assert_eq!(s.value(), &vec![3.0, 4.0]);
+        assert_eq!(s.dim(), 2);
+    }
+
+    // =========================================================================
+    // SimpleSheafGraph error paths
+    // =========================================================================
+
+    #[test]
+    fn test_add_edge_source_not_found() {
+        let mut graph = SimpleSheafGraph::new();
+        graph.add_node(vec![1.0]);
+        let r = DenseRestriction::identity(1);
+        let result = graph.add_edge(5, 0, r.clone(), r.clone(), 1.0);
+        assert!(matches!(result, Err(SheafError::NodeNotFound(5))));
+    }
+
+    #[test]
+    fn test_add_edge_target_not_found() {
+        let mut graph = SimpleSheafGraph::new();
+        graph.add_node(vec![1.0]);
+        let r = DenseRestriction::identity(1);
+        let result = graph.add_edge(0, 99, r.clone(), r.clone(), 1.0);
+        assert!(matches!(result, Err(SheafError::NodeNotFound(99))));
+    }
+
+    #[test]
+    fn test_add_edge_restriction_dim_mismatch_source() {
+        let mut graph = SimpleSheafGraph::new();
+        graph.add_node(vec![1.0, 2.0]); // dim 2
+        graph.add_node(vec![1.0, 2.0]); // dim 2
+        let r_wrong = DenseRestriction::identity(3); // dim 3
+        let r_ok = DenseRestriction::identity(2);
+        let result = graph.add_edge(0, 1, r_wrong, r_ok, 1.0);
+        assert!(matches!(result, Err(SheafError::DimensionMismatch { .. })));
+    }
+
+    #[test]
+    fn test_add_edge_restriction_output_dim_mismatch() {
+        let mut graph = SimpleSheafGraph::new();
+        graph.add_node(vec![1.0, 2.0]);
+        graph.add_node(vec![1.0, 2.0]);
+        // Source restriction: 2->3, target restriction: 2->2 (output dims differ)
+        let r_src = DenseRestriction::new(vec![1.0; 6], 3, 2).unwrap();
+        let r_tgt = DenseRestriction::identity(2);
+        let result = graph.add_edge(0, 1, r_src, r_tgt, 1.0);
+        assert!(matches!(result, Err(SheafError::InvalidRestriction(_))));
+    }
+
+    #[test]
+    fn test_stalk_not_found() {
+        let graph = SimpleSheafGraph::new();
+        assert!(matches!(graph.stalk(0), Err(SheafError::NodeNotFound(0))));
+    }
+
+    #[test]
+    fn test_edge_not_found() {
+        let mut graph = SimpleSheafGraph::new();
+        graph.add_node(vec![1.0]);
+        graph.add_node(vec![1.0]);
+        // No edge added
+        assert!(matches!(graph.edge(0, 1), Err(SheafError::EdgeNotFound(0, 1))));
+    }
+
+    #[test]
+    fn test_neighbors_not_found() {
+        let graph = SimpleSheafGraph::new();
+        assert!(matches!(graph.neighbors(0), Err(SheafError::NodeNotFound(0))));
+    }
+
+    #[test]
+    fn test_edge_lookup_bidirectional() {
+        let mut graph = SimpleSheafGraph::new();
+        graph.add_node(vec![1.0]);
+        graph.add_node(vec![2.0]);
+        let r = DenseRestriction::identity(1);
+        graph.add_edge(0, 1, r.clone(), r.clone(), 1.0).unwrap();
+
+        // Both directions should find the edge
+        assert!(graph.edge(0, 1).is_ok());
+        assert!(graph.edge(1, 0).is_ok());
+    }
+
+    #[test]
+    fn test_neighbors_bidirectional() {
+        let mut graph = SimpleSheafGraph::new();
+        graph.add_node(vec![1.0]);
+        graph.add_node(vec![2.0]);
+        graph.add_node(vec![3.0]);
+        let r = DenseRestriction::identity(1);
+        graph.add_edge(0, 1, r.clone(), r.clone(), 1.0).unwrap();
+        graph.add_edge(1, 2, r.clone(), r.clone(), 1.0).unwrap();
+
+        let n1 = graph.neighbors(1).unwrap();
+        assert_eq!(n1.len(), 2); // connected to both 0 and 2
+    }
+
+    // =========================================================================
+    // Dirichlet energy and Laplacian
+    // =========================================================================
+
+    #[test]
+    fn test_dirichlet_energy_zero_for_identical_stalks() {
+        let mut graph = SimpleSheafGraph::new();
+        graph.add_node(vec![1.0, 2.0, 3.0]);
+        graph.add_node(vec![1.0, 2.0, 3.0]);
+        graph.add_node(vec![1.0, 2.0, 3.0]);
+        let r = DenseRestriction::identity(3);
+        graph.add_edge(0, 1, r.clone(), r.clone(), 1.0).unwrap();
+        graph.add_edge(1, 2, r.clone(), r.clone(), 1.0).unwrap();
+        let energy = graph.dirichlet_energy().unwrap();
+        assert!((energy - 0.0).abs() < 1e-6, "identical stalks should have zero energy");
+    }
+
+    #[test]
+    fn test_dirichlet_energy_weighted() {
+        let mut graph = SimpleSheafGraph::new();
+        graph.add_node(vec![1.0, 0.0]);
+        graph.add_node(vec![0.0, 1.0]);
+        let r = DenseRestriction::identity(2);
+        // Weight 2.0 should double the energy
+        graph.add_edge(0, 1, r.clone(), r.clone(), 2.0).unwrap();
+        let energy = graph.dirichlet_energy().unwrap();
+        // ||[1,0] - [0,1]||^2 = 2, weight 2.0 => 4.0
+        assert!((energy - 4.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_laplacian_at_zero_for_consistent_signal() {
+        let mut graph = SimpleSheafGraph::new();
+        graph.add_node(vec![1.0, 2.0]);
+        graph.add_node(vec![1.0, 2.0]);
+        let r = DenseRestriction::identity(2);
+        graph.add_edge(0, 1, r.clone(), r.clone(), 1.0).unwrap();
+
+        let lap = graph.laplacian_at(0).unwrap();
+        assert!(lap.iter().all(|&x| x.abs() < 1e-6), "Laplacian should be zero for consistent signal");
+    }
+
+    #[test]
+    fn test_laplacian_symmetry() {
+        // For identity restrictions on an edge (0,1), the Laplacian at 0
+        // should be the negative of the Laplacian at 1 (conservation).
+        let mut graph = SimpleSheafGraph::new();
+        graph.add_node(vec![1.0, 0.0]);
+        graph.add_node(vec![0.0, 1.0]);
+        let r = DenseRestriction::identity(2);
+        graph.add_edge(0, 1, r.clone(), r.clone(), 1.0).unwrap();
+
+        let lap0 = graph.laplacian_at(0).unwrap();
+        let lap1 = graph.laplacian_at(1).unwrap();
+        // L(0) + L(1) = 0 (conservation for identity restrictions)
+        for i in 0..2 {
+            assert!((lap0[i] + lap1[i]).abs() < 1e-6, "Laplacian should sum to zero");
+        }
+    }
+
+    // =========================================================================
+    // Diffusion convergence
+    // =========================================================================
+
+    #[test]
+    fn test_diffuse_until_convergence_identical_stalks() {
+        let mut graph = SimpleSheafGraph::new();
+        graph.add_node(vec![1.0, 1.0]);
+        graph.add_node(vec![1.0, 1.0]);
+        let r = DenseRestriction::identity(2);
+        graph.add_edge(0, 1, r.clone(), r.clone(), 1.0).unwrap();
+
+        let config = DiffusionConfig {
+            num_steps: 100,
+            step_size: 0.1,
+            ..Default::default()
+        };
+
+        // Already converged: should return 1 (converges on first step)
+        let steps = diffuse_until_convergence(&mut graph, &config, 1e-8).unwrap();
+        assert!(steps <= 2, "already-converged graph should converge immediately, took {steps}");
+    }
+
+    #[test]
+    fn test_diffuse_until_convergence_reaches_max_steps() {
+        let mut graph = SimpleSheafGraph::new();
+        graph.add_node(vec![100.0, 0.0]);
+        graph.add_node(vec![0.0, 100.0]);
+        let r = DenseRestriction::identity(2);
+        graph.add_edge(0, 1, r.clone(), r.clone(), 1.0).unwrap();
+
+        let config = DiffusionConfig {
+            num_steps: 3,
+            step_size: 0.01, // Very small step: won't converge in 3 steps
+            ..Default::default()
+        };
+
+        let steps = diffuse_until_convergence(&mut graph, &config, 1e-12).unwrap();
+        assert_eq!(steps, 3, "should reach max steps");
+    }
+
+    #[test]
+    fn test_consistency_score_decreases_with_distance() {
+        // Larger stalk differences should produce lower consistency
+        let mut g1 = SimpleSheafGraph::new();
+        g1.add_node(vec![1.0, 0.0]);
+        g1.add_node(vec![0.9, 0.1]);
+        let r = DenseRestriction::identity(2);
+        g1.add_edge(0, 1, r.clone(), r.clone(), 1.0).unwrap();
+        let score1 = consistency_score(&g1).unwrap();
+
+        let mut g2 = SimpleSheafGraph::new();
+        g2.add_node(vec![1.0, 0.0]);
+        g2.add_node(vec![0.0, 1.0]);
+        g2.add_edge(0, 1, r.clone(), r.clone(), 1.0).unwrap();
+        let score2 = consistency_score(&g2).unwrap();
+
+        assert!(score1 > score2, "closer stalks should have higher consistency");
+    }
+
+    // =========================================================================
+    // Default and Display impls
+    // =========================================================================
+
+    #[test]
+    fn test_diffusion_config_default() {
+        let config = DiffusionConfig::default();
+        assert_eq!(config.num_steps, 5);
+        assert!((config.step_size - 0.1).abs() < 1e-6);
+        assert!(config.normalize);
+        assert_eq!(config.laplacian_type, LaplacianType::General);
+        assert!((config.restriction_regularization - 0.01).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_sheaf_error_display() {
+        assert_eq!(format!("{}", SheafError::NodeNotFound(5)), "Node 5 not found");
+        assert_eq!(format!("{}", SheafError::EdgeNotFound(1, 2)), "Edge (1, 2) not found");
+        assert_eq!(
+            format!("{}", SheafError::DimensionMismatch { expected: 3, actual: 2 }),
+            "Dimension mismatch: expected 3, got 2"
+        );
+        assert!(format!("{}", SheafError::InvalidRestriction("bad".into())).contains("bad"));
+        assert!(format!("{}", SheafError::ComputationError("oops".into())).contains("oops"));
+    }
+
+    #[test]
+    fn test_simple_sheaf_graph_default() {
+        let graph = SimpleSheafGraph::default();
+        assert_eq!(graph.num_nodes(), 0);
+        assert_eq!(graph.num_edges(), 0);
+    }
+
+    // =========================================================================
+    // Non-square restriction maps
+    // =========================================================================
+
+    #[test]
+    fn test_non_square_restriction_maps() {
+        // Project 3D stalks into 2D edge space
+        let mut graph = SimpleSheafGraph::new();
+        graph.add_node(vec![1.0, 0.0, 0.0]);
+        graph.add_node(vec![0.0, 1.0, 0.0]);
+
+        // Projection: keep first 2 dims (2x3 matrix)
+        let proj = DenseRestriction::new(
+            vec![1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+            2, 3,
+        ).unwrap();
+        graph.add_edge(0, 1, proj.clone(), proj.clone(), 1.0).unwrap();
+
+        let energy = graph.dirichlet_energy().unwrap();
+        // R(x0) = [1,0], R(x1) = [0,1], ||diff||^2 = 2
+        assert!((energy - 2.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_diffusion_with_non_square_restrictions() {
+        // Verify diffusion works with non-square maps
+        let mut graph = SimpleSheafGraph::new();
+        graph.add_node(vec![1.0, 0.0, 0.0]);
+        graph.add_node(vec![0.0, 1.0, 0.0]);
+
+        let proj = DenseRestriction::new(
+            vec![1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+            2, 3,
+        ).unwrap();
+        graph.add_edge(0, 1, proj.clone(), proj.clone(), 1.0).unwrap();
+
+        let initial_energy = graph.dirichlet_energy().unwrap();
+        graph.diffusion_step(0.1).unwrap();
+        let final_energy = graph.dirichlet_energy().unwrap();
+        assert!(final_energy < initial_energy, "diffusion should reduce energy with non-square maps");
+    }
+
+    // =========================================================================
+    // Empty and single-node graphs
+    // =========================================================================
+
+    #[test]
+    fn test_empty_graph_energy() {
+        let graph = SimpleSheafGraph::new();
+        let energy = graph.dirichlet_energy().unwrap();
+        assert_eq!(energy, 0.0);
+    }
+
+    #[test]
+    fn test_single_node_graph() {
+        let mut graph = SimpleSheafGraph::new();
+        graph.add_node(vec![1.0, 2.0]);
+        assert_eq!(graph.num_nodes(), 1);
+        assert_eq!(graph.num_edges(), 0);
+        let energy = graph.dirichlet_energy().unwrap();
+        assert_eq!(energy, 0.0);
+    }
 }

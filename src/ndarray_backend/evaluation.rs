@@ -358,6 +358,181 @@ pub mod plotting {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // =========================================================================
+    // EvaluationMetrics tests
+    // =========================================================================
+
+    #[test]
+    fn evaluation_metrics_default() {
+        let m = EvaluationMetrics::default();
+        assert!(m.loss_history.is_empty());
+        assert!(m.validation_mrr.is_empty());
+        assert!(m.epoch_times.is_empty());
+        assert_eq!(m.final_mrr, 0.0);
+        assert_eq!(m.final_hits_at_1, 0.0);
+        assert_eq!(m.final_hits_at_10, 0.0);
+        assert_eq!(m.total_training_time, 0.0);
+    }
+
+    #[test]
+    fn evaluation_metrics_new_equals_default() {
+        let m1 = EvaluationMetrics::new();
+        let m2 = EvaluationMetrics::default();
+        assert_eq!(m1.loss_history.len(), m2.loss_history.len());
+        assert_eq!(m1.final_mrr, m2.final_mrr);
+    }
+
+    #[test]
+    fn record_epoch_accumulates() {
+        let mut m = EvaluationMetrics::new();
+        m.record_epoch(0.5, 0.3, 1.2);
+        m.record_epoch(0.4, 0.4, 1.1);
+        m.record_epoch(0.3, 0.5, 1.0);
+
+        assert_eq!(m.loss_history.len(), 3);
+        assert_eq!(m.validation_mrr.len(), 3);
+        assert_eq!(m.epoch_times.len(), 3);
+        assert!((m.loss_history[0] - 0.5).abs() < 1e-6);
+        assert!((m.validation_mrr[2] - 0.5).abs() < 1e-6);
+        assert!((m.epoch_times[1] - 1.1).abs() < 1e-6);
+    }
+
+    #[test]
+    fn save_json_roundtrip() {
+        let mut m = EvaluationMetrics::new();
+        m.record_epoch(0.5, 0.3, 1.2);
+        m.final_mrr = 0.45;
+        m.final_hits_at_1 = 0.2;
+        m.final_hits_at_10 = 0.7;
+        m.total_training_time = 42.0;
+
+        let dir = std::env::temp_dir().join("subsume_test_eval");
+        let _ = fs::create_dir_all(&dir);
+        let path = dir.join("metrics.json");
+        m.save_json(&path).unwrap();
+
+        let content = fs::read_to_string(&path).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+        assert!((parsed["final_mrr"].as_f64().unwrap() - 0.45).abs() < 1e-6);
+        assert_eq!(parsed["loss_history"].as_array().unwrap().len(), 1);
+
+        // Cleanup
+        let _ = fs::remove_file(&path);
+    }
+
+    // =========================================================================
+    // EvaluationConfig tests
+    // =========================================================================
+
+    #[test]
+    fn evaluation_config_default() {
+        let c = EvaluationConfig::default();
+        assert_eq!(c.epochs, 50);
+        assert!((c.learning_rate - 1e-3).abs() < 1e-8);
+        assert!((c.weight_decay - 1e-2).abs() < 1e-8);
+        assert_eq!(c.batch_size, 32);
+        assert_eq!(c.output_dir, "eval_results");
+        assert!(c.generate_plots);
+    }
+
+    // =========================================================================
+    // OptimizerComparison tests
+    // =========================================================================
+
+    #[test]
+    fn optimizer_comparison_add_and_retrieve() {
+        let mut comp = OptimizerComparison::new();
+        assert!(comp.results.is_empty());
+
+        let mut m1 = EvaluationMetrics::new();
+        m1.final_mrr = 0.5;
+        comp.add_result("adam".to_string(), m1);
+
+        let mut m2 = EvaluationMetrics::new();
+        m2.final_mrr = 0.6;
+        comp.add_result("adamw".to_string(), m2);
+
+        assert_eq!(comp.results.len(), 2);
+        assert!((comp.results["adam"].final_mrr - 0.5).abs() < 1e-6);
+        assert!((comp.results["adamw"].final_mrr - 0.6).abs() < 1e-6);
+    }
+
+    #[test]
+    fn optimizer_comparison_save_json() {
+        let mut comp = OptimizerComparison::new();
+        let mut m = EvaluationMetrics::new();
+        m.final_mrr = 0.42;
+        m.final_hits_at_1 = 0.1;
+        m.final_hits_at_10 = 0.6;
+        m.total_training_time = 10.0;
+        comp.add_result("sgd".to_string(), m);
+
+        let dir = std::env::temp_dir().join("subsume_test_eval");
+        let _ = fs::create_dir_all(&dir);
+        let path = dir.join("comparison.json");
+        comp.save_json(&path).unwrap();
+
+        let content = fs::read_to_string(&path).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+        assert!((parsed["sgd"]["final_mrr"].as_f64().unwrap() - 0.42).abs() < 1e-6);
+
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn optimizer_comparison_overwrite_key() {
+        let mut comp = OptimizerComparison::new();
+        let mut m1 = EvaluationMetrics::new();
+        m1.final_mrr = 0.3;
+        comp.add_result("adam".to_string(), m1);
+
+        let mut m2 = EvaluationMetrics::new();
+        m2.final_mrr = 0.7;
+        comp.add_result("adam".to_string(), m2);
+
+        assert_eq!(comp.results.len(), 1);
+        assert!((comp.results["adam"].final_mrr - 0.7).abs() < 1e-6);
+    }
+
+    // =========================================================================
+    // Edge cases
+    // =========================================================================
+
+    #[test]
+    fn empty_metrics_save_json() {
+        let m = EvaluationMetrics::new();
+        let dir = std::env::temp_dir().join("subsume_test_eval");
+        let _ = fs::create_dir_all(&dir);
+        let path = dir.join("empty.json");
+        m.save_json(&path).unwrap();
+
+        let content = fs::read_to_string(&path).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+        assert_eq!(parsed["loss_history"].as_array().unwrap().len(), 0);
+
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn empty_comparison_save_json() {
+        let comp = OptimizerComparison::new();
+        let dir = std::env::temp_dir().join("subsume_test_eval");
+        let _ = fs::create_dir_all(&dir);
+        let path = dir.join("empty_comp.json");
+        comp.save_json(&path).unwrap();
+
+        let content = fs::read_to_string(&path).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+        assert!(parsed.as_object().unwrap().is_empty());
+
+        let _ = fs::remove_file(&path);
+    }
+}
+
 #[cfg(not(feature = "plotting"))]
 #[allow(missing_docs)]
 pub mod plotting {
