@@ -533,3 +533,258 @@ impl Box for NdarrayBox {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Box as BoxTrait;
+    use ndarray::array;
+
+    // ---- Intersection edge cases ----
+
+    #[test]
+    fn intersection_disjoint_boxes_has_zero_volume() {
+        // Two boxes that do not overlap in any dimension.
+        let a = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();
+        let b = NdarrayBox::new(array![2.0, 2.0], array![3.0, 3.0], 1.0).unwrap();
+        let inter = a.intersection(&b).unwrap();
+        let vol = inter.volume(1.0).unwrap();
+        assert_eq!(vol, 0.0, "Disjoint boxes must have zero intersection volume");
+    }
+
+    #[test]
+    fn intersection_partial_overlap() {
+        // Boxes overlap in a sub-region.
+        let a = NdarrayBox::new(array![0.0, 0.0], array![2.0, 2.0], 1.0).unwrap();
+        let b = NdarrayBox::new(array![1.0, 1.0], array![3.0, 3.0], 1.0).unwrap();
+        let inter = a.intersection(&b).unwrap();
+        // Intersection should be [1,1] to [2,2], volume = 1.0
+        let vol = inter.volume(1.0).unwrap();
+        assert!(
+            (vol - 1.0).abs() < 1e-6,
+            "Partial intersection volume should be 1.0, got {}",
+            vol
+        );
+    }
+
+    #[test]
+    fn intersection_full_containment() {
+        // B is fully inside A; intersection = B.
+        let a = NdarrayBox::new(array![0.0, 0.0], array![4.0, 4.0], 1.0).unwrap();
+        let b = NdarrayBox::new(array![1.0, 1.0], array![3.0, 3.0], 1.0).unwrap();
+        let inter = a.intersection(&b).unwrap();
+        let vol_inter = inter.volume(1.0).unwrap();
+        let vol_b = b.volume(1.0).unwrap();
+        assert!(
+            (vol_inter - vol_b).abs() < 1e-6,
+            "When B is inside A, intersection volume should equal B's volume"
+        );
+    }
+
+    #[test]
+    fn intersection_disjoint_in_one_dimension() {
+        // Overlap in x but disjoint in y.
+        let a = NdarrayBox::new(array![0.0, 0.0], array![2.0, 1.0], 1.0).unwrap();
+        let b = NdarrayBox::new(array![1.0, 2.0], array![3.0, 3.0], 1.0).unwrap();
+        let inter = a.intersection(&b).unwrap();
+        let vol = inter.volume(1.0).unwrap();
+        assert_eq!(
+            vol, 0.0,
+            "Disjoint in one dimension means zero intersection volume"
+        );
+    }
+
+    // ---- Union edge cases ----
+
+    #[test]
+    fn union_volume_at_least_max_of_parts() {
+        let a = NdarrayBox::new(array![0.0, 0.0], array![2.0, 2.0], 1.0).unwrap();
+        let b = NdarrayBox::new(array![1.0, 1.0], array![3.0, 3.0], 1.0).unwrap();
+        let u = a.union(&b).unwrap();
+        let vol_u = u.volume(1.0).unwrap();
+        let vol_a = a.volume(1.0).unwrap();
+        let vol_b = b.volume(1.0).unwrap();
+        assert!(
+            vol_u >= vol_a - 1e-6,
+            "Union volume {} must be >= volume of A {}",
+            vol_u,
+            vol_a
+        );
+        assert!(
+            vol_u >= vol_b - 1e-6,
+            "Union volume {} must be >= volume of B {}",
+            vol_u,
+            vol_b
+        );
+    }
+
+    #[test]
+    fn union_of_identical_boxes_equals_self() {
+        let a = NdarrayBox::new(array![1.0, 2.0], array![3.0, 4.0], 1.0).unwrap();
+        let u = a.union(&a).unwrap();
+        let vol_a = a.volume(1.0).unwrap();
+        let vol_u = u.volume(1.0).unwrap();
+        assert!(
+            (vol_a - vol_u).abs() < 1e-6,
+            "Union of a box with itself should have the same volume"
+        );
+    }
+
+    // ---- Truncation / Matryoshka ----
+
+    #[test]
+    fn truncation_preserves_containment() {
+        // If B is inside A in full dimensions, truncating both to fewer
+        // dimensions should preserve containment.
+        let a = NdarrayBox::new(array![0.0, 0.0, 0.0], array![4.0, 4.0, 4.0], 1.0).unwrap();
+        let b = NdarrayBox::new(array![1.0, 1.0, 1.0], array![3.0, 3.0, 3.0], 1.0).unwrap();
+
+        let full_prob = a.containment_prob(&b, 1.0).unwrap();
+        assert!(full_prob > 0.99, "B should be inside A in full dims");
+
+        for k in 1..=3 {
+            let a_trunc = a.truncate(k).unwrap();
+            let b_trunc = b.truncate(k).unwrap();
+            let trunc_prob = a_trunc.containment_prob(&b_trunc, 1.0).unwrap();
+            assert!(
+                trunc_prob > 0.99,
+                "Containment should be preserved when truncating to {} dims, got {}",
+                k,
+                trunc_prob
+            );
+        }
+    }
+
+    #[test]
+    fn truncation_reduces_dim() {
+        let a = NdarrayBox::new(array![0.0, 0.0, 0.0, 0.0], array![1.0, 1.0, 1.0, 1.0], 1.0)
+            .unwrap();
+        let t = a.truncate(2).unwrap();
+        assert_eq!(t.dim(), 2);
+    }
+
+    #[test]
+    fn truncation_to_full_dim_is_identity() {
+        let a = NdarrayBox::new(array![0.0, 1.0], array![2.0, 3.0], 1.0).unwrap();
+        let t = a.truncate(2).unwrap();
+        assert_eq!(t.min(), a.min());
+        assert_eq!(t.max(), a.max());
+    }
+
+    // ---- Temperature edge cases ----
+
+    #[test]
+    fn containment_prob_very_small_temperature() {
+        let a = NdarrayBox::new(array![0.0, 0.0], array![4.0, 4.0], 1.0).unwrap();
+        let b = NdarrayBox::new(array![1.0, 1.0], array![3.0, 3.0], 1.0).unwrap();
+        // NdarrayBox containment_prob ignores temperature for hard boxes,
+        // but the call should not panic or produce NaN.
+        let p = a.containment_prob(&b, 0.01).unwrap();
+        assert!(p.is_finite(), "Containment prob must be finite at low temp");
+        assert!(p >= 0.0 && p <= 1.0, "Containment prob must be in [0,1]");
+    }
+
+    #[test]
+    fn containment_prob_very_large_temperature() {
+        let a = NdarrayBox::new(array![0.0, 0.0], array![4.0, 4.0], 1.0).unwrap();
+        let b = NdarrayBox::new(array![1.0, 1.0], array![3.0, 3.0], 1.0).unwrap();
+        let p = a.containment_prob(&b, 100.0).unwrap();
+        assert!(p.is_finite(), "Containment prob must be finite at high temp");
+        assert!(p >= 0.0 && p <= 1.0, "Containment prob must be in [0,1]");
+    }
+
+    // ---- Serialization round-trip ----
+
+    #[test]
+    fn serde_json_round_trip() {
+        let original =
+            NdarrayBox::new(array![0.1, 0.2, 0.3], array![0.4, 0.5, 0.6], 0.75).unwrap();
+        let json = serde_json::to_string(&original).expect("serialize");
+        let deserialized: NdarrayBox = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(original.dim(), deserialized.dim());
+        for i in 0..original.dim() {
+            assert!(
+                (original.min()[i] - deserialized.min()[i]).abs() < 1e-7,
+                "min mismatch at dim {}",
+                i
+            );
+            assert!(
+                (original.max()[i] - deserialized.max()[i]).abs() < 1e-7,
+                "max mismatch at dim {}",
+                i
+            );
+        }
+    }
+
+    // ---- Distance edge cases ----
+
+    #[test]
+    fn distance_overlapping_boxes_is_zero() {
+        let a = NdarrayBox::new(array![0.0, 0.0], array![2.0, 2.0], 1.0).unwrap();
+        let b = NdarrayBox::new(array![1.0, 1.0], array![3.0, 3.0], 1.0).unwrap();
+        let d = a.distance(&b).unwrap();
+        assert_eq!(d, 0.0, "Overlapping boxes should have zero distance");
+    }
+
+    #[test]
+    fn distance_disjoint_boxes_is_positive() {
+        let a = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();
+        let b = NdarrayBox::new(array![3.0, 3.0], array![4.0, 4.0], 1.0).unwrap();
+        let d = a.distance(&b).unwrap();
+        // Gap is (2, 2), distance = sqrt(8) ≈ 2.828
+        assert!(d > 0.0, "Disjoint boxes should have positive distance");
+        assert!(
+            (d - 8.0_f32.sqrt()).abs() < 1e-5,
+            "Expected sqrt(8), got {}",
+            d
+        );
+    }
+
+    #[test]
+    fn distance_identical_boxes_is_zero() {
+        let a = NdarrayBox::new(array![1.0, 2.0], array![3.0, 4.0], 1.0).unwrap();
+        let d = a.distance(&a).unwrap();
+        assert_eq!(d, 0.0, "Distance to self should be zero");
+    }
+
+    // ---- Containment semantics ----
+
+    #[test]
+    fn containment_prob_disjoint_is_zero() {
+        let a = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();
+        let b = NdarrayBox::new(array![5.0, 5.0], array![6.0, 6.0], 1.0).unwrap();
+        let p = a.containment_prob(&b, 1.0).unwrap();
+        assert_eq!(p, 0.0, "Disjoint boxes should have zero containment");
+    }
+
+    #[test]
+    fn containment_prob_full_containment_is_one() {
+        let a = NdarrayBox::new(array![0.0, 0.0], array![4.0, 4.0], 1.0).unwrap();
+        let b = NdarrayBox::new(array![1.0, 1.0], array![3.0, 3.0], 1.0).unwrap();
+        let p = a.containment_prob(&b, 1.0).unwrap();
+        assert!(
+            (p - 1.0).abs() < 1e-6,
+            "Full containment should give prob ~1.0, got {}",
+            p
+        );
+    }
+
+    #[test]
+    fn overlap_prob_identical_boxes_is_one() {
+        let a = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();
+        let p = a.overlap_prob(&a, 1.0).unwrap();
+        assert!(
+            (p - 1.0).abs() < 1e-6,
+            "Identical boxes should have overlap prob 1.0, got {}",
+            p
+        );
+    }
+
+    #[test]
+    fn overlap_prob_disjoint_is_zero() {
+        let a = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();
+        let b = NdarrayBox::new(array![5.0, 5.0], array![6.0, 6.0], 1.0).unwrap();
+        let p = a.overlap_prob(&b, 1.0).unwrap();
+        assert_eq!(p, 0.0, "Disjoint boxes should have overlap prob 0.0");
+    }
+}

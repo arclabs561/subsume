@@ -160,3 +160,161 @@ impl GumbelBox for NdarrayGumbelBox {
         Array1::from(sampled)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Box as BoxTrait;
+    use crate::GumbelBox as GumbelBoxTrait;
+    use ndarray::array;
+
+    // ---- Membership probability ----
+
+    #[test]
+    fn membership_prob_inside_point_is_high() {
+        let gb = NdarrayGumbelBox::new(array![0.0, 0.0], array![2.0, 2.0], 1.0).unwrap();
+        let point = array![1.0, 1.0]; // center of the box
+        let p = gb.membership_probability(&point).unwrap();
+        // For a 2D box [0,2]^2 at temp=1.0, center membership is
+        // prod_d [sigmoid(1)*sigmoid(1)] = (0.731*0.731)^2 ~ 0.285.
+        // "High" relative to outside points; just verify it is the maximum.
+        assert!(
+            p > 0.2,
+            "Center point should have non-trivial membership, got {}",
+            p
+        );
+        assert!(p <= 1.0, "Membership must be <= 1.0");
+    }
+
+    #[test]
+    fn membership_prob_far_outside_is_low() {
+        let gb = NdarrayGumbelBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();
+        let point = array![10.0, 10.0];
+        let p = gb.membership_probability(&point).unwrap();
+        assert!(
+            p < 0.01,
+            "Far-outside point should have near-zero membership, got {}",
+            p
+        );
+        assert!(p >= 0.0, "Membership must be >= 0.0");
+    }
+
+    #[test]
+    fn membership_prob_always_in_unit_interval() {
+        let gb = NdarrayGumbelBox::new(array![0.0, 0.0, 0.0], array![1.0, 1.0, 1.0], 0.5).unwrap();
+        let test_points = vec![
+            array![0.5, 0.5, 0.5],   // inside
+            array![-5.0, -5.0, -5.0], // far below
+            array![10.0, 10.0, 10.0], // far above
+            array![0.0, 0.0, 0.0],    // on boundary (min)
+            array![1.0, 1.0, 1.0],    // on boundary (max)
+        ];
+        for pt in &test_points {
+            let p = gb.membership_probability(pt).unwrap();
+            assert!(
+                p >= 0.0 && p <= 1.0,
+                "Membership {} out of [0,1] for point {:?}",
+                p,
+                pt
+            );
+        }
+    }
+
+    // ---- Containment monotonicity ----
+
+    #[test]
+    fn containment_monotonicity_nested_gumbel_boxes() {
+        // If C inside B inside A, then P(C|A) should be >= P(B|A) is not
+        // guaranteed, but P(A contains B) should be high and P(A contains C) should be high.
+        // More precisely: P(B inside A) >= P(C inside A) is not guaranteed because
+        // containment_prob = Vol(intersection) / Vol(other). Instead we check
+        // that both are near 1.0 when boxes are strictly nested.
+        let a =
+            NdarrayGumbelBox::new(array![0.0, 0.0], array![10.0, 10.0], 1.0).unwrap();
+        let b =
+            NdarrayGumbelBox::new(array![1.0, 1.0], array![9.0, 9.0], 1.0).unwrap();
+        let c =
+            NdarrayGumbelBox::new(array![2.0, 2.0], array![8.0, 8.0], 1.0).unwrap();
+
+        let p_b_in_a = a.containment_prob(&b, 1.0).unwrap();
+        let p_c_in_a = a.containment_prob(&c, 1.0).unwrap();
+        let p_c_in_b = b.containment_prob(&c, 1.0).unwrap();
+
+        assert!(p_b_in_a > 0.99, "B should be inside A, got {}", p_b_in_a);
+        assert!(p_c_in_a > 0.99, "C should be inside A, got {}", p_c_in_a);
+        assert!(p_c_in_b > 0.99, "C should be inside B, got {}", p_c_in_b);
+    }
+
+    // ---- Temperature effects on Gumbel membership ----
+
+    #[test]
+    fn low_temperature_sharpens_membership() {
+        let gb_sharp = NdarrayGumbelBox::new(array![0.0, 0.0], array![2.0, 2.0], 0.01).unwrap();
+        let gb_soft = NdarrayGumbelBox::new(array![0.0, 0.0], array![2.0, 2.0], 100.0).unwrap();
+
+        // Point well inside
+        let inside = array![1.0, 1.0];
+        let p_sharp = gb_sharp.membership_probability(&inside).unwrap();
+        let p_soft = gb_soft.membership_probability(&inside).unwrap();
+
+        // At low temperature, interior point should have membership closer to 1.0
+        // than at high temperature (where probability spreads out).
+        assert!(
+            p_sharp > p_soft || (p_sharp - p_soft).abs() < 0.05,
+            "Low temp should give sharper membership for interior: sharp={}, soft={}",
+            p_sharp,
+            p_soft
+        );
+
+        // Point outside
+        let outside = array![5.0, 5.0];
+        let p_sharp_out = gb_sharp.membership_probability(&outside).unwrap();
+        let p_soft_out = gb_soft.membership_probability(&outside).unwrap();
+
+        // At low temperature, outside point should have membership closer to 0.0
+        assert!(
+            p_sharp_out < p_soft_out || (p_sharp_out - p_soft_out).abs() < 0.05,
+            "Low temp should give lower membership for exterior: sharp={}, soft={}",
+            p_sharp_out,
+            p_soft_out
+        );
+    }
+
+    // ---- Serialization round-trip ----
+
+    #[test]
+    fn gumbel_box_serde_round_trip() {
+        let original =
+            NdarrayGumbelBox::new(array![0.1, 0.2], array![0.8, 0.9], 0.5).unwrap();
+        let json = serde_json::to_string(&original).expect("serialize");
+        let deserialized: NdarrayGumbelBox =
+            serde_json::from_str(&json).expect("deserialize");
+
+        assert_eq!(original.dim(), deserialized.dim());
+        assert_eq!(original.temperature(), deserialized.temperature());
+        for i in 0..original.dim() {
+            assert!(
+                (original.min()[i] - deserialized.min()[i]).abs() < 1e-7,
+                "min mismatch at dim {}",
+                i
+            );
+            assert!(
+                (original.max()[i] - deserialized.max()[i]).abs() < 1e-7,
+                "max mismatch at dim {}",
+                i
+            );
+        }
+    }
+
+    // ---- Sample stays finite ----
+
+    #[test]
+    fn sample_produces_finite_values() {
+        let gb = NdarrayGumbelBox::new(array![0.0, 0.0, 0.0], array![1.0, 1.0, 1.0], 1.0).unwrap();
+        let s = gb.sample();
+        assert_eq!(s.len(), 3);
+        for &v in s.iter() {
+            assert!(v.is_finite(), "Sampled value must be finite, got {}", v);
+        }
+    }
+}

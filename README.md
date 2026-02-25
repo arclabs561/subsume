@@ -45,6 +45,7 @@ assert!(p > 0.9);
 
 ```bash
 cargo run -p subsume --example containment_hierarchy  # taxonomic is-a relationships with nested boxes
+cargo run -p subsume --example gumbel_box_training    # Gumbel boxes, soft containment, temperature effects
 ```
 
 ## Tests
@@ -53,7 +54,7 @@ cargo run -p subsume --example containment_hierarchy  # taxonomic is-a relations
 cargo test -p subsume
 ```
 
-112 unit tests + 12 doc tests covering box operations, containment/overlap scoring, Gumbel boxes, training metrics (MRR, Hits@k, NDCG), calibration diagnostics, negative sampling, sheaf networks, hyperbolic geometry, quasimetric properties, and serialization.
+138 unit tests + 12 doc tests covering box operations (intersection, union, containment, overlap, distance, truncation), Gumbel box membership and temperature edge cases, serialization round-trips, training metrics (MRR, Hits@k, NDCG), calibration diagnostics, negative sampling, sheaf networks, hyperbolic geometry, quasimetric properties, and more.
 
 ## References
 
