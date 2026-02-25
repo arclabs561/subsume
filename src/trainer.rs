@@ -1474,9 +1474,11 @@ mod tests {
 
     #[test]
     fn compute_pair_loss_negative_penalizes_overlap_above_margin() {
-        let mut cfg = TrainingConfig::default();
-        cfg.margin = 0.2;
-        cfg.negative_weight = 1.0;
+        let cfg = TrainingConfig {
+            margin: 0.2,
+            negative_weight: 1.0,
+            ..Default::default()
+        };
 
         // A fixed box; compare B disjoint vs B overlapping.
         let a = TrainableBox::new(vec![0.0, 0.0], vec![1.0_f32.ln(), 1.0_f32.ln()]);
@@ -1495,8 +1497,7 @@ mod tests {
 
     #[test]
     fn filtered_triple_index_membership() {
-        let triples = vec![
-            Triple {
+        let triples = [Triple {
                 head: "h".to_string(),
                 relation: "r".to_string(),
                 tail: "t1".to_string(),
@@ -1510,8 +1511,7 @@ mod tests {
                 head: "h".to_string(),
                 relation: "r2".to_string(),
                 tail: "t3".to_string(),
-            },
-        ];
+            }];
 
         let idx = FilteredTripleIndex::from_triples(triples.iter());
 
@@ -1567,7 +1567,7 @@ mod tests {
         // May generate fewer than 5 if some negatives match the positive
         // With only 4 entities and CorruptTail, at most 3 unique negatives (e1, e3, e4)
         assert!(
-            negatives.len() >= 1,
+            !negatives.is_empty(),
             "Expected at least 1 negative, got {}",
             negatives.len()
         );
@@ -1866,10 +1866,12 @@ mod proptests {
 
     #[test]
     fn cone_trainer_reduces_loss_over_steps() {
-        let mut cfg = TrainingConfig::default();
-        cfg.learning_rate = 0.01;
-        cfg.temperature = 1.0;
-        cfg.regularization = 0.0;
+        let cfg = TrainingConfig {
+            learning_rate: 0.01,
+            temperature: 1.0,
+            regularization: 0.0,
+            ..Default::default()
+        };
 
         let mut trainer = ConeEmbeddingTrainer::new(cfg, 4, None);
 

@@ -64,6 +64,7 @@
 pub mod box_trait;
 pub mod boxe;
 pub mod center_offset;
+pub mod cone;
 pub mod dataset;
 pub mod distance;
 pub mod embedding;
@@ -80,15 +81,17 @@ pub mod utils;
 
 pub use box_trait::{Box, BoxError};
 pub use boxe::{boxe_loss, boxe_score, Bump};
+pub use cone::{Cone, ConeError};
 pub use center_offset::{center_offset_to_min_max, min_max_to_center_offset};
 pub use dataset::{Dataset, DatasetError, DatasetStats, Triple};
 pub use distance::{boundary_distance, depth_distance, depth_similarity, vector_to_box_distance};
 pub use embedding::{BoxCollection, BoxEmbedding};
 pub use gumbel::GumbelBox;
 pub use optimizer::{get_learning_rate, AMSGradState};
-pub use trainable::TrainableBox;
+pub use trainable::{TrainableBox, TrainableCone};
 pub use trainer::{
-    evaluate_link_prediction, log_training_result, EvaluationResults, HyperparameterSearch,
+    compute_cone_analytical_gradients, compute_cone_pair_loss, evaluate_link_prediction,
+    log_training_result, ConeEmbeddingTrainer, EvaluationResults, HyperparameterSearch,
     NegativeSamplingStrategy, TrainingConfig, TrainingResult,
 };
 #[cfg(feature = "rand")]

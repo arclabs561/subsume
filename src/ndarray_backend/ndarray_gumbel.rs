@@ -212,7 +212,7 @@ mod tests {
         for pt in &test_points {
             let p = gb.membership_probability(pt).unwrap();
             assert!(
-                p >= 0.0 && p <= 1.0,
+                (0.0..=1.0).contains(&p),
                 "Membership {} out of [0,1] for point {:?}",
                 p,
                 pt

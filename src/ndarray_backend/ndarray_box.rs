@@ -681,7 +681,7 @@ mod tests {
         // but the call should not panic or produce NaN.
         let p = a.containment_prob(&b, 0.01).unwrap();
         assert!(p.is_finite(), "Containment prob must be finite at low temp");
-        assert!(p >= 0.0 && p <= 1.0, "Containment prob must be in [0,1]");
+        assert!((0.0..=1.0).contains(&p), "Containment prob must be in [0,1]");
     }
 
     #[test]
@@ -690,7 +690,7 @@ mod tests {
         let b = NdarrayBox::new(array![1.0, 1.0], array![3.0, 3.0], 1.0).unwrap();
         let p = a.containment_prob(&b, 100.0).unwrap();
         assert!(p.is_finite(), "Containment prob must be finite at high temp");
-        assert!(p >= 0.0 && p <= 1.0, "Containment prob must be in [0,1]");
+        assert!((0.0..=1.0).contains(&p), "Containment prob must be in [0,1]");
     }
 
     // ---- Serialization round-trip ----

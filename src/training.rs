@@ -2408,7 +2408,7 @@ mod tests {
 
     #[test]
     fn test_mean_reciprocal_rank() {
-        let ranks = vec![1, 3, 2, 5];
+        let ranks = [1, 3, 2, 5];
         let mrr = metrics::mean_reciprocal_rank(ranks.iter().copied());
         // (1/1 + 1/3 + 1/2 + 1/5) / 4 = (1 + 0.3333 + 0.5 + 0.2) / 4 ≈ 0.5083
         assert!((mrr - 0.5083).abs() < 1e-3);
@@ -2416,22 +2416,22 @@ mod tests {
 
     #[test]
     fn test_hits_at_k() {
-        let ranks = vec![1, 3, 2, 5, 10];
+        let ranks = [1, 3, 2, 5, 10];
         let hits_3 = metrics::hits_at_k(ranks.iter().copied(), 3);
         assert_eq!(hits_3, 0.6);
     }
 
     #[test]
     fn test_mean_rank() {
-        let ranks = vec![1, 3, 2, 5];
+        let ranks = [1, 3, 2, 5];
         let mr = metrics::mean_rank(ranks.iter().copied());
         assert_eq!(mr, 2.75);
     }
 
     #[test]
     fn test_ndcg() {
-        let ranked = vec![0.9, 0.5, 0.8, 0.2];
-        let ideal = vec![0.9, 0.8, 0.5, 0.2];
+        let ranked = [0.9, 0.5, 0.8, 0.2];
+        let ideal = [0.9, 0.8, 0.5, 0.2];
         let score = metrics::ndcg(ranked.iter().copied(), ideal.iter().copied());
         assert!(score > 0.9);
     }
@@ -2520,14 +2520,14 @@ mod tests {
     #[test]
     fn test_brier_score() {
         // Perfect predictions
-        let preds = vec![0.0, 0.0, 1.0, 1.0];
-        let actuals = vec![false, false, true, true];
+        let preds = [0.0, 0.0, 1.0, 1.0];
+        let actuals = [false, false, true, true];
         let brier = calibration::brier_score(preds.iter().copied(), actuals.iter().copied());
         assert_eq!(brier, 0.0);
 
         // Random predictions (should have higher Brier score)
-        let preds2 = vec![0.5, 0.5, 0.5, 0.5];
-        let actuals2 = vec![false, true, false, true];
+        let preds2 = [0.5, 0.5, 0.5, 0.5];
+        let actuals2 = [false, true, false, true];
         let brier2 = calibration::brier_score(preds2.iter().copied(), actuals2.iter().copied());
         assert!(brier2 > 0.0);
     }
@@ -2570,12 +2570,12 @@ mod tests {
     #[test]
     fn test_volume_distribution_entropy() {
         // Uniform distribution (high entropy)
-        let uniform_vols = vec![1.0, 1.0, 1.0, 1.0, 1.0];
+        let uniform_vols = [1.0, 1.0, 1.0, 1.0, 1.0];
         let dist_uniform = quality::VolumeDistribution::from_volumes(uniform_vols.iter().copied());
         assert!(dist_uniform.entropy > 0.0);
 
         // Skewed distribution (lower entropy)
-        let skewed_vols = vec![0.1, 0.1, 0.1, 0.1, 10.0];
+        let skewed_vols = [0.1, 0.1, 0.1, 0.1, 10.0];
         let dist_skewed = quality::VolumeDistribution::from_volumes(skewed_vols.iter().copied());
         // Skewed should have lower entropy than uniform
         assert!(dist_skewed.entropy < dist_uniform.entropy || dist_skewed.entropy == 0.0);
@@ -2608,14 +2608,14 @@ mod tests {
     #[test]
     fn test_kl_divergence() {
         // Identical distributions
-        let learned = vec![0.25, 0.25, 0.25, 0.25];
-        let target = vec![0.25, 0.25, 0.25, 0.25];
+        let learned = [0.25, 0.25, 0.25, 0.25];
+        let target = [0.25, 0.25, 0.25, 0.25];
         let kl = quality::kl_divergence(learned.iter().copied(), target.iter().copied());
         assert!((kl - 0.0).abs() < 1e-6);
 
         // Different distributions
-        let learned2 = vec![0.5, 0.3, 0.15, 0.05];
-        let target2 = vec![0.25, 0.25, 0.25, 0.25];
+        let learned2 = [0.5, 0.3, 0.15, 0.05];
+        let target2 = [0.25, 0.25, 0.25, 0.25];
         let kl2 = quality::kl_divergence(learned2.iter().copied(), target2.iter().copied());
         assert!(kl2 > 0.0);
     }
@@ -2879,7 +2879,7 @@ mod tests {
     #[test]
     fn test_edge_cases_zero_rank() {
         // Rank of 0 should be handled gracefully
-        let ranks = vec![0, 1, 2, 0, 3];
+        let ranks = [0, 1, 2, 0, 3];
         let mrr = metrics::mean_reciprocal_rank(ranks.iter().copied());
         // Should only count non-zero ranks: (1/1 + 1/2 + 1/3) / 3
         assert!(mrr > 0.0 && mrr < 1.0);
@@ -3022,8 +3022,8 @@ mod tests {
     #[test]
     fn test_calibration_edge_cases() {
         // Perfect calibration (all predictions match actuals)
-        let perfect_preds = vec![0.0, 0.0, 1.0, 1.0];
-        let perfect_actuals = vec![false, false, true, true];
+        let perfect_preds = [0.0, 0.0, 1.0, 1.0];
+        let perfect_actuals = [false, false, true, true];
         let ece_perfect = calibration::expected_calibration_error(
             perfect_preds.iter().copied(),
             perfect_actuals.iter().copied(),
@@ -3032,8 +3032,8 @@ mod tests {
         assert!(ece_perfect < 0.01); // Should be near zero
 
         // Worst calibration (always wrong)
-        let worst_preds = vec![1.0, 1.0, 0.0, 0.0];
-        let worst_actuals = vec![false, false, true, true];
+        let worst_preds = [1.0, 1.0, 0.0, 0.0];
+        let worst_actuals = [false, false, true, true];
         let ece_worst = calibration::expected_calibration_error(
             worst_preds.iter().copied(),
             worst_actuals.iter().copied(),
@@ -3042,8 +3042,8 @@ mod tests {
         assert!(ece_worst > 0.5); // Should be high
 
         // All same predictions
-        let same_preds = vec![0.5, 0.5, 0.5, 0.5];
-        let mixed_actuals = vec![false, true, false, true];
+        let same_preds = [0.5, 0.5, 0.5, 0.5];
+        let mixed_actuals = [false, true, false, true];
         let ece_same = calibration::expected_calibration_error(
             same_preds.iter().copied(),
             mixed_actuals.iter().copied(),
@@ -3165,21 +3165,21 @@ mod tests {
         assert_eq!(kl_empty, f32::INFINITY);
 
         // Mismatched lengths
-        let learned = vec![0.5, 0.5];
-        let target = vec![0.33, 0.33, 0.34];
+        let learned = [0.5, 0.5];
+        let target = [0.33, 0.33, 0.34];
         let kl_mismatch = quality::kl_divergence(learned.iter().copied(), target.iter().copied());
         assert_eq!(kl_mismatch, f32::INFINITY);
 
         // Zero sum (should return infinity)
-        let zero_learned = vec![0.0, 0.0, 0.0];
-        let zero_target = vec![0.0, 0.0, 0.0];
+        let zero_learned = [0.0, 0.0, 0.0];
+        let zero_target = [0.0, 0.0, 0.0];
         let kl_zero =
             quality::kl_divergence(zero_learned.iter().copied(), zero_target.iter().copied());
         assert_eq!(kl_zero, f32::INFINITY);
 
         // Learned has positive but target is zero (infinite divergence)
-        let learned_pos = vec![1.0, 0.0];
-        let target_zero = vec![0.0, 1.0];
+        let learned_pos = [1.0, 0.0];
+        let target_zero = [0.0, 1.0];
         let kl_infinite =
             quality::kl_divergence(learned_pos.iter().copied(), target_zero.iter().copied());
         assert_eq!(kl_infinite, f32::INFINITY);

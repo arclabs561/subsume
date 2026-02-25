@@ -1,6 +1,6 @@
 //! Backend-specific distance implementations for candle.
 
-use crate::CandleBox;
+use crate::candle_backend::CandleBox;
 use crate::{Box, BoxError};
 use candle_core::Tensor;
 

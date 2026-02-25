@@ -1,6 +1,6 @@
 //! Candle implementation of GumbelBox trait.
 
-use crate::candle_box::CandleBox;
+use crate::candle_backend::candle_box::CandleBox;
 use crate::{
     gumbel_membership_prob, map_gumbel_to_bounds, sample_gumbel, Box, BoxError, GumbelBox,
 };
