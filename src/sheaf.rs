@@ -355,6 +355,7 @@ impl DenseRestriction {
     ///
     /// Uses QR decomposition of random matrix.
     /// Useful for connection Laplacians.
+    #[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
     #[cfg(feature = "rand")]
     #[allow(deprecated)]
     pub fn random_orthogonal(dim: usize) -> Self {

@@ -267,6 +267,7 @@ pub struct EvaluationResults {
 /// # Returns
 ///
 /// Vector of negative triples (corrupted versions of the positive triple)
+#[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
 #[cfg(feature = "rand")]
 #[allow(deprecated)]
 pub fn generate_negative_samples(
@@ -289,6 +290,7 @@ pub fn generate_negative_samples(
 ///   sorts the `HashSet` into a stable `Vec` before sampling.
 /// - The returned vec can be shorter than `n` because we skip samples equal to the
 ///   positive triple.
+#[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
 #[cfg(feature = "rand")]
 pub fn generate_negative_samples_with_rng<R: Rng>(
     triple: &Triple,
@@ -313,12 +315,14 @@ pub fn generate_negative_samples_with_rng<R: Rng>(
 /// - **Performance**: avoids cloning every entity ID into an owned `Vec<String>` per triple.
 ///
 /// If you're generating negatives in an inner loop, build this once and reuse it.
+#[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
 #[cfg(feature = "rand")]
 #[derive(Debug, Clone)]
 pub struct SortedEntityPool<'a> {
     entities: Vec<&'a str>,
 }
 
+#[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
 #[cfg(feature = "rand")]
 impl<'a> SortedEntityPool<'a> {
     /// Build a stable, sorted pool view from an entity set.
@@ -341,6 +345,7 @@ impl<'a> SortedEntityPool<'a> {
 }
 
 /// Generate negative samples from a precomputed, sorted pool.
+#[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
 #[cfg(feature = "rand")]
 #[allow(deprecated)]
 pub fn generate_negative_samples_from_sorted_pool_with_rng<R: Rng>(
@@ -402,6 +407,7 @@ pub fn generate_negative_samples_from_sorted_pool_with_rng<R: Rng>(
 ///
 /// This is the “integration seam”: callers can restrict the pool to hard negatives
 /// (e.g., graph neighborhood candidates), while `subsume` stays dependency-free.
+#[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
 #[cfg(feature = "rand")]
 #[allow(deprecated)]
 pub fn generate_negative_samples_from_pool_with_rng<R: Rng>(

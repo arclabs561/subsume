@@ -94,6 +94,7 @@ pub use trainer::{
     log_training_result, ConeEmbeddingTrainer, EvaluationResults, HyperparameterSearch,
     NegativeSamplingStrategy, TrainingConfig, TrainingResult,
 };
+#[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
 #[cfg(feature = "rand")]
 pub use trainer::{
     generate_negative_samples, generate_negative_samples_from_pool_with_rng,
@@ -141,9 +142,11 @@ pub use hyperbolic::{
 };
 
 /// Ndarray backend: concrete `NdarrayBox`, `NdarrayGumbelBox`, optimizer, scheduler.
+#[cfg_attr(docsrs, doc(cfg(feature = "ndarray-backend")))]
 #[cfg(feature = "ndarray-backend")]
 pub mod ndarray_backend;
 
 /// Candle (GPU-accelerated) backend: `CandleBox`, `CandleGumbelBox`.
+#[cfg_attr(docsrs, doc(cfg(feature = "candle-backend")))]
 #[cfg(feature = "candle-backend")]
 pub mod candle_backend;

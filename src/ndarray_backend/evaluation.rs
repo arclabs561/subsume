@@ -136,6 +136,7 @@ impl OptimizerComparison {
 }
 
 /// Plot generation utilities.
+#[cfg_attr(docsrs, doc(cfg(feature = "plotting")))]
 #[cfg(feature = "plotting")]
 pub mod plotting {
     use super::*;
