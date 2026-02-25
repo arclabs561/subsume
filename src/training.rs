@@ -3185,6 +3185,358 @@ mod tests {
         assert_eq!(kl_infinite, f32::INFINITY);
     }
 
+    // ---------------------------------------------------------------
+    // Metrics: edge cases and exact computations
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_mrr_single_element() {
+        // Single rank-1 query: MRR = 1.0
+        let mrr = metrics::mean_reciprocal_rank([1].iter().copied());
+        assert_eq!(mrr, 1.0);
+
+        // Single rank-5 query: MRR = 0.2
+        let mrr5 = metrics::mean_reciprocal_rank([5].iter().copied());
+        assert!((mrr5 - 0.2).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_mrr_all_perfect() {
+        // All queries at rank 1
+        let mrr = metrics::mean_reciprocal_rank([1, 1, 1, 1].iter().copied());
+        assert_eq!(mrr, 1.0);
+    }
+
+    #[test]
+    fn test_mrr_all_zero_rank() {
+        // All rank-0 (none found): reciprocal is 0 for each, MRR = 0 / 4 = 0
+        let mrr = metrics::mean_reciprocal_rank([0, 0, 0, 0].iter().copied());
+        assert_eq!(mrr, 0.0);
+    }
+
+    #[test]
+    fn test_mean_rank_with_zero_ranks() {
+        // Rank 0 contributes 0 to sum but still counts toward denominator.
+        // ranks = [0, 2, 4, 0] => sum = 0 + 2 + 4 + 0 = 6, count = 4, mean = 1.5
+        let mr = metrics::mean_rank([0, 2, 4, 0].iter().copied());
+        assert!((mr - 1.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_mean_rank_single_element() {
+        let mr = metrics::mean_rank([7].iter().copied());
+        assert_eq!(mr, 7.0);
+    }
+
+    #[test]
+    fn test_hits_at_k_all_hit() {
+        // Every rank <= k => 1.0
+        let h = metrics::hits_at_k([1, 2, 3].iter().copied(), 3);
+        assert_eq!(h, 1.0);
+    }
+
+    #[test]
+    fn test_hits_at_k_none_hit() {
+        // Every rank > k
+        let h = metrics::hits_at_k([4, 5, 6].iter().copied(), 3);
+        assert_eq!(h, 0.0);
+    }
+
+    #[test]
+    fn test_hits_at_k_with_zero_rank() {
+        // Rank 0 is treated as "not found" (rank > 0 && rank <= k is false), so it's a miss.
+        let h = metrics::hits_at_k([0, 1, 0, 2].iter().copied(), 10);
+        // 2 hits out of 4 total
+        assert_eq!(h, 0.5);
+    }
+
+    #[test]
+    fn test_hits_at_1() {
+        // Strict: only rank=1 counts
+        let h = metrics::hits_at_k([1, 2, 1, 3].iter().copied(), 1);
+        assert_eq!(h, 0.5);
+    }
+
+    #[test]
+    fn test_ndcg_perfect_ranking() {
+        // When ranked == ideal, nDCG = 1.0
+        let ideal = [3.0, 2.0, 1.0, 0.0];
+        let score = metrics::ndcg(ideal.iter().copied(), ideal.iter().copied());
+        assert!((score - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_ndcg_reversed_ranking() {
+        // Worst possible ranking: reversed relevance
+        let ranked = [0.0, 1.0, 2.0, 3.0];
+        let ideal = [3.0, 2.0, 1.0, 0.0];
+        let score = metrics::ndcg(ranked.iter().copied(), ideal.iter().copied());
+        // Should be strictly less than 1.0 (the reversed order penalises high-relevance items)
+        assert!(score < 1.0);
+        assert!(score > 0.0);
+    }
+
+    #[test]
+    fn test_ndcg_all_zero_relevance() {
+        // If ideal relevance is all zero, iDCG = 0 => return 0
+        let ranked = [0.0, 0.0, 0.0];
+        let ideal = [0.0, 0.0, 0.0];
+        let score = metrics::ndcg(ranked.iter().copied(), ideal.iter().copied());
+        assert_eq!(score, 0.0);
+    }
+
+    #[test]
+    fn test_ndcg_single_element() {
+        let score = metrics::ndcg([1.0].iter().copied(), [1.0].iter().copied());
+        assert!((score - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_ndcg_exact_computation() {
+        // Two items: ranked [1.0, 3.0], ideal [3.0, 1.0]
+        // DCG  = 1.0/log2(2) + 3.0/log2(3) = 1.0 + 3.0/1.58496 = 1.0 + 1.8928 = 2.8928
+        // iDCG = 3.0/log2(2) + 1.0/log2(3) = 3.0 + 0.6309 = 3.6309
+        // nDCG = 2.8928 / 3.6309 = 0.7967
+        let score = metrics::ndcg([1.0, 3.0].iter().copied(), [3.0, 1.0].iter().copied());
+        assert!((score - 0.7967).abs() < 0.01);
+    }
+
+    // ---------------------------------------------------------------
+    // Calibration: additional edge cases
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_ece_empty_input() {
+        let ece = calibration::expected_calibration_error(
+            std::iter::empty(),
+            std::iter::empty(),
+            10,
+        );
+        assert_eq!(ece, 0.0);
+    }
+
+    #[test]
+    fn test_brier_score_empty() {
+        let b = calibration::brier_score(std::iter::empty(), std::iter::empty());
+        assert_eq!(b, 0.0);
+    }
+
+    #[test]
+    fn test_brier_score_worst_case() {
+        // Predict 1.0 for all false, 0.0 for all true => each error is 1.0^2 = 1.0
+        let preds = [1.0, 1.0, 0.0, 0.0];
+        let actuals = [false, false, true, true];
+        let b = calibration::brier_score(preds.iter().copied(), actuals.iter().copied());
+        assert!((b - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_brier_score_exact_value() {
+        // preds = [0.8, 0.4], actuals = [true, false]
+        // (0.8 - 1.0)^2 = 0.04, (0.4 - 0.0)^2 = 0.16 => mean = 0.10
+        let b = calibration::brier_score([0.8, 0.4].iter().copied(), [true, false].iter().copied());
+        assert!((b - 0.10).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_brier_score_clamps_out_of_range() {
+        // Predictions outside [0, 1] should be clamped
+        let b = calibration::brier_score([1.5, -0.5].iter().copied(), [true, false].iter().copied());
+        // clamped to [1.0, 0.0] => perfect => Brier = 0
+        assert_eq!(b, 0.0);
+    }
+
+    #[test]
+    fn test_ace_empty() {
+        let ace = calibration::adaptive_calibration_error(
+            std::iter::empty(),
+            std::iter::empty(),
+            5,
+        );
+        assert_eq!(ace, 0.0);
+    }
+
+    #[test]
+    fn test_ace_single_sample() {
+        // Single sample: pred = 0.9, actual = true
+        // avg_pred = 0.9, empirical_acc = 1.0, |0.9 - 1.0| * 1 / 1 = 0.1
+        let ace = calibration::adaptive_calibration_error(
+            [0.9].iter().copied(),
+            [true].iter().copied(),
+            5,
+        );
+        assert!((ace - 0.1).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_ace_more_bins_than_samples() {
+        // n_bins = 10 but only 3 samples -- should not panic
+        let ace = calibration::adaptive_calibration_error(
+            [0.1, 0.5, 0.9].iter().copied(),
+            [false, true, true].iter().copied(),
+            10,
+        );
+        assert!((0.0..=1.0).contains(&ace));
+    }
+
+    #[test]
+    fn test_reliability_diagram_empty() {
+        let diagram = calibration::reliability_diagram(
+            std::iter::empty(),
+            std::iter::empty(),
+            5,
+        );
+        assert!(diagram.bin_centers.is_empty());
+        assert!(diagram.empirical_accuracies.is_empty());
+        assert!(diagram.bin_counts.is_empty());
+    }
+
+    #[test]
+    fn test_reliability_diagram_all_in_one_bin() {
+        // All predictions are 0.5 => single bin
+        let preds = [0.5, 0.5, 0.5, 0.5];
+        let actuals = [false, true, false, true];
+        let diagram = calibration::reliability_diagram(
+            preds.iter().copied(),
+            actuals.iter().copied(),
+            10,
+        );
+        // Only one non-empty bin
+        assert_eq!(diagram.bin_centers.len(), 1);
+        // Empirical accuracy = 2/4 = 0.5
+        assert!((diagram.empirical_accuracies[0] - 0.5).abs() < 1e-6);
+        assert_eq!(diagram.bin_counts[0], 4);
+    }
+
+    #[test]
+    fn test_reliability_diagram_all_true() {
+        let preds = [0.1, 0.5, 0.9];
+        let actuals = [true, true, true];
+        let diagram = calibration::reliability_diagram(
+            preds.iter().copied(),
+            actuals.iter().copied(),
+            3,
+        );
+        // All empirical accuracies should be 1.0
+        for acc in &diagram.empirical_accuracies {
+            assert_eq!(*acc, 1.0);
+        }
+    }
+
+    #[test]
+    fn test_reliability_diagram_clamping() {
+        // Predictions outside [0,1] should be clamped
+        let preds = [-0.5, 1.5, 0.5];
+        let actuals = [false, true, true];
+        let diagram = calibration::reliability_diagram(
+            preds.iter().copied(),
+            actuals.iter().copied(),
+            5,
+        );
+        // Should not panic; all bin centers should be in [0, 1]
+        for center in &diagram.bin_centers {
+            assert!((0.0..=1.0).contains(center));
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // LossComponents: additional edge cases
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_loss_components_all_zero() {
+        let lc = diagnostics::LossComponents::new(0.0, 0.0, 0.0);
+        assert_eq!(lc.total(), 0.0);
+        assert!(!lc.is_imbalanced()); // total=0 => false
+        assert_eq!(lc.dominant_component(), None);
+    }
+
+    #[test]
+    fn test_loss_components_regularization_dominant() {
+        let lc = diagnostics::LossComponents::new(0.05, 0.9, 0.05);
+        assert!(lc.is_imbalanced());
+        assert_eq!(lc.dominant_component(), Some("regularization"));
+    }
+
+    #[test]
+    fn test_loss_components_constraint_dominant() {
+        let lc = diagnostics::LossComponents::new(0.05, 0.05, 0.9);
+        assert!(lc.is_imbalanced());
+        assert_eq!(lc.dominant_component(), Some("constraint"));
+    }
+
+    #[test]
+    fn test_loss_components_total() {
+        let lc = diagnostics::LossComponents::new(0.3, 0.4, 0.3);
+        assert!((lc.total() - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_loss_components_boundary_80_percent() {
+        // Exactly 80% should NOT trigger imbalanced (> 0.8 is required, not >=)
+        let lc = diagnostics::LossComponents::new(0.8, 0.1, 0.1);
+        assert!(!lc.is_imbalanced());
+        assert_eq!(lc.dominant_component(), None);
+    }
+
+    // ---------------------------------------------------------------
+    // StratifiedMetrics: depth with rank=0 and frequency edge cases
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_stratified_depth_with_zero_rank() {
+        let mut sm = metrics::StratifiedMetrics::new();
+        // rank=0 means "not found": no MRR contribution, no hits, but containment still counts
+        sm.add_depth_result(0, 0, true);
+        sm.add_depth_result(0, 1, false);
+        sm.finalize_depths();
+
+        let dm = sm.by_depth.get(&0).unwrap();
+        assert_eq!(dm.count, 2);
+        // MRR: only rank=1 contributes: 1/1 = 1.0, averaged over 2 => 0.5
+        assert!((dm.mrr - 0.5).abs() < 1e-6);
+        // hits@10: rank=1 hit, rank=0 miss => 0.5
+        assert!((dm.hits_10 - 0.5).abs() < 1e-6);
+        // containment: 1 correct out of 2 => 0.5
+        assert!((dm.containment_accuracy - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_stratified_relation_with_zero_rank() {
+        let mut sm = metrics::StratifiedMetrics::new();
+        sm.add_relation_result("is_a".to_string(), 0);
+        sm.add_relation_result("is_a".to_string(), 2);
+        sm.finalize_relations();
+
+        let rm = sm.by_relation.get("is_a").unwrap();
+        assert_eq!(rm.count, 2);
+        // rank=0 contributes 0 to MRR; rank=2 contributes 1/2 = 0.5; avg = 0.25
+        assert!((rm.mrr - 0.25).abs() < 1e-6);
+        // rank=0 no hit; rank=2 <= 10 => hit; avg = 0.5
+        assert!((rm.hits_10 - 0.5).abs() < 1e-6);
+        // mean_rank: 0 + 2 = 2, /2 = 1.0
+        assert!((rm.mean_rank - 1.0).abs() < 1e-6);
+    }
+
+    // ---------------------------------------------------------------
+    // TrainingStats: window overflow behavior
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_training_stats_window_overflow() {
+        let mut stats = diagnostics::TrainingStats::new(3);
+
+        // Record more than window_size steps
+        stats.record(1.0, 0.5, 0.1);
+        stats.record(0.9, 0.5, 0.1);
+        stats.record(0.8, 0.5, 0.1);
+        stats.record(0.7, 0.5, 0.1); // Should evict the first
+
+        let (mean_loss, _min, _max) = stats.loss_stats().unwrap();
+        // Only last 3 values: 0.9, 0.8, 0.7 => mean = 0.8
+        assert!((mean_loss - 0.8).abs() < 1e-6);
+    }
+
     #[test]
     fn test_numerical_stability_edge_cases() {
         // Very small volumes
