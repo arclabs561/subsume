@@ -99,18 +99,10 @@ impl EvaluationMetrics {
 }
 
 /// Optimizer comparison results.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct OptimizerComparison {
     /// Results for each optimizer
     pub results: HashMap<String, EvaluationMetrics>,
-}
-
-impl Default for OptimizerComparison {
-    fn default() -> Self {
-        Self {
-            results: HashMap::new(),
-        }
-    }
 }
 
 impl OptimizerComparison {

@@ -2,11 +2,22 @@
 
 [![Documentation](https://docs.rs/subsume/badge.svg)](https://docs.rs/subsume)
 
-Geometric box embeddings for modeling containment ("is-a") and entailment relationships.
+Geometric box embeddings: containment, entailment, overlap. Ndarray and Candle backends.
 
-Dual-licensed under MIT or Apache-2.0.
+## What it provides
 
-## Quickstart
+| Component | What it does |
+|---|---|
+| `Box` trait | Framework-agnostic axis-aligned hyperrectangle: volume, containment, overlap, distance |
+| `GumbelBox` trait | Probabilistic boxes via Gumbel random variables (dense gradients, no flat regions) |
+| `NdarrayBox` / `NdarrayGumbelBox` | CPU backend using `ndarray::Array1<f32>` |
+| `CandleBox` / `CandleGumbelBox` | GPU/Metal backend using `candle_core::Tensor` |
+| Training utilities | Negative sampling, volume regularization, temperature scheduling, AMSGrad |
+| Evaluation | Mean rank, MRR, Hits@k, NDCG, calibration, reliability diagrams |
+| Sheaf networks | Sheaf neural networks for transitivity (Hansen & Ghrist 2019) |
+| Hyperbolic boxes | Box embeddings in Poincare ball (via `hyperball`) |
+
+## Usage
 
 ```toml
 [dependencies]
@@ -16,24 +27,40 @@ ndarray = "0.16"
 
 ```rust
 use subsume::ndarray_backend::NdarrayBox;
+use subsume::Box as BoxTrait;
 use ndarray::array;
 
-// Box A: [0,0,0] to [1,1,1]
+// Box A: [0,0,0] to [1,1,1] (general concept)
 let premise = NdarrayBox::new(array![0., 0., 0.], array![1., 1., 1.], 1.0)?;
 
-// Box B: [0.2,0.2,0.2] to [0.8,0.8,0.8] (inside A)
+// Box B: [0.2,0.2,0.2] to [0.8,0.8,0.8] (specific, inside A)
 let hypothesis = NdarrayBox::new(array![0.2, 0.2, 0.2], array![0.8, 0.8, 0.8], 1.0)?;
 
-// Probability that A contains B
+// Containment probability: P(B inside A)
 let p = premise.containment_prob(&hypothesis, 1.0)?;
-println!("P(B ⊆ A) = {:.2}", p);
+assert!(p > 0.9);
 ```
 
-## Features
+## Examples
 
-- **Gumbel Box**: Probabilistic boxes for training stability
-- **Backends**: `ndarray` (CPU) and `candle` (GPU/Metal)
-- **Training**: Volume regularization, temperature scheduling
-- **Inference**: Fast containment and overlap scoring
+```bash
+cargo run -p subsume --example containment_hierarchy  # taxonomic is-a relationships with nested boxes
+```
 
-See [`docs/`](docs/) for mathematical foundations and research details.
+## Tests
+
+```bash
+cargo test -p subsume
+```
+
+112 unit tests + 12 doc tests covering box operations, containment/overlap scoring, Gumbel boxes, training metrics (MRR, Hits@k, NDCG), calibration diagnostics, negative sampling, sheaf networks, hyperbolic geometry, quasimetric properties, and serialization.
+
+## References
+
+- Vilnis et al. (2018). "Probabilistic Embedding of Knowledge Graphs with Box Lattice Measures"
+- Dasgupta et al. (2020). "Improving Local Identifiability in Probabilistic Box Embeddings"
+- Ren et al. (2020). "Query2Box: Reasoning over Knowledge Graphs using Box Embeddings"
+
+## License
+
+MIT OR Apache-2.0

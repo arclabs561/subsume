@@ -18,15 +18,17 @@ serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 rand = { version = "0.9", optional = true }
 hyperball = { version = "0.1.0", path = "../hyperball" }
-skel = "0.1.0"
+skel = { version = "0.1.0", path = "../skel" }
 ndarray = { version = "0.16", features = ["serde-1"], optional = true }
 serde_json = { version = "1.0", optional = true }
 candle-core = { version = "0.9", optional = true }
 
 [features]
 default = ["ndarray-backend"]
-ndarray-backend = ["dep:ndarray", "dep:serde_json", "dep:rand"]
+ndarray-backend = ["dep:ndarray", "dep:serde_json", "rand"]
 candle-backend = ["dep:candle-core"]
+rand = ["dep:rand"]
+plotting = []
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
