@@ -39,6 +39,10 @@ tempfile = "3"
 missing_docs = "warn"
 unsafe_code = "warn"
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--html-in-header", "docs/katex-header.html"]
+
 [lints.clippy]
 correctness = { level = "deny", priority = -1 }
 perf = { level = "warn", priority = -1 }
