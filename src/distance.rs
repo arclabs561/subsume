@@ -377,3 +377,203 @@ where
     let one = B::Scalar::from(1.0);
     Ok(one / (one + dist))
 }
+
+#[cfg(test)]
+#[cfg(feature = "ndarray-backend")]
+mod tests {
+    use super::*;
+    use crate::ndarray_backend::NdarrayBox;
+    use ndarray::array;
+
+    const TEMP: f32 = 1.0;
+    const VOL_W: f32 = 0.1;
+    const EPS: f32 = 1e-5;
+
+    // ---- depth_distance ----
+
+    #[test]
+    fn depth_distance_identical_boxes() {
+        let a = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], TEMP).unwrap();
+        let b = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], TEMP).unwrap();
+        let d = depth_distance(&a, &b, TEMP, VOL_W).unwrap();
+        assert!(d.abs() < EPS, "identical boxes should have distance ~0, got {d}");
+    }
+
+    #[test]
+    fn depth_distance_nested_boxes() {
+        let outer = NdarrayBox::new(array![0.0, 0.0], array![2.0, 2.0], TEMP).unwrap();
+        let inner = NdarrayBox::new(array![0.5, 0.5], array![1.5, 1.5], TEMP).unwrap();
+        let d = depth_distance(&outer, &inner, TEMP, VOL_W).unwrap();
+        // Box::distance for overlapping boxes returns 0 (min surface distance).
+        // Volumes differ: 4.0 vs 1.0, so volume component > 0.
+        assert!(d > 0.0, "nested boxes with different volumes should have positive distance, got {d}");
+        // The generic implementation uses |vol_a - vol_b| (not log), so volume_diff = 3.0.
+        // Expected: 0 + 0.1 * 3.0 = 0.3
+        let expected = VOL_W * (4.0 - 1.0);
+        assert!((d - expected).abs() < EPS, "nested: expected {expected}, got {d}");
+    }
+
+    #[test]
+    fn depth_distance_disjoint_boxes() {
+        let a = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], TEMP).unwrap();
+        let b = NdarrayBox::new(array![5.0, 5.0], array![6.0, 6.0], TEMP).unwrap();
+        let d = depth_distance(&a, &b, TEMP, VOL_W).unwrap();
+        // Same volume => volume term = 0. Min surface distance = sqrt((5-1)^2 + (5-1)^2) = 4*sqrt(2).
+        let gap_dist = ((5.0 - 1.0_f32).powi(2) * 2.0).sqrt();
+        assert!((d - gap_dist).abs() < EPS, "disjoint same-size boxes: distance should be {gap_dist}, got {d}");
+    }
+
+    #[test]
+    fn depth_distance_overlapping_boxes() {
+        let a = NdarrayBox::new(array![0.0, 0.0], array![2.0, 2.0], TEMP).unwrap();
+        let b = NdarrayBox::new(array![1.0, 1.0], array![3.0, 3.0], TEMP).unwrap();
+        let d = depth_distance(&a, &b, TEMP, VOL_W).unwrap();
+        // Overlapping => Box::distance = 0. Same volume (4.0 each) => volume term = 0.
+        assert!(d.abs() < EPS, "overlapping same-volume boxes: distance should be ~0, got {d}");
+    }
+
+    #[test]
+    fn depth_distance_single_dimension() {
+        let a = NdarrayBox::new(array![0.0], array![1.0], TEMP).unwrap();
+        let b = NdarrayBox::new(array![3.0], array![4.0], TEMP).unwrap();
+        let d = depth_distance(&a, &b, TEMP, VOL_W).unwrap();
+        // Same volume (1.0 each). Surface gap = 3.0 - 1.0 = 2.0.
+        assert!((d - 2.0).abs() < EPS, "1D disjoint same-size: distance should be 2.0, got {d}");
+    }
+
+    #[test]
+    fn depth_distance_volume_weight_scales() {
+        let outer = NdarrayBox::new(array![0.0, 0.0], array![2.0, 2.0], TEMP).unwrap();
+        let inner = NdarrayBox::new(array![0.5, 0.5], array![1.5, 1.5], TEMP).unwrap();
+        let d_low = depth_distance(&outer, &inner, TEMP, 0.01).unwrap();
+        let d_high = depth_distance(&outer, &inner, TEMP, 1.0).unwrap();
+        assert!(d_high > d_low, "higher volume_weight should yield larger distance");
+    }
+
+    // ---- boundary_distance ----
+    //
+    // NOTE: The generic boundary_distance uses a volume-ratio approximation:
+    //   result = (1 - inner_vol / outer_vol) * 0.1
+    // The exact gap-based computation lives in ndarray_backend::distance.
+
+    #[test]
+    fn boundary_distance_identical_boxes() {
+        let a = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], TEMP).unwrap();
+        let b = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], TEMP).unwrap();
+        let d = boundary_distance(&a, &b, TEMP).unwrap();
+        // Identical boxes: vol_ratio = 1.0, so (1 - 1) * 0.1 = 0.
+        assert!(d.is_some(), "identical boxes should be considered contained");
+        assert!(d.unwrap().abs() < EPS, "identical boxes should have boundary distance ~0, got {:?}", d);
+    }
+
+    #[test]
+    fn boundary_distance_nested_centered() {
+        let outer = NdarrayBox::new(array![0.0, 0.0], array![4.0, 4.0], TEMP).unwrap();
+        let inner = NdarrayBox::new(array![1.0, 1.0], array![3.0, 3.0], TEMP).unwrap();
+        let d = boundary_distance(&outer, &inner, TEMP).unwrap();
+        assert!(d.is_some(), "centered inner should be contained");
+        let val = d.unwrap();
+        // inner vol = 4, outer vol = 16, ratio = 0.25, result = (1 - 0.25) * 0.1 = 0.075
+        let expected = (1.0 - 4.0 / 16.0) * 0.1;
+        assert!((val - expected).abs() < EPS, "nested: boundary distance should be {expected}, got {val}");
+    }
+
+    #[test]
+    fn boundary_distance_nested_smaller_inner_larger_distance() {
+        // A smaller inner box (relative to outer) should yield a larger boundary distance
+        // than a bigger inner box, because the volume ratio is smaller.
+        let outer = NdarrayBox::new(array![0.0, 0.0], array![4.0, 4.0], TEMP).unwrap();
+        let big_inner = NdarrayBox::new(array![0.5, 0.5], array![3.5, 3.5], TEMP).unwrap();
+        let small_inner = NdarrayBox::new(array![1.5, 1.5], array![2.5, 2.5], TEMP).unwrap();
+        let d_big = boundary_distance(&outer, &big_inner, TEMP).unwrap().unwrap();
+        let d_small = boundary_distance(&outer, &small_inner, TEMP).unwrap().unwrap();
+        assert!(d_small > d_big, "smaller inner should have larger boundary distance: small={d_small}, big={d_big}");
+    }
+
+    #[test]
+    fn boundary_distance_disjoint_returns_none() {
+        let a = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], TEMP).unwrap();
+        let b = NdarrayBox::new(array![5.0, 5.0], array![6.0, 6.0], TEMP).unwrap();
+        let d = boundary_distance(&a, &b, TEMP).unwrap();
+        assert!(d.is_none(), "disjoint boxes should return None");
+    }
+
+    #[test]
+    fn boundary_distance_overlapping_not_contained_returns_none() {
+        let a = NdarrayBox::new(array![0.0, 0.0], array![2.0, 2.0], TEMP).unwrap();
+        let b = NdarrayBox::new(array![1.0, 1.0], array![3.0, 3.0], TEMP).unwrap();
+        let d = boundary_distance(&a, &b, TEMP).unwrap();
+        assert!(d.is_none(), "overlapping but not contained should return None");
+    }
+
+    #[test]
+    fn boundary_distance_touching_at_boundary() {
+        // Inner box shares both faces in dim 0 with outer => vol_ratio = inner/outer.
+        let outer = NdarrayBox::new(array![0.0, 0.0], array![4.0, 4.0], TEMP).unwrap();
+        let inner = NdarrayBox::new(array![0.0, 1.0], array![4.0, 3.0], TEMP).unwrap();
+        let d = boundary_distance(&outer, &inner, TEMP).unwrap();
+        assert!(d.is_some(), "face-touching inner should be contained");
+        let val = d.unwrap();
+        // inner vol = 4*2 = 8, outer vol = 16, ratio = 0.5, result = 0.5 * 0.1 = 0.05
+        let expected = (1.0 - 8.0 / 16.0) * 0.1;
+        assert!((val - expected).abs() < EPS, "touching at boundary: distance should be {expected}, got {val}");
+    }
+
+    #[test]
+    fn boundary_distance_single_dimension() {
+        let outer = NdarrayBox::new(array![0.0], array![10.0], TEMP).unwrap();
+        let inner = NdarrayBox::new(array![3.0], array![7.0], TEMP).unwrap();
+        let d = boundary_distance(&outer, &inner, TEMP).unwrap();
+        assert!(d.is_some());
+        let val = d.unwrap();
+        // inner vol = 4, outer vol = 10, ratio = 0.4, result = 0.6 * 0.1 = 0.06
+        let expected = (1.0 - 4.0 / 10.0) * 0.1;
+        assert!((val - expected).abs() < EPS, "1D nested: boundary distance should be {expected}, got {val}");
+    }
+
+    // ---- depth_similarity ----
+
+    #[test]
+    fn depth_similarity_identical_boxes() {
+        let a = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], TEMP).unwrap();
+        let b = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], TEMP).unwrap();
+        let s = depth_similarity(&a, &b, TEMP, VOL_W).unwrap();
+        assert!((s - 1.0).abs() < EPS, "identical boxes should have similarity ~1.0, got {s}");
+    }
+
+    #[test]
+    fn depth_similarity_range_zero_to_one() {
+        let a = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], TEMP).unwrap();
+        let b = NdarrayBox::new(array![10.0, 10.0], array![20.0, 20.0], TEMP).unwrap();
+        let s = depth_similarity(&a, &b, TEMP, VOL_W).unwrap();
+        assert!(s > 0.0 && s <= 1.0, "similarity should be in (0, 1], got {s}");
+    }
+
+    #[test]
+    fn depth_similarity_closer_boxes_more_similar() {
+        let a = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], TEMP).unwrap();
+        let near = NdarrayBox::new(array![0.5, 0.5], array![1.5, 1.5], TEMP).unwrap();
+        let far = NdarrayBox::new(array![10.0, 10.0], array![11.0, 11.0], TEMP).unwrap();
+        let s_near = depth_similarity(&a, &near, TEMP, VOL_W).unwrap();
+        let s_far = depth_similarity(&a, &far, TEMP, VOL_W).unwrap();
+        assert!(s_near > s_far, "nearby box should be more similar than distant box: near={s_near}, far={s_far}");
+    }
+
+    #[test]
+    fn depth_similarity_nested_less_than_one() {
+        // Nested boxes have same center but different volumes => distance > 0 => similarity < 1.
+        let outer = NdarrayBox::new(array![0.0, 0.0], array![2.0, 2.0], TEMP).unwrap();
+        let inner = NdarrayBox::new(array![0.5, 0.5], array![1.5, 1.5], TEMP).unwrap();
+        let s = depth_similarity(&outer, &inner, TEMP, VOL_W).unwrap();
+        assert!(s < 1.0, "nested boxes with different volumes should have similarity < 1, got {s}");
+        assert!(s > 0.0, "nested boxes should still have positive similarity, got {s}");
+    }
+
+    #[test]
+    fn depth_similarity_single_dimension() {
+        let a = NdarrayBox::new(array![0.0], array![1.0], TEMP).unwrap();
+        let b = NdarrayBox::new(array![0.0], array![1.0], TEMP).unwrap();
+        let s = depth_similarity(&a, &b, TEMP, VOL_W).unwrap();
+        assert!((s - 1.0).abs() < EPS, "identical 1D boxes should have similarity ~1.0, got {s}");
+    }
+}

@@ -4,6 +4,8 @@
 
 Geometric box embeddings: containment, entailment, overlap. Ndarray and Candle backends.
 
+![Box embedding concepts](docs/box_concepts.png)
+
 ## What it provides
 
 | Component | What it does |
@@ -55,6 +57,17 @@ cargo test -p subsume
 ```
 
 138 unit tests + 12 doc tests covering box operations (intersection, union, containment, overlap, distance, truncation), Gumbel box membership and temperature edge cases, serialization round-trips, training metrics (MRR, Hits@k, NDCG), calibration diagnostics, negative sampling, sheaf networks, hyperbolic geometry, quasimetric properties, and more.
+
+## Why Gumbel boxes?
+
+![Gumbel noise robustness](docs/gumbel_robustness.png)
+
+Gumbel boxes model coordinates as Gumbel random variables, creating soft boundaries
+that provide dense gradients throughout training. Hard boxes create flat regions where
+gradients vanish; Gumbel boxes solve this *local identifiability problem*
+(Dasgupta et al., 2020). As shown above, this also makes containment robust to
+coordinate noise -- Gumbel containment loss stays near zero even at high perturbation
+levels where Gaussian boxes fail completely.
 
 ## References
 
