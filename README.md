@@ -14,6 +14,8 @@ Geometric box embeddings: containment, entailment, overlap. Ndarray and Candle b
 |---|---|
 | `Box` trait | Framework-agnostic axis-aligned hyperrectangle: volume, containment, overlap, distance |
 | `GumbelBox` trait | Probabilistic boxes via Gumbel random variables (dense gradients, no flat regions) |
+| Gumbel operations | Softplus Bessel volume, LSE intersection (Dasgupta et al., 2020) |
+| BoxE scoring | Point-entity BoxE model (Abboud et al., 2020) + box-to-box variant |
 | `NdarrayBox` / `NdarrayGumbelBox` | CPU backend using `ndarray::Array1<f32>` |
 | `CandleBox` / `CandleGumbelBox` | GPU/Metal backend using `candle_core::Tensor` |
 | Training utilities | Negative sampling, volume regularization, temperature scheduling, AMSGrad |
@@ -25,7 +27,7 @@ Geometric box embeddings: containment, entailment, overlap. Ndarray and Candle b
 
 ```toml
 [dependencies]
-subsume = { version = "0.1.2", features = ["ndarray-backend"] }
+subsume = { version = "0.1.3", features = ["ndarray-backend"] }
 ndarray = "0.16"
 ```
 
@@ -62,7 +64,7 @@ See [`examples/README.md`](examples/README.md) for a guide to choosing the right
 cargo test -p subsume
 ```
 
-380+ unit tests + doc tests covering box operations (intersection, union, containment, overlap, distance, truncation), Gumbel box membership and temperature edge cases, serialization round-trips, training metrics (MRR, Hits@k, NDCG), calibration diagnostics, negative sampling, sheaf networks, hyperbolic geometry, quasimetric properties, and more.
+410+ unit tests + property tests + doc tests covering box operations (intersection, union, containment, overlap, distance, truncation), Gumbel box membership and temperature edge cases, serialization round-trips, training metrics (MRR, Hits@k, NDCG), calibration diagnostics, negative sampling, sheaf networks, hyperbolic geometry, quasimetric properties, and more.
 
 ## Why Gumbel boxes?
 
@@ -84,6 +86,7 @@ levels where Gaussian boxes fail completely.
 ## References
 
 - Vilnis et al. (2018). "Probabilistic Embedding of Knowledge Graphs with Box Lattice Measures"
+- Abboud et al. (2020). "BoxE: A Box Embedding Model for Knowledge Base Completion"
 - Dasgupta et al. (2020). "Improving Local Identifiability in Probabilistic Box Embeddings"
 - Ren et al. (2020). "Query2Box: Reasoning over Knowledge Graphs using Box Embeddings"
 
