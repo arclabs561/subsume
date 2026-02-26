@@ -406,4 +406,214 @@ mod tests {
             "Weight decay should shrink parameter even with zero gradient"
         );
     }
+
+    // ---- Adam: multi-step moment accumulation ----
+
+    #[test]
+    fn adam_multi_step_converges_toward_zero_gradient() {
+        let mut optimizer = Adam::new(0.1);
+        let mut param = array![5.0, -3.0];
+        // Apply a constant gradient pointing away from zero for several steps
+        let grad = array![1.0, -1.0];
+        for _ in 0..50 {
+            optimizer.update("p", &mut param, grad.view());
+        }
+        // After many steps with constant positive grad on dim0, param[0] should decrease
+        assert!(param[0] < 5.0, "param[0] should decrease under positive gradient");
+        // Constant negative grad on dim1, param[1] should increase
+        assert!(param[1] > -3.0, "param[1] should increase under negative gradient");
+    }
+
+    #[test]
+    fn adam_separate_params_have_independent_timesteps() {
+        // Verify that updating "p1" does not advance the timestep for "p2".
+        let mut optimizer = Adam::new(0.01);
+        let grad = array![1.0];
+
+        // Update p1 ten times
+        let mut p1 = array![5.0];
+        for _ in 0..10 {
+            optimizer.update("p1", &mut p1, grad.view());
+        }
+
+        // Now update p2 once: it should behave like t=1, not t=11.
+        let mut p2_shared = array![5.0];
+        optimizer.update("p2", &mut p2_shared, grad.view());
+
+        // Compare against a fresh optimizer updating once
+        let mut fresh = Adam::new(0.01);
+        let mut p2_fresh = array![5.0];
+        fresh.update("p2", &mut p2_fresh, grad.view());
+
+        assert!(
+            (p2_shared[0] - p2_fresh[0]).abs() < 1e-7,
+            "p2 in shared optimizer should match fresh optimizer at t=1: shared={}, fresh={}",
+            p2_shared[0], p2_fresh[0]
+        );
+    }
+
+    #[test]
+    fn adam_reset_clears_state() {
+        let mut optimizer = Adam::new(0.01);
+        let mut param = array![1.0, 2.0];
+        let grad = array![0.1, 0.2];
+        optimizer.update("p", &mut param, grad.view());
+
+        optimizer.reset();
+
+        // After reset, a new update on same name should behave as if from scratch
+        let mut param2 = array![1.0, 2.0];
+        let mut fresh_opt = Adam::new(0.01);
+        fresh_opt.update("p", &mut param2, grad.view());
+
+        let mut param3 = array![1.0, 2.0];
+        optimizer.update("p", &mut param3, grad.view());
+
+        assert!(
+            (param2[0] - param3[0]).abs() < 1e-7,
+            "Reset optimizer should match fresh optimizer"
+        );
+    }
+
+    #[test]
+    fn adam_learning_rate_accessors() {
+        let mut opt = Adam::new(0.01);
+        assert!((opt.learning_rate() - 0.01).abs() < 1e-8);
+        opt.set_learning_rate(0.001);
+        assert!((opt.learning_rate() - 0.001).abs() < 1e-8);
+    }
+
+    #[test]
+    fn adam_with_custom_params() {
+        let opt = Adam::with_params(0.01, 0.8, 0.99, 1e-7);
+        assert!((opt.learning_rate() - 0.01).abs() < 1e-8);
+        // Just verify it doesn't panic on update
+        let mut param = array![1.0];
+        let grad = array![0.5];
+        let mut opt = opt;
+        opt.update("p", &mut param, grad.view());
+        assert!(param[0].is_finite());
+    }
+
+    // ---- SGD with momentum ----
+
+    #[test]
+    fn sgd_with_momentum_accelerates() {
+        let mut sgd_mom = SGD::with_momentum(0.01, 0.9);
+        let mut param_mom = array![5.0];
+        let grad = array![1.0];
+
+        // Apply same gradient multiple times; momentum should cause larger steps
+        let mut steps = Vec::new();
+        for _ in 0..5 {
+            let before = param_mom[0];
+            sgd_mom.update("p", &mut param_mom, grad.view());
+            steps.push(before - param_mom[0]);
+        }
+
+        // Each step should be larger than the previous (momentum accumulates)
+        for i in 1..steps.len() {
+            assert!(
+                steps[i] > steps[i - 1] - 1e-7,
+                "Momentum should cause non-decreasing step sizes: step[{}]={}, step[{}]={}",
+                i - 1, steps[i - 1], i, steps[i]
+            );
+        }
+    }
+
+    #[test]
+    fn sgd_no_momentum_exact_update() {
+        let mut sgd = SGD::new(0.1);
+        let mut param = array![3.0, -2.0];
+        let grad = array![1.0, -1.0];
+        sgd.update("p", &mut param, grad.view());
+        // param = param - lr * grad = [3-0.1, -2+0.1] = [2.9, -1.9]
+        assert!((param[0] - 2.9).abs() < 1e-6);
+        assert!((param[1] - (-1.9)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn sgd_reset_clears_momentum() {
+        let mut sgd = SGD::with_momentum(0.01, 0.9);
+        let mut param = array![1.0];
+        let grad = array![1.0];
+        // Build up momentum
+        for _ in 0..10 {
+            sgd.update("p", &mut param, grad.view());
+        }
+        sgd.reset();
+
+        // After reset, first step should be a fresh momentum=0 step
+        let mut p_fresh = array![1.0];
+        let mut sgd_fresh = SGD::with_momentum(0.01, 0.9);
+        sgd_fresh.update("p", &mut p_fresh, grad.view());
+
+        let mut p_reset = array![1.0];
+        sgd.update("p", &mut p_reset, grad.view());
+
+        assert!(
+            (p_fresh[0] - p_reset[0]).abs() < 1e-7,
+            "Reset SGD should match fresh SGD"
+        );
+    }
+
+    // ---- AdamW: stronger weight decay causes more shrinkage ----
+
+    #[test]
+    fn adamw_stronger_weight_decay_shrinks_more() {
+        let grad = array![0.0]; // zero gradient: only weight decay acts
+
+        let mut opt_low = AdamW::new(0.01, 0.01);
+        let mut p_low = array![10.0];
+        opt_low.update("p", &mut p_low, grad.view());
+
+        let mut opt_high = AdamW::new(0.01, 0.5);
+        let mut p_high = array![10.0];
+        opt_high.update("p", &mut p_high, grad.view());
+
+        assert!(
+            p_high[0] < p_low[0],
+            "Higher weight decay should shrink more: low={}, high={}",
+            p_low[0], p_high[0]
+        );
+    }
+
+    #[test]
+    fn adamw_accessors() {
+        let mut opt = AdamW::new(0.01, 0.1);
+        assert!((opt.learning_rate() - 0.01).abs() < 1e-8);
+        assert!((opt.weight_decay() - 0.1).abs() < 1e-8);
+        opt.set_learning_rate(0.005);
+        opt.set_weight_decay(0.05);
+        assert!((opt.learning_rate() - 0.005).abs() < 1e-8);
+        assert!((opt.weight_decay() - 0.05).abs() < 1e-8);
+    }
+
+    #[test]
+    fn adamw_reset_clears_state() {
+        let mut opt = AdamW::new(0.01, 0.01);
+        let mut param = array![1.0];
+        let grad = array![0.5];
+        opt.update("p", &mut param, grad.view());
+        opt.reset();
+
+        let mut p1 = array![1.0];
+        opt.update("p", &mut p1, grad.view());
+
+        let mut fresh = AdamW::new(0.01, 0.01);
+        let mut p2 = array![1.0];
+        fresh.update("p", &mut p2, grad.view());
+
+        assert!(
+            (p1[0] - p2[0]).abs() < 1e-7,
+            "Reset AdamW should match fresh"
+        );
+    }
+
+    #[test]
+    fn adamw_with_custom_params() {
+        let opt = AdamW::with_params(0.01, 0.05, 0.8, 0.99, 1e-7);
+        assert!((opt.learning_rate() - 0.01).abs() < 1e-8);
+        assert!((opt.weight_decay() - 0.05).abs() < 1e-8);
+    }
 }

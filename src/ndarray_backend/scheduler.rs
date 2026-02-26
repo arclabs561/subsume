@@ -430,4 +430,162 @@ mod tests {
         let lr = scheduler.step();
         assert!((lr - 0.1).abs() < 1e-6, "Step 10: expected 0.1, got {}", lr);
     }
+
+    // ---- Exponential LR: monotone decrease ----
+
+    #[test]
+    fn exponential_lr_monotone_decrease() {
+        let mut scheduler = ExponentialLr::new(1.0, 0.95);
+        let mut prev = scheduler.get_lr();
+        for _ in 0..50 {
+            let lr = scheduler.step();
+            assert!(lr <= prev + 1e-7, "LR should be non-increasing");
+            assert!(lr > 0.0, "LR should remain positive");
+            prev = lr;
+        }
+    }
+
+    #[test]
+    fn exponential_lr_exact_values() {
+        let mut scheduler = ExponentialLr::new(2.0, 0.5);
+        // step 0 (before step): 2.0
+        assert!((scheduler.get_lr() - 2.0).abs() < 1e-6);
+        // step 1: 2.0 * 0.5 = 1.0
+        scheduler.step();
+        assert!((scheduler.get_lr() - 1.0).abs() < 1e-6);
+        // step 2: 2.0 * 0.25 = 0.5
+        scheduler.step();
+        assert!((scheduler.get_lr() - 0.5).abs() < 1e-6);
+    }
+
+    // ---- Step LR: multiple milestones ----
+
+    #[test]
+    fn step_lr_multiple_milestones() {
+        let mut scheduler = StepLr::new(1.0, 0.5, 5);
+        // Steps 1-4: 1.0
+        for _ in 0..4 {
+            scheduler.step();
+        }
+        assert!((scheduler.get_lr() - 1.0).abs() < 1e-6);
+
+        // Step 5: first decay -> 0.5
+        scheduler.step();
+        assert!((scheduler.get_lr() - 0.5).abs() < 1e-6);
+
+        // Steps 6-9: still 0.5
+        for _ in 0..4 {
+            scheduler.step();
+        }
+        assert!((scheduler.get_lr() - 0.5).abs() < 1e-6);
+
+        // Step 10: second decay -> 0.25
+        scheduler.step();
+        assert!((scheduler.get_lr() - 0.25).abs() < 1e-6);
+    }
+
+    // ---- Warmup LR: custom start ----
+
+    #[test]
+    fn warmup_lr_custom_start() {
+        let mut scheduler = WarmupLr::with_start_lr(1.0, 10, 0.5);
+        // At step 0 (before step), lr should be start_lr = 0.5
+        assert!((scheduler.get_lr() - 0.5).abs() < 1e-6);
+
+        // Midpoint of warmup: 0.5 + (1.0-0.5)*5/10 = 0.75
+        for _ in 0..5 {
+            scheduler.step();
+        }
+        assert!(
+            (scheduler.get_lr() - 0.75).abs() < 1e-6,
+            "Expected 0.75, got {}",
+            scheduler.get_lr()
+        );
+    }
+
+    // ---- Beyond total steps ----
+
+    #[test]
+    fn cosine_annealing_beyond_total_stays_at_min() {
+        let mut scheduler = CosineAnnealingLr::new(1.0, 0.01, 100);
+        for _ in 0..200 {
+            scheduler.step();
+        }
+        assert!(
+            (scheduler.get_lr() - 0.01).abs() < 1e-6,
+            "Beyond total steps should stay at min_lr"
+        );
+    }
+
+    #[test]
+    fn warmup_cosine_beyond_total_stays_at_min() {
+        let mut scheduler = WarmupCosineAnnealingLr::new(1.0, 0.01, 10, 100);
+        for _ in 0..200 {
+            scheduler.step();
+        }
+        assert!(
+            (scheduler.get_lr() - 0.01).abs() < 1e-6,
+            "Beyond total steps should stay at min_lr"
+        );
+    }
+
+    // ---- get_step ----
+
+    #[test]
+    fn get_step_tracks_calls() {
+        let mut s1 = ConstantLr::new(0.1);
+        assert_eq!(s1.get_step(), 0);
+        s1.step();
+        s1.step();
+        s1.step();
+        assert_eq!(s1.get_step(), 3);
+
+        let mut s2 = ExponentialLr::new(1.0, 0.9);
+        assert_eq!(s2.get_step(), 0);
+        for _ in 0..7 {
+            s2.step();
+        }
+        assert_eq!(s2.get_step(), 7);
+    }
+
+    // ---- All schedulers produce finite positive LR ----
+
+    #[test]
+    fn all_schedulers_produce_finite_positive_lr() {
+        let schedulers: Vec<Box<dyn LrScheduler>> = vec![
+            Box::new(ConstantLr::new(0.01)),
+            Box::new(WarmupLr::new(0.01, 10)),
+            Box::new(CosineAnnealingLr::new(0.01, 0.001, 100)),
+            Box::new(WarmupCosineAnnealingLr::new(0.01, 0.001, 10, 100)),
+            Box::new(ExponentialLr::new(0.01, 0.99)),
+            Box::new(StepLr::new(0.01, 0.5, 10)),
+        ];
+
+        for mut sched in schedulers {
+            for step_num in 0..150 {
+                let lr = sched.step();
+                assert!(
+                    lr.is_finite() && lr >= 0.0,
+                    "Scheduler produced invalid LR {} at step {}",
+                    lr, step_num
+                );
+            }
+        }
+    }
+
+    // ---- Cosine annealing LR is non-increasing ----
+
+    #[test]
+    fn cosine_annealing_monotone_decrease() {
+        let mut scheduler = CosineAnnealingLr::new(1.0, 0.0, 200);
+        let mut prev = scheduler.get_lr();
+        for _ in 0..200 {
+            let lr = scheduler.step();
+            assert!(
+                lr <= prev + 1e-6,
+                "Cosine annealing should be non-increasing"
+            );
+            prev = lr;
+        }
+    }
 }

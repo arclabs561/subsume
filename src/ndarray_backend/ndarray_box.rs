@@ -787,4 +787,291 @@ mod tests {
         let p = a.overlap_prob(&b, 1.0).unwrap();
         assert_eq!(p, 0.0, "Disjoint boxes should have overlap prob 0.0");
     }
+
+    // ---- Construction error paths ----
+
+    #[test]
+    fn new_dimension_mismatch_returns_error() {
+        let result = NdarrayBox::new(array![0.0, 0.0], array![1.0], 1.0);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            BoxError::DimensionMismatch { expected, actual } => {
+                assert_eq!(expected, 2);
+                assert_eq!(actual, 1);
+            }
+            other => panic!("Expected DimensionMismatch, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn new_invalid_bounds_returns_error() {
+        // min[1] > max[1]
+        let result = NdarrayBox::new(array![0.0, 5.0], array![1.0, 3.0], 1.0);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            BoxError::InvalidBounds { dim, .. } => {
+                assert_eq!(dim, 1);
+            }
+            other => panic!("Expected InvalidBounds, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn new_zero_width_box_is_valid() {
+        // min == max is allowed (zero-volume box)
+        let b = NdarrayBox::new(array![1.0, 2.0], array![1.0, 2.0], 1.0).unwrap();
+        let vol = b.volume(1.0).unwrap();
+        assert_eq!(vol, 0.0);
+    }
+
+    #[test]
+    fn new_1d_box() {
+        let b = NdarrayBox::new(array![0.0], array![5.0], 1.0).unwrap();
+        assert_eq!(b.dim(), 1);
+        let vol = b.volume(1.0).unwrap();
+        assert!((vol - 5.0).abs() < 1e-6);
+    }
+
+    // ---- Center ----
+
+    #[test]
+    fn center_is_midpoint() {
+        let b = NdarrayBox::new(array![0.0, 2.0, 4.0], array![4.0, 6.0, 8.0], 1.0).unwrap();
+        let c = b.center().unwrap();
+        assert!((c[0] - 2.0).abs() < 1e-6);
+        assert!((c[1] - 4.0).abs() < 1e-6);
+        assert!((c[2] - 6.0).abs() < 1e-6);
+    }
+
+    // ---- containment_prob_many ----
+
+    #[test]
+    fn containment_prob_many_matches_individual() {
+        let parent = NdarrayBox::new(array![0.0, 0.0], array![10.0, 10.0], 1.0).unwrap();
+        let children = vec![
+            NdarrayBox::new(array![1.0, 1.0], array![3.0, 3.0], 1.0).unwrap(),
+            NdarrayBox::new(array![5.0, 5.0], array![6.0, 6.0], 1.0).unwrap(),
+            NdarrayBox::new(array![20.0, 20.0], array![30.0, 30.0], 1.0).unwrap(),
+        ];
+        let mut out = vec![0.0f32; 3];
+        parent.containment_prob_many(&children, 1.0, &mut out).unwrap();
+
+        for (i, child) in children.iter().enumerate() {
+            let expected = parent.containment_prob(child, 1.0).unwrap();
+            assert!(
+                (out[i] - expected).abs() < 1e-6,
+                "Mismatch at index {}: batch={} individual={}",
+                i, out[i], expected
+            );
+        }
+    }
+
+    #[test]
+    fn containment_prob_many_buffer_too_small() {
+        let parent = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();
+        let children = vec![
+            NdarrayBox::new(array![0.0, 0.0], array![0.5, 0.5], 1.0).unwrap(),
+            NdarrayBox::new(array![0.0, 0.0], array![0.5, 0.5], 1.0).unwrap(),
+        ];
+        let mut out = vec![0.0f32; 1]; // too small
+        let result = parent.containment_prob_many(&children, 1.0, &mut out);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn containment_prob_many_dimension_mismatch() {
+        let parent = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();
+        let children = vec![
+            NdarrayBox::new(array![0.0, 0.0, 0.0], array![0.5, 0.5, 0.5], 1.0).unwrap(),
+        ];
+        let mut out = vec![0.0f32; 1];
+        let result = parent.containment_prob_many(&children, 1.0, &mut out);
+        assert!(result.is_err());
+    }
+
+    // ---- High-dimensional (>10) paths ----
+
+    #[test]
+    fn volume_high_dim_uses_log_space() {
+        // 12 dimensions, all side length 2.0 => volume = 2^12 = 4096
+        let min_vals = Array1::from(vec![0.0; 12]);
+        let max_vals = Array1::from(vec![2.0; 12]);
+        let b = NdarrayBox::new(min_vals, max_vals, 1.0).unwrap();
+        let vol = b.volume(1.0).unwrap();
+        assert!(
+            (vol - 4096.0).abs() < 1.0,
+            "Expected ~4096, got {}",
+            vol
+        );
+    }
+
+    #[test]
+    fn containment_prob_high_dim_nested() {
+        let dim = 15;
+        let parent = NdarrayBox::new(
+            Array1::from(vec![0.0; dim]),
+            Array1::from(vec![10.0; dim]),
+            1.0,
+        ).unwrap();
+        let child = NdarrayBox::new(
+            Array1::from(vec![2.0; dim]),
+            Array1::from(vec![8.0; dim]),
+            1.0,
+        ).unwrap();
+        let p = parent.containment_prob(&child, 1.0).unwrap();
+        assert!(
+            (p - 1.0).abs() < 1e-4,
+            "Fully nested in high dim should give ~1.0, got {}",
+            p
+        );
+    }
+
+    #[test]
+    fn containment_prob_high_dim_disjoint() {
+        let dim = 15;
+        let a = NdarrayBox::new(
+            Array1::from(vec![0.0; dim]),
+            Array1::from(vec![1.0; dim]),
+            1.0,
+        ).unwrap();
+        let b = NdarrayBox::new(
+            Array1::from(vec![5.0; dim]),
+            Array1::from(vec![6.0; dim]),
+            1.0,
+        ).unwrap();
+        let p = a.containment_prob(&b, 1.0).unwrap();
+        assert_eq!(p, 0.0);
+    }
+
+    #[test]
+    fn overlap_prob_high_dim_identical() {
+        let dim = 15;
+        let a = NdarrayBox::new(
+            Array1::from(vec![0.0; dim]),
+            Array1::from(vec![1.0; dim]),
+            1.0,
+        ).unwrap();
+        let p = a.overlap_prob(&a, 1.0).unwrap();
+        assert!(
+            (p - 1.0).abs() < 1e-4,
+            "Identical high-dim boxes should have overlap ~1.0, got {}",
+            p
+        );
+    }
+
+    #[test]
+    fn containment_prob_many_high_dim() {
+        let dim = 15;
+        let parent = NdarrayBox::new(
+            Array1::from(vec![0.0; dim]),
+            Array1::from(vec![10.0; dim]),
+            1.0,
+        ).unwrap();
+        let children = vec![
+            NdarrayBox::new(
+                Array1::from(vec![1.0; dim]),
+                Array1::from(vec![9.0; dim]),
+                1.0,
+            ).unwrap(),
+            NdarrayBox::new(
+                Array1::from(vec![20.0; dim]),
+                Array1::from(vec![30.0; dim]),
+                1.0,
+            ).unwrap(),
+        ];
+        let mut out = vec![0.0f32; 2];
+        parent.containment_prob_many(&children, 1.0, &mut out).unwrap();
+        assert!(out[0] > 0.99, "Nested child should have ~1.0, got {}", out[0]);
+        assert_eq!(out[1], 0.0, "Disjoint child should have 0.0");
+    }
+
+    // ---- Cross-operation dimension mismatch ----
+
+    #[test]
+    fn intersection_dimension_mismatch() {
+        let a = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();
+        let b = NdarrayBox::new(array![0.0], array![1.0], 1.0).unwrap();
+        assert!(a.intersection(&b).is_err());
+    }
+
+    #[test]
+    fn union_dimension_mismatch() {
+        let a = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();
+        let b = NdarrayBox::new(array![0.0], array![1.0], 1.0).unwrap();
+        assert!(a.union(&b).is_err());
+    }
+
+    #[test]
+    fn distance_dimension_mismatch() {
+        let a = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();
+        let b = NdarrayBox::new(array![0.0], array![1.0], 1.0).unwrap();
+        assert!(a.distance(&b).is_err());
+    }
+
+    #[test]
+    fn containment_prob_dimension_mismatch() {
+        let a = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();
+        let b = NdarrayBox::new(array![0.0], array![1.0], 1.0).unwrap();
+        assert!(a.containment_prob(&b, 1.0).is_err());
+    }
+
+    #[test]
+    fn overlap_prob_dimension_mismatch() {
+        let a = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();
+        let b = NdarrayBox::new(array![0.0], array![1.0], 1.0).unwrap();
+        assert!(a.overlap_prob(&b, 1.0).is_err());
+    }
+
+    #[test]
+    fn truncation_beyond_dim_is_error() {
+        let a = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();
+        assert!(a.truncate(5).is_err());
+    }
+
+    // ---- Containment with zero-volume child ----
+
+    #[test]
+    fn containment_prob_zero_volume_child_is_error() {
+        let parent = NdarrayBox::new(array![0.0, 0.0], array![4.0, 4.0], 1.0).unwrap();
+        let child = NdarrayBox::new(array![1.0, 1.0], array![1.0, 1.0], 1.0).unwrap();
+        // Zero-volume "other" causes ZeroVolume error
+        let result = parent.containment_prob(&child, 1.0);
+        assert!(result.is_err());
+    }
+
+    // ---- Serialization edge cases ----
+
+    #[test]
+    fn serde_json_rejects_invalid_bounds() {
+        let json = r#"{"min":[5.0, 0.0],"max":[1.0, 1.0],"temperature":1.0}"#;
+        let result: Result<NdarrayBox, _> = serde_json::from_str(json);
+        assert!(result.is_err(), "Deserialization should reject min > max");
+    }
+
+    #[test]
+    fn serde_json_rejects_missing_field() {
+        let json = r#"{"min":[0.0],"max":[1.0]}"#;
+        let result: Result<NdarrayBox, _> = serde_json::from_str(json);
+        assert!(result.is_err(), "Should reject missing temperature");
+    }
+
+    #[test]
+    fn serde_json_rejects_dimension_mismatch() {
+        let json = r#"{"min":[0.0, 0.0],"max":[1.0],"temperature":1.0}"#;
+        let result: Result<NdarrayBox, _> = serde_json::from_str(json);
+        assert!(result.is_err(), "Should reject mismatched dims");
+    }
+
+    // ---- Overlap partial ----
+
+    #[test]
+    fn overlap_prob_partial_overlap_in_unit_interval() {
+        let a = NdarrayBox::new(array![0.0, 0.0], array![2.0, 2.0], 1.0).unwrap();
+        let b = NdarrayBox::new(array![1.0, 1.0], array![3.0, 3.0], 1.0).unwrap();
+        let p = a.overlap_prob(&b, 1.0).unwrap();
+        // Intersection = [1,1]-[2,2] vol=1, union = [0,0]-[3,3] vol=9
+        // But overlap = vol_intersection / vol_union = 1/(4+4-1) = 1/7
+        assert!(p > 0.0 && p < 1.0, "Partial overlap should be in (0,1), got {}", p);
+        assert!((p - 1.0/7.0).abs() < 1e-5);
+    }
 }

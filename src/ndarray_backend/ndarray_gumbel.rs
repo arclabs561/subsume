@@ -317,4 +317,156 @@ mod tests {
             assert!(v.is_finite(), "Sampled value must be finite, got {}", v);
         }
     }
+
+    // ---- Construction error paths ----
+
+    #[test]
+    fn gumbel_box_dim_mismatch_error() {
+        let result = NdarrayGumbelBox::new(array![0.0, 0.0], array![1.0], 1.0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn gumbel_box_invalid_bounds_error() {
+        let result = NdarrayGumbelBox::new(array![5.0], array![1.0], 1.0);
+        assert!(result.is_err());
+    }
+
+    // ---- Membership dimension mismatch ----
+
+    #[test]
+    fn membership_prob_dimension_mismatch() {
+        let gb = NdarrayGumbelBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();
+        let point = array![0.5]; // wrong dimension
+        let result = gb.membership_probability(&point);
+        assert!(result.is_err());
+    }
+
+    // ---- Temperature accessor ----
+
+    #[test]
+    fn temperature_accessor_returns_construction_value() {
+        let gb = NdarrayGumbelBox::new(array![0.0], array![1.0], 0.42).unwrap();
+        assert!((gb.temperature() - 0.42).abs() < 1e-7);
+    }
+
+    // ---- Soft containment: membership near boundary is ~0.5 per dim ----
+
+    #[test]
+    fn membership_at_boundary_is_near_half_per_dim() {
+        // At temperature 1.0, membership at the min or max boundary should be
+        // sigmoid(0) = 0.5 in that dimension. For a 1D box, P = sigmoid(0)*sigmoid(width/temp).
+        let gb = NdarrayGumbelBox::new(array![0.0], array![10.0], 1.0).unwrap();
+        let p_at_min = gb.membership_probability(&array![0.0]).unwrap();
+        let p_at_max = gb.membership_probability(&array![10.0]).unwrap();
+        // At min: sigmoid(0) * sigmoid(10) ~ 0.5 * 0.99995 ~ 0.5
+        // At max: sigmoid(10) * sigmoid(0) ~ 0.99995 * 0.5 ~ 0.5
+        assert!(
+            (p_at_min - 0.5).abs() < 0.05,
+            "At min boundary expected ~0.5, got {}",
+            p_at_min
+        );
+        assert!(
+            (p_at_max - 0.5).abs() < 0.05,
+            "At max boundary expected ~0.5, got {}",
+            p_at_max
+        );
+    }
+
+    // ---- Temperature extremes ----
+
+    #[test]
+    fn very_low_temperature_membership_approaches_hard() {
+        // At near-zero temperature, inside points should have membership near 1.0
+        let gb = NdarrayGumbelBox::new(array![0.0, 0.0], array![4.0, 4.0], 0.001).unwrap();
+        let center = array![2.0, 2.0];
+        let p = gb.membership_probability(&center).unwrap();
+        assert!(
+            p > 0.99,
+            "At very low temp, center should have membership ~1.0, got {}",
+            p
+        );
+    }
+
+    #[test]
+    fn very_low_temperature_outside_membership_approaches_zero() {
+        let gb = NdarrayGumbelBox::new(array![0.0, 0.0], array![4.0, 4.0], 0.001).unwrap();
+        let outside = array![-1.0, -1.0];
+        let p = gb.membership_probability(&outside).unwrap();
+        assert!(
+            p < 0.01,
+            "At very low temp, outside should have membership ~0.0, got {}",
+            p
+        );
+    }
+
+    // ---- Delegated Box trait operations ----
+
+    #[test]
+    fn gumbel_box_intersection_delegates() {
+        let a = NdarrayGumbelBox::new(array![0.0, 0.0], array![2.0, 2.0], 1.0).unwrap();
+        let b = NdarrayGumbelBox::new(array![1.0, 1.0], array![3.0, 3.0], 1.0).unwrap();
+        let inter = a.intersection(&b).unwrap();
+        let vol = inter.volume(1.0).unwrap();
+        assert!((vol - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn gumbel_box_union_delegates() {
+        let a = NdarrayGumbelBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();
+        let u = a.union(&a).unwrap();
+        let vol_a = a.volume(1.0).unwrap();
+        let vol_u = u.volume(1.0).unwrap();
+        assert!((vol_a - vol_u).abs() < 1e-6);
+    }
+
+    #[test]
+    fn gumbel_box_center_delegates() {
+        let gb = NdarrayGumbelBox::new(array![0.0, 4.0], array![2.0, 8.0], 1.0).unwrap();
+        let c = gb.center().unwrap();
+        assert!((c[0] - 1.0).abs() < 1e-6);
+        assert!((c[1] - 6.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn gumbel_box_distance_delegates() {
+        let a = NdarrayGumbelBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();
+        let b = NdarrayGumbelBox::new(array![3.0, 0.0], array![4.0, 1.0], 1.0).unwrap();
+        let d = a.distance(&b).unwrap();
+        assert!((d - 2.0).abs() < 1e-5, "Gap of 2 in x only, expected 2.0, got {}", d);
+    }
+
+    #[test]
+    fn gumbel_box_truncate_delegates() {
+        let gb = NdarrayGumbelBox::new(array![0.0, 1.0, 2.0], array![3.0, 4.0, 5.0], 0.5).unwrap();
+        let t = gb.truncate(2).unwrap();
+        assert_eq!(t.dim(), 2);
+        assert!((t.min()[0] - 0.0).abs() < 1e-7);
+        assert!((t.max()[1] - 4.0).abs() < 1e-7);
+    }
+
+    // ---- Membership monotonicity in distance from center ----
+
+    #[test]
+    fn membership_decreases_moving_away_from_center() {
+        let gb = NdarrayGumbelBox::new(array![0.0, 0.0], array![4.0, 4.0], 1.0).unwrap();
+        let center = array![2.0, 2.0];
+        let near_edge = array![3.5, 3.5];
+        let outside = array![6.0, 6.0];
+
+        let p_center = gb.membership_probability(&center).unwrap();
+        let p_edge = gb.membership_probability(&near_edge).unwrap();
+        let p_out = gb.membership_probability(&outside).unwrap();
+
+        assert!(
+            p_center > p_edge,
+            "Center ({}) should have higher membership than near-edge ({})",
+            p_center, p_edge
+        );
+        assert!(
+            p_edge > p_out,
+            "Near-edge ({}) should have higher membership than outside ({})",
+            p_edge, p_out
+        );
+    }
 }
