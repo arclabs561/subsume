@@ -183,7 +183,7 @@ pub use hyperbolic::{
 pub use dataset::{Dataset, DatasetError, DatasetStats, Triple};
 
 // Re-exports: representations and scoring
-pub use boxe::{boxe_loss, boxe_score, Bump};
+pub use boxe::{boxe_loss, boxe_point_score, boxe_score, Bump};
 pub use center_offset::{center_offset_to_min_max, min_max_to_center_offset};
 pub use distance::{boundary_distance, depth_distance, depth_similarity, vector_to_box_distance};
 pub use embedding::{BoxCollection, BoxEmbedding};
@@ -237,10 +237,12 @@ pub use sheaf::{
 // Re-exports: utilities
 pub use utils::validation;
 pub use utils::{
-    clamp_temperature, clamp_temperature_default, gumbel_membership_prob, is_cross_pattern,
+    bessel_log_volume, bessel_side_length, clamp_temperature, clamp_temperature_default,
+    gumbel_lse_max, gumbel_lse_min, gumbel_membership_prob, is_cross_pattern,
     is_perfectly_nested, log_space_volume, map_gumbel_to_bounds, safe_init_bounds, sample_gumbel,
-    stable_sigmoid, suggested_min_separation, temperature_scheduler, volume_containment_loss,
-    volume_overlap_loss, volume_regularization, MAX_TEMPERATURE, MIN_TEMPERATURE,
+    softplus, stable_logsumexp, stable_sigmoid, suggested_min_separation, temperature_scheduler,
+    volume_containment_loss, volume_overlap_loss, volume_regularization, EULER_GAMMA,
+    MAX_TEMPERATURE, MIN_TEMPERATURE,
 };
 
 // ---------------------------------------------------------------------------

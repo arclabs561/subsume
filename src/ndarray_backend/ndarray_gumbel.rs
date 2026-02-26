@@ -1,6 +1,7 @@
 //! Ndarray implementation of GumbelBox trait.
 
 use crate::ndarray_backend::ndarray_box::NdarrayBox;
+use crate::utils::{bessel_log_volume, gumbel_lse_max, gumbel_lse_min};
 use crate::{
     gumbel_membership_prob, map_gumbel_to_bounds, sample_gumbel, Box, BoxError, GumbelBox,
 };
@@ -57,30 +58,94 @@ impl Box for NdarrayGumbelBox {
         self.inner.dim()
     }
 
-    fn volume(&self, temperature: Self::Scalar) -> Result<Self::Scalar, BoxError> {
-        self.inner.volume(temperature)
+    /// Gumbel box volume using the Bessel/softplus approximation (Dasgupta et al., 2020).
+    ///
+    /// Per dimension: `softplus(Z - z - 2*gamma*T, beta=1/T)`
+    /// where `gamma` is the Euler-Mascheroni constant and `T` is the temperature.
+    ///
+    /// This provides smooth gradients even for near-empty boxes, solving the local
+    /// identifiability problem that motivates Gumbel boxes in the first place.
+    fn volume(&self, _temperature: Self::Scalar) -> Result<Self::Scalar, BoxError> {
+        let t = self.inner.temperature;
+        let mins = self.min().as_slice().unwrap();
+        let maxs = self.max().as_slice().unwrap();
+        let (_, vol) = bessel_log_volume(mins, maxs, t, t);
+        Ok(vol)
     }
 
+    /// Gumbel box intersection using log-sum-exp (Dasgupta et al., 2020).
+    ///
+    /// ```text
+    /// z_cap[d] =  T * logsumexp(z_a[d]/T, z_b[d]/T)    (smooth max)
+    /// Z_cap[d] = -T * logsumexp(-Z_a[d]/T, -Z_b[d]/T)  (smooth min)
+    /// ```
+    ///
+    /// The LSE intersection provides smooth gradients at box boundaries,
+    /// approaching the hard intersection as T -> 0.
     fn intersection(&self, other: &Self) -> Result<Self, BoxError> {
+        if self.dim() != other.dim() {
+            return Err(BoxError::DimensionMismatch {
+                expected: self.dim(),
+                actual: other.dim(),
+            });
+        }
+
+        let t = self.inner.temperature;
+        let n = self.dim();
+
+        let mut new_min = Vec::with_capacity(n);
+        let mut new_max = Vec::with_capacity(n);
+
+        for d in 0..n {
+            new_min.push(gumbel_lse_min(self.min()[d], other.min()[d], t));
+            new_max.push(gumbel_lse_max(self.max()[d], other.max()[d], t));
+        }
+
+        // No hard clipping: softplus volume handles "flipped" boxes (z > Z)
+        // gracefully by returning near-zero volume.
         Ok(Self {
-            inner: self.inner.intersection(&other.inner)?,
+            inner: NdarrayBox::new_unchecked(
+                Array1::from(new_min),
+                Array1::from(new_max),
+                t,
+            ),
         })
     }
 
+    /// Containment probability using Gumbel volume and LSE intersection.
+    ///
+    /// `P(other inside self) = Vol(self cap other) / Vol(other)`
     fn containment_prob(
         &self,
         other: &Self,
-        temperature: Self::Scalar,
+        _temperature: Self::Scalar,
     ) -> Result<Self::Scalar, BoxError> {
-        self.inner.containment_prob(&other.inner, temperature)
+        let inter = self.intersection(other)?;
+        let inter_vol = inter.volume(0.0)?;
+        let other_vol = other.volume(0.0)?;
+        if other_vol <= 1e-30 {
+            return Ok(0.0);
+        }
+        Ok((inter_vol / other_vol).clamp(0.0, 1.0))
     }
 
+    /// Overlap probability using Gumbel volume and LSE intersection.
+    ///
+    /// `P(self cap other != empty) = Vol(self cap other) / Vol(self cup other)`
     fn overlap_prob(
         &self,
         other: &Self,
-        temperature: Self::Scalar,
+        _temperature: Self::Scalar,
     ) -> Result<Self::Scalar, BoxError> {
-        self.inner.overlap_prob(&other.inner, temperature)
+        let inter = self.intersection(other)?;
+        let inter_vol = inter.volume(0.0)?;
+        let self_vol = self.volume(0.0)?;
+        let other_vol = other.volume(0.0)?;
+        let union_vol = self_vol + other_vol - inter_vol;
+        if union_vol <= 1e-30 {
+            return Ok(0.0);
+        }
+        Ok((inter_vol / union_vol).clamp(0.0, 1.0))
     }
 
     fn union(&self, other: &Self) -> Result<Self, BoxError> {
@@ -224,11 +289,10 @@ mod tests {
 
     #[test]
     fn containment_monotonicity_nested_gumbel_boxes() {
-        // If C inside B inside A, then P(C|A) should be >= P(B|A) is not
-        // guaranteed, but P(A contains B) should be high and P(A contains C) should be high.
-        // More precisely: P(B inside A) >= P(C inside A) is not guaranteed because
-        // containment_prob = Vol(intersection) / Vol(other). Instead we check
-        // that both are near 1.0 when boxes are strictly nested.
+        // With Bessel volume (softplus with 2*gamma*T offset), the effective side
+        // lengths are smaller than the hard box. At T=1.0, the offset is ~1.154
+        // per dimension. Containment probabilities are lower than hard-box but
+        // should still show monotonicity: more nested = higher containment.
         let a =
             NdarrayGumbelBox::new(array![0.0, 0.0], array![10.0, 10.0], 1.0).unwrap();
         let b =
@@ -240,9 +304,16 @@ mod tests {
         let p_c_in_a = a.containment_prob(&c, 1.0).unwrap();
         let p_c_in_b = b.containment_prob(&c, 1.0).unwrap();
 
-        assert!(p_b_in_a > 0.99, "B should be inside A, got {}", p_b_in_a);
-        assert!(p_c_in_a > 0.99, "C should be inside A, got {}", p_c_in_a);
-        assert!(p_c_in_b > 0.99, "C should be inside B, got {}", p_c_in_b);
+        // All should be well above 0.5 for clearly nested boxes
+        assert!(p_b_in_a > 0.7, "B should be inside A, got {}", p_b_in_a);
+        assert!(p_c_in_a > 0.7, "C should be inside A, got {}", p_c_in_a);
+        assert!(p_c_in_b > 0.7, "C should be inside B, got {}", p_c_in_b);
+
+        // At low temperature, should approach hard-box behavior
+        let a_sharp = NdarrayGumbelBox::new(array![0.0, 0.0], array![10.0, 10.0], 0.01).unwrap();
+        let b_sharp = NdarrayGumbelBox::new(array![1.0, 1.0], array![9.0, 9.0], 0.01).unwrap();
+        let p_sharp = a_sharp.containment_prob(&b_sharp, 0.01).unwrap();
+        assert!(p_sharp > 0.99, "At low T, containment should be ~1.0, got {}", p_sharp);
     }
 
     // ---- Temperature effects on Gumbel membership ----
@@ -403,12 +474,32 @@ mod tests {
     // ---- Delegated Box trait operations ----
 
     #[test]
-    fn gumbel_box_intersection_delegates() {
+    fn gumbel_box_intersection_uses_lse() {
+        // LSE intersection produces smoother bounds than hard intersection.
+        // For boxes [0,2]^2 and [1,3]^2 at T=1.0:
+        //   z_cap = T * lse(0/T, 1/T) = lse(0, 1) = ln(1 + e) ~ 1.313
+        //   Z_cap = -T * lse(-2/T, -3/T) = -lse(-2, -3) ~ -(-1.687) = 1.687 (wrong sign calc)
+        // Actually: gumbel_lse_max(2, 3, 1) = -lse(-2, -3, 1) which is smooth min(2,3) ~ 1.687
+        // So intersection box is approximately [1.313, 1.687]^2, vol ~ 0.14
         let a = NdarrayGumbelBox::new(array![0.0, 0.0], array![2.0, 2.0], 1.0).unwrap();
         let b = NdarrayGumbelBox::new(array![1.0, 1.0], array![3.0, 3.0], 1.0).unwrap();
         let inter = a.intersection(&b).unwrap();
         let vol = inter.volume(1.0).unwrap();
-        assert!((vol - 1.0).abs() < 1e-6);
+        // Volume should be positive but less than the hard intersection volume (1.0)
+        assert!(vol > 0.0, "intersection volume should be positive, got {}", vol);
+        assert!(vol < 1.0, "LSE intersection volume should be < hard vol (1.0), got {}", vol);
+
+        // At low temperature, should approach hard intersection
+        let a_sharp = NdarrayGumbelBox::new(array![0.0, 0.0], array![2.0, 2.0], 0.01).unwrap();
+        let b_sharp = NdarrayGumbelBox::new(array![1.0, 1.0], array![3.0, 3.0], 0.01).unwrap();
+        let inter_sharp = a_sharp.intersection(&b_sharp).unwrap();
+        let vol_sharp = inter_sharp.volume(0.01).unwrap();
+        // Hard intersection is [1,2]^2 = 1.0; Bessel vol at T=0.01 should be close
+        assert!(
+            (vol_sharp - 1.0).abs() < 0.1,
+            "At low T, intersection volume should be ~1.0, got {}",
+            vol_sharp
+        );
     }
 
     #[test]
@@ -468,6 +559,130 @@ mod tests {
             "Near-edge ({}) should have higher membership than outside ({})",
             p_edge, p_out
         );
+    }
+
+    // ---- Bessel volume properties ----
+
+    #[test]
+    fn bessel_volume_monotone_in_side_length() {
+        // Larger side length => larger Bessel volume
+        let small = NdarrayGumbelBox::new(array![0.0], array![2.0], 1.0).unwrap();
+        let large = NdarrayGumbelBox::new(array![0.0], array![5.0], 1.0).unwrap();
+        let v_small = small.volume(1.0).unwrap();
+        let v_large = large.volume(1.0).unwrap();
+        assert!(v_large > v_small, "larger box should have larger vol: {v_large} vs {v_small}");
+    }
+
+    #[test]
+    fn bessel_volume_positive_for_nonempty_box() {
+        let b = NdarrayGumbelBox::new(array![0.0, 0.0, 0.0], array![1.0, 1.0, 1.0], 1.0).unwrap();
+        let v = b.volume(1.0).unwrap();
+        assert!(v > 0.0, "non-empty box should have positive volume, got {v}");
+        assert!(v.is_finite(), "volume should be finite");
+    }
+
+    #[test]
+    fn bessel_volume_approaches_hard_at_low_temperature() {
+        // At T=0.01, Bessel volume should be close to hard volume
+        let b = NdarrayGumbelBox::new(array![0.0, 0.0], array![3.0, 4.0], 0.01).unwrap();
+        let v = b.volume(0.01).unwrap();
+        let hard_vol = 3.0 * 4.0;
+        assert!(
+            (v - hard_vol).abs() / hard_vol < 0.05,
+            "At low T, Bessel vol ({v}) should be close to hard vol ({hard_vol})"
+        );
+    }
+
+    #[test]
+    fn bessel_volume_smaller_than_hard_at_high_temperature() {
+        // The 2*gamma*T offset reduces effective side lengths
+        let b = NdarrayGumbelBox::new(array![0.0, 0.0], array![5.0, 5.0], 1.0).unwrap();
+        let bessel_vol = b.volume(1.0).unwrap();
+        let hard_vol = 5.0 * 5.0;
+        assert!(
+            bessel_vol < hard_vol,
+            "Bessel vol ({bessel_vol}) should be < hard vol ({hard_vol}) due to gamma offset"
+        );
+    }
+
+    // ---- LSE intersection properties ----
+
+    #[test]
+    fn lse_intersection_symmetric() {
+        let a = NdarrayGumbelBox::new(array![0.0, 0.0], array![3.0, 3.0], 1.0).unwrap();
+        let b = NdarrayGumbelBox::new(array![1.0, 1.0], array![4.0, 4.0], 1.0).unwrap();
+        let ab = a.intersection(&b).unwrap();
+        let ba = b.intersection(&a).unwrap();
+        for d in 0..2 {
+            assert!(
+                (ab.min()[d] - ba.min()[d]).abs() < 1e-6,
+                "intersection min should be symmetric at dim {d}"
+            );
+            assert!(
+                (ab.max()[d] - ba.max()[d]).abs() < 1e-6,
+                "intersection max should be symmetric at dim {d}"
+            );
+        }
+    }
+
+    #[test]
+    fn lse_intersection_approaches_hard_at_low_temperature() {
+        let a = NdarrayGumbelBox::new(array![0.0, 0.0], array![3.0, 3.0], 0.01).unwrap();
+        let b = NdarrayGumbelBox::new(array![1.0, 1.0], array![4.0, 4.0], 0.01).unwrap();
+        let inter = a.intersection(&b).unwrap();
+        // Hard intersection would be [1,3]^2
+        assert!(
+            (inter.min()[0] - 1.0).abs() < 0.05,
+            "LSE min should be ~1.0 at low T, got {}", inter.min()[0]
+        );
+        assert!(
+            (inter.max()[0] - 3.0).abs() < 0.05,
+            "LSE max should be ~3.0 at low T, got {}", inter.max()[0]
+        );
+    }
+
+    #[test]
+    fn lse_intersection_bounds_are_inside_parents() {
+        // LSE intersection min >= max(a.min, b.min) (smooth max is an upper bound on hard max)
+        // LSE intersection max <= min(a.max, b.max) (smooth min is a lower bound on hard min)
+        // In fact the opposite: LSE min >= hard min (smooth max >= hard max) and
+        // LSE max <= hard max (smooth min <= hard min). So the LSE box is contained
+        // within the hard intersection box... no, the other way:
+        // lse(a, b) >= max(a, b), so z_cap_lse >= z_cap_hard
+        // -lse(-a, -b) <= min(a, b), so Z_cap_lse <= Z_cap_hard
+        // So the LSE intersection is INSIDE the hard intersection (tighter).
+        let a = NdarrayGumbelBox::new(array![0.0, 1.0], array![5.0, 6.0], 1.0).unwrap();
+        let b = NdarrayGumbelBox::new(array![2.0, 0.0], array![4.0, 7.0], 1.0).unwrap();
+        let inter = a.intersection(&b).unwrap();
+        // LSE min >= hard min: lse(0,2) >= max(0,2) = 2 and lse(1,0) >= max(1,0) = 1
+        assert!(inter.min()[0] >= 2.0 - 1e-6, "lse min[0] ({}) should be >= 2.0", inter.min()[0]);
+        assert!(inter.min()[1] >= 1.0 - 1e-6, "lse min[1] ({}) should be >= 1.0", inter.min()[1]);
+        // LSE max <= hard max: -lse(-5,-4) <= min(5,4) = 4 and -lse(-6,-7) <= min(6,7) = 6
+        assert!(inter.max()[0] <= 4.0 + 1e-6, "lse max[0] ({}) should be <= 4.0", inter.max()[0]);
+        assert!(inter.max()[1] <= 6.0 + 1e-6, "lse max[1] ({}) should be <= 6.0", inter.max()[1]);
+    }
+
+    #[test]
+    fn disjoint_boxes_have_near_zero_gumbel_containment() {
+        let a = NdarrayGumbelBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();
+        let b = NdarrayGumbelBox::new(array![10.0, 10.0], array![11.0, 11.0], 1.0).unwrap();
+        let p = a.containment_prob(&b, 1.0).unwrap();
+        assert!(p < 0.01, "disjoint boxes should have near-zero containment, got {p}");
+    }
+
+    #[test]
+    fn gumbel_overlap_prob_reasonable() {
+        // Overlapping boxes
+        let a = NdarrayGumbelBox::new(array![0.0, 0.0], array![3.0, 3.0], 1.0).unwrap();
+        let b = NdarrayGumbelBox::new(array![1.0, 1.0], array![4.0, 4.0], 1.0).unwrap();
+        let p = a.overlap_prob(&b, 1.0).unwrap();
+        assert!(p > 0.0, "overlapping boxes should have positive overlap, got {p}");
+        assert!(p <= 1.0, "overlap should be <= 1.0");
+
+        // Disjoint boxes
+        let c = NdarrayGumbelBox::new(array![10.0, 10.0], array![11.0, 11.0], 1.0).unwrap();
+        let p_disjoint = a.overlap_prob(&c, 1.0).unwrap();
+        assert!(p_disjoint < 0.01, "disjoint boxes should have near-zero overlap, got {p_disjoint}");
     }
 }
 
@@ -603,6 +818,97 @@ mod proptest_tests {
                 p_hi >= p_lo - 1e-5,
                 "higher temp ({}) should give >= membership for outside point than lower temp ({}): p_hi={}, p_lo={}",
                 temp_hi, temp_lo, p_hi, p_lo
+            );
+        }
+    }
+
+    // ---- Property 4: Bessel volume is non-negative and finite ----
+
+    proptest! {
+        #[test]
+        fn proptest_bessel_volume_non_negative(
+            box_pairs in proptest::collection::vec((-10.0f32..10.0f32, 0.5f32..10.0f32), 1..=5),
+            temp in 0.01f32..5.0f32,
+        ) {
+            let dim = box_pairs.len();
+            let mut mins = Vec::with_capacity(dim);
+            let mut maxs = Vec::with_capacity(dim);
+            for (lo, width) in &box_pairs {
+                mins.push(*lo);
+                maxs.push(*lo + *width);
+            }
+            let gb = NdarrayGumbelBox::new(
+                Array1::from(mins),
+                Array1::from(maxs),
+                temp,
+            ).unwrap();
+
+            let vol = gb.volume(temp).unwrap();
+            prop_assert!(vol >= 0.0, "Bessel volume must be >= 0, got {vol}");
+            prop_assert!(vol.is_finite(), "Bessel volume must be finite, got {vol}");
+        }
+    }
+
+    // ---- Property 5: Containment probability in [0, 1] ----
+
+    proptest! {
+        #[test]
+        fn proptest_gumbel_containment_in_unit_interval(
+            a_pairs in proptest::collection::vec((-5.0f32..5.0f32, 1.0f32..5.0f32), 1..=3),
+            b_pairs in proptest::collection::vec((-5.0f32..5.0f32, 1.0f32..5.0f32), 1..=3),
+            temp in 0.1f32..3.0f32,
+        ) {
+            let dim = a_pairs.len().min(b_pairs.len());
+            prop_assume!(dim > 0);
+
+            let a = NdarrayGumbelBox::new(
+                Array1::from(a_pairs[..dim].iter().map(|(lo, _)| *lo).collect::<Vec<_>>()),
+                Array1::from(a_pairs[..dim].iter().map(|(lo, w)| lo + w).collect::<Vec<_>>()),
+                temp,
+            ).unwrap();
+            let b = NdarrayGumbelBox::new(
+                Array1::from(b_pairs[..dim].iter().map(|(lo, _)| *lo).collect::<Vec<_>>()),
+                Array1::from(b_pairs[..dim].iter().map(|(lo, w)| lo + w).collect::<Vec<_>>()),
+                temp,
+            ).unwrap();
+
+            let p = a.containment_prob(&b, temp).unwrap();
+            prop_assert!(p >= -1e-6, "containment prob must be >= 0, got {p}");
+            prop_assert!(p <= 1.0 + 1e-6, "containment prob must be <= 1, got {p}");
+            prop_assert!(p.is_finite(), "containment prob must be finite, got {p}");
+        }
+    }
+
+    // ---- Property 6: LSE intersection is symmetric ----
+
+    proptest! {
+        #[test]
+        fn proptest_lse_intersection_symmetric(
+            a_pairs in proptest::collection::vec((-5.0f32..5.0f32, 1.0f32..5.0f32), 1..=3),
+            b_pairs in proptest::collection::vec((-5.0f32..5.0f32, 1.0f32..5.0f32), 1..=3),
+            temp in 0.1f32..3.0f32,
+        ) {
+            let dim = a_pairs.len().min(b_pairs.len());
+            prop_assume!(dim > 0);
+
+            let a = NdarrayGumbelBox::new(
+                Array1::from(a_pairs[..dim].iter().map(|(lo, _)| *lo).collect::<Vec<_>>()),
+                Array1::from(a_pairs[..dim].iter().map(|(lo, w)| lo + w).collect::<Vec<_>>()),
+                temp,
+            ).unwrap();
+            let b = NdarrayGumbelBox::new(
+                Array1::from(b_pairs[..dim].iter().map(|(lo, _)| *lo).collect::<Vec<_>>()),
+                Array1::from(b_pairs[..dim].iter().map(|(lo, w)| lo + w).collect::<Vec<_>>()),
+                temp,
+            ).unwrap();
+
+            let ab = a.intersection(&b).unwrap();
+            let ba = b.intersection(&a).unwrap();
+            let vol_ab = ab.volume(temp).unwrap();
+            let vol_ba = ba.volume(temp).unwrap();
+            prop_assert!(
+                (vol_ab - vol_ba).abs() < 1e-4,
+                "intersection volume should be symmetric: {vol_ab} vs {vol_ba}"
             );
         }
     }

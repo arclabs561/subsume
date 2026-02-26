@@ -1,16 +1,22 @@
-//! BoxE: Box Embedding Model for Knowledge Base Completion.
+//! BoxE-inspired box-to-box scoring for knowledge base completion.
 //!
-//! Implements the BoxE model from **Abboud et al. (NeurIPS 2020)**:
+//! Inspired by the BoxE model from **Abboud et al. (NeurIPS 2020)**:
 //! "BoxE: A Box Embedding Model for Knowledge Base Completion"
 //!
 //! **Paper**: [arXiv:2007.06267](https://arxiv.org/abs/2007.06267) | [NeurIPS 2020](https://proceedings.neurips.cc/paper/2020/hash/6dbbe6abe5f14af882ff977fc3f35501-Abstract.html)
+//!
+//! **Note**: The original BoxE paper represents entities as **points** and relations as
+//! **boxes**, with a polynomial inside/outside distance function. This implementation
+//! departs from the paper: entities are represented as **boxes** and scoring uses
+//! volume-ratio containment (`intersection_volume / tail_volume`). This is a box-to-box
+//! containment model with translational bumps, not a faithful reproduction of BoxE.
 //!
 //! # Intuitive Explanation
 //!
 //! ## Paradigm Problem: Modeling Knowledge Graph Triples
 //!
 //! Consider the knowledge graph triple (Paris, located_in, France). We want to check whether
-//! this relationship is true. BoxE's approach:
+//! this relationship is true. This module's approach:
 //!
 //! 1. **Start with head entity**: "Paris" is represented as a box
 //! 2. **Apply relation transformation**: The "located_in" relation has a "bump" vector that
@@ -167,6 +173,91 @@ pub fn boxe_score(
     }
 }
 
+/// BoxE point-entity scoring (faithful to Abboud et al., 2020).
+///
+/// The original BoxE paper embeds entities as **points** and relations as **boxes**.
+/// For a triple (h, r, t):
+///
+/// 1. Compute bumped positions: `h' = h + bump_t`, `t' = t + bump_h`
+/// 2. Score each against the relation's head/tail boxes using the piecewise distance:
+///    - Inside box: `|p - center| / (width/2 + 1)` (slow growth)
+///    - Outside box: `|p - nearest_boundary|` (fast growth)
+/// 3. Total distance: sum over dimensions of per-dim distances for both head and tail
+///
+/// Lower distance = higher compatibility. The score is negated distance.
+///
+/// # Parameters
+///
+/// * `head_point`: Head entity point embedding
+/// * `tail_point`: Tail entity point embedding
+/// * `rel_head_min`: Relation's head box minimum
+/// * `rel_head_max`: Relation's head box maximum
+/// * `rel_tail_min`: Relation's tail box minimum
+/// * `rel_tail_max`: Relation's tail box maximum
+/// * `bump_h`: Head entity's translational bump
+/// * `bump_t`: Tail entity's translational bump
+///
+/// # Returns
+///
+/// Negative distance (higher = more compatible). Score is in (-inf, 0].
+pub fn boxe_point_score(
+    head_point: &[f32],
+    tail_point: &[f32],
+    rel_head_min: &[f32],
+    rel_head_max: &[f32],
+    rel_tail_min: &[f32],
+    rel_tail_max: &[f32],
+    bump_h: &[f32],
+    bump_t: &[f32],
+) -> Result<f32, BoxError> {
+    let d = head_point.len();
+    if tail_point.len() != d
+        || rel_head_min.len() != d
+        || rel_head_max.len() != d
+        || rel_tail_min.len() != d
+        || rel_tail_max.len() != d
+        || bump_h.len() != d
+        || bump_t.len() != d
+    {
+        return Err(BoxError::DimensionMismatch {
+            expected: d,
+            actual: 0, // multiple mismatches possible
+        });
+    }
+
+    let mut total_dist = 0.0_f32;
+
+    for i in 0..d {
+        // Bumped head position: h' = h + bump_t
+        let h_prime = head_point[i] + bump_t[i];
+        // Bumped tail position: t' = t + bump_h
+        let t_prime = tail_point[i] + bump_h[i];
+
+        // Distance of h' to relation's head box
+        total_dist += boxe_dim_distance(h_prime, rel_head_min[i], rel_head_max[i]);
+        // Distance of t' to relation's tail box
+        total_dist += boxe_dim_distance(t_prime, rel_tail_min[i], rel_tail_max[i]);
+    }
+
+    Ok(-total_dist)
+}
+
+/// Per-dimension BoxE distance function (Abboud et al., 2020, Section 3.1).
+///
+/// - Inside [lo, hi]: `|p - center| / (width/2 + 1)` (depth, normalized)
+/// - Outside [lo, hi]: `|p - clamp(p, lo, hi)|` (gap to nearest boundary)
+fn boxe_dim_distance(p: f32, lo: f32, hi: f32) -> f32 {
+    if p >= lo && p <= hi {
+        // Inside: normalized distance to center
+        let center = (lo + hi) / 2.0;
+        let half_width = (hi - lo) / 2.0;
+        (p - center).abs() / (half_width + 1.0)
+    } else {
+        // Outside: distance to nearest boundary
+        (p - p.clamp(lo, hi)).abs()
+    }
+}
+
 /// BoxE loss function for training.
 ///
 /// Implements margin-based ranking loss as used in the BoxE paper (Abboud et al., 2020).
@@ -276,5 +367,80 @@ mod tests {
         // Negative score higher (bad case)
         let loss = boxe_loss(0.1, 0.9, 1.0);
         assert!((loss - 1.8).abs() < 1e-5); // margin - 0.1 + 0.9 = 1.8
+    }
+
+    // ---- boxe_point_score tests (faithful to Abboud et al. 2020) ----
+
+    #[test]
+    fn test_boxe_point_inside_box() {
+        // Head point at center of relation's head box => zero distance
+        let h = [0.5, 0.5];
+        let t = [0.5, 0.5];
+        let rh_min = [0.0, 0.0];
+        let rh_max = [1.0, 1.0];
+        let rt_min = [0.0, 0.0];
+        let rt_max = [1.0, 1.0];
+        let bh = [0.0, 0.0];
+        let bt = [0.0, 0.0];
+
+        let score = boxe_point_score(&h, &t, &rh_min, &rh_max, &rt_min, &rt_max, &bh, &bt).unwrap();
+        assert!((score - 0.0).abs() < 1e-6, "center point should have score 0, got {score}");
+    }
+
+    #[test]
+    fn test_boxe_point_outside_box() {
+        let h = [5.0, 5.0]; // far outside box [0,1]^2
+        let t = [0.5, 0.5]; // inside
+        let rh_min = [0.0, 0.0];
+        let rh_max = [1.0, 1.0];
+        let rt_min = [0.0, 0.0];
+        let rt_max = [1.0, 1.0];
+        let bh = [0.0, 0.0];
+        let bt = [0.0, 0.0];
+
+        let score = boxe_point_score(&h, &t, &rh_min, &rh_max, &rt_min, &rt_max, &bh, &bt).unwrap();
+        assert!(score < -5.0, "outside point should have very negative score, got {score}");
+    }
+
+    #[test]
+    fn test_boxe_point_bump_moves_into_box() {
+        let h = [5.0, 5.0];
+        let t = [0.5, 0.5];
+        let rh_min = [0.0, 0.0];
+        let rh_max = [1.0, 1.0];
+        let rt_min = [0.0, 0.0];
+        let rt_max = [1.0, 1.0];
+        let bh = [0.0, 0.0];
+        let bt = [-4.5, -4.5]; // bump_t moves h' = 5 + (-4.5) = 0.5, inside
+
+        let score = boxe_point_score(&h, &t, &rh_min, &rh_max, &rt_min, &rt_max, &bh, &bt).unwrap();
+        assert!((score - 0.0).abs() < 1e-6, "bumped-in point should have score ~0, got {score}");
+    }
+
+    #[test]
+    fn test_boxe_point_score_is_non_positive() {
+        let h = [0.3, 0.7];
+        let t = [0.5, 0.5];
+        let rh_min = [0.0, 0.0];
+        let rh_max = [1.0, 1.0];
+        let rt_min = [0.0, 0.0];
+        let rt_max = [1.0, 1.0];
+        let bh = [0.0, 0.0];
+        let bt = [0.0, 0.0];
+
+        let score = boxe_point_score(&h, &t, &rh_min, &rh_max, &rt_min, &rt_max, &bh, &bt).unwrap();
+        assert!(score <= 0.0 + 1e-6, "score should be <= 0, got {score}");
+    }
+
+    #[test]
+    fn test_boxe_dim_distance_fn() {
+        // Inside at center => 0
+        assert!((boxe_dim_distance(0.5, 0.0, 1.0) - 0.0).abs() < 1e-6);
+        // Inside at boundary => |0.5|/1.5 ~ 0.333
+        assert!((boxe_dim_distance(1.0, 0.0, 1.0) - 1.0 / 3.0).abs() < 0.01);
+        // Outside: 1 unit above
+        assert!((boxe_dim_distance(2.0, 0.0, 1.0) - 1.0).abs() < 1e-6);
+        // Outside: below
+        assert!((boxe_dim_distance(-0.5, 0.0, 1.0) - 0.5).abs() < 1e-6);
     }
 }

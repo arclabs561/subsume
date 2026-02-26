@@ -128,6 +128,20 @@ impl NdarrayBox {
             temperature,
         })
     }
+
+    /// Create an NdarrayBox without bounds validation.
+    ///
+    /// Used internally by Gumbel LSE intersection, which can produce boxes
+    /// where `min[d] > max[d]` ("flipped" boxes). The Bessel softplus volume
+    /// handles these gracefully by returning near-zero volume.
+    pub(crate) fn new_unchecked(min: Array1<f32>, max: Array1<f32>, temperature: f32) -> Self {
+        debug_assert_eq!(min.len(), max.len());
+        Self {
+            min,
+            max,
+            temperature,
+        }
+    }
 }
 
 impl Box for NdarrayBox {
@@ -149,20 +163,9 @@ impl Box for NdarrayBox {
     fn volume(&self, _temperature: Self::Scalar) -> Result<Self::Scalar, BoxError> {
         use crate::log_space_volume;
 
-        // Volume calculation: standard geometric volume (product of side lengths).
-        //
-        // For hard boxes, this is the exact volume. For Gumbel boxes, the theoretical
-        // foundation uses the expected volume with Bessel function K_0:
-        //   E[Vol(B)] = 2β K_0(2e^(-(μ_y - μ_x)/(2β)))
-        //
-        // However, in practice, we use the standard volume formula for computational
-        // efficiency. The Bessel function provides the theoretical foundation for why
-        // Gumbel boxes work (smooth gradients, local identifiability), but the implementation
-        // uses simpler calculations that are mathematically equivalent in the regimes
-        // where they're used.
-        //
-        // See [`docs/typst-output/pdf/gumbel-box-volume.pdf`](../../docs/typst-output/pdf/gumbel-box-volume.pdf)
-        // for the complete derivation from Gumbel distributions to Bessel functions.
+        // Hard box volume: product of side lengths (Vilnis et al., 2018).
+        // NdarrayGumbelBox overrides this with the Bessel/softplus volume
+        // from Dasgupta et al. (2020).
 
         // For high-dimensional boxes, use log-space computation to avoid underflow/overflow
         let diff = &self.max - &self.min;
@@ -179,6 +182,8 @@ impl Box for NdarrayBox {
         }
     }
 
+    // Hard intersection (Vilnis et al., 2018). NdarrayGumbelBox overrides this
+    // with log-sum-exp intersection from Dasgupta et al. (2020).
     fn intersection(&self, other: &Self) -> Result<Self, BoxError> {
         if self.dim() != other.dim() {
             return Err(BoxError::DimensionMismatch {

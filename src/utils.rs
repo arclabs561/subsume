@@ -40,6 +40,105 @@
 //! - [`docs/typst-output/pdf/log-sum-exp-intersection.pdf`](../../docs/typst-output/pdf/log-sum-exp-intersection.pdf) - Log-sum-exp function and numerical stability
 //! - [`docs/typst-output/pdf/gumbel-box-volume.pdf`](../../docs/typst-output/pdf/gumbel-box-volume.pdf) - Volume calculations and numerical considerations
 
+/// Euler-Mascheroni constant (gamma ~ 0.5772).
+///
+/// Appears in the Bessel approximation for Gumbel box expected volume
+/// (Dasgupta et al., 2020): the offset `2 * gamma * beta` accounts for
+/// the mean of the Gumbel distribution.
+pub const EULER_GAMMA: f32 = 0.577_215_7;
+
+/// Numerically stable softplus: `(1/beta) * log(1 + exp(beta * x))`.
+///
+/// For large `beta * x`, returns `x` directly to avoid overflow.
+/// When `beta = 1.0`, this is the standard `log(1 + exp(x))`.
+///
+/// # Parameters
+///
+/// - `x`: Input value
+/// - `beta`: Steepness parameter (reciprocal of the temperature)
+pub fn softplus(x: f32, beta: f32) -> f32 {
+    let bx = beta * x;
+    if bx > 20.0 {
+        x // linear regime: softplus(x) ~ x for large x
+    } else if bx < -20.0 {
+        0.0 // exponentially small
+    } else {
+        bx.exp().ln_1p() / beta
+    }
+}
+
+/// Numerically stable log-sum-exp of two values: `log(exp(a) + exp(b))`.
+///
+/// Uses the identity `lse(a, b) = max(a, b) + log(1 + exp(-|a - b|))`
+/// to avoid overflow.
+pub fn stable_logsumexp(a: f32, b: f32) -> f32 {
+    let m = a.max(b);
+    if m == f32::NEG_INFINITY {
+        return f32::NEG_INFINITY;
+    }
+    m + ((a - m).exp() + (b - m).exp()).ln()
+}
+
+/// Gumbel LSE intersection: smooth approximation to `max(z_a, z_b)`.
+///
+/// Computes `T * logsumexp(z_a / T, z_b / T)`, which is a smooth upper
+/// bound on `max(z_a, z_b)` that approaches the hard max as `T -> 0`.
+///
+/// Used for the **minimum** coordinates of the Gumbel intersection box.
+pub fn gumbel_lse_min(z_a: f32, z_b: f32, temperature: f32) -> f32 {
+    temperature * stable_logsumexp(z_a / temperature, z_b / temperature)
+}
+
+/// Gumbel LSE intersection: smooth approximation to `min(Z_a, Z_b)`.
+///
+/// Computes `-T * logsumexp(-Z_a / T, -Z_b / T)`, which is a smooth lower
+/// bound on `min(Z_a, Z_b)` that approaches the hard min as `T -> 0`.
+///
+/// Used for the **maximum** coordinates of the Gumbel intersection box.
+pub fn gumbel_lse_max(z_a: f32, z_b: f32, temperature: f32) -> f32 {
+    -gumbel_lse_min(-z_a, -z_b, temperature)
+}
+
+/// Bessel-approximation volume for one dimension of a Gumbel box.
+///
+/// Per Dasgupta et al. (2020), the expected side length of a Gumbel box
+/// in one dimension is approximated by:
+///
+/// ```text
+/// softplus(Z - z - 2*gamma*T_int, beta = 1/T_vol)
+/// ```
+///
+/// where `gamma` is the Euler-Mascheroni constant, `T_int` is the
+/// intersection temperature (Gumbel scale), and `T_vol` controls the
+/// softplus steepness.
+///
+/// Returns the per-dimension side length (not log-scale).
+pub fn bessel_side_length(z: f32, big_z: f32, t_int: f32, t_vol: f32) -> f32 {
+    let arg = big_z - z - 2.0 * EULER_GAMMA * t_int;
+    softplus(arg, 1.0 / t_vol)
+}
+
+/// Bessel-approximation log-volume for a Gumbel box (Dasgupta et al., 2020).
+///
+/// Computes `sum_d log(softplus(Z_d - z_d - 2*gamma*T_int, beta=1/T_vol) + eps)`
+/// over all dimensions. The `eps` prevents `log(0)` for near-empty boxes.
+///
+/// Returns `(log_volume, volume)`.
+pub fn bessel_log_volume(
+    mins: &[f32],
+    maxs: &[f32],
+    t_int: f32,
+    t_vol: f32,
+) -> (f32, f32) {
+    const EPS: f32 = 1e-13;
+    let log_vol: f32 = mins
+        .iter()
+        .zip(maxs.iter())
+        .map(|(&z, &big_z)| (bessel_side_length(z, big_z, t_int, t_vol) + EPS).ln())
+        .sum();
+    (log_vol, log_vol.exp())
+}
+
 /// Clamp temperature to a safe range to avoid numerical instability.
 ///
 /// Very low temperatures can cause vanishing gradients and exponential underflow,
@@ -939,5 +1038,112 @@ mod tests {
         assert!(sep_2d < 10.0); // Reasonable upper bound
         assert!(sep_3d < 10.0);
         assert!(sep_10d < 10.0);
+    }
+
+    // ---- softplus ----
+
+    #[test]
+    fn test_softplus_basic() {
+        // softplus(0, 1) = ln(2) ~ 0.693
+        assert!((softplus(0.0, 1.0) - 0.693).abs() < 0.01);
+        // softplus(x, 1) ~ x for large x
+        assert!((softplus(100.0, 1.0) - 100.0).abs() < 0.01);
+        // softplus(x, 1) ~ 0 for very negative x
+        assert!(softplus(-100.0, 1.0) < 1e-10);
+        // softplus is always non-negative
+        assert!(softplus(-5.0, 1.0) >= 0.0);
+        assert!(softplus(0.0, 1.0) >= 0.0);
+        assert!(softplus(5.0, 1.0) >= 0.0);
+    }
+
+    #[test]
+    fn test_softplus_with_beta() {
+        // Higher beta = sharper transition
+        let sharp = softplus(0.5, 10.0);
+        let soft = softplus(0.5, 0.1);
+        // Both should be positive
+        assert!(sharp > 0.0);
+        assert!(soft > 0.0);
+        // softplus(x, beta) = (1/beta) * ln(1 + exp(beta*x))
+        let expected = (1.0_f32 / 2.0) * (1.0 + (2.0 * 3.0_f32).exp()).ln();
+        assert!((softplus(3.0, 2.0) - expected).abs() < 0.01);
+    }
+
+    // ---- stable_logsumexp ----
+
+    #[test]
+    fn test_stable_logsumexp() {
+        // lse(0, 0) = ln(2) ~ 0.693
+        assert!((stable_logsumexp(0.0, 0.0) - 0.693).abs() < 0.01);
+        // lse(a, -inf) = a
+        assert!((stable_logsumexp(5.0, f32::NEG_INFINITY) - 5.0).abs() < 1e-6);
+        // lse(a, b) >= max(a, b)
+        assert!(stable_logsumexp(3.0, 5.0) >= 5.0);
+        assert!(stable_logsumexp(-1.0, -3.0) >= -1.0);
+        // symmetric
+        assert!((stable_logsumexp(2.0, 7.0) - stable_logsumexp(7.0, 2.0)).abs() < 1e-6);
+        // large values don't overflow
+        assert!(stable_logsumexp(100.0, 100.0).is_finite());
+        assert!(stable_logsumexp(-100.0, -100.0).is_finite());
+    }
+
+    // ---- gumbel_lse_min / gumbel_lse_max ----
+
+    #[test]
+    fn test_gumbel_lse_min_is_smooth_max() {
+        // gumbel_lse_min is the smooth max: should be >= max(a, b)
+        assert!(gumbel_lse_min(1.0, 3.0, 1.0) >= 3.0);
+        assert!(gumbel_lse_min(5.0, 2.0, 1.0) >= 5.0);
+        // Approaches hard max at low T
+        let hard_approx = gumbel_lse_min(1.0, 3.0, 0.01);
+        assert!((hard_approx - 3.0).abs() < 0.05, "got {hard_approx}");
+    }
+
+    #[test]
+    fn test_gumbel_lse_max_is_smooth_min() {
+        // gumbel_lse_max is the smooth min: should be <= min(a, b)
+        assert!(gumbel_lse_max(5.0, 3.0, 1.0) <= 3.0);
+        assert!(gumbel_lse_max(2.0, 7.0, 1.0) <= 2.0);
+        // Approaches hard min at low T
+        let hard_approx = gumbel_lse_max(5.0, 3.0, 0.01);
+        assert!((hard_approx - 3.0).abs() < 0.05, "got {hard_approx}");
+    }
+
+    #[test]
+    fn test_gumbel_lse_identity() {
+        // gumbel_lse_max(a, b, T) = -gumbel_lse_min(-a, -b, T)
+        let a = 3.0;
+        let b = 7.0;
+        let t = 1.5;
+        let via_max = gumbel_lse_max(a, b, t);
+        let via_min = -gumbel_lse_min(-a, -b, t);
+        assert!((via_max - via_min).abs() < 1e-5, "{via_max} vs {via_min}");
+    }
+
+    // ---- bessel_side_length / bessel_log_volume ----
+
+    #[test]
+    fn test_bessel_side_length_basic() {
+        // For large side length (Z - z >> 2*gamma*T), should be close to Z - z
+        let sl = bessel_side_length(0.0, 10.0, 0.01, 0.01);
+        assert!((sl - 10.0).abs() < 0.1, "large box at low T should have sl ~ 10, got {sl}");
+
+        // For zero side length, softplus gives non-zero (smooth)
+        let sl_zero = bessel_side_length(5.0, 5.0, 1.0, 1.0);
+        assert!(sl_zero > 0.0, "zero hard side should have positive Bessel side, got {sl_zero}");
+    }
+
+    #[test]
+    fn test_bessel_log_volume_basic() {
+        let (log_v, v) = bessel_log_volume(&[0.0, 0.0], &[5.0, 5.0], 0.01, 0.01);
+        assert!(v > 0.0, "volume should be positive");
+        assert!(log_v.is_finite(), "log volume should be finite");
+        // At low T, should be close to 5*5 = 25
+        assert!((v - 25.0).abs() < 2.0, "at low T, vol should be ~25, got {v}");
+    }
+
+    #[test]
+    fn test_euler_gamma_value() {
+        assert!((EULER_GAMMA - 0.5772).abs() < 0.001);
     }
 }
