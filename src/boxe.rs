@@ -200,6 +200,7 @@ pub fn boxe_score(
 /// # Returns
 ///
 /// Negative distance (higher = more compatible). Score is in (-inf, 0].
+#[allow(clippy::too_many_arguments)]
 pub fn boxe_point_score(
     head_point: &[f32],
     tail_point: &[f32],
