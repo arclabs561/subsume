@@ -114,6 +114,40 @@ impl Bump {
 /// # Returns
 ///
 /// Score in [0, 1], where higher means more likely the triple is true.
+///
+/// # Examples
+///
+/// ```
+/// use subsume::boxe::boxe_score;
+///
+/// // 3D boxes: head box [0,0,0]-[2,2,2], tail box [0.5,0.5,0.5]-[1.5,1.5,1.5]
+/// // No bump -- tail is fully contained in head, so score = 1.0.
+/// let score = boxe_score(
+///     &[0.0, 0.0, 0.0], &[2.0, 2.0, 2.0],  // head min/max
+///     &[0.5, 0.5, 0.5], &[1.5, 1.5, 1.5],  // tail min/max
+///     &[0.0, 0.0, 0.0],                      // bump (no translation)
+///     1.0,                                    // temperature
+/// ).unwrap();
+/// assert!((score - 1.0).abs() < 1e-6, "fully contained tail => score 1.0");
+///
+/// // Bump the head box so it only partially overlaps the tail.
+/// let partial = boxe_score(
+///     &[0.0, 0.0, 0.0], &[2.0, 2.0, 2.0],
+///     &[0.5, 0.5, 0.5], &[1.5, 1.5, 1.5],
+///     &[1.0, 1.0, 1.0],  // shifts head to [1,1,1]-[3,3,3]
+///     1.0,
+/// ).unwrap();
+/// assert!(partial > 0.0 && partial < 1.0, "partial overlap => score in (0, 1)");
+///
+/// // Disjoint boxes => score 0.
+/// let disjoint = boxe_score(
+///     &[0.0, 0.0, 0.0], &[1.0, 1.0, 1.0],
+///     &[5.0, 5.0, 5.0], &[6.0, 6.0, 6.0],
+///     &[0.0, 0.0, 0.0],
+///     1.0,
+/// ).unwrap();
+/// assert_eq!(disjoint, 0.0);
+/// ```
 pub fn boxe_score(
     head_min: &[f32],
     head_max: &[f32],
@@ -200,6 +234,46 @@ pub fn boxe_score(
 /// # Returns
 ///
 /// Negative distance (higher = more compatible). Score is in (-inf, 0].
+///
+/// # Examples
+///
+/// ```
+/// use subsume::boxe::boxe_point_score;
+///
+/// // 3D: head and tail points sit at the center of the relation boxes,
+/// // with zero bumps => distance is 0, score is 0.0 (best possible).
+/// let score = boxe_point_score(
+///     &[0.5, 0.5, 0.5],          // head point
+///     &[0.5, 0.5, 0.5],          // tail point
+///     &[0.0, 0.0, 0.0], &[1.0, 1.0, 1.0],  // relation head box
+///     &[0.0, 0.0, 0.0], &[1.0, 1.0, 1.0],  // relation tail box
+///     &[0.0, 0.0, 0.0],          // bump_h
+///     &[0.0, 0.0, 0.0],          // bump_t
+/// ).unwrap();
+/// assert!((score - 0.0).abs() < 1e-6, "centered points => score 0");
+///
+/// // Head point far outside the relation box => very negative score.
+/// let bad = boxe_point_score(
+///     &[10.0, 10.0, 10.0],
+///     &[0.5, 0.5, 0.5],
+///     &[0.0, 0.0, 0.0], &[1.0, 1.0, 1.0],
+///     &[0.0, 0.0, 0.0], &[1.0, 1.0, 1.0],
+///     &[0.0, 0.0, 0.0],
+///     &[0.0, 0.0, 0.0],
+/// ).unwrap();
+/// assert!(bad < -10.0, "far-away head => large negative score");
+///
+/// // A bump can pull the head point back into the box.
+/// let rescued = boxe_point_score(
+///     &[10.0, 10.0, 10.0],
+///     &[0.5, 0.5, 0.5],
+///     &[0.0, 0.0, 0.0], &[1.0, 1.0, 1.0],
+///     &[0.0, 0.0, 0.0], &[1.0, 1.0, 1.0],
+///     &[0.0, 0.0, 0.0],
+///     &[-9.5, -9.5, -9.5],  // bump_t moves h' to 0.5
+/// ).unwrap();
+/// assert!(rescued > bad, "bump moves head inside => better score");
+/// ```
 #[allow(clippy::too_many_arguments)]
 pub fn boxe_point_score(
     head_point: &[f32],
@@ -297,6 +371,25 @@ fn boxe_dim_distance(p: f32, lo: f32, hi: f32) -> f32 {
 /// # Returns
 ///
 /// Loss value (non-negative)
+///
+/// # Examples
+///
+/// ```
+/// use subsume::boxe::boxe_loss;
+///
+/// // Positive score already exceeds negative by more than the margin => loss is 0.
+/// let loss = boxe_loss(0.9, 0.1, 0.5);
+/// assert_eq!(loss, 0.0, "margin satisfied => zero loss");
+///
+/// // Margin not yet satisfied: loss = margin - (pos - neg) = 1.0 - (0.6 - 0.4) = 0.8
+/// let loss = boxe_loss(0.6, 0.4, 1.0);
+/// assert!((loss - 0.8).abs() < 1e-6);
+///
+/// // Negative score higher than positive (bad ranking):
+/// // loss = 1.0 - 0.2 + 0.9 = 1.7
+/// let loss = boxe_loss(0.2, 0.9, 1.0);
+/// assert!((loss - 1.7).abs() < 1e-6);
+/// ```
 pub fn boxe_loss(positive_score: f32, negative_score: f32, margin: f32) -> f32 {
     (margin - positive_score + negative_score).max(0.0)
 }
