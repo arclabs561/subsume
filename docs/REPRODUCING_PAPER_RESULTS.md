@@ -99,7 +99,7 @@ Joint learning of concept boxes and entity vectors improves performance on two-v
 
 ---
 
-## Boratko et al. (2020): "State-of-the-Art Performance"
+## Abboud et al. (2020): "State-of-the-Art Performance"
 
 ### Claim
 BoxE achieves state-of-the-art performance on FB15k-237, WN18RR, YAGO3-10.
@@ -140,7 +140,7 @@ BoxE achieves state-of-the-art performance on FB15k-237, WN18RR, YAGO3-10.
 | RegD 2025 | Hyperbolic-like expressiveness | Crowding effect test | ✅ Verified (test_regd_2025_crowding_effect_mitigation) |
 | RegD 2025 | Addresses crowding | Hierarchy depth test | ✅ Verified (test_regd_2025_hierarchy_depth_property) |
 | Concept2Box 2023 | Joint learning improves | Joint training example | ⏳ Requires full training implementation |
-| Boratko 2020 | SOTA performance | Expressiveness tests | ✅ Verified (theoretical), ⏳ Performance requires full BoxE |
+| Abboud 2020 | SOTA performance | Expressiveness tests | ✅ Verified (theoretical), ⏳ Performance requires full BoxE |
 
 ---
 

@@ -25,7 +25,7 @@ Geometric box embeddings: containment, entailment, overlap. Ndarray and Candle b
 
 ```toml
 [dependencies]
-subsume = { version = "0.1.1", features = ["ndarray-backend"] }
+subsume = { version = "0.1.2", features = ["ndarray-backend"] }
 ndarray = "0.16"
 ```
 

@@ -22,14 +22,14 @@ This document summarizes all research paper references integrated into the Rust 
   - Expected volume formula using Bessel function \(K_0\)
   - Reference: [arXiv:2004.13131](https://arxiv.org/abs/2004.13131) | [NeurIPS 2020](https://proceedings.neurips.cc/paper/2020/hash/2cfa8a9da6cdae0c7ac0b94a2c3f4c0d-Abstract.html)
   
-- **Jang et al. (2016)**: "Categorical Reparameterization with Gumbel-Softmax"
+- **Jang et al. (2017)**: "Categorical Reparameterization with Gumbel-Softmax"
   - Foundation for Gumbel-Softmax trick used in probabilistic embeddings
 
 - **Vilnis et al. (2018)**: Foundational probabilistic box embeddings
 
 ### `boxe.rs` - BoxE Model
 
-- **Boratko et al. (2020)**: "BoxE: A Box Embedding Model for Knowledge Base Completion" (NeurIPS)
+- **Abboud et al. (2020)**: "BoxE: A Box Embedding Model for Knowledge Base Completion" (NeurIPS)
   - Translational bump model for relation-specific transformations
   - Margin-based ranking loss for training
   - Reference: [arXiv:2007.06267](https://arxiv.org/abs/2007.06267) | [NeurIPS 2020](https://proceedings.neurips.cc/paper/2020/hash/6dbbe6abe5f14af882ff977fc3f35501-Abstract.html)
@@ -52,7 +52,7 @@ This document summarizes all research paper references integrated into the Rust 
   - Margin-based ranking loss
   - Standard link prediction evaluation protocol
 
-- **Boratko et al. (2020)**: BoxE training approach
+- **Abboud et al. (2020)**: BoxE training approach
 
 - **Vilnis et al. (2018)**: Foundational box embedding training
 
@@ -63,7 +63,7 @@ This document summarizes all research paper references integrated into the Rust 
 ### `utils.rs` - Loss Functions
 
 - **Vilnis et al. (2018)**: Probabilistic box embedding loss functions
-- **Boratko et al. (2020)**: BoxE margin-based ranking loss
+- **Abboud et al. (2020)**: BoxE margin-based ranking loss
 
 ## Integration Pattern
 

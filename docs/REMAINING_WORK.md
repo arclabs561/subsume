@@ -35,7 +35,7 @@ This document outlines what remains to be implemented, evaluated, or requires da
 **What**: Complete training implementations to reproduce paper claims:
 - Dasgupta 2020: "6 F1 improvement" (GumbelBox vs SmoothBox)
 - Concept2Box 2023: "Joint learning improves performance"
-- Boratko 2020: "SOTA performance on FB15k-237, WN18RR, YAGO3-10"
+- Abboud 2020: "SOTA performance on FB15k-237, WN18RR, YAGO3-10"
 
 **Current Implementation**:
 - ✅ Dataset loading/parsing (WN18RR, FB15k-237, YAGO3-10)
@@ -85,7 +85,7 @@ This document outlines what remains to be implemented, evaluated, or requires da
 - Full training loop for knowledge graph completion
 - Performance benchmarks on standard datasets
 
-**Why**: Reproduce Boratko 2020 SOTA results.
+**Why**: Reproduce Abboud 2020 SOTA results.
 
 **Implementation Requirements**:
 - Add "bump" operations (translation vectors per relation)
@@ -168,7 +168,7 @@ This document outlines what remains to be implemented, evaluated, or requires da
 1. **Dasgupta 2020**: GumbelBox achieves ~6 F1 improvement over SmoothBox
 2. **RegD 2025**: Depth distance addresses crowding effect (verified via tests, needs full training)
 3. **Concept2Box 2023**: Joint learning improves performance
-4. **Boratko 2020**: BoxE achieves SOTA on standard datasets
+4. **Abboud 2020**: BoxE achieves SOTA on standard datasets
 
 **Implementation Requirements**:
 - Full training loops (see above)

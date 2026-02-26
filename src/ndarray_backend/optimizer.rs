@@ -21,7 +21,7 @@ struct AdamState {
 ///
 /// Implements Adam optimizer as used in box embedding papers:
 /// - Dasgupta 2020: Adam with learning rate 1e-3 to 5e-4
-/// - Boratko 2020: Adam with learning rate 1e-3
+/// - Abboud 2020: Adam with learning rate 1e-3
 /// - Vilnis 2018: Adam with learning rate 1e-3 to 1e-4
 ///
 /// # Hyperparameters

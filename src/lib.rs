@@ -47,7 +47,7 @@
 //! ## Representations and scoring
 //!
 //! - [`center_offset`] -- center+offset <-> min/max coordinate conversion
-//! - [`boxe`] -- BoxE scoring model (Boratko et al., NeurIPS 2020)
+//! - [`boxe`] -- BoxE scoring model (Abboud et al., NeurIPS 2020)
 //! - [`distance`] -- depth-based, boundary, and vector-to-box distance metrics
 //! - [`embedding`] -- [`BoxCollection`] and [`BoxEmbedding`] collection traits
 //!
@@ -94,10 +94,15 @@
 //! # References
 //!
 //! - Vilnis et al. (2018), "Probabilistic Embedding of Knowledge Graphs with Box Lattice Measures"
-//! - Boratko et al. (2020), "BoxE: A Box Embedding Model for Knowledge Base Completion"
+//! - Abboud et al. (2020), "BoxE: A Box Embedding Model for Knowledge Base Completion"
 //! - Dasgupta et al. (2020), "Improving Local Identifiability in Probabilistic Box Embeddings"
 //! - Chen et al. (2021), "Uncertainty-Aware Knowledge Graph Embeddings" (UKGE)
 //! - Lee et al. (2022), "Box Embeddings for Event-Event Relation Extraction" (BERE)
+//! - Cao et al. (2024, ACM Computing Surveys), "KG Embedding: A Survey from the
+//!   Perspective of Representation Spaces" -- positions box/cone/octagon embeddings
+//!   within the broader KGE taxonomy (Euclidean, hyperbolic, complex, geometric)
+//! - Yang & Chen (2025), "RegD: Achieving Hyperbolic-Like Expressiveness with Arbitrary
+//!   Euclidean Regions" -- source of the depth/boundary dissimilarity metrics in [`distance`]
 
 #![warn(missing_docs)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
@@ -109,7 +114,7 @@
 /// Core [`Box`] trait: containment probability, overlap, volume, and intersection.
 pub mod box_trait;
 
-/// BoxE scoring model for knowledge base completion (Boratko et al., NeurIPS 2020).
+/// BoxE scoring model for knowledge base completion (Abboud et al., NeurIPS 2020).
 pub mod boxe;
 
 /// Center-offset <-> min/max coordinate conversion for box parameterization.

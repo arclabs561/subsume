@@ -1,6 +1,6 @@
 //! BoxE: Box Embedding Model for Knowledge Base Completion.
 //!
-//! Implements the BoxE model from **Boratko et al. (NeurIPS 2020)**:
+//! Implements the BoxE model from **Abboud et al. (NeurIPS 2020)**:
 //! "BoxE: A Box Embedding Model for Knowledge Base Completion"
 //!
 //! **Paper**: [arXiv:2007.06267](https://arxiv.org/abs/2007.06267) | [NeurIPS 2020](https://proceedings.neurips.cc/paper/2020/hash/6dbbe6abe5f14af882ff977fc3f35501-Abstract.html)
@@ -27,7 +27,7 @@
 //! are located in France without being the capital. The model learns relation-specific
 //! geometric patterns through these translational bumps.
 //!
-//! **Research foundation**: This approach is introduced in **Boratko et al. (2020)**, Section 3.1,
+//! **Research foundation**: This approach is introduced in **Abboud et al. (2020)**, Section 3.1,
 //! as an adaptation of TransE's translational approach (Bordes et al., 2013) to box embeddings.
 //!
 //! # Mathematical Formulation
@@ -72,7 +72,7 @@ impl Bump {
 /// Computes the score for a triple (head, relation, tail) using BoxE's
 /// translational bump model.
 ///
-/// **Reference**: Boratko et al. (2020), Section 3.1 - Translational Bumps
+/// **Reference**: Abboud et al. (2020), Section 3.1 - Translational Bumps
 ///
 /// # Intuitive Explanation
 ///
@@ -169,9 +169,9 @@ pub fn boxe_score(
 
 /// BoxE loss function for training.
 ///
-/// Implements margin-based ranking loss as used in the BoxE paper (Boratko et al., 2020).
+/// Implements margin-based ranking loss as used in the BoxE paper (Abboud et al., 2020).
 ///
-/// **Reference**: Boratko et al. (2020), Section 3.2 - Training Objective
+/// **Reference**: Abboud et al. (2020), Section 3.2 - Training Objective
 ///
 /// The margin-based ranking loss is a standard approach in knowledge graph embedding,
 /// originally popularized by Bordes et al. (2013) for TransE and adapted for box embeddings.

@@ -4,7 +4,7 @@
 //!
 //! - Bordes et al. (2013): TransE-style negative sampling + margin ranking losses for KGEs.
 //! - Vilnis et al. (2018): box lattice measures for probabilistic box embeddings.
-//! - Boratko et al. (2020): BoxE (training patterns for box-shaped representations).
+//! - Abboud et al. (2020): BoxE (training patterns for box-shaped representations).
 //!
 //! ## Implementation invariants (why certain choices exist)
 //!
@@ -74,12 +74,12 @@ pub enum NegativeSamplingStrategy {
 /// # Research Background
 ///
 /// Hyperparameter ranges are based on empirical findings from:
-/// - **BoxE paper** (Boratko et al., 2020): Learning rates, batch sizes, regularization
+/// - **BoxE paper** (Abboud et al., 2020): Learning rates, batch sizes, regularization
 /// - **Gumbel-Box papers** (Dasgupta et al., 2020): Temperature scheduling for Gumbel boxes
 /// - **Knowledge graph embedding literature**: Standard practices for negative sampling, margins
 ///
 /// **Key References**:
-/// - Boratko et al. (2020): "BoxE: A Box Embedding Model for Knowledge Base Completion" (NeurIPS)
+/// - Abboud et al. (2020): "BoxE: A Box Embedding Model for Knowledge Base Completion" (NeurIPS)
 /// - Dasgupta et al. (2020): "Improving Local Identifiability in Probabilistic Box Embeddings" (NeurIPS)
 ///
 /// # Intuitive Guide to Hyperparameters

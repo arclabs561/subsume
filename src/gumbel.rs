@@ -144,7 +144,7 @@ use crate::{Box, BoxError};
 ///   - Shows ~6 F1 improvement over SmoothBox on entailment tasks
 ///   - Section 3: Derives Bessel function from Gumbel PDFs
 ///
-/// - **Jang et al. (2016)**: "Categorical Reparameterization with Gumbel-Softmax"
+/// - **Jang et al. (2017)**: "Categorical Reparameterization with Gumbel-Softmax"
 ///   - Introduces Gumbel-Softmax trick for differentiable categorical sampling
 ///   - Foundation for probabilistic box embeddings
 ///

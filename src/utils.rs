@@ -447,7 +447,7 @@ pub fn temperature_scheduler(
 /// **Research foundation**:
 /// - **Vilnis et al. (2018)**: "Probabilistic Embedding of Knowledge Graphs with Box Lattice Measures"
 ///   - Establishes volume as probability measure, uses log-likelihood for positive pairs
-/// - **Boratko et al. (2020)**: "BoxE: A Box Embedding Model for Knowledge Base Completion" (NeurIPS)
+/// - **Abboud et al. (2020)**: "BoxE: A Box Embedding Model for Knowledge Base Completion" (NeurIPS)
 ///   - Uses margin-based ranking loss for both positive and negative pairs
 /// - **Bordes et al. (2013)**: "Translating Embeddings for Modeling Multi-relational Data"
 ///   - Introduces margin-based ranking loss for knowledge graphs, establishes standard training protocol

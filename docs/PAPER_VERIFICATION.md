@@ -83,7 +83,7 @@ For each paper, we document:
 
 ---
 
-### Boratko et al. (2020): "BoxE: A Box Embedding Model for Knowledge Base Completion" (NeurIPS)
+### Abboud et al. (2020): "BoxE: A Box Embedding Model for Knowledge Base Completion" (NeurIPS)
 
 **Key Claims:**
 1. Box embeddings are fully expressive for knowledge graphs with d = |E|·|R| dimensions
@@ -232,7 +232,7 @@ cargo bench --workspace boundary_distance
 | Vilnis et al. | 2018 | Probabilistic interpretation | ✅ | ✅ | ✅ | ✅ Verified |
 | Dasgupta et al. | 2020 | Gumbel-box, identifiability | ✅ | ✅ | ✅ | ✅ Verified |
 | Li et al. | 2019 | Soft volume, smoothing | ✅ | ✅ | ⏳ | ✅ Partial |
-| Boratko et al. | 2020 | Expressiveness, BoxE | ✅ | ✅ | ⏳ | ✅ Partial |
+| Abboud et al. | 2020 | Expressiveness, BoxE | ✅ | ✅ | ⏳ | ✅ Partial |
 | Chen et al. | 2021 | Uncertainty, calibration | ✅ | ✅ | ✅ | ✅ Verified |
 | Yang & Chen | 2025 | RegD, depth distance | ✅ | ✅ | ✅ | ✅ Verified |
 | Huang et al. | 2023 | Concept2Box, vector-to-box | ✅ | ✅ | ✅ | ✅ Verified |

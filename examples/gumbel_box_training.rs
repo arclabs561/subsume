@@ -111,7 +111,7 @@ fn main() -> Result<(), subsume::BoxError> {
     // At training start, use high temperature for smooth gradients.
     // Gradually anneal to low temperature for sharp final predictions.
     // This is analogous to simulated annealing or Gumbel-Softmax in
-    // categorical distributions (Jang et al., 2016).
+    // categorical distributions (Jang et al., 2017).
 
     println!("\n--- Part 3: Temperature effect on containment ---\n");
     println!(
