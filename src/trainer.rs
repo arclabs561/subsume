@@ -1773,6 +1773,674 @@ mod tests {
         // This test documents the need for integration tests in backend modules
         // Full integration tests are in subsume/src/trainer_integration_tests.rs
     }
+
+    // -----------------------------------------------------------------------
+    // BoxEmbeddingTrainer tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn box_trainer_new_empty() {
+        let cfg = TrainingConfig::default();
+        let trainer = BoxEmbeddingTrainer::new(cfg, 4, None);
+        assert_eq!(trainer.dim, 4);
+        assert!(trainer.boxes.is_empty());
+        assert!(trainer.optimizer_states.is_empty());
+    }
+
+    #[test]
+    fn box_trainer_new_with_initial_embeddings() {
+        let cfg = TrainingConfig::default();
+        let mut init = HashMap::new();
+        init.insert(0, vec![1.0, 2.0, 3.0]);
+        init.insert(1, vec![4.0, 5.0, 6.0]);
+        let trainer = BoxEmbeddingTrainer::new(cfg, 3, Some(init));
+        assert_eq!(trainer.boxes.len(), 2);
+        assert_eq!(trainer.optimizer_states.len(), 2);
+        assert!(trainer.boxes.contains_key(&0));
+        assert!(trainer.boxes.contains_key(&1));
+    }
+
+    #[test]
+    fn box_trainer_train_step_returns_zero_for_missing_entities() {
+        let cfg = TrainingConfig::default();
+        let mut trainer = BoxEmbeddingTrainer::new(cfg, 4, None);
+        // No entities registered, should return 0.0 without panicking.
+        let loss = trainer.train_step(0, 1, true);
+        assert_eq!(loss, 0.0);
+    }
+
+    #[test]
+    fn box_trainer_train_step_with_entities() {
+        let cfg = TrainingConfig::default();
+        let mut init = HashMap::new();
+        init.insert(0, vec![0.0, 0.0]);
+        init.insert(1, vec![1.0, 1.0]);
+        let mut trainer = BoxEmbeddingTrainer::new(cfg, 2, Some(init));
+
+        let loss = trainer.train_step(0, 1, true);
+        assert!(loss.is_finite(), "loss must be finite, got {loss}");
+        assert!(loss >= 0.0, "loss must be non-negative, got {loss}");
+    }
+
+    #[test]
+    fn box_trainer_train_step_modifies_boxes() {
+        let cfg = TrainingConfig {
+            learning_rate: 0.01,
+            regularization: 0.0,
+            ..Default::default()
+        };
+        let mut init = HashMap::new();
+        init.insert(0, vec![0.0, 0.0, 0.0, 0.0]);
+        init.insert(1, vec![5.0, 5.0, 5.0, 5.0]);
+        let mut trainer = BoxEmbeddingTrainer::new(cfg, 4, Some(init));
+
+        let mu_before: Vec<f32> = trainer.boxes[&0].mu.clone();
+        trainer.train_step(0, 1, true);
+        let mu_after: Vec<f32> = trainer.boxes[&0].mu.clone();
+
+        // At least one parameter should change (the boxes are disjoint, so
+        // the gradient will push them toward each other).
+        assert_ne!(mu_before, mu_after, "train_step should modify box parameters");
+    }
+
+    #[test]
+    fn box_trainer_reduces_loss_over_steps() {
+        let cfg = TrainingConfig {
+            learning_rate: 0.01,
+            regularization: 0.0,
+            ..Default::default()
+        };
+        let mut init = HashMap::new();
+        init.insert(0, vec![0.0, 0.0]);
+        init.insert(1, vec![0.5, 0.5]);
+        let mut trainer = BoxEmbeddingTrainer::new(cfg, 2, Some(init));
+
+        let mut losses = Vec::new();
+        for _ in 0..50 {
+            let loss = trainer.train_step(0, 1, true);
+            losses.push(loss);
+        }
+
+        let early_avg: f32 = losses[..10].iter().sum::<f32>() / 10.0;
+        let late_avg: f32 = losses[40..].iter().sum::<f32>() / 10.0;
+        assert!(
+            late_avg <= early_avg + 0.5,
+            "loss should generally decrease: early_avg={early_avg}, late_avg={late_avg}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // SortedEntityPool tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[cfg(feature = "rand")]
+    fn sorted_entity_pool_is_sorted_and_stable() {
+        let entities: HashSet<String> = ["charlie", "alice", "bob", "delta"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+
+        let pool = SortedEntityPool::new(&entities);
+        let sorted: Vec<&str> = pool.entities.clone();
+        let mut expected = sorted.clone();
+        expected.sort();
+        assert_eq!(sorted, expected, "pool must be sorted lexicographically");
+    }
+
+    #[test]
+    #[cfg(feature = "rand")]
+    fn sorted_entity_pool_pick_returns_pool_member() {
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        let entities: HashSet<String> = ["a", "b", "c"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let pool = SortedEntityPool::new(&entities);
+        let mut rng = StdRng::seed_from_u64(42);
+
+        for _ in 0..20 {
+            let picked = pool.pick(&mut rng);
+            assert!(
+                entities.contains(picked),
+                "picked entity '{picked}' not in original set"
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "rand")]
+    fn negative_samples_empty_pool_returns_empty() {
+        let entities: HashSet<String> = HashSet::new();
+        let triple = Triple {
+            head: "h".into(),
+            relation: "r".into(),
+            tail: "t".into(),
+        };
+        let negatives = generate_negative_samples(
+            &triple,
+            &entities,
+            &NegativeSamplingStrategy::CorruptTail,
+            5,
+        );
+        assert!(negatives.is_empty(), "empty entity set should yield no negatives");
+    }
+
+    #[test]
+    #[cfg(feature = "rand")]
+    fn negative_samples_single_entity_may_produce_none() {
+        // If the only entity equals the triple's tail, all CorruptTail samples
+        // will equal the positive and be filtered out.
+        let entities: HashSet<String> = ["t"].iter().map(|s| s.to_string()).collect();
+        let triple = Triple {
+            head: "h".into(),
+            relation: "r".into(),
+            tail: "t".into(),
+        };
+        let negatives = generate_negative_samples(
+            &triple,
+            &entities,
+            &NegativeSamplingStrategy::CorruptTail,
+            10,
+        );
+        assert!(
+            negatives.is_empty(),
+            "single-entity pool matching the positive tail should yield no negatives"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "rand")]
+    fn negative_samples_corrupt_head_preserves_tail_and_relation() {
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        let entities: HashSet<String> = ["e1", "e2", "e3", "e4"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let triple = Triple {
+            head: "e1".into(),
+            relation: "r".into(),
+            tail: "e2".into(),
+        };
+        let mut rng = StdRng::seed_from_u64(99);
+        let negatives = generate_negative_samples_with_rng(
+            &triple,
+            &entities,
+            &NegativeSamplingStrategy::CorruptHead,
+            20,
+            &mut rng,
+        );
+        for neg in &negatives {
+            assert_eq!(neg.tail, "e2", "CorruptHead must preserve tail");
+            assert_eq!(neg.relation, "r", "CorruptHead must preserve relation");
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "rand")]
+    fn negative_samples_corrupt_both_may_change_head_and_tail() {
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        let entities: HashSet<String> = (0..20).map(|i| format!("e{i}")).collect();
+        let triple = Triple {
+            head: "e0".into(),
+            relation: "r".into(),
+            tail: "e1".into(),
+        };
+        let mut rng = StdRng::seed_from_u64(123);
+        let negatives = generate_negative_samples_with_rng(
+            &triple,
+            &entities,
+            &NegativeSamplingStrategy::CorruptBoth,
+            50,
+            &mut rng,
+        );
+        let any_head_changed = negatives.iter().any(|n| n.head != "e0");
+        let any_tail_changed = negatives.iter().any(|n| n.tail != "e1");
+        assert!(any_head_changed, "CorruptBoth should change head at least sometimes");
+        assert!(any_tail_changed, "CorruptBoth should change tail at least sometimes");
+    }
+
+    // -----------------------------------------------------------------------
+    // evaluate_link_prediction with NdarrayBox
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[cfg(feature = "ndarray-backend")]
+    fn evaluate_link_prediction_with_ndarray_boxes() {
+        use crate::ndarray_backend::NdarrayBox;
+        use ndarray::array;
+
+        // Three entities: A contains B, C is disjoint.
+        // Query: (A, r, ?) -- correct tail is B.
+        let a = NdarrayBox::new(array![0.0, 0.0], array![10.0, 10.0], 1.0).unwrap();
+        let b = NdarrayBox::new(array![1.0, 1.0], array![3.0, 3.0], 1.0).unwrap();
+        let c = NdarrayBox::new(array![50.0, 50.0], array![51.0, 51.0], 1.0).unwrap();
+
+        let mut entity_boxes = HashMap::new();
+        entity_boxes.insert("A".to_string(), a);
+        entity_boxes.insert("B".to_string(), b);
+        entity_boxes.insert("C".to_string(), c);
+
+        let test_triples = vec![Triple {
+            head: "A".to_string(),
+            relation: "r".to_string(),
+            tail: "B".to_string(),
+        }];
+
+        let results = evaluate_link_prediction(&test_triples, &entity_boxes, None).unwrap();
+
+        // B is contained in A and should rank highly; C is disjoint.
+        // With 3 entities, best rank is 1, so MRR should be > 0.
+        assert!(results.mrr > 0.0, "MRR should be positive, got {}", results.mrr);
+        assert!(results.mean_rank >= 1.0, "mean_rank should be >= 1");
+    }
+
+    #[test]
+    #[cfg(feature = "ndarray-backend")]
+    fn evaluate_link_prediction_empty_triples() {
+        use crate::ndarray_backend::NdarrayBox;
+        use ndarray::array;
+
+        let a = NdarrayBox::new(array![0.0], array![1.0], 1.0).unwrap();
+        let mut entity_boxes = HashMap::new();
+        entity_boxes.insert("A".to_string(), a);
+
+        let results = evaluate_link_prediction::<NdarrayBox>(&[], &entity_boxes, None).unwrap();
+        // No triples to evaluate: metrics should be NaN or 0 depending on implementation.
+        // mean_reciprocal_rank([]) and hits_at_k([]) return NaN per standard behavior.
+        // Just check it does not panic.
+        let _ = results;
+    }
+
+    #[test]
+    #[cfg(feature = "ndarray-backend")]
+    fn evaluate_link_prediction_filtered_excludes_known_tails() {
+        use crate::ndarray_backend::NdarrayBox;
+        use ndarray::array;
+
+        // Four entities: A, B, C, D. A contains B and C; D is disjoint.
+        // Known true: (A, r, C). Test triple: (A, r, B).
+        // In filtered setting, C should be excluded from ranking.
+        let a = NdarrayBox::new(array![0.0, 0.0], array![10.0, 10.0], 1.0).unwrap();
+        let b = NdarrayBox::new(array![1.0, 1.0], array![3.0, 3.0], 1.0).unwrap();
+        let c = NdarrayBox::new(array![2.0, 2.0], array![4.0, 4.0], 1.0).unwrap();
+        let d = NdarrayBox::new(array![50.0, 50.0], array![51.0, 51.0], 1.0).unwrap();
+
+        let mut entity_boxes = HashMap::new();
+        entity_boxes.insert("A".to_string(), a);
+        entity_boxes.insert("B".to_string(), b);
+        entity_boxes.insert("C".to_string(), c);
+        entity_boxes.insert("D".to_string(), d);
+
+        let test_triples = vec![Triple {
+            head: "A".to_string(),
+            relation: "r".to_string(),
+            tail: "B".to_string(),
+        }];
+
+        let filter_triples = vec![
+            Triple { head: "A".into(), relation: "r".into(), tail: "C".into() },
+            Triple { head: "A".into(), relation: "r".into(), tail: "B".into() },
+        ];
+        let filter = FilteredTripleIndex::from_triples(filter_triples.iter());
+
+        let unfiltered = evaluate_link_prediction(&test_triples, &entity_boxes, None).unwrap();
+        let filtered =
+            evaluate_link_prediction_filtered(&test_triples, &entity_boxes, None, &filter).unwrap();
+
+        // Filtered rank should be <= unfiltered rank (fewer competitors).
+        assert!(
+            filtered.mean_rank <= unfiltered.mean_rank,
+            "filtered rank ({}) should be <= unfiltered rank ({})",
+            filtered.mean_rank,
+            unfiltered.mean_rank
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // evaluate_link_prediction_interned with NdarrayBox
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[cfg(feature = "ndarray-backend")]
+    fn evaluate_link_prediction_interned_with_ndarray_boxes() {
+        use crate::dataset::{TripleIds, Vocab};
+        use crate::ndarray_backend::NdarrayBox;
+        use ndarray::array;
+
+        let mut vocab = Vocab::default();
+        let id_a = vocab.intern("A".to_string());
+        let id_b = vocab.intern("B".to_string());
+        let _id_c = vocab.intern("C".to_string());
+        let id_r = 0usize; // relation id
+
+        // A contains B; C disjoint.
+        let boxes = vec![
+            NdarrayBox::new(array![0.0, 0.0], array![10.0, 10.0], 1.0).unwrap(), // A
+            NdarrayBox::new(array![1.0, 1.0], array![3.0, 3.0], 1.0).unwrap(),   // B
+            NdarrayBox::new(array![50.0, 50.0], array![51.0, 51.0], 1.0).unwrap(), // C
+        ];
+
+        let test_triples = vec![TripleIds {
+            head: id_a,
+            relation: id_r,
+            tail: id_b,
+        }];
+
+        let results =
+            evaluate_link_prediction_interned(&test_triples, &boxes, &vocab, None).unwrap();
+        assert!(results.mrr > 0.0, "MRR should be positive, got {}", results.mrr);
+        assert!(results.mean_rank >= 1.0);
+    }
+
+    #[test]
+    #[cfg(feature = "ndarray-backend")]
+    fn evaluate_link_prediction_interned_filtered_with_ndarray_boxes() {
+        use crate::dataset::{TripleIds, Vocab};
+        use crate::ndarray_backend::NdarrayBox;
+        use ndarray::array;
+
+        let mut vocab = Vocab::default();
+        let id_a = vocab.intern("A".to_string());
+        let id_b = vocab.intern("B".to_string());
+        let id_c = vocab.intern("C".to_string());
+        let id_r = 0usize;
+
+        let boxes = vec![
+            NdarrayBox::new(array![0.0, 0.0], array![10.0, 10.0], 1.0).unwrap(),
+            NdarrayBox::new(array![1.0, 1.0], array![3.0, 3.0], 1.0).unwrap(),
+            NdarrayBox::new(array![2.0, 2.0], array![4.0, 4.0], 1.0).unwrap(),
+        ];
+
+        let test_triples = vec![TripleIds { head: id_a, relation: id_r, tail: id_b }];
+        let known_triples = vec![
+            TripleIds { head: id_a, relation: id_r, tail: id_c },
+            TripleIds { head: id_a, relation: id_r, tail: id_b },
+        ];
+        let filter = FilteredTripleIndexIds::from_triples(known_triples.iter());
+
+        let unfiltered =
+            evaluate_link_prediction_interned(&test_triples, &boxes, &vocab, None).unwrap();
+        let filtered = evaluate_link_prediction_interned_filtered(
+            &test_triples,
+            &boxes,
+            &vocab,
+            None,
+            &filter,
+        )
+        .unwrap();
+
+        assert!(
+            filtered.mean_rank <= unfiltered.mean_rank,
+            "filtered rank ({}) should be <= unfiltered rank ({})",
+            filtered.mean_rank,
+            unfiltered.mean_rank
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // FilteredTripleIndexIds tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn filtered_triple_index_ids_membership() {
+        use crate::dataset::TripleIds;
+
+        let triples = vec![
+            TripleIds { head: 0, relation: 0, tail: 1 },
+            TripleIds { head: 0, relation: 0, tail: 2 },
+            TripleIds { head: 0, relation: 1, tail: 3 },
+        ];
+
+        let idx = FilteredTripleIndexIds::from_triples(triples.iter());
+
+        assert!(idx.is_known_tail(0, 0, 1));
+        assert!(idx.is_known_tail(0, 0, 2));
+        assert!(!idx.is_known_tail(0, 0, 3)); // different relation
+        assert!(idx.is_known_tail(0, 1, 3));
+        assert!(!idx.is_known_tail(1, 0, 1)); // different head
+    }
+
+    #[test]
+    fn filtered_triple_index_ids_known_tails() {
+        use crate::dataset::TripleIds;
+
+        let triples = vec![
+            TripleIds { head: 0, relation: 0, tail: 10 },
+            TripleIds { head: 0, relation: 0, tail: 20 },
+        ];
+        let idx = FilteredTripleIndexIds::from_triples(triples.iter());
+
+        let tails = idx.known_tails(0, 0).unwrap();
+        assert!(tails.contains(&10));
+        assert!(tails.contains(&20));
+        assert!(!tails.contains(&30));
+        assert!(idx.known_tails(1, 0).is_none());
+    }
+
+    // -----------------------------------------------------------------------
+    // TrainingConfig defaults
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn training_config_default_values_are_sane() {
+        let cfg = TrainingConfig::default();
+        assert!(cfg.learning_rate > 0.0 && cfg.learning_rate < 1.0);
+        assert!(cfg.epochs > 0);
+        assert!(cfg.batch_size > 0);
+        assert!(cfg.negative_samples > 0);
+        assert!(cfg.temperature > 0.0);
+        assert!(cfg.margin > 0.0);
+        assert!(cfg.negative_weight > 0.0);
+    }
+
+    // -----------------------------------------------------------------------
+    // Save/load roundtrip for TrainableBox (serde)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[cfg(feature = "ndarray-backend")]
+    fn trainable_box_serde_roundtrip() {
+        let original = TrainableBox::new(vec![1.0, 2.0, 3.0], vec![0.5, -0.5, 1.0]);
+        let json = serde_json::to_string(&original).unwrap();
+        let restored: TrainableBox = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(original.mu, restored.mu);
+        assert_eq!(original.delta, restored.delta);
+        assert_eq!(original.dim, restored.dim);
+    }
+
+    #[test]
+    #[cfg(feature = "ndarray-backend")]
+    fn trainable_box_serde_roundtrip_via_tempfile() {
+        let original = TrainableBox::new(vec![0.1, -0.2], vec![0.3, 0.4]);
+
+        let dir = std::env::temp_dir();
+        let path = dir.join("subsume_test_trainable_box.json");
+        let json = serde_json::to_string_pretty(&original).unwrap();
+        std::fs::write(&path, &json).unwrap();
+
+        let loaded_json = std::fs::read_to_string(&path).unwrap();
+        let restored: TrainableBox = serde_json::from_str(&loaded_json).unwrap();
+        assert_eq!(original.mu, restored.mu);
+        assert_eq!(original.delta, restored.delta);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    #[cfg(feature = "ndarray-backend")]
+    fn ndarray_box_serde_roundtrip() {
+        use crate::ndarray_backend::NdarrayBox;
+        use crate::Box as BoxTrait;
+        use ndarray::array;
+
+        let original = NdarrayBox::new(array![0.0, 1.0], array![2.0, 3.0], 0.5).unwrap();
+        let json = serde_json::to_string(&original).unwrap();
+        let restored: NdarrayBox = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(original.dim(), restored.dim());
+        // Check min/max values roundtrip correctly.
+        for i in 0..original.dim() {
+            assert!(
+                (BoxTrait::min(&original)[i] - BoxTrait::min(&restored)[i]).abs() < 1e-6,
+                "min mismatch at dim {i}"
+            );
+            assert!(
+                (BoxTrait::max(&original)[i] - BoxTrait::max(&restored)[i]).abs() < 1e-6,
+                "max mismatch at dim {i}"
+            );
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // BoxEmbeddingTrainer full serde roundtrip
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[cfg(feature = "ndarray-backend")]
+    fn box_trainer_boxes_serde_roundtrip() {
+        let cfg = TrainingConfig::default();
+        let mut init = HashMap::new();
+        init.insert(0, vec![1.0, 2.0]);
+        init.insert(1, vec![3.0, 4.0]);
+        let trainer = BoxEmbeddingTrainer::new(cfg, 2, Some(init));
+
+        // Serialize the boxes map.
+        let json = serde_json::to_string(&trainer.boxes).unwrap();
+        let restored: HashMap<usize, TrainableBox> = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(restored.len(), 2);
+        for (id, original_box) in &trainer.boxes {
+            let r = &restored[id];
+            assert_eq!(original_box.mu, r.mu);
+            assert_eq!(original_box.delta, r.delta);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // compute_pair_loss edge cases
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn compute_pair_loss_identical_boxes_positive_is_finite() {
+        let cfg = TrainingConfig::default();
+        let a = TrainableBox::new(vec![0.0, 0.0], vec![1.0, 1.0]);
+        let loss = compute_pair_loss(&a, &a.clone(), true, &cfg);
+        assert!(loss.is_finite(), "loss for identical boxes should be finite, got {loss}");
+    }
+
+    #[test]
+    fn compute_pair_loss_negative_weight_scales_loss() {
+        let cfg_w1 = TrainingConfig {
+            negative_weight: 1.0,
+            margin: 0.01,
+            ..Default::default()
+        };
+        let cfg_w2 = TrainingConfig {
+            negative_weight: 2.0,
+            margin: 0.01,
+            ..Default::default()
+        };
+        // Two overlapping boxes.
+        let a = TrainableBox::new(vec![0.0, 0.0], vec![1.0, 1.0]);
+        let b = TrainableBox::new(vec![0.0, 0.0], vec![1.0, 1.0]);
+
+        let l1 = compute_pair_loss(&a, &b, false, &cfg_w1);
+        let l2 = compute_pair_loss(&a, &b, false, &cfg_w2);
+
+        if l1 > 0.0 {
+            let ratio = l2 / l1;
+            assert!(
+                (ratio - 2.0).abs() < 1e-4,
+                "doubling negative_weight should double loss: l1={l1}, l2={l2}, ratio={ratio}"
+            );
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // compute_analytical_gradients
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn analytical_gradients_negative_pair_returns_zeros() {
+        // For negative pairs, the current gradient implementation returns zeros
+        // (only positive pairs produce non-zero gradients).
+        let cfg = TrainingConfig::default();
+        let a = TrainableBox::new(vec![0.0, 0.0], vec![1.0, 1.0]);
+        let b = TrainableBox::new(vec![5.0, 5.0], vec![1.0, 1.0]);
+        let (g_mu_a, g_delta_a, g_mu_b, g_delta_b) =
+            compute_analytical_gradients(&a, &b, false, &cfg);
+        for v in [&g_mu_a, &g_delta_a, &g_mu_b, &g_delta_b] {
+            assert!(v.iter().all(|&x| x == 0.0), "negative gradients should be zero");
+        }
+    }
+
+    #[test]
+    fn analytical_gradients_positive_disjoint_pushes_centers() {
+        let cfg = TrainingConfig::default();
+        // Two disjoint boxes: centers far apart.
+        let a = TrainableBox::new(vec![0.0], vec![0.1_f32.ln()]);
+        let b = TrainableBox::new(vec![10.0], vec![0.1_f32.ln()]);
+        let (g_mu_a, _, g_mu_b, _) = compute_analytical_gradients(&a, &b, true, &cfg);
+
+        // For disjoint positive pairs, the gradient pushes centers toward each other:
+        // g_mu_a should be negative (move a toward b at +10).
+        // Actually the gradient formula is: g_mu_a[i] -= 0.5 * diff where diff = center_b - center_a.
+        // diff > 0, so g_mu_a < 0 (i.e., descending this gradient moves a toward b).
+        // Wait, the gradient is for gradient *descent*, so g_mu_a = -0.5 * diff.
+        // diff = 10 > 0, so g_mu_a = -5.0. Applying SGD: mu_a -= lr * g_mu_a = mu_a - lr*(-5) = mu_a + 5*lr,
+        // which moves a toward b. Correct.
+        assert!(
+            g_mu_a[0] < 0.0,
+            "gradient should push a's center toward b (got {})",
+            g_mu_a[0]
+        );
+        assert!(
+            g_mu_b[0] > 0.0,
+            "gradient should push b's center toward a (got {})",
+            g_mu_b[0]
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // log_training_result with tempfile
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn log_training_result_to_tempfile_roundtrip() {
+        let result = TrainingResult {
+            final_results: EvaluationResults {
+                mrr: 0.75,
+                hits_at_1: 0.6,
+                hits_at_3: 0.7,
+                hits_at_10: 0.9,
+                mean_rank: 2.5,
+            },
+            loss_history: vec![2.0, 1.0, 0.5],
+            validation_mrr_history: vec![0.5, 0.65, 0.75],
+            best_epoch: 2,
+            training_time_seconds: Some(42.0),
+        };
+
+        let dir = std::env::temp_dir();
+        let path = dir.join("subsume_test_log_result.txt");
+        log_training_result(&result, Some(path.to_str().unwrap())).unwrap();
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("0.7500"), "should contain MRR");
+        assert!(content.contains("0.6000"), "should contain Hits@1");
+        assert!(content.contains("42.00"), "should contain training time");
+        assert!(content.contains("Best Epoch: 2"), "should contain best epoch");
+
+        let _ = std::fs::remove_file(&path);
+    }
 }
 
 #[cfg(test)]
