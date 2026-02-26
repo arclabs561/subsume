@@ -75,6 +75,12 @@ gradients vanish; Gumbel boxes solve this *local identifiability problem*
 coordinate noise -- Gumbel containment loss stays near zero even at high perturbation
 levels where Gaussian boxes fail completely.
 
+## Training convergence
+
+![Training convergence](docs/training_convergence.png)
+
+*Box embeddings learning a 25-entity containment hierarchy over 200 epochs. Run `cargo run --example box_training` to reproduce, or `uv run scripts/plot_training.py` to regenerate the plot.*
+
 ## References
 
 - Vilnis et al. (2018). "Probabilistic Embedding of Knowledge Graphs with Box Lattice Measures"
