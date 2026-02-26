@@ -169,12 +169,12 @@ pub mod plotting {
                 &RED,
             ))?
             .label("Loss")
-            .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &RED));
+            .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], RED));
 
         chart
             .configure_series_labels()
-            .background_style(&WHITE.mix(0.8))
-            .border_style(&BLACK)
+            .background_style(WHITE.mix(0.8))
+            .border_style(BLACK)
             .draw()?;
 
         root.present()?;
@@ -215,12 +215,12 @@ pub mod plotting {
                 &BLUE,
             ))?
             .label("MRR")
-            .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &BLUE));
+            .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], BLUE));
 
         chart
             .configure_series_labels()
-            .background_style(&WHITE.mix(0.8))
-            .border_style(&BLACK)
+            .background_style(WHITE.mix(0.8))
+            .border_style(BLACK)
             .draw()?;
 
         root.present()?;
@@ -255,7 +255,7 @@ pub mod plotting {
 
         chart.configure_mesh().draw()?;
 
-        let colors = vec![&RED, &BLUE, &GREEN, &MAGENTA, &CYAN];
+        let colors = [&RED, &BLUE, &GREEN, &MAGENTA, &CYAN];
         for (i, optimizer) in optimizers.iter().enumerate() {
             let mrr = comparison.results[*optimizer].final_mrr;
             let color = colors[i % colors.len()];
@@ -307,8 +307,8 @@ pub mod plotting {
 
         chart
             .configure_series_labels()
-            .background_style(&WHITE.mix(0.8))
-            .border_style(&BLACK)
+            .background_style(WHITE.mix(0.8))
+            .border_style(BLACK)
             .draw()?;
 
         root.present()?;
@@ -350,8 +350,8 @@ pub mod plotting {
 
         chart
             .configure_series_labels()
-            .background_style(&WHITE.mix(0.8))
-            .border_style(&BLACK)
+            .background_style(WHITE.mix(0.8))
+            .border_style(BLACK)
             .draw()?;
 
         root.present()?;
