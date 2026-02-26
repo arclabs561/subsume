@@ -58,7 +58,7 @@ cargo run -p subsume --example gumbel_box_training    # Gumbel boxes, soft conta
 cargo test -p subsume
 ```
 
-138 unit tests + 12 doc tests covering box operations (intersection, union, containment, overlap, distance, truncation), Gumbel box membership and temperature edge cases, serialization round-trips, training metrics (MRR, Hits@k, NDCG), calibration diagnostics, negative sampling, sheaf networks, hyperbolic geometry, quasimetric properties, and more.
+380+ unit tests + doc tests covering box operations (intersection, union, containment, overlap, distance, truncation), Gumbel box membership and temperature edge cases, serialization round-trips, training metrics (MRR, Hits@k, NDCG), calibration diagnostics, negative sampling, sheaf networks, hyperbolic geometry, quasimetric properties, and more.
 
 ## Why Gumbel boxes?
 
