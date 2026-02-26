@@ -141,7 +141,7 @@ use crate::{Box, BoxError};
 /// - **Dasgupta et al. (2020)**: Introduces Gumbel-box process to solve identifiability
 ///   - Paper: [arXiv:2004.13131](https://arxiv.org/abs/2004.13131) | [NeurIPS 2020](https://proceedings.neurips.cc/paper/2020/hash/2cfa8a9da6cdae0c7ac0b94a2c3f4c0d-Abstract.html)
 ///   - Key contribution: Expected volume formula using Bessel function \(K_0\)
-///   - Shows ~6 F1 improvement over SmoothBox on entailment tasks
+///   - Reports improvements over SmoothBox on entailment tasks (Table 2)
 ///   - Section 3: Derives Bessel function from Gumbel PDFs
 ///
 /// - **Jang et al. (2017)**: "Categorical Reparameterization with Gumbel-Softmax"
