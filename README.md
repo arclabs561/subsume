@@ -81,6 +81,12 @@ levels where Gaussian boxes fail completely.
 - Dasgupta et al. (2020). "Improving Local Identifiability in Probabilistic Box Embeddings"
 - Ren et al. (2020). "Query2Box: Reasoning over Knowledge Graphs using Box Embeddings"
 
+## See also
+
+- [`innr`](https://crates.io/crates/innr) -- SIMD-accelerated vector similarity primitives
+- [`kuji`](https://crates.io/crates/kuji) -- stochastic sampling (Gumbel-max uses the same distribution)
+- [`anno`](https://crates.io/crates/anno) -- information extraction with optional box-embedding coreference
+
 ## License
 
 MIT OR Apache-2.0
