@@ -1146,4 +1146,47 @@ mod tests {
     fn test_euler_gamma_value() {
         assert!((EULER_GAMMA - 0.5772).abs() < 0.001);
     }
+
+    // =========================================================================
+    // Property tests
+    // =========================================================================
+
+    mod proptests {
+        use super::*;
+        use proptest::prelude::*;
+
+        // ---- softplus monotonicity: a <= b => softplus(a, beta) <= softplus(b, beta) ----
+        proptest! {
+            #[test]
+            fn prop_softplus_monotone(
+                a in -50.0f32..50.0f32,
+                delta in 0.0f32..50.0f32,
+                beta in 0.01f32..10.0f32,
+            ) {
+                let b = a + delta;
+                let sa = softplus(a, beta);
+                let sb = softplus(b, beta);
+                prop_assert!(
+                    sb >= sa - 1e-6,
+                    "softplus({a}, {beta})={sa} > softplus({b}, {beta})={sb}, violates monotonicity"
+                );
+            }
+        }
+
+        // ---- stable_logsumexp >= max(a, b) ----
+        proptest! {
+            #[test]
+            fn prop_logsumexp_ge_max(
+                a in -100.0f32..100.0f32,
+                b in -100.0f32..100.0f32,
+            ) {
+                let lse = stable_logsumexp(a, b);
+                let m = a.max(b);
+                prop_assert!(
+                    lse >= m - 1e-6,
+                    "stable_logsumexp({a}, {b})={lse} < max={m}"
+                );
+            }
+        }
+    }
 }

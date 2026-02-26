@@ -443,4 +443,93 @@ mod tests {
         // Outside: below
         assert!((boxe_dim_distance(-0.5, 0.0, 1.0) - 0.5).abs() < 1e-6);
     }
+
+    // =========================================================================
+    // Property tests
+    // =========================================================================
+
+    mod proptests {
+        use super::*;
+        use proptest::prelude::*;
+
+        /// Strategy: generate valid box bounds (lo < hi) and a point in any range.
+        fn arb_box_and_point(dim: usize) -> impl Strategy<Value = (Vec<f32>, Vec<f32>, Vec<f32>)> {
+            proptest::collection::vec(
+                (-10.0f32..10.0f32, 0.01f32..5.0f32),
+                dim,
+            )
+            .prop_flat_map(move |pairs| {
+                let lo: Vec<f32> = pairs.iter().map(|(l, _)| *l).collect();
+                let hi: Vec<f32> = pairs.iter().map(|(l, w)| l + w).collect();
+                let point_strat = proptest::collection::vec(-15.0f32..15.0f32, dim);
+                (Just(lo), Just(hi), point_strat)
+            })
+        }
+
+        // ---- boxe_point_score is non-positive for any inputs ----
+        proptest! {
+            #[test]
+            fn prop_boxe_point_score_non_positive(
+                dim in 1usize..=4,
+                h_coords in proptest::collection::vec(-10.0f32..10.0f32, 1..=4),
+                t_coords in proptest::collection::vec(-10.0f32..10.0f32, 1..=4),
+                rh_lo_w in proptest::collection::vec((-10.0f32..10.0f32, 0.01f32..5.0f32), 1..=4),
+                rt_lo_w in proptest::collection::vec((-10.0f32..10.0f32, 0.01f32..5.0f32), 1..=4),
+                bh_coords in proptest::collection::vec(-5.0f32..5.0f32, 1..=4),
+                bt_coords in proptest::collection::vec(-5.0f32..5.0f32, 1..=4),
+            ) {
+                let d = dim.min(h_coords.len())
+                    .min(t_coords.len())
+                    .min(rh_lo_w.len())
+                    .min(rt_lo_w.len())
+                    .min(bh_coords.len())
+                    .min(bt_coords.len());
+                prop_assume!(d > 0);
+
+                let h = &h_coords[..d];
+                let t = &t_coords[..d];
+                let rh_min: Vec<f32> = rh_lo_w[..d].iter().map(|(l, _)| *l).collect();
+                let rh_max: Vec<f32> = rh_lo_w[..d].iter().map(|(l, w)| l + w).collect();
+                let rt_min: Vec<f32> = rt_lo_w[..d].iter().map(|(l, _)| *l).collect();
+                let rt_max: Vec<f32> = rt_lo_w[..d].iter().map(|(l, w)| l + w).collect();
+                let bh = &bh_coords[..d];
+                let bt = &bt_coords[..d];
+
+                let score = boxe_point_score(h, t, &rh_min, &rh_max, &rt_min, &rt_max, bh, bt).unwrap();
+                prop_assert!(
+                    score <= 1e-6,
+                    "boxe_point_score should be <= 0, got {score}"
+                );
+            }
+        }
+
+        // ---- boxe_point_score is zero when points are at box centers with no bump ----
+        proptest! {
+            #[test]
+            fn prop_boxe_point_score_zero_at_centers(
+                lo_w in proptest::collection::vec((-10.0f32..10.0f32, 0.1f32..5.0f32), 1..=4),
+            ) {
+                let d = lo_w.len();
+                let rh_min: Vec<f32> = lo_w.iter().map(|(l, _)| *l).collect();
+                let rh_max: Vec<f32> = lo_w.iter().map(|(l, w)| l + w).collect();
+                let center: Vec<f32> = rh_min.iter().zip(rh_max.iter())
+                    .map(|(lo, hi)| (lo + hi) / 2.0)
+                    .collect();
+                let zero_bump = vec![0.0f32; d];
+
+                // h at center of rh box, t at center of rt box, zero bumps
+                // => h' = h + bt = center + 0 = center, t' = t + bh = center + 0 = center
+                let score = boxe_point_score(
+                    &center, &center,
+                    &rh_min, &rh_max,
+                    &rh_min, &rh_max,
+                    &zero_bump, &zero_bump,
+                ).unwrap();
+                prop_assert!(
+                    score.abs() < 1e-5,
+                    "boxe_point_score at box centers with zero bump should be ~0, got {score}"
+                );
+            }
+        }
+    }
 }

@@ -912,4 +912,141 @@ mod proptest_tests {
             );
         }
     }
+
+    // ---- Property 7: LSE intersection is contained within both parents ----
+    // For any two boxes A, B and their LSE intersection I:
+    //   I.min[d] >= max(A.min[d], B.min[d])  (gumbel_lse_min >= hard max)
+    //   I.max[d] <= min(A.max[d], B.max[d])  (gumbel_lse_max <= hard min)
+    // The LSE bounds are tighter (or equal) than the hard intersection bounds.
+
+    proptest! {
+        #[test]
+        fn proptest_lse_intersection_within_parents(
+            a_pairs in proptest::collection::vec((-5.0f32..5.0f32, 0.5f32..5.0f32), 1..=4),
+            b_pairs in proptest::collection::vec((-5.0f32..5.0f32, 0.5f32..5.0f32), 1..=4),
+            temp in 0.01f32..3.0f32,
+        ) {
+            let dim = a_pairs.len().min(b_pairs.len());
+            prop_assume!(dim > 0);
+
+            let a_min: Vec<f32> = a_pairs[..dim].iter().map(|(lo, _)| *lo).collect();
+            let a_max: Vec<f32> = a_pairs[..dim].iter().map(|(lo, w)| lo + w).collect();
+            let b_min: Vec<f32> = b_pairs[..dim].iter().map(|(lo, _)| *lo).collect();
+            let b_max: Vec<f32> = b_pairs[..dim].iter().map(|(lo, w)| lo + w).collect();
+
+            let a = NdarrayGumbelBox::new(
+                Array1::from(a_min.clone()),
+                Array1::from(a_max.clone()),
+                temp,
+            ).unwrap();
+            let b = NdarrayGumbelBox::new(
+                Array1::from(b_min.clone()),
+                Array1::from(b_max.clone()),
+                temp,
+            ).unwrap();
+
+            let inter = a.intersection(&b).unwrap();
+
+            for d in 0..dim {
+                let hard_min = a_min[d].max(b_min[d]);
+                let hard_max = a_max[d].min(b_max[d]);
+
+                // LSE min (smooth max) >= hard max of mins
+                prop_assert!(
+                    inter.min()[d] >= hard_min - 1e-5,
+                    "dim {d}: LSE intersection min {} < hard min {hard_min}",
+                    inter.min()[d]
+                );
+
+                // LSE max (smooth min) <= hard min of maxes
+                prop_assert!(
+                    inter.max()[d] <= hard_max + 1e-5,
+                    "dim {d}: LSE intersection max {} > hard max {hard_max}",
+                    inter.max()[d]
+                );
+            }
+        }
+    }
+
+    // ---- Property 8: Bessel volume <= hard volume ----
+    // The Bessel volume subtracts 2*gamma*T from each dimension's side length
+    // before applying softplus, so for boxes with side >> 2*gamma*T, the
+    // Bessel volume should be less than the hard volume.
+    // For any box, the per-dim Bessel side = softplus(Z - z - 2*gamma*T, 1/T).
+    // Since softplus(x, beta) >= 0 and approaches x for large x, but always
+    // softplus(x) <= x + (1/beta)*ln(2), the total Bessel volume should be
+    // bounded relative to the hard volume.
+    //
+    // Concrete invariant: at low temperature (T <= 0.1), for boxes with side > 1.0,
+    // Bessel volume should be close to (but not exceed) hard volume.
+
+    proptest! {
+        #[test]
+        fn proptest_bessel_volume_bounded_by_hard_volume_at_low_t(
+            pairs in proptest::collection::vec((-5.0f32..5.0f32, 2.0f32..10.0f32), 1..=4),
+            temp in 0.001f32..0.1f32,
+        ) {
+            let mins: Vec<f32> = pairs.iter().map(|(lo, _)| *lo).collect();
+            let maxs: Vec<f32> = pairs.iter().map(|(lo, w)| lo + w).collect();
+
+            let hard_vol: f32 = pairs.iter().map(|(_, w)| w).product();
+
+            let gb = NdarrayGumbelBox::new(
+                Array1::from(mins),
+                Array1::from(maxs),
+                temp,
+            ).unwrap();
+            let bessel_vol = gb.volume(temp).unwrap();
+
+            // At low T, Bessel volume should be close to hard volume but slightly less
+            // (the 2*gamma*T offset reduces each side by ~2*0.577*T per dim).
+            prop_assert!(
+                bessel_vol <= hard_vol + 1e-3,
+                "Bessel vol ({bessel_vol}) should be <= hard vol ({hard_vol}) at T={temp}"
+            );
+            prop_assert!(
+                bessel_vol > 0.0,
+                "Bessel vol should be positive, got {bessel_vol}"
+            );
+        }
+    }
+
+    // ---- Property 9: Gumbel containment approaches hard containment at low T ----
+    // For boxes where A fully contains B (hard containment = 1.0),
+    // Gumbel containment should approach 1.0 as T -> 0.
+
+    proptest! {
+        #[test]
+        fn proptest_gumbel_containment_approaches_hard_at_low_t(
+            b_pairs in proptest::collection::vec((-3.0f32..3.0f32, 0.5f32..2.0f32), 1..=3),
+            margin in 0.5f32..3.0f32,
+        ) {
+            let dim = b_pairs.len();
+
+            // B is the inner box; A is B expanded by `margin` on each side.
+            let b_min: Vec<f32> = b_pairs.iter().map(|(lo, _)| *lo).collect();
+            let b_max: Vec<f32> = b_pairs.iter().map(|(lo, w)| lo + w).collect();
+            let a_min: Vec<f32> = b_min.iter().map(|lo| lo - margin).collect();
+            let a_max: Vec<f32> = b_max.iter().map(|hi| hi + margin).collect();
+
+            // At a low temperature, containment should be close to 1.0.
+            let t_low = 0.01f32;
+            let a = NdarrayGumbelBox::new(
+                Array1::from(a_min),
+                Array1::from(a_max),
+                t_low,
+            ).unwrap();
+            let b = NdarrayGumbelBox::new(
+                Array1::from(b_min),
+                Array1::from(b_max),
+                t_low,
+            ).unwrap();
+
+            let containment = a.containment_prob(&b, t_low).unwrap();
+            prop_assert!(
+                containment > 0.9,
+                "hard containment=1.0 but Gumbel containment at T={t_low} is only {containment}"
+            );
+        }
+    }
 }
