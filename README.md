@@ -48,9 +48,13 @@ assert!(p > 0.9);
 ## Examples
 
 ```bash
-cargo run -p subsume --example containment_hierarchy  # taxonomic is-a relationships with nested boxes
-cargo run -p subsume --example gumbel_box_training    # Gumbel boxes, soft containment, temperature effects
+cargo run -p subsume --example containment_hierarchy    # taxonomic is-a relationships with nested boxes
+cargo run -p subsume --example gumbel_box_exploration   # Gumbel boxes, soft containment, temperature effects
+cargo run -p subsume --example cone_training            # training cone embeddings on a taxonomy
+cargo run -p subsume --example box_training             # training box embeddings on a 25-entity taxonomy
 ```
+
+See [`examples/README.md`](examples/README.md) for a guide to choosing the right example.
 
 ## Tests
 

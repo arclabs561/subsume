@@ -1,11 +1,11 @@
-//! Gumbel box embeddings: probabilistic containment with temperature control.
+//! Gumbel box embeddings: exploring probabilistic containment and temperature effects.
 //!
 //! Gumbel boxes (Dasgupta et al., 2020) solve the **local identifiability problem**
 //! that prevents learning with hard boxes. By modeling box coordinates as Gumbel
 //! random variables, every parameter contributes to the loss -- no flat regions,
 //! no vanishing gradients.
 //!
-//! This example demonstrates:
+//! This example explores Gumbel box properties (no training loop):
 //! 1. Creating Gumbel boxes (NdarrayGumbelBox)
 //! 2. Computing probabilistic containment (soft containment via Gumbel)
 //! 3. How temperature controls the softness of containment scores
@@ -14,7 +14,7 @@
 //! Reference: Dasgupta et al. (2020), "Improving Local Identifiability in
 //! Probabilistic Box Embeddings" (NeurIPS 2020)
 //!
-//! Run: cargo run -p subsume --example gumbel_box_training
+//! Run: cargo run -p subsume --example gumbel_box_exploration
 
 use ndarray::array;
 use subsume::ndarray_backend::NdarrayGumbelBox;
@@ -194,6 +194,9 @@ fn main() -> Result<(), subsume::BoxError> {
     println!("  - High temperature -> smooth gradients (good for early training)");
     println!("  - Temperature annealing: start high, decrease during training");
     println!("  - Reference: Dasgupta et al. (2020), NeurIPS 2020");
+
+    // See scripts/plot_gumbel_robustness.py for a visualization of Gumbel noise robustness
+    // compared to Gaussian boxes.
 
     Ok(())
 }

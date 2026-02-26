@@ -91,5 +91,8 @@ fn main() -> Result<(), subsume::BoxError> {
     println!("  - fish overlaps with animal but not with mammal (different sub-hierarchy)");
     println!("  - lower temperature makes containment probabilities sharper (closer to 0/1)");
 
+    // See scripts/plot_box_concept.py for a visualization of box containment, overlap,
+    // and Gumbel soft boundaries.
+
     Ok(())
 }

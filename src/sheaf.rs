@@ -58,6 +58,14 @@
 //! - Hansen & Ghrist (2019): "Toward a spectral theory of cellular sheaves"
 //! - Bodnar et al. (2022): "Neural Sheaf Diffusion" (ICLR)
 //! - Barbero et al. (2022): "Sheaf Neural Networks with Connection Laplacians"
+//! - Bodnar (2023): "Topological Deep Learning: Graphs, Complexes, Sheaves"
+//!   (Cambridge PhD thesis) -- connects sheaf structure to asymptotic behavior of
+//!   message passing, providing theoretical grounding
+//! - Zaghen (2024): "Nonlinear Sheaf Diffusion in Graph Neural Networks" -- introduces
+//!   nonlinear Laplacians for sheaf diffusion; the current linear restriction maps could
+//!   be extended with nonlinear variants for heterophilic graphs
+//! - Hu (2026): "Sheaf-Theoretic and Topological Perspective on Complex Network Modeling"
+//!   -- comprehensive survey of sheaf neural networks and sheaf attention mechanisms
 
 use std::collections::HashMap;
 use std::fmt::Debug;
