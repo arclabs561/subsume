@@ -194,7 +194,7 @@ impl Default for Curvature {
 // Simple Implementation (f64, Vec<f64>) - Backed by `hyp`
 // =============================================================================
 
-/// A point in the Poincaré ball using Vec<f64>.
+/// A point in the Poincare ball using `Vec<f64>`.
 #[derive(Debug, Clone)]
 pub struct PoincareBallPoint {
     /// Coordinates in the ball.

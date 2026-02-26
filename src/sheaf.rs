@@ -475,7 +475,7 @@ impl RestrictionMap for DenseRestriction {
     }
 }
 
-/// Simple stalk holding a Vec<f32>.
+/// Simple stalk holding a `Vec<f32>`.
 #[derive(Debug, Clone)]
 pub struct VecStalk {
     value: Vec<f32>,

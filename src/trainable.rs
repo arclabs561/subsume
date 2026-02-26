@@ -362,7 +362,7 @@ impl TrainableCone {
 
     /// Compute containment probability: P(other inside self).
     ///
-    /// This is the public inference API. Internally materializes a [`DenseCone`]
+    /// This is the public inference API. Internally materializes a `DenseCone`
     /// and delegates to the sigmoid-based containment formula.
     pub fn containment_prob(&self, other: &Self, temperature: f32) -> f32 {
         let dense_self = self.to_cone();
@@ -373,7 +373,7 @@ impl TrainableCone {
     /// Update cone parameters using AMSGrad optimizer.
     ///
     /// The optimizer state must have been created with dimension = `3 * dim + 1`
-    /// (but we only use the first `2 * dim + 1` slots, matching [`num_parameters`]).
+    /// (but we only use the first `2 * dim + 1` slots, matching `num_parameters()`).
     ///
     /// Gradients are passed as three slices:
     /// - `grad_apex` (dim elements): gradient w.r.t. apex

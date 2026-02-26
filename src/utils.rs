@@ -215,7 +215,7 @@ pub fn stable_sigmoid(x: f32) -> f32 {
 ///
 /// ## Numerical Stability
 ///
-/// Uses [`stable_sigmoid`](crate::utils::stable_sigmoid) to avoid overflow when
+/// Uses [`stable_sigmoid`] to avoid overflow when
 /// \(|x - min|/\tau\) or \(|max - x|/\tau\) is large.
 ///
 /// See [`docs/MATHEMATICAL_FOUNDATIONS.md`](../../docs/MATHEMATICAL_FOUNDATIONS.md)

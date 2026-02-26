@@ -407,7 +407,7 @@ mod intern_tests {
 ///
 /// This is a placeholder function. In a real implementation, this would:
 /// 1. Check if dataset already exists locally
-/// 2. Download from standard URLs (e.g., https://github.com/...)
+/// 2. Download from standard URLs (e.g., `https://github.com/...`)
 /// 3. Extract and verify the dataset
 ///
 /// # Supported Datasets
