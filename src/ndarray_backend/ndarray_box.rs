@@ -1075,3 +1075,251 @@ mod tests {
         assert!((p - 1.0/7.0).abs() < 1e-5);
     }
 }
+
+#[cfg(test)]
+mod proptest_tests {
+    use super::*;
+    use crate::Box as BoxTrait;
+    use ndarray::Array1;
+    use proptest::prelude::*;
+
+    /// Strategy: generate a valid NdarrayBox with `dim` dimensions.
+    /// Coordinates are bounded to [-50, 50] with min <= max enforced by sorting.
+    fn arb_box(dim: usize) -> impl Strategy<Value = NdarrayBox> {
+        proptest::collection::vec((-50.0f32..50.0f32, -50.0f32..50.0f32), dim).prop_map(
+            move |pairs| {
+                let mut mins = Vec::with_capacity(dim);
+                let mut maxs = Vec::with_capacity(dim);
+                for (a, b) in pairs {
+                    let lo = a.min(b);
+                    let hi = a.max(b);
+                    mins.push(lo);
+                    maxs.push(hi);
+                }
+                NdarrayBox::new(Array1::from(mins), Array1::from(maxs), 1.0).unwrap()
+            },
+        )
+    }
+
+    // ---- Property 1: Volume non-negative ----
+
+    proptest! {
+        #[test]
+        fn proptest_volume_non_negative(dim in 1usize..=5) {
+            let strat = arb_box(dim);
+            proptest::test_runner::TestRunner::default()
+                .run(&strat, |b| {
+                    let v = b.volume(1.0).unwrap();
+                    prop_assert!(v >= 0.0, "volume must be >= 0, got {}", v);
+                    prop_assert!(v.is_finite(), "volume must be finite, got {}", v);
+                    Ok(())
+                })
+                .unwrap();
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn proptest_volume_non_negative_flat(
+            pairs in proptest::collection::vec((-50.0f32..50.0f32, -50.0f32..50.0f32), 1..=5)
+        ) {
+            let dim = pairs.len();
+            let mut mins = Vec::with_capacity(dim);
+            let mut maxs = Vec::with_capacity(dim);
+            for (a, b) in &pairs {
+                mins.push(a.min(*b));
+                maxs.push(a.max(*b));
+            }
+            let bx = NdarrayBox::new(Array1::from(mins), Array1::from(maxs), 1.0).unwrap();
+            let v = bx.volume(1.0).unwrap();
+            prop_assert!(v >= 0.0, "volume must be >= 0, got {}", v);
+            prop_assert!(v.is_finite(), "volume must be finite");
+        }
+    }
+
+    // ---- Property 2: Self-containment == 1.0 ----
+
+    proptest! {
+        #[test]
+        fn proptest_self_containment(
+            pairs in proptest::collection::vec((-50.0f32..50.0f32, 0.01f32..20.0f32), 1..=5)
+        ) {
+            let dim = pairs.len();
+            let mut mins = Vec::with_capacity(dim);
+            let mut maxs = Vec::with_capacity(dim);
+            for (lo, width) in &pairs {
+                mins.push(*lo);
+                maxs.push(*lo + *width);
+            }
+            let bx = NdarrayBox::new(Array1::from(mins), Array1::from(maxs), 1.0).unwrap();
+            let p = bx.containment_prob(&bx, 1.0).unwrap();
+            prop_assert!(
+                (p - 1.0).abs() < 1e-5,
+                "containment_prob(b, b) should be 1.0, got {}",
+                p
+            );
+        }
+    }
+
+    // ---- Property 3: Self-overlap == 1.0 ----
+
+    proptest! {
+        #[test]
+        fn proptest_self_overlap(
+            pairs in proptest::collection::vec((-50.0f32..50.0f32, 0.01f32..20.0f32), 1..=5)
+        ) {
+            let dim = pairs.len();
+            let mut mins = Vec::with_capacity(dim);
+            let mut maxs = Vec::with_capacity(dim);
+            for (lo, width) in &pairs {
+                mins.push(*lo);
+                maxs.push(*lo + *width);
+            }
+            let bx = NdarrayBox::new(Array1::from(mins), Array1::from(maxs), 1.0).unwrap();
+            let p = bx.overlap_prob(&bx, 1.0).unwrap();
+            prop_assert!(
+                (p - 1.0).abs() < 1e-5,
+                "overlap_prob(b, b) should be 1.0, got {}",
+                p
+            );
+        }
+    }
+
+    // ---- Property 4: Intersection idempotent ----
+
+    proptest! {
+        #[test]
+        fn proptest_intersection_idempotent(
+            pairs in proptest::collection::vec((-50.0f32..50.0f32, -50.0f32..50.0f32), 1..=5)
+        ) {
+            let dim = pairs.len();
+            let mut mins = Vec::with_capacity(dim);
+            let mut maxs = Vec::with_capacity(dim);
+            for (a, b) in &pairs {
+                mins.push(a.min(*b));
+                maxs.push(a.max(*b));
+            }
+            let bx = NdarrayBox::new(Array1::from(mins), Array1::from(maxs), 1.0).unwrap();
+            let inter = bx.intersection(&bx).unwrap();
+            for i in 0..dim {
+                prop_assert!(
+                    (inter.min()[i] - bx.min()[i]).abs() < 1e-6,
+                    "intersect(b,b).min[{}] = {}, expected {}",
+                    i, inter.min()[i], bx.min()[i]
+                );
+                prop_assert!(
+                    (inter.max()[i] - bx.max()[i]).abs() < 1e-6,
+                    "intersect(b,b).max[{}] = {}, expected {}",
+                    i, inter.max()[i], bx.max()[i]
+                );
+            }
+        }
+    }
+
+    // ---- Property 5: Union idempotent ----
+
+    proptest! {
+        #[test]
+        fn proptest_union_idempotent(
+            pairs in proptest::collection::vec((-50.0f32..50.0f32, -50.0f32..50.0f32), 1..=5)
+        ) {
+            let dim = pairs.len();
+            let mut mins = Vec::with_capacity(dim);
+            let mut maxs = Vec::with_capacity(dim);
+            for (a, b) in &pairs {
+                mins.push(a.min(*b));
+                maxs.push(a.max(*b));
+            }
+            let bx = NdarrayBox::new(Array1::from(mins), Array1::from(maxs), 1.0).unwrap();
+            let u = bx.union(&bx).unwrap();
+            for i in 0..dim {
+                prop_assert!(
+                    (u.min()[i] - bx.min()[i]).abs() < 1e-6,
+                    "union(b,b).min[{}] = {}, expected {}",
+                    i, u.min()[i], bx.min()[i]
+                );
+                prop_assert!(
+                    (u.max()[i] - bx.max()[i]).abs() < 1e-6,
+                    "union(b,b).max[{}] = {}, expected {}",
+                    i, u.max()[i], bx.max()[i]
+                );
+            }
+        }
+    }
+
+    // ---- Property 6: Containment implies overlap ----
+
+    proptest! {
+        #[test]
+        fn proptest_containment_implies_overlap(
+            dim in 1usize..=3,
+            // Generate outer box, then inner box strictly inside it
+            outer_lo in -20.0f32..0.0f32,
+            outer_hi in 5.0f32..20.0f32,
+            shrink_lo in 0.0f32..2.0f32,
+            shrink_hi in 0.0f32..2.0f32,
+        ) {
+            // Ensure outer box is valid
+            prop_assume!(outer_lo < outer_hi);
+            let inner_lo = outer_lo + shrink_lo;
+            let inner_hi = outer_hi - shrink_hi;
+            prop_assume!(inner_lo < inner_hi);
+
+            let outer_mins = Array1::from(vec![outer_lo; dim]);
+            let outer_maxs = Array1::from(vec![outer_hi; dim]);
+            let inner_mins = Array1::from(vec![inner_lo; dim]);
+            let inner_maxs = Array1::from(vec![inner_hi; dim]);
+
+            let a = NdarrayBox::new(outer_mins, outer_maxs, 1.0).unwrap();
+            let b = NdarrayBox::new(inner_mins, inner_maxs, 1.0).unwrap();
+
+            let cp = a.containment_prob(&b, 1.0).unwrap();
+            if cp > 0.9 {
+                let op = a.overlap_prob(&b, 1.0).unwrap();
+                prop_assert!(
+                    op > 0.0,
+                    "containment_prob={} > 0.9 but overlap_prob={} is not > 0",
+                    cp, op
+                );
+            }
+        }
+    }
+
+    // ---- Property 7: Truncation preserves containment ----
+    // truncate(b, k) should be "contained" in b when projected to k dims,
+    // i.e. truncate(b, k).min >= b.min[..k] and truncate(b, k).max <= b.max[..k]
+
+    proptest! {
+        #[test]
+        fn proptest_truncation_preserves_bounds(
+            pairs in proptest::collection::vec((-50.0f32..50.0f32, -50.0f32..50.0f32), 2..=5)
+        ) {
+            let dim = pairs.len();
+            let mut mins = Vec::with_capacity(dim);
+            let mut maxs = Vec::with_capacity(dim);
+            for (a, b) in &pairs {
+                mins.push(a.min(*b));
+                maxs.push(a.max(*b));
+            }
+            let bx = NdarrayBox::new(Array1::from(mins.clone()), Array1::from(maxs.clone()), 1.0).unwrap();
+
+            // Truncate to every valid sub-dimension
+            for k in 1..dim {
+                let trunc = bx.truncate(k).unwrap();
+                prop_assert_eq!(trunc.dim(), k);
+                for i in 0..k {
+                    prop_assert!(
+                        (trunc.min()[i] - mins[i]).abs() < 1e-6,
+                        "truncate({}).min[{}] = {}, expected {}",
+                        k, i, trunc.min()[i], mins[i]
+                    );
+                    prop_assert!(
+                        (trunc.max()[i] - maxs[i]).abs() < 1e-6,
+                        "truncate({}).max[{}] = {}, expected {}",
+                        k, i, trunc.max()[i], maxs[i]
+                    );
+                }
+            }
+        }
+    }
+}

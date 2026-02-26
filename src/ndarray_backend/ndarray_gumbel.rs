@@ -470,3 +470,140 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod proptest_tests {
+    use super::*;
+    use crate::GumbelBox as GumbelBoxTrait;
+    use ndarray::Array1;
+    use proptest::prelude::*;
+
+    // ---- Property 1: membership_probability is in [0, 1] ----
+
+    proptest! {
+        #[test]
+        fn proptest_membership_in_unit_interval(
+            box_pairs in proptest::collection::vec((-20.0f32..20.0f32, 1.0f32..10.0f32), 1..=5),
+            temp in 0.01f32..10.0f32,
+            point_coords in proptest::collection::vec(-30.0f32..30.0f32, 1..=5),
+        ) {
+            let dim = box_pairs.len();
+            // Skip if point dimension doesn't match box dimension
+            prop_assume!(point_coords.len() >= dim);
+
+            let mut mins = Vec::with_capacity(dim);
+            let mut maxs = Vec::with_capacity(dim);
+            for (lo, width) in &box_pairs {
+                mins.push(*lo);
+                maxs.push(*lo + *width);
+            }
+            let gb = NdarrayGumbelBox::new(
+                Array1::from(mins),
+                Array1::from(maxs),
+                temp,
+            ).unwrap();
+
+            let point = Array1::from(point_coords[..dim].to_vec());
+            let p = gb.membership_probability(&point).unwrap();
+            prop_assert!(
+                (0.0..=1.0).contains(&p),
+                "membership_probability must be in [0,1], got {} (temp={}, point={:?})",
+                p, temp, point
+            );
+            prop_assert!(p.is_finite(), "membership must be finite, got {}", p);
+        }
+    }
+
+    // ---- Property 2: Center membership > boundary membership ----
+
+    proptest! {
+        #[test]
+        fn proptest_center_membership_gt_boundary(
+            box_pairs in proptest::collection::vec((-10.0f32..10.0f32, 2.0f32..10.0f32), 1..=4),
+            temp in 0.1f32..5.0f32,
+        ) {
+            let dim = box_pairs.len();
+            let mut mins = Vec::with_capacity(dim);
+            let mut maxs = Vec::with_capacity(dim);
+            for (lo, width) in &box_pairs {
+                mins.push(*lo);
+                maxs.push(*lo + *width);
+            }
+            let gb = NdarrayGumbelBox::new(
+                Array1::from(mins.clone()),
+                Array1::from(maxs.clone()),
+                temp,
+            ).unwrap();
+
+            // Center point
+            let center: Vec<f32> = mins.iter().zip(maxs.iter())
+                .map(|(lo, hi)| (lo + hi) / 2.0)
+                .collect();
+            // Boundary point (at min in every dimension)
+            let boundary: Vec<f32> = mins.clone();
+
+            let p_center = gb.membership_probability(&Array1::from(center)).unwrap();
+            let p_boundary = gb.membership_probability(&Array1::from(boundary)).unwrap();
+
+            prop_assert!(
+                p_center >= p_boundary - 1e-6,
+                "center membership ({}) should be >= boundary membership ({}), temp={}",
+                p_center, p_boundary, temp
+            );
+        }
+    }
+
+    // ---- Property 3: Temperature monotonicity for outside points ----
+    // Higher temperature -> membership at a point *outside* the box increases,
+    // because the soft sigmoid "leaks" more probability mass beyond the hard boundary.
+    //
+    // At the boundary itself, behavior is non-monotone: the hard-box path (very low temp)
+    // returns 1.0 for boundary points (they satisfy min <= x <= max), but the soft
+    // sigmoid path gives sigmoid(0) ~ 0.5 per boundary dimension. So we test with
+    // points strictly outside the box, where the monotonicity is clean.
+
+    proptest! {
+        #[test]
+        fn proptest_temperature_monotonicity_outside(
+            box_pairs in proptest::collection::vec((-10.0f32..10.0f32, 2.0f32..10.0f32), 1..=3),
+            temp_lo in 0.1f32..1.0f32,
+            temp_delta in 1.0f32..50.0f32,
+            offset in 1.0f32..5.0f32,
+        ) {
+            let dim = box_pairs.len();
+            let temp_hi = temp_lo + temp_delta;
+
+            let mut mins = Vec::with_capacity(dim);
+            let mut maxs = Vec::with_capacity(dim);
+            for (lo, width) in &box_pairs {
+                mins.push(*lo);
+                maxs.push(*lo + *width);
+            }
+
+            let gb_lo = NdarrayGumbelBox::new(
+                Array1::from(mins.clone()),
+                Array1::from(maxs.clone()),
+                temp_lo,
+            ).unwrap();
+            let gb_hi = NdarrayGumbelBox::new(
+                Array1::from(mins.clone()),
+                Array1::from(maxs.clone()),
+                temp_hi,
+            ).unwrap();
+
+            // Point strictly outside: shift below min by offset in every dimension
+            let outside: Vec<f32> = mins.iter().map(|lo| lo - offset).collect();
+            let outside_pt = Array1::from(outside);
+            let p_lo = gb_lo.membership_probability(&outside_pt).unwrap();
+            let p_hi = gb_hi.membership_probability(&outside_pt).unwrap();
+
+            // Higher temperature should give higher membership for outside points
+            // (more probability leaks beyond the hard boundary).
+            prop_assert!(
+                p_hi >= p_lo - 1e-5,
+                "higher temp ({}) should give >= membership for outside point than lower temp ({}): p_hi={}, p_lo={}",
+                temp_hi, temp_lo, p_hi, p_lo
+            );
+        }
+    }
+}
