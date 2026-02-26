@@ -43,3 +43,11 @@ jobs:
         run: |
           rm -f Cargo.lock  # v4 lock file requires Cargo 1.83+
           cargo check -p subsume
+
+  # Dependency linting (licenses, advisories, bans, sources)
+  deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
