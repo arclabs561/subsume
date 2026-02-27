@@ -22,12 +22,16 @@ Geometric box embeddings: containment, entailment, overlap. Ndarray and Candle b
 | Evaluation | Mean rank, MRR, Hits@k, NDCG, calibration, reliability diagrams |
 | Sheaf networks | Sheaf neural networks for transitivity (Hansen & Ghrist 2019) |
 | Hyperbolic boxes | Box embeddings in Poincare ball (via `hyperball`) |
+| `gaussian` | Diagonal Gaussian box embeddings: KL divergence (asymmetric containment) and Bhattacharyya coefficient (symmetric overlap) |
+| `el` | EL++ ontology embedding primitives: inclusion loss, role translation/composition, existential boxes, disjointness (Box2EL/TransBox) |
+| `taxonomy` | TaxoBell-format taxonomy dataset loader: `.terms`/`.taxo` parsing, train/val/test splitting, conversion to `Triple`s |
+| `taxobell` | TaxoBell combined training loss: symmetric (Bhattacharyya triplet), asymmetric (KL containment), volume regularization, sigma clipping |
 
 ## Usage
 
 ```toml
 [dependencies]
-subsume = { version = "0.1.3", features = ["ndarray-backend"] }
+subsume = { version = "0.1.4", features = ["ndarray-backend"] }
 ndarray = "0.16"
 ```
 
@@ -54,6 +58,7 @@ cargo run -p subsume --example containment_hierarchy    # taxonomic is-a relatio
 cargo run -p subsume --example gumbel_box_exploration   # Gumbel boxes, soft containment, temperature effects
 cargo run -p subsume --example cone_training            # training cone embeddings on a taxonomy
 cargo run -p subsume --example box_training             # training box embeddings on a 25-entity taxonomy
+cargo run -p subsume --example taxobell_demo            # TaxoBell Gaussian box losses on a mini taxonomy
 ```
 
 See [`examples/README.md`](examples/README.md) for a guide to choosing the right example.
@@ -64,7 +69,7 @@ See [`examples/README.md`](examples/README.md) for a guide to choosing the right
 cargo test -p subsume
 ```
 
-410+ unit tests + property tests + doc tests covering box operations (intersection, union, containment, overlap, distance, truncation), Gumbel box membership and temperature edge cases, serialization round-trips, training metrics (MRR, Hits@k, NDCG), calibration diagnostics, negative sampling, sheaf networks, hyperbolic geometry, quasimetric properties, and more.
+516 unit tests + property tests + doc tests covering box operations (intersection, union, containment, overlap, distance, truncation), Gumbel box membership and temperature edge cases, serialization round-trips, training metrics (MRR, Hits@k, NDCG), calibration diagnostics, negative sampling, sheaf networks, hyperbolic geometry, quasimetric properties, and more.
 
 ## Why Gumbel boxes?
 
