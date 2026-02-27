@@ -14,6 +14,11 @@
 //! with Box Lattice Measures"
 //!
 //! Run: cargo run -p subsume --example containment_hierarchy
+//!
+//! Related examples:
+//! - `octagon_demo`: adds diagonal constraints to boxes for tighter geometry
+//! - `query2box`: compositional query answering with box intersection
+//! - `box_training`: learning box embeddings from data (vs hand-placed here)
 
 use ndarray::array;
 use subsume::ndarray_backend::NdarrayBox;

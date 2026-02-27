@@ -27,6 +27,11 @@
 //! Graphs in Vector Space Using Box Embeddings", ICLR 2020.
 //!
 //! Run: cargo run -p subsume --example query2box
+//!
+//! Related examples:
+//! - `containment_hierarchy`: basic box geometry (containment, overlap, volume)
+//! - `octagon_demo`: octagon embeddings add diagonal constraints for relational rules
+//! - `fuzzy_query`: fuzzy operators as an alternative to geometric query answering
 
 use ndarray::{array, Array1};
 use subsume::ndarray_backend::distance::query2box_distance;

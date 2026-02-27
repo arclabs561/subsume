@@ -15,6 +15,11 @@
 //! Query Answering on Knowledge Graphs"
 //!
 //! Run: cargo run -p subsume --example fuzzy_query
+//!
+//! Related examples:
+//! - `query2box`: compositional query answering with box intersection (geometric approach)
+//! - `octagon_demo`: octagon embeddings with diagonal constraints (geometric + relational)
+//! - `containment_hierarchy`: box containment and overlap (basic geometry)
 
 use subsume::fuzzy::{fuzzy_negation, TConorm, TNorm};
 

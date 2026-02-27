@@ -49,6 +49,8 @@ cargo run -p subsume --example fuzzy_query
 
 The `scripts/` directory contains Python plotting scripts (PEP 723, run with `uv run`):
 
-- `scripts/plot_box_concept.py` -- generates `docs/box_concepts.png` (containment, overlap, Gumbel soft boundary diagrams)
+- `scripts/plot_box_concept.py` -- generates `docs/box_concepts.png` (containment, Gumbel soft boundary, octagon vs box)
+- `scripts/plot_training.py` -- generates `docs/training_convergence.png` (loss curve + containment probability convergence)
 - `scripts/plot_gumbel_robustness.py` -- generates `docs/gumbel_robustness.png` (Gumbel vs Gaussian vs hard-box noise robustness)
 - `scripts/plot_temperature_sensitivity.py` -- generates `docs/temperature_sensitivity.png` (containment probability vs Gumbel temperature)
+- `scripts/plot_fuzzy_tnorms.py` -- generates `docs/fuzzy_tnorms.png` (t-norm contour plots and 1D slices)
