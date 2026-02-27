@@ -69,7 +69,7 @@ impl GaussianBox {
     /// # Errors
     ///
     /// Returns [`BoxError::DimensionMismatch`] if `mu` and `sigma` differ in length.
-    /// Returns [`BoxError::InvalidParameter`] if any sigma value is non-positive.
+    /// Returns [`BoxError::InvalidBounds`] if any sigma value is non-positive.
     pub fn new(mu: Vec<f32>, sigma: Vec<f32>) -> Result<Self, BoxError> {
         if mu.len() != sigma.len() {
             return Err(BoxError::DimensionMismatch {
