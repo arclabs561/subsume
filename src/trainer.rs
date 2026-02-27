@@ -1236,14 +1236,11 @@ pub fn compute_analytical_gradients(
 
 use crate::trainable::TrainableCone;
 
-/// Trainer for cone embeddings.
+/// Trainer for cone embeddings using the ConE model (Zhang & Wang, NeurIPS 2021).
 ///
 /// Analogous to [`BoxEmbeddingTrainer`] but for angular cone embeddings.
-/// Each entity is represented as a [`TrainableCone`] whose apex, axis, and
-/// aperture are optimized via AMSGrad.
-///
-/// Reference: Zhang & Wang (2021), "ConE: Cone Embeddings for Multi-Hop
-/// Reasoning over Knowledge Graphs" (NeurIPS 2021).
+/// Each entity is represented as a [`TrainableCone`] with per-dimension axis
+/// angles and apertures, optimized via AMSGrad.
 pub struct ConeEmbeddingTrainer {
     /// Training configuration (shared with box trainer).
     pub config: TrainingConfig,
@@ -1259,7 +1256,7 @@ impl ConeEmbeddingTrainer {
     /// Create a new cone trainer.
     ///
     /// If `initial_embeddings` is provided, each vector is used as the initial
-    /// axis direction (apex = origin, aperture = pi/2).
+    /// per-dimension axis values (apertures start at pi/2).
     pub fn new(
         config: TrainingConfig,
         dim: usize,
@@ -1274,7 +1271,8 @@ impl ConeEmbeddingTrainer {
                 let cone = TrainableCone::from_vector(&vector, std::f32::consts::FRAC_PI_2);
                 let n_params = cone.num_parameters();
                 cones.insert(entity_id, cone);
-                optimizer_states.insert(entity_id, AMSGradState::new(n_params, config.learning_rate));
+                optimizer_states
+                    .insert(entity_id, AMSGradState::new(n_params, config.learning_rate));
             }
         }
 
@@ -1289,12 +1287,13 @@ impl ConeEmbeddingTrainer {
     /// Ensure an entity exists in the trainer; initialize with defaults if missing.
     pub fn ensure_entity(&mut self, id: usize) {
         if !self.cones.contains_key(&id) {
-            // Default: axis along first basis vector, aperture = pi/2
-            let mut axis = vec![0.0f32; self.dim];
+            // Default: spread initial axes across dimensions, aperture = pi/2.
+            let mut init_vec = vec![0.0f32; self.dim];
             if self.dim > 0 {
-                axis[id % self.dim] = 1.0; // spread initial axes across dimensions
+                // Give each entity a slightly different initial position.
+                init_vec[id % self.dim] = 1.0;
             }
-            let cone = TrainableCone::from_vector(&axis, std::f32::consts::FRAC_PI_2);
+            let cone = TrainableCone::from_vector(&init_vec, std::f32::consts::FRAC_PI_2);
             let n_params = cone.num_parameters();
             self.cones.insert(id, cone);
             self.optimizer_states
@@ -1309,35 +1308,42 @@ impl ConeEmbeddingTrainer {
         self.ensure_entity(id_a);
         self.ensure_entity(id_b);
 
-        // Safety: ensure_entity above guarantees both keys exist.
-        let cone_a = self.cones.get(&id_a).cloned().expect("ensure_entity guarantees key exists");
-        let cone_b = self.cones.get(&id_b).cloned().expect("ensure_entity guarantees key exists");
+        let cone_a = self
+            .cones
+            .get(&id_a)
+            .cloned()
+            .expect("ensure_entity guarantees key exists");
+        let cone_b = self
+            .cones
+            .get(&id_b)
+            .cloned()
+            .expect("ensure_entity guarantees key exists");
 
         let loss = compute_cone_pair_loss(&cone_a, &cone_b, is_positive, &self.config);
-        let (grad_apex_a, grad_axis_a, grad_aperture_a, grad_apex_b, grad_axis_b, grad_aperture_b) =
+        let (grad_axes_a, grad_aper_a, grad_axes_b, grad_aper_b) =
             compute_cone_analytical_gradients(&cone_a, &cone_b, is_positive, &self.config);
 
         if let (Some(c), Some(s)) = (
             self.cones.get_mut(&id_a),
             self.optimizer_states.get_mut(&id_a),
         ) {
-            c.update_amsgrad(&grad_apex_a, &grad_axis_a, grad_aperture_a, s);
+            c.update_amsgrad(&grad_axes_a, &grad_aper_a, s);
         }
         if let (Some(c), Some(s)) = (
             self.cones.get_mut(&id_b),
             self.optimizer_states.get_mut(&id_b),
         ) {
-            c.update_amsgrad(&grad_apex_b, &grad_axis_b, grad_aperture_b, s);
+            c.update_amsgrad(&grad_axes_b, &grad_aper_b, s);
         }
 
         loss
     }
 }
 
-/// Compute loss for a pair of cones.
+/// Compute loss for a pair of cones using the ConE distance scoring.
 ///
-/// - **Positive**: minimize -log(P(B inside A)), encouraging A to subsume B.
-/// - **Negative**: penalize when containment exceeds the margin.
+/// - **Positive**: minimize distance (encourage A to contain B).
+/// - **Negative**: penalize when distance is below the margin (too close = too much containment).
 pub fn compute_cone_pair_loss(
     cone_a: &TrainableCone,
     cone_b: &TrainableCone,
@@ -1346,22 +1352,23 @@ pub fn compute_cone_pair_loss(
 ) -> f32 {
     let dense_a = cone_a.to_cone();
     let dense_b = cone_b.to_cone();
-    let temp = config.temperature;
+    let cen = 0.02; // Inside-distance weight (ConE default).
 
     if is_positive {
-        // Directed containment: P(B inside A)
-        let p = dense_a.containment_prob(&dense_b, temp).max(1e-8);
-        let neg_log_prob = -p.ln();
+        // Positive: minimize distance (A should contain B).
+        let dist = dense_a.cone_distance(&dense_b, cen);
 
-        // Aperture regularization: penalize very large apertures
-        let reg = config.regularization * (dense_a.aperture + dense_b.aperture);
+        // Aperture regularization: penalize very large apertures.
+        let mean_aper_a: f32 = dense_a.apertures.iter().sum::<f32>() / dense_a.dim() as f32;
+        let mean_aper_b: f32 = dense_b.apertures.iter().sum::<f32>() / dense_b.dim() as f32;
+        let reg = config.regularization * (mean_aper_a + mean_aper_b);
 
-        (neg_log_prob + reg).max(0.0)
+        (dist + reg).max(0.0)
     } else {
-        // Negative: penalize if containment exceeds margin
-        let p = dense_a.containment_prob(&dense_b, temp);
-        let margin_loss = if p > config.margin {
-            (p - config.margin).powi(2)
+        // Negative: penalize low distance (containment that shouldn't exist).
+        let dist = dense_a.cone_distance(&dense_b, cen);
+        let margin_loss = if dist < config.margin {
+            (config.margin - dist).powi(2)
         } else {
             0.0
         };
@@ -1372,79 +1379,60 @@ pub fn compute_cone_pair_loss(
 
 /// Compute analytical gradients for a pair of cones.
 ///
-/// Returns (grad_apex_a, grad_axis_a, grad_aperture_a,
-///          grad_apex_b, grad_axis_b, grad_aperture_b).
+/// Returns (grad_axes_a, grad_apertures_a, grad_axes_b, grad_apertures_b).
 ///
-/// These are approximate gradients using the structure of the cone containment
-/// formula. The key insight: containment depends on the angular distance between
-/// axes and the difference in apertures, so gradients push axes closer/farther
-/// and adjust apertures accordingly.
+/// These are approximate gradients. For positive pairs, we push axes together
+/// and widen A / narrow B. For negative pairs, we push axes apart and narrow A.
 pub fn compute_cone_analytical_gradients(
     cone_a: &TrainableCone,
     cone_b: &TrainableCone,
     is_positive: bool,
     _config: &TrainingConfig,
-) -> (Vec<f32>, Vec<f32>, f32, Vec<f32>, Vec<f32>, f32) {
+) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>) {
     let dim = cone_a.dim;
-    let grad_apex_a = vec![0.0f32; dim];
-    let mut grad_axis_a = vec![0.0f32; dim];
-    let mut grad_aperture_a = 0.0f32;
-    let grad_apex_b = vec![0.0f32; dim];
-    let mut grad_axis_b = vec![0.0f32; dim];
-    let mut grad_aperture_b = 0.0f32;
+    let mut grad_axes_a = vec![0.0f32; dim];
+    let mut grad_aper_a = vec![0.0f32; dim];
+    let mut grad_axes_b = vec![0.0f32; dim];
+    let mut grad_aper_b = vec![0.0f32; dim];
 
-    let axis_a = cone_a.normalized_axis();
-    let axis_b = cone_b.normalized_axis();
+    let axes_a = cone_a.axes();
+    let axes_b = cone_b.axes();
 
     if is_positive {
-        // For positive pairs, we want to increase containment P(B inside A).
-        // margin = aperture_A - angular_dist(A,B) - aperture_B
-        // To increase margin:
-        //   1. Increase aperture_A  -> grad_aperture_a negative (we descend)
-        //   2. Decrease aperture_B  -> grad_aperture_b positive
-        //   3. Decrease angular_distance -> push axes toward each other
-
-        // Aperture gradients: increase A's aperture, decrease B's.
-        // Since aperture = sigmoid(log_aperture) * pi, and dsigmoid/dx > 0,
-        // we want aperture_A bigger => log_aperture_A bigger => grad should be negative (descend).
-        grad_aperture_a = -0.1;
-        grad_aperture_b = 0.1;
-
-        // Axis alignment: push axes toward each other
+        // Push axes toward each other; widen A, narrow B.
         for i in 0..dim {
-            let diff = axis_b[i] - axis_a[i];
-            grad_axis_a[i] = -0.1 * diff; // push A's axis toward B's
-            grad_axis_b[i] = 0.1 * diff; // push B's axis toward A's
+            let diff = axes_b[i] - axes_a[i];
+            grad_axes_a[i] = -0.1 * diff; // push A toward B
+            grad_axes_b[i] = 0.1 * diff; // push B toward A
+
+            // Widen A's aperture (gradient negative = descend = increase raw_aperture).
+            grad_aper_a[i] = -0.1;
+            // Narrow B's aperture.
+            grad_aper_b[i] = 0.1;
         }
     } else {
-        // For negative pairs, we want to decrease containment.
-        // Push axes apart, shrink A's aperture.
+        // Push axes apart; narrow A.
         let dense_a = cone_a.to_cone();
         let dense_b = cone_b.to_cone();
-        let p = dense_a.containment_prob(&dense_b, 1.0);
+        let dist = dense_a.cone_distance(&dense_b, 0.02);
+        let score = (-dist).exp().min(1.0); // approximate containment strength
 
-        if p > 0.1 {
-            // Only apply gradient when there's meaningful containment to push away.
-            let strength = 0.1 * p;
-            grad_aperture_a = strength;  // shrink A's aperture
-            grad_aperture_b = -strength; // grow B (makes it harder to contain)
-
+        if score > 0.1 {
+            let strength = 0.1 * score;
             for i in 0..dim {
-                let diff = axis_b[i] - axis_a[i];
-                grad_axis_a[i] = strength * diff; // push A's axis away from B's
-                grad_axis_b[i] = -strength * diff;
+                let diff = axes_b[i] - axes_a[i];
+                grad_axes_a[i] = strength * diff; // push A away from B
+                grad_axes_b[i] = -strength * diff;
+
+                // Narrow A's aperture.
+                grad_aper_a[i] = strength;
+                // Widen B (makes it harder for A to contain B).
+                grad_aper_b[i] = -strength;
             }
         }
     }
 
-    (
-        grad_apex_a,
-        grad_axis_a,
-        grad_aperture_a,
-        grad_apex_b,
-        grad_axis_b,
-        grad_aperture_b,
-    )
+    (grad_axes_a, grad_aper_a, grad_axes_b, grad_aper_b)
 }
 
 #[cfg(test)]
@@ -2510,12 +2498,12 @@ mod proptests {
     fn cone_pair_loss_positive_prefers_containment() {
         let cfg = TrainingConfig::default();
 
-        // A: wide cone along +x, B_in: narrow cone along +x (contained)
-        let a = TrainableCone::new(vec![0.0, 0.0], vec![1.0, 0.0], 2.0); // large aperture
-        let b_in = TrainableCone::new(vec![0.0, 0.0], vec![1.0, 0.0], -2.0); // small aperture
+        // A: wide cone, B_in: narrow cone with same axes (contained)
+        let a = TrainableCone::new(vec![0.0, 0.0], vec![2.0, 2.0]); // wide aperture
+        let b_in = TrainableCone::new(vec![0.0, 0.0], vec![-2.0, -2.0]); // narrow aperture
 
-        // B_out: narrow cone pointing opposite direction
-        let b_out = TrainableCone::new(vec![0.0, 0.0], vec![-1.0, 0.0], -2.0);
+        // B_out: narrow cone with very different axes
+        let b_out = TrainableCone::new(vec![3.0, 3.0], vec![-2.0, -2.0]);
 
         let l_in = compute_cone_pair_loss(&a, &b_in, true, &cfg);
         let l_out = compute_cone_pair_loss(&a, &b_out, true, &cfg);
@@ -2535,7 +2523,11 @@ mod proptests {
         assert!(loss.is_finite(), "loss must be finite, got {}", loss);
 
         let loss_neg = trainer.train_step(0, 2, false);
-        assert!(loss_neg.is_finite(), "negative loss must be finite, got {}", loss_neg);
+        assert!(
+            loss_neg.is_finite(),
+            "negative loss must be finite, got {}",
+            loss_neg
+        );
     }
 
     #[test]

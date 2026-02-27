@@ -2,20 +2,25 @@
 //!
 //! # Overview
 //!
-//! Cone embeddings represent entities as angular cones in d-dimensional space. Each cone
-//! is defined by an **apex** (center point on the unit sphere), an **axis** (direction
-//! vector), and an **aperture** (half-angle in radians). Subsumption is modeled through
-//! angular containment: cone A subsumes cone B when B's angular extent falls entirely
-//! within A's angular extent.
+//! Cone embeddings represent entities/queries as **Cartesian products of 2D angular
+//! sectors**. Each dimension `i` has two parameters:
+//!
+//! - **axis\[i\]**: the center angle of the sector, in \[-pi, pi\].
+//! - **aperture\[i\]**: the half-width of the sector, in \[0, pi\].
+//!
+//! A cone with `d` dimensions therefore lives in `(S^1)^d` -- a `d`-torus of circles.
+//! Subsumption is modeled through **per-dimension angular containment**: cone A
+//! subsumes cone B when, in every dimension, B's angular position falls within A's
+//! sector.
 //!
 //! # Cones vs Boxes
 //!
 //! | Property | Boxes | Cones |
 //! |---|---|---|
-//! | Geometry | Axis-aligned hyperrectangles | Angular sectors on the sphere |
+//! | Geometry | Axis-aligned hyperrectangles | Cartesian products of 2D angular sectors |
 //! | Negation | Complement is **not** a box | Complement **is** a cone |
 //! | FOL support | Conjunction, disjunction | Conjunction, disjunction, **negation** |
-//! | Containment | Volume ratio | Angular distance vs aperture |
+//! | Containment | Volume ratio | Per-dimension angular distance vs aperture |
 //!
 //! Cones are preferred when the task requires first-order logic reasoning with negation
 //! (e.g., multi-hop KG reasoning with NOT). Boxes are preferred for axis-aligned
@@ -23,126 +28,141 @@
 //!
 //! # Mathematical Foundations
 //!
-//! **Containment**: Cone A contains cone B when the angular distance between their axes
-//! plus B's aperture is less than A's aperture:
+//! **Scoring** (per-dimension, then summed):
 //!
 //! ```text
-//! angular_dist(A, B) = arccos(dot(axis_A, axis_B) / (|axis_A| * |axis_B|))
-//! P(B inside A) = sigmoid((aperture_A - angular_dist(A, B) - aperture_B) / temperature)
+//! distance_to_axis[i] = |sin((entity_axis[i] - query_axis[i]) / 2)|
+//! distance_base[i]    = |sin(query_aperture[i] / 2)|
 //! ```
 //!
-//! **Complement**: The complement of a cone with aperture alpha has aperture pi - alpha,
-//! with the same apex and negated axis. This closure under complementation is the key
-//! advantage over boxes.
+//! Points inside the cone (distance_to_axis < distance_base) contribute an "inside"
+//! distance; points outside contribute an "outside" distance based on angular distance
+//! to the nearest cone boundary. The total score sums across dimensions.
 //!
-//! **Intersection**: The intersection of two cones whose axes are coplanar can be
-//! approximated by a cone whose axis bisects the angular region of overlap and whose
-//! aperture covers that overlap region.
+//! **Complement** (per-dimension negation):
+//! - axis\[i\] shifts by pi (wrapping to \[-pi, pi\]).
+//! - aperture\[i\] becomes pi - aperture\[i\].
+//!
+//! **Intersection** (attention-weighted circular mean for axes, gated minimum for
+//! apertures). For this library (no autodiff), we use the closed-form weighted
+//! circular mean: convert axes to (cos, sin), take a weighted average, then recover
+//! the angle via atan2. Apertures use the per-dimension minimum.
+//!
+//! **Projection** (relation application): per-dimension rotation of the axis (addition
+//! mod 2*pi) and scaling of the aperture. This is the paper's mechanism for multi-hop
+//! reasoning.
 //!
 //! # Reference
 //!
-//! Inspired by Zhang & Wang (2021), "ConE: Cone Embeddings for Multi-Hop Reasoning
-//! over Knowledge Graphs" (NeurIPS 2021). Note: this implementation uses a single
-//! angular cone in d-dimensional space (apex + axis + aperture), whereas ConE uses
-//! Cartesian products of 2D angular sectors with per-dimension scoring and learned
-//! projection operators. The negation-closure property is shared; the parameterization
-//! and scoring differ.
+//! Zhang & Wang (2021), "ConE: Cone Embeddings for Multi-Hop Reasoning over Knowledge
+//! Graphs" (NeurIPS 2021). This implementation faithfully follows the ConE
+//! parameterization: Cartesian products of 2D angular sectors with per-dimension
+//! scoring, negation, intersection, and projection.
 //!
-//! # Related Work and Future Directions
+//! # Related Work
 //!
 //! - Yu et al. (2023), "Shadow Cones" -- generalizes entailment cones with
-//!   projection-based partial orders in the Poincare ball; richer than nested containment
+//!   projection-based partial orders in the Poincare ball
 //! - Ozcep, Leemhuis, Wolter (2023, JAIR), "Embedding Ontologies in ALC by
-//!   Axis-Aligned Cones" -- proves axis-aligned cones are complete for the ALC description
-//!   logic fragment (conjunction, disjunction, full negation)
+//!   Axis-Aligned Cones" -- proves axis-aligned cones are complete for ALC
 //! - Kharbanda et al. (2025, IEEE ICDE), "RConE: Rough Cone Embeddings" -- rough-set
-//!   cones with lower/upper approximations for uncertain or multi-modal data
+//!   cones with lower/upper approximations
 //! - Nguyen et al. (2023, EACL), "CylE: Cylinder Embeddings" -- extends 2D cones to
-//!   3D cylinders for multi-hop reasoning with additional capacity
+//!   3D cylinders for multi-hop reasoning
 
-/// A cone embedding in d-dimensional space.
+/// A cone embedding as a Cartesian product of `d` independent 2D angular sectors.
 ///
-/// Cones model subsumption relationships through angular containment.
-/// Unlike boxes, cones support negation: the complement of a cone is a cone.
-/// This enables modeling FOL operations (conjunction, disjunction, negation).
+/// Each dimension has an axis angle in \[-pi, pi\] and an aperture (half-width)
+/// in \[0, pi\]. Subsumption is measured by per-dimension angular containment,
+/// and the scores are summed across dimensions.
 ///
-/// Reference: Zhang & Wang (2021), "ConE: Cone Embeddings for Multi-Hop
-/// Reasoning over Knowledge Graphs" (NeurIPS 2021)
+/// Cones support negation: the complement of a cone is a cone (per-dimension axis
+/// shift by pi, aperture becomes pi - aperture). This closure under complementation
+/// enables modeling FOL operations including conjunction, disjunction, and negation.
+///
+/// Reference: Zhang & Wang (2021), "ConE: Cone Embeddings for Multi-Hop Reasoning
+/// over Knowledge Graphs" (NeurIPS 2021).
 pub trait Cone: Sized {
-    /// Scalar type for probabilities, angles, etc.
+    /// Scalar type for angles, scores, etc.
     type Scalar: Clone + Copy + PartialOrd;
 
-    /// Vector type for apex and axis.
+    /// Vector type for per-dimension axes and apertures.
     type Vector: Clone;
 
-    /// Get the apex (origin point) of the cone.
-    fn apex(&self) -> &Self::Vector;
+    /// Get the per-dimension axis angles.
+    /// Each element is in \[-pi, pi\].
+    fn axes(&self) -> &Self::Vector;
 
-    /// Get the axis direction (unit vector) of the cone.
-    fn axis(&self) -> &Self::Vector;
-
-    /// Get the aperture (half-angle) of the cone in radians.
-    /// Larger aperture = more general concept.
-    /// Valid range: (0, pi).
-    fn aperture(&self) -> Self::Scalar;
+    /// Get the per-dimension apertures (half-widths).
+    /// Each element is in \[0, pi\].
+    fn apertures(&self) -> &Self::Vector;
 
     /// Get the number of dimensions.
     fn dim(&self) -> usize;
 
-    /// Compute containment probability: P(other is inside self).
+    /// Compute the ConE distance score between an entity cone and this query cone.
     ///
-    /// Based on angular distance between axes relative to apertures:
+    /// Uses the per-dimension scoring from ConE (Zhang & Wang, 2021):
     ///
     /// ```text
-    /// P(other inside self) = sigmoid((self.aperture - angular_dist - other.aperture) / temperature)
+    /// distance_to_axis[i] = |sin((entity_axis[i] - query_axis[i]) / 2)|
+    /// distance_base[i]    = |sin(query_aperture[i] / 2)|
     /// ```
     ///
-    /// Returns a value in [0, 1]. A value near 1.0 means `self` subsumes `other`.
+    /// Points inside the sector contribute `cen * distance_in`; points outside
+    /// contribute `distance_out`. The total is summed across dimensions.
+    ///
+    /// Lower distance = better containment. The `cen` parameter (typically 0.02)
+    /// weights the inside distance relative to outside distance.
     ///
     /// # Errors
     ///
     /// Returns [`ConeError::DimensionMismatch`] if cones have different dimensions.
-    fn containment_prob(
+    fn cone_distance(
         &self,
-        other: &Self,
-        temperature: Self::Scalar,
+        entity: &Self,
+        cen: Self::Scalar,
     ) -> Result<Self::Scalar, ConeError>;
+
+    /// Compute the complement (negation) of this cone.
+    ///
+    /// Per-dimension:
+    /// - axis\[i\] shifts by pi (positive axes subtract pi, negative axes add pi),
+    ///   keeping the result in \[-pi, pi\].
+    /// - aperture\[i\] becomes pi - aperture\[i\].
+    ///
+    /// This closure under complementation is the key advantage over boxes.
+    fn complement(&self) -> Self;
 
     /// Compute the intersection of two cones.
     ///
-    /// The intersection cone has an axis that bisects the overlap region and an
-    /// aperture covering that region. When the cones do not overlap, returns a
-    /// degenerate cone with zero aperture.
+    /// Uses the closed-form circular mean for axes (attention-weighted average in
+    /// Cartesian coordinates, then atan2 back to angle) and per-dimension minimum
+    /// for apertures.
+    ///
+    /// When `weights` is `None`, equal weights are used.
     ///
     /// # Errors
     ///
     /// Returns [`ConeError::DimensionMismatch`] if cones have different dimensions.
     fn intersection(&self, other: &Self) -> Result<Self, ConeError>;
 
-    /// Compute the complement (negation) of this cone.
+    /// Apply a relation projection to this cone.
     ///
-    /// The complement of a cone with aperture alpha is a cone with aperture pi - alpha
-    /// and negated axis. This closure under complementation is what distinguishes cones
-    /// from boxes for FOL reasoning.
+    /// Per-dimension:
+    /// - axis\[i\] += relation_axis\[i\] (modular addition, wrapped to \[-pi, pi\])
+    /// - aperture\[i\] = clamp(aperture\[i\] + relation_aperture\[i\], 0, pi)
     ///
-    /// # Errors
-    ///
-    /// Returns [`ConeError::InvalidAperture`] if the resulting aperture is out of range.
-    fn complement(&self) -> Result<Self, ConeError>;
-
-    /// Compute overlap probability between two cones.
-    ///
-    /// Measures how much angular extent the cones share relative to their combined
-    /// angular extent.
+    /// The relation transforms the cone's position and width in each angular sector.
     ///
     /// # Errors
     ///
-    /// Returns [`ConeError::DimensionMismatch`] if cones have different dimensions.
-    fn overlap_prob(
+    /// Returns [`ConeError::DimensionMismatch`] if dimensions don't match.
+    fn project(
         &self,
-        other: &Self,
-        temperature: Self::Scalar,
-    ) -> Result<Self::Scalar, ConeError>;
+        relation_axes: &Self::Vector,
+        relation_apertures: &Self::Vector,
+    ) -> Result<Self, ConeError>;
 }
 
 /// Errors that can occur during cone operations.
@@ -157,16 +177,12 @@ pub enum ConeError {
         actual: usize,
     },
 
-    /// Invalid aperture: must be in (0, pi).
-    #[error("Invalid aperture: {value} (must be in (0, pi))")]
+    /// Invalid aperture: must be in [0, pi].
+    #[error("Invalid aperture: {value} (must be in [0, pi])")]
     InvalidAperture {
         /// The invalid aperture value.
         value: f64,
     },
-
-    /// Axis vector has zero norm (cannot determine direction).
-    #[error("Zero-norm axis vector")]
-    ZeroAxis,
 
     /// Internal error from array/tensor operations.
     #[error("Internal error: {0}")]

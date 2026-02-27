@@ -248,4 +248,50 @@ pub trait Octagon: Sized {
     /// the octagon. Since an octagon with no diagonal constraints is a box,
     /// this is always a valid outer approximation.
     fn to_bounding_box_bounds(&self) -> (Self::Vector, Self::Vector);
+
+    /// Relational composition of two octagon relations.
+    ///
+    /// Given relation R (`self`) over pairs (x, y) and relation S (`other`) over
+    /// pairs (y, z), computes R compose S = {(x, z) | exists y: (x, y) in R and (y, z) in S}.
+    ///
+    /// This is **not** intersection. Intersection tightens constraints on the same
+    /// variable pair; composition projects out the shared intermediate variable y via
+    /// existential quantification.
+    ///
+    /// # Semantics
+    ///
+    /// Each octagon is interpreted as a relation between its first dimension (or
+    /// first element of each adjacent pair) and its second dimension (or second
+    /// element of each adjacent pair). The composition connects R's "output" (second
+    /// dim) to S's "input" (first dim), producing a new octagon constraining R's
+    /// "input" to S's "output".
+    ///
+    /// # Example (2D)
+    ///
+    /// ```text
+    /// R: x in [0,4], y in [1,5], x+y in [2,8], x-y in [-4,2]
+    /// S: y in [1,3], z in [0,6], y+z in [2,8], y-z in [-4,2]
+    ///
+    /// R compose S constrains (x, z) by projecting out y:
+    ///   for each valid (x,y) in R and (y,z) in S, the pair (x,z) is in the result.
+    /// ```
+    ///
+    /// # Closed-form computation
+    ///
+    /// Uses the explicit min/max formulas from Proposition 2 of Charpenay & Schockaert
+    /// (IJCAI 2024). Each adjacent pair's 8 constraints are composed independently,
+    /// then axis bounds are tightened across overlapping pairs.
+    ///
+    /// # Errors
+    ///
+    /// - [`OctagonError::DimensionMismatch`] if dimensions differ.
+    /// - [`OctagonError::Empty`] if the composed relation is empty (no valid (x,z) pair exists).
+    fn compose(&self, other: &Self) -> Result<Self, OctagonError>;
+
+    /// Normalize (tighten) the octagon bounds (Proposition 1).
+    ///
+    /// Each bound is tightened using information from all other bounds in the
+    /// same dimension pair. This is a fixed-point operation iterated until
+    /// convergence. Normalization is applied automatically after composition.
+    fn normalize(&self) -> Result<Self, OctagonError>;
 }

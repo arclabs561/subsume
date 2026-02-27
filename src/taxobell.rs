@@ -59,6 +59,9 @@ pub struct TaxoBellConfig {
     pub asymmetric_diverge_c: f32,
     /// Reference repulsion distance `D_rep` for the diverge component.
     pub asymmetric_diverge_d_rep: f32,
+    /// Lambda weight for L_diverge in the asymmetric loss (paper Eq. 12).
+    /// `L_asym = L_align + lambda * L_diverge`. Default 0.3 per paper appendix.
+    pub diverge_lambda: f32,
 
     /// Target log-volume for regularization (0.0 = unit volume).
     pub target_log_volume: f32,
@@ -77,6 +80,7 @@ impl Default for TaxoBellConfig {
             asymmetric_margin: 1.0,
             asymmetric_diverge_c: 0.0,
             asymmetric_diverge_d_rep: 1.0,
+            diverge_lambda: 0.3,
             target_log_volume: 0.0,
             min_sigma: 0.01,
         }
@@ -189,7 +193,7 @@ impl TaxoBellLoss {
             0.0
         };
 
-        Ok(l_align + l_diverge)
+        Ok(l_align + self.config.diverge_lambda * l_diverge)
     }
 
     /// Asymmetric containment loss with negative sample (paper Eq. 10-12).
@@ -223,7 +227,7 @@ impl TaxoBellLoss {
             0.0
         };
 
-        Ok(l_align + l_diverge)
+        Ok(l_align + self.config.diverge_lambda * l_diverge)
     }
 
     /// Combined loss over a batch of taxonomy relationships.
@@ -249,6 +253,26 @@ impl TaxoBellLoss {
         negatives: &[(&GaussianBox, &GaussianBox, &GaussianBox)],
         all_boxes: &[&GaussianBox],
     ) -> Result<CombinedLossResult, BoxError> {
+        self.combined_loss_with_negative(positives, negatives, all_boxes, None)
+    }
+
+    /// Combined loss with an optional negative for the asymmetric component.
+    ///
+    /// When `asym_negative` is `Some`, each `(child, parent)` pair in `positives`
+    /// uses [`asymmetric_loss_triplet`](Self::asymmetric_loss_triplet) with the
+    /// provided negative. When `None`, falls back to the 2-argument
+    /// [`asymmetric_loss`](Self::asymmetric_loss).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BoxError::DimensionMismatch`] if any pair of boxes differs in dimensionality.
+    pub fn combined_loss_with_negative(
+        &self,
+        positives: &[(&GaussianBox, &GaussianBox)],
+        negatives: &[(&GaussianBox, &GaussianBox, &GaussianBox)],
+        all_boxes: &[&GaussianBox],
+        asym_negative: Option<&GaussianBox>,
+    ) -> Result<CombinedLossResult, BoxError> {
         // L_sym: symmetric triplet losses
         let mut l_sym = 0.0f32;
         for &(anchor, positive, negative) in negatives {
@@ -261,7 +285,10 @@ impl TaxoBellLoss {
         // L_asym: asymmetric KL containment losses
         let mut l_asym = 0.0f32;
         for &(child, parent) in positives {
-            l_asym += self.asymmetric_loss(child, parent)?;
+            l_asym += match asym_negative {
+                Some(neg) => self.asymmetric_loss_triplet(child, parent, neg)?,
+                None => self.asymmetric_loss(child, parent)?,
+            };
         }
         if !positives.is_empty() {
             l_asym /= positives.len() as f32;
@@ -448,6 +475,7 @@ mod tests {
             asymmetric_margin: 0.0,
             asymmetric_diverge_c: 0.0,
             asymmetric_diverge_d_rep: 1.0,
+            diverge_lambda: 0.3,
             target_log_volume: 0.0,
             min_sigma: 0.01,
         };
@@ -623,6 +651,7 @@ mod tests {
             asymmetric_margin: 1.0,
             asymmetric_diverge_c: 0.0,
             asymmetric_diverge_d_rep: 1.0,
+            diverge_lambda: 0.3,
             target_log_volume: 0.0,
             min_sigma: 0.01,
         };
@@ -699,6 +728,7 @@ mod tests {
             asymmetric_margin: 0.0,
             asymmetric_diverge_c: 0.0,
             asymmetric_diverge_d_rep: 1.0,
+            diverge_lambda: 0.3,
             target_log_volume: 0.0,
             min_sigma: 0.01,
         });
@@ -844,6 +874,96 @@ mod tests {
                 prop_assert!(r.l_asym.is_finite(), "l_asym not finite: {}", r.l_asym);
                 prop_assert!(r.l_reg.is_finite(), "l_reg not finite: {}", r.l_reg);
                 prop_assert!(r.l_clip.is_finite(), "l_clip not finite: {}", r.l_clip);
+            }
+
+            /// diverge_lambda scales L_diverge linearly in the asymmetric loss.
+            #[test]
+            fn diverge_lambda_scales_loss(
+                child in arb_gaussian_box(4),
+                parent in arb_gaussian_box(4),
+            ) {
+                let config_zero = TaxoBellConfig {
+                    asymmetric_margin: 10.0,
+                    asymmetric_diverge_c: 1.0,
+                    asymmetric_diverge_d_rep: 10.0,
+                    diverge_lambda: 0.0,
+                    ..TaxoBellConfig::default()
+                };
+                let config_one = TaxoBellConfig {
+                    diverge_lambda: 1.0,
+                    ..config_zero.clone()
+                };
+                let config_half = TaxoBellConfig {
+                    diverge_lambda: 0.5,
+                    ..config_zero.clone()
+                };
+
+                let loss_zero = TaxoBellLoss::new(config_zero).asymmetric_loss(&child, &parent).unwrap();
+                let loss_one = TaxoBellLoss::new(config_one).asymmetric_loss(&child, &parent).unwrap();
+                let loss_half = TaxoBellLoss::new(config_half).asymmetric_loss(&child, &parent).unwrap();
+
+                // L_align is the same regardless of lambda. The difference
+                // between lambda=1 and lambda=0 is exactly the diverge term.
+                let diverge_contribution = loss_one - loss_zero;
+                // lambda=0.5 should contribute half the diverge term.
+                let expected_half = loss_zero + 0.5 * diverge_contribution;
+                // Use relative tolerance since loss magnitudes vary widely.
+                let tol = 1e-4 * (1.0 + expected_half.abs());
+                prop_assert!(
+                    (loss_half - expected_half).abs() < tol,
+                    "lambda=0.5 should give half diverge: got {loss_half}, expected {expected_half} \
+                     (zero={loss_zero}, one={loss_one}, tol={tol})"
+                );
+                // diverge contribution should be non-negative.
+                prop_assert!(
+                    diverge_contribution >= -1e-5,
+                    "diverge contribution should be non-negative: {diverge_contribution}"
+                );
+            }
+
+            /// When a negative is provided, combined_loss_with_negative uses triplet scoring
+            /// for the asymmetric component.
+            #[test]
+            fn combined_loss_with_negative_uses_triplet(
+                a in arb_gaussian_box(4),
+                b in arb_gaussian_box(4),
+                c in arb_gaussian_box(4),
+            ) {
+                let config = TaxoBellConfig {
+                    asymmetric_diverge_c: 0.0,
+                    diverge_lambda: 0.3,
+                    ..TaxoBellConfig::default()
+                };
+                let loss_fn = TaxoBellLoss::new(config);
+
+                let positives = vec![(&b, &a)];
+                let negatives_sym = vec![(&a, &b, &c)];
+                let all = vec![&a, &b, &c];
+
+                let r_no_neg = loss_fn.combined_loss(&positives, &negatives_sym, &all).unwrap();
+                let r_with_neg = loss_fn.combined_loss_with_negative(
+                    &positives, &negatives_sym, &all, Some(&c)
+                ).unwrap();
+
+                // Symmetric, reg, clip components should be identical.
+                prop_assert!(
+                    (r_no_neg.l_sym - r_with_neg.l_sym).abs() < 1e-5,
+                    "l_sym should be the same: {} vs {}", r_no_neg.l_sym, r_with_neg.l_sym
+                );
+                prop_assert!(
+                    (r_no_neg.l_reg - r_with_neg.l_reg).abs() < 1e-5,
+                    "l_reg should be the same: {} vs {}", r_no_neg.l_reg, r_with_neg.l_reg
+                );
+                prop_assert!(
+                    (r_no_neg.l_clip - r_with_neg.l_clip).abs() < 1e-5,
+                    "l_clip should be the same: {} vs {}", r_no_neg.l_reg, r_with_neg.l_clip
+                );
+
+                // The asymmetric components may differ (2-arg vs triplet).
+                // Both must be finite and non-negative.
+                prop_assert!(r_with_neg.l_asym >= 0.0, "l_asym with neg must be >= 0");
+                prop_assert!(r_with_neg.l_asym.is_finite(), "l_asym with neg must be finite");
+                prop_assert!(r_with_neg.total.is_finite(), "total with neg must be finite");
             }
         }
     }

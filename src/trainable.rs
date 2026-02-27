@@ -1,7 +1,7 @@
 //! Trainable geometric representations with learnable parameters.
 //!
 //! Contains both [`TrainableBox`] (axis-aligned hyperrectangles) and
-//! [`TrainableCone`] (angular cones on the sphere).
+//! [`TrainableCone`] (Cartesian products of 2D angular sectors, ConE model).
 
 use crate::optimizer::AMSGradState;
 use serde::{Deserialize, Serialize};
@@ -203,60 +203,68 @@ impl TrainableBox {
 
 /// A simple cone used by the trainer implementation.
 ///
+/// Represents a Cartesian product of `d` independent 2D angular sectors.
+/// Each dimension has an axis angle in \[-pi, pi\] and an aperture (half-width)
+/// in \[0, pi\]. Follows the ConE model (Zhang & Wang, NeurIPS 2021).
+///
 /// Intentionally local to `subsume` (no tensor deps), analogous to [`DenseBox`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct DenseCone {
-    /// Apex point (origin of the cone).
-    pub apex: Vec<f32>,
-    /// Unit axis direction.
-    pub axis: Vec<f32>,
-    /// Half-angle aperture in radians, in (0, pi).
-    pub aperture: f32,
+    /// Per-dimension axis angles, each in \[-pi, pi\].
+    pub axes: Vec<f32>,
+    /// Per-dimension apertures (half-widths), each in \[0, pi\].
+    pub apertures: Vec<f32>,
 }
 
 impl DenseCone {
-    pub fn new(apex: Vec<f32>, axis: Vec<f32>, aperture: f32) -> Self {
-        Self {
-            apex,
-            axis,
-            aperture,
-        }
+    pub fn new(axes: Vec<f32>, apertures: Vec<f32>) -> Self {
+        Self { axes, apertures }
     }
 
-    /// Angular distance between this cone's axis and another's.
+    /// Dimension (number of angular sectors).
     #[inline]
-    fn angular_distance(&self, other: &Self) -> f32 {
-        let dot: f32 = self
-            .axis
-            .iter()
-            .zip(other.axis.iter())
-            .map(|(&a, &b)| a * b)
-            .sum();
-        dot.clamp(-1.0, 1.0).acos()
+    pub fn dim(&self) -> usize {
+        self.axes.len()
     }
 
-    /// Numerically stable sigmoid.
-    #[inline]
-    fn sigmoid(x: f32) -> f32 {
-        if x >= 0.0 {
-            let e = (-x).exp();
-            1.0 / (1.0 + e)
-        } else {
-            let e = x.exp();
-            e / (1.0 + e)
-        }
-    }
-
-    /// Containment probability: P(other inside self).
+    /// Compute the ConE distance score: lower = better containment.
     ///
-    /// ```text
-    /// P(other inside self) = sigmoid((self.aperture - angular_dist - other.aperture) / temperature)
-    /// ```
+    /// `self` is the query cone, `entity` is the entity being scored.
+    /// Uses per-dimension `|sin((e - q_axis) / 2)|` with inside/outside decomposition.
     #[inline]
-    pub fn containment_prob(&self, other: &Self, temperature: f32) -> f32 {
-        let ang_dist = self.angular_distance(other);
-        let margin = self.aperture - ang_dist - other.aperture;
-        Self::sigmoid(margin / temperature)
+    pub fn cone_distance(&self, entity: &Self, cen: f32) -> f32 {
+        let mut dist_out = 0.0_f32;
+        let mut dist_in = 0.0_f32;
+
+        for i in 0..self.dim() {
+            let e = entity.axes[i];
+            let q_axis = self.axes[i];
+            let q_aper = self.apertures[i];
+
+            let distance_to_axis = ((e - q_axis) / 2.0).sin().abs();
+            let distance_base = (q_aper / 2.0).sin().abs();
+
+            if distance_to_axis < distance_base {
+                dist_in += distance_to_axis.min(distance_base);
+            } else {
+                let delta1 = e - (q_axis - q_aper);
+                let delta2 = e - (q_axis + q_aper);
+                let d1 = (delta1 / 2.0).sin().abs();
+                let d2 = (delta2 / 2.0).sin().abs();
+                dist_out += d1.min(d2);
+            }
+        }
+
+        dist_out + cen * dist_in
+    }
+
+    /// Convert distance to a containment-like score in \[0, 1\].
+    ///
+    /// Uses `gamma - distance * modulus` mapped through sigmoid. Higher = better.
+    #[inline]
+    pub fn containment_score(&self, entity: &Self, cen: f32, gamma: f32, modulus: f32) -> f32 {
+        let dist = self.cone_distance(entity, cen);
+        sigmoid_f32(gamma - dist * modulus)
     }
 }
 
@@ -264,139 +272,144 @@ impl DenseCone {
 // TrainableCone
 // ---------------------------------------------------------------------------
 
-/// A trainable cone embedding with learnable parameters.
+/// A trainable cone embedding with per-dimension learnable parameters.
 ///
-/// Parameterization (ensures validity by construction):
-/// - **apex**: unconstrained d-dimensional vector (cone origin)
-/// - **raw_axis**: unconstrained d-dimensional vector; normalized to unit length during
-///   the forward pass (so gradients flow through all components)
-/// - **log_aperture**: unconstrained scalar; aperture = sigmoid(log_aperture) * pi,
-///   which maps R -> (0, pi)
+/// Follows the ConE model (Zhang & Wang, NeurIPS 2021): each dimension has an
+/// independent axis angle and aperture (half-width). The parameterization uses
+/// unconstrained scalars that are mapped to valid ranges during the forward pass:
 ///
-/// This mirrors the reparameterization strategy used by [`TrainableBox`] (mu/delta),
-/// ensuring every parameter receives gradients regardless of the current cone geometry.
+/// - **raw_axes\[i\]**: unconstrained; `axis[i] = tanh(raw_axes[i]) * pi` maps to \[-pi, pi\]
+/// - **raw_apertures\[i\]**: unconstrained; `aperture[i] = tanh(2 * raw_apertures[i]) * pi/2 + pi/2`
+///   maps to \(0, pi\)
 ///
-/// Reference: Zhang & Wang (2021), "ConE: Cone Embeddings for Multi-Hop Reasoning
-/// over Knowledge Graphs" (NeurIPS 2021).
+/// This ensures all parameters receive gradients regardless of the current geometry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrainableCone {
-    /// Apex position in d-dimensional space.
-    pub apex: Vec<f32>,
-    /// Raw (un-normalized) axis direction. Normalized to unit length in `to_cone()`.
-    pub raw_axis: Vec<f32>,
-    /// Logit of the aperture. Actual aperture = sigmoid(log_aperture) * pi.
-    pub log_aperture: f32,
+    /// Raw (unconstrained) per-dimension axis angles.
+    /// Actual axes = tanh(raw_axes) * pi.
+    pub raw_axes: Vec<f32>,
+    /// Raw (unconstrained) per-dimension apertures.
+    /// Actual apertures = tanh(2 * raw_apertures) * pi/2 + pi/2.
+    pub raw_apertures: Vec<f32>,
     /// Dimension.
     pub dim: usize,
 }
 
 impl TrainableCone {
-    /// Create a new trainable cone from raw parameters.
-    ///
-    /// # Arguments
-    ///
-    /// * `apex` - Origin point of the cone
-    /// * `raw_axis` - Un-normalized axis direction (will be normalized in forward pass)
-    /// * `log_aperture` - Logit-space aperture (aperture = sigmoid(log_aperture) * pi)
+    /// Create a new trainable cone from raw (unconstrained) parameters.
     #[must_use]
-    pub fn new(apex: Vec<f32>, raw_axis: Vec<f32>, log_aperture: f32) -> Self {
+    pub fn new(raw_axes: Vec<f32>, raw_apertures: Vec<f32>) -> Self {
         assert_eq!(
-            apex.len(),
-            raw_axis.len(),
-            "apex and raw_axis must have same dimension"
+            raw_axes.len(),
+            raw_apertures.len(),
+            "raw_axes and raw_apertures must have same dimension"
         );
-        let dim = apex.len();
+        let dim = raw_axes.len();
         Self {
-            apex,
-            raw_axis,
-            log_aperture,
+            raw_axes,
+            raw_apertures,
             dim,
         }
     }
 
     /// Initialize from a vector embedding with a given initial aperture.
     ///
-    /// The apex is set to the origin, the axis to the normalized input vector,
-    /// and the aperture to `init_aperture` (in radians).
+    /// Each dimension's axis is initialized from the vector components (mapped
+    /// through atanh to get the raw parameter), and all apertures are set to
+    /// `init_aperture`.
     #[must_use]
     pub fn from_vector(vector: &[f32], init_aperture: f32) -> Self {
-        let apex = vec![0.0; vector.len()];
-        let raw_axis = vector.to_vec();
-        // Invert: aperture = sigmoid(log_aperture) * pi  =>  log_aperture = logit(aperture / pi)
-        let ratio = (init_aperture / std::f32::consts::PI).clamp(1e-6, 1.0 - 1e-6);
-        let log_aperture = (ratio / (1.0 - ratio)).ln();
-        Self::new(apex, raw_axis, log_aperture)
-    }
-
-    /// Compute the actual aperture in radians, in (0, pi).
-    #[inline]
-    #[must_use]
-    pub fn aperture(&self) -> f32 {
-        sigmoid_f32(self.log_aperture) * std::f32::consts::PI
-    }
-
-    /// Compute the normalized axis direction (unit vector).
-    #[must_use]
-    pub fn normalized_axis(&self) -> Vec<f32> {
-        let norm: f32 = self
-            .raw_axis
+        let pi = std::f32::consts::PI;
+        // Invert: axis = tanh(raw) * pi  =>  raw = atanh(axis / pi)
+        let raw_axes: Vec<f32> = vector
             .iter()
-            .map(|&x| x * x)
-            .sum::<f32>()
-            .sqrt()
-            .max(1e-12);
-        self.raw_axis.iter().map(|&x| x / norm).collect()
+            .map(|&v| {
+                let clamped = (v / pi).clamp(-0.999, 0.999);
+                clamped.atanh()
+            })
+            .collect();
+        // Invert: aperture = tanh(2 * raw) * pi/2 + pi/2
+        //   =>  (aperture - pi/2) / (pi/2) = tanh(2 * raw)
+        //   =>  raw = atanh((aperture - pi/2) / (pi/2)) / 2
+        let ratio = ((init_aperture - pi / 2.0) / (pi / 2.0)).clamp(-0.999, 0.999);
+        let raw_aper = ratio.atanh() / 2.0;
+        let raw_apertures = vec![raw_aper; vector.len()];
+        Self::new(raw_axes, raw_apertures)
+    }
+
+    /// Compute the actual per-dimension axis angles, each in \(-pi, pi\).
+    #[must_use]
+    pub fn axes(&self) -> Vec<f32> {
+        self.raw_axes
+            .iter()
+            .map(|&r| r.tanh() * std::f32::consts::PI)
+            .collect()
+    }
+
+    /// Compute the actual per-dimension apertures, each in \(0, pi\).
+    #[must_use]
+    pub fn apertures(&self) -> Vec<f32> {
+        let pi = std::f32::consts::PI;
+        self.raw_apertures
+            .iter()
+            .map(|&r| (2.0 * r).tanh() * (pi / 2.0) + (pi / 2.0))
+            .collect()
+    }
+
+    /// Compute the mean aperture across dimensions (convenience).
+    #[must_use]
+    pub fn mean_aperture(&self) -> f32 {
+        let aps = self.apertures();
+        aps.iter().sum::<f32>() / aps.len() as f32
     }
 
     /// Convert to a [`DenseCone`] (for loss computation / inference).
     #[must_use]
     pub(crate) fn to_cone(&self) -> DenseCone {
-        DenseCone::new(self.apex.clone(), self.normalized_axis(), self.aperture())
+        DenseCone::new(self.axes(), self.apertures())
     }
 
-    /// Number of learnable scalar parameters: dim (apex) + dim (axis) + 1 (aperture).
+    /// Number of learnable scalar parameters: dim (axes) + dim (apertures) = 2 * dim.
     #[must_use]
     pub fn num_parameters(&self) -> usize {
-        2 * self.dim + 1
+        2 * self.dim
     }
 
-    /// Compute containment probability: P(other inside self).
+    /// Compute the ConE distance score between this (as query) and another (as entity).
     ///
-    /// This is the public inference API. Internally materializes a `DenseCone`
-    /// and delegates to the sigmoid-based containment formula.
-    pub fn containment_prob(&self, other: &Self, temperature: f32) -> f32 {
-        let dense_self = self.to_cone();
-        let dense_other = other.to_cone();
-        dense_self.containment_prob(&dense_other, temperature)
+    /// Lower distance = better containment. Convenience wrapper around `DenseCone`.
+    pub fn cone_distance(&self, entity: &Self, cen: f32) -> f32 {
+        self.to_cone().cone_distance(&entity.to_cone(), cen)
+    }
+
+    /// Compute a containment-like score in \[0, 1\].
+    ///
+    /// Uses `gamma - distance * modulus` through sigmoid.
+    pub fn containment_score(&self, entity: &Self, cen: f32, gamma: f32, modulus: f32) -> f32 {
+        self.to_cone()
+            .containment_score(&entity.to_cone(), cen, gamma, modulus)
     }
 
     /// Update cone parameters using AMSGrad optimizer.
     ///
-    /// The optimizer state must have been created with dimension = `3 * dim + 1`
-    /// (but we only use the first `2 * dim + 1` slots, matching `num_parameters()`).
-    ///
-    /// Gradients are passed as three slices:
-    /// - `grad_apex` (dim elements): gradient w.r.t. apex
-    /// - `grad_axis` (dim elements): gradient w.r.t. raw_axis
-    /// - `grad_aperture` (scalar): gradient w.r.t. log_aperture
+    /// Gradients are passed as two slices:
+    /// - `grad_axes` (dim elements): gradient w.r.t. raw_axes
+    /// - `grad_apertures` (dim elements): gradient w.r.t. raw_apertures
     pub fn update_amsgrad(
         &mut self,
-        grad_apex: &[f32],
-        grad_axis: &[f32],
-        grad_aperture: f32,
+        grad_axes: &[f32],
+        grad_apertures: &[f32],
         state: &mut AMSGradState,
     ) {
-        // Flatten all grads into one vector for the shared AMSGrad state.
         let n = self.num_parameters();
         let mut grads = Vec::with_capacity(n);
-        grads.extend_from_slice(&grad_apex[..self.dim]);
-        grads.extend_from_slice(&grad_axis[..self.dim]);
-        grads.push(grad_aperture);
+        grads.extend_from_slice(&grad_axes[..self.dim]);
+        grads.extend_from_slice(&grad_apertures[..self.dim]);
 
         state.t += 1;
         let t = state.t as f32;
 
-        // Update moments
+        // Update moments.
         for (i, &g) in grads.iter().enumerate().take(n) {
             state.m[i] = state.beta1 * state.m[i] + (1.0 - state.beta1) * g;
             let v_new = state.beta2 * state.v[i] + (1.0 - state.beta2) * g * g;
@@ -404,40 +417,28 @@ impl TrainableCone {
             state.v_hat[i] = state.v_hat[i].max(v_new);
         }
 
-        // Bias-corrected first moment
         let bias_correction = 1.0 - state.beta1.powf(t);
 
-        // Apply updates
+        // Update raw_axes.
         for i in 0..self.dim {
             let m_hat = state.m[i] / bias_correction;
             let update = state.lr * m_hat / (state.v_hat[i].sqrt() + state.epsilon);
-            self.apex[i] -= update;
-            if !self.apex[i].is_finite() {
-                self.apex[i] = 0.0;
+            self.raw_axes[i] -= update;
+            self.raw_axes[i] = self.raw_axes[i].clamp(-6.0, 6.0);
+            if !self.raw_axes[i].is_finite() {
+                self.raw_axes[i] = 0.0;
             }
         }
 
+        // Update raw_apertures.
         for i in 0..self.dim {
             let idx = self.dim + i;
             let m_hat = state.m[idx] / bias_correction;
             let update = state.lr * m_hat / (state.v_hat[idx].sqrt() + state.epsilon);
-            self.raw_axis[i] -= update;
-            if !self.raw_axis[i].is_finite() {
-                self.raw_axis[i] = 0.01; // small nonzero to avoid zero-axis
-            }
-        }
-
-        {
-            let idx = 2 * self.dim;
-            let m_hat = state.m[idx] / bias_correction;
-            let update = state.lr * m_hat / (state.v_hat[idx].sqrt() + state.epsilon);
-            self.log_aperture -= update;
-            // Clamp log_aperture so aperture stays in a reasonable range.
-            // sigmoid(-6) ~ 0.0025 -> aperture ~ 0.008 rad
-            // sigmoid(6)  ~ 0.9975 -> aperture ~ 3.134 rad
-            self.log_aperture = self.log_aperture.clamp(-6.0, 6.0);
-            if !self.log_aperture.is_finite() {
-                self.log_aperture = 0.0; // default to pi/2
+            self.raw_apertures[i] -= update;
+            self.raw_apertures[i] = self.raw_apertures[i].clamp(-6.0, 6.0);
+            if !self.raw_apertures[i].is_finite() {
+                self.raw_apertures[i] = 0.0;
             }
         }
     }
@@ -462,91 +463,107 @@ mod tests {
     // -- TrainableCone tests --
 
     #[test]
-    fn trainable_cone_aperture_in_valid_range() {
-        for log_a in [-10.0, -1.0, 0.0, 1.0, 10.0] {
-            let cone = TrainableCone::new(vec![0.0, 0.0], vec![1.0, 0.0], log_a);
-            let a = cone.aperture();
+    fn trainable_cone_apertures_in_valid_range() {
+        // Within [-3, 3] (well within trainable range), apertures are strictly in (0, pi).
+        // Beyond ~|4|, tanh(2*x) saturates to +/-1.0 at f32 precision, hitting exact 0 or pi.
+        for raw_a in [-3.0, -1.0, 0.0, 1.0, 3.0] {
+            let cone = TrainableCone::new(vec![0.0, 0.0], vec![raw_a, raw_a]);
+            let aps = cone.apertures();
+            for (i, &a) in aps.iter().enumerate() {
+                assert!(
+                    a > 0.0 && a < std::f32::consts::PI,
+                    "aperture[{i}] must be in (0, pi), got {a} for raw_aperture={raw_a}",
+                );
+            }
+        }
+        // At f32 saturation, apertures land on exact boundaries [0, pi].
+        // This is fine -- training clamps raw_apertures to [-6, 6].
+        for raw_a in [-10.0, 10.0] {
+            let cone = TrainableCone::new(vec![0.0], vec![raw_a]);
+            let a = cone.apertures()[0];
+            assert!(a >= 0.0 && a <= std::f32::consts::PI);
+        }
+    }
+
+    #[test]
+    fn trainable_cone_axes_in_valid_range() {
+        for raw_a in [-10.0, -1.0, 0.0, 1.0, 10.0] {
+            let cone = TrainableCone::new(vec![raw_a, raw_a], vec![0.0, 0.0]);
+            let axes = cone.axes();
+            for (i, &a) in axes.iter().enumerate() {
+                assert!(
+                    a >= -std::f32::consts::PI && a <= std::f32::consts::PI,
+                    "axes[{i}] must be in [-pi, pi], got {a} for raw_axis={raw_a}",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn trainable_cone_from_vector_roundtrip() {
+        let init_aperture = 1.0_f32;
+        let cone = TrainableCone::from_vector(&[1.0, 0.0, -0.5], init_aperture);
+        let aps = cone.apertures();
+        for &a in &aps {
             assert!(
-                a > 0.0 && a < std::f32::consts::PI,
-                "aperture must be in (0, pi), got {} for log_aperture={}",
-                a,
-                log_a
+                (a - init_aperture).abs() < 0.05,
+                "aperture should roundtrip, expected {init_aperture} got {a}",
             );
         }
     }
 
     #[test]
-    fn trainable_cone_normalized_axis_is_unit() {
-        let cone = TrainableCone::new(vec![0.0, 0.0, 0.0], vec![3.0, 4.0, 0.0], 0.0);
-        let axis = cone.normalized_axis();
-        let norm: f32 = axis.iter().map(|&x| x * x).sum::<f32>().sqrt();
-        assert!(
-            (norm - 1.0).abs() < 1e-6,
-            "normalized axis should be unit, got norm {}",
-            norm
-        );
-    }
-
-    #[test]
-    fn trainable_cone_from_vector_roundtrip() {
-        let init_aperture = 1.0_f32; // ~57 degrees
-        let cone = TrainableCone::from_vector(&[1.0, 0.0, 0.0], init_aperture);
-        let actual = cone.aperture();
-        assert!(
-            (actual - init_aperture).abs() < 0.01,
-            "aperture should roundtrip, expected {} got {}",
-            init_aperture,
-            actual
-        );
-    }
-
-    #[test]
     fn trainable_cone_to_dense_cone() {
-        let cone = TrainableCone::new(vec![1.0, 2.0], vec![3.0, 4.0], 0.0);
+        // raw_axes = [0, 0] -> axes = [tanh(0)*pi, tanh(0)*pi] = [0, 0]
+        // raw_apertures = [0, 0] -> apertures = [tanh(0)*pi/2 + pi/2, ...] = [pi/2, pi/2]
+        let cone = TrainableCone::new(vec![0.0, 0.0], vec![0.0, 0.0]);
         let dense = cone.to_cone();
-        // axis should be normalized
-        let norm: f32 = dense.axis.iter().map(|&x| x * x).sum::<f32>().sqrt();
-        assert!((norm - 1.0).abs() < 1e-6);
-        // aperture should be sigmoid(0) * pi = 0.5 * pi
-        assert!((dense.aperture - std::f32::consts::FRAC_PI_2).abs() < 1e-6);
+        for &a in &dense.axes {
+            assert!(a.abs() < 1e-6, "axis should be 0, got {a}");
+        }
+        for &a in &dense.apertures {
+            assert!(
+                (a - std::f32::consts::FRAC_PI_2).abs() < 1e-6,
+                "aperture should be pi/2, got {a}"
+            );
+        }
     }
 
     #[test]
-    fn dense_cone_containment_wide_contains_narrow() {
-        // Wide cone (aperture ~2.5) along +x should contain narrow cone (aperture ~0.5) along +x.
-        let wide = DenseCone::new(vec![0.0, 0.0], vec![1.0, 0.0], 2.5);
-        let narrow = DenseCone::new(vec![0.0, 0.0], vec![1.0, 0.0], 0.5);
-        let p = wide.containment_prob(&narrow, 0.1);
+    fn dense_cone_distance_wide_contains_narrow() {
+        // Wide cone (large apertures) should have low distance to narrow entity with same axes.
+        let wide = DenseCone::new(vec![0.5, 0.5], vec![2.5, 2.5]);
+        let narrow = DenseCone::new(vec![0.5, 0.5], vec![0.3, 0.3]);
+        let d = wide.cone_distance(&narrow, 0.02);
         assert!(
-            p > 0.99,
-            "wide cone should contain narrow cone, got {}",
-            p
+            d < 0.1,
+            "wide cone should have low distance to narrow entity, got {d}"
         );
     }
 
     #[test]
-    fn dense_cone_containment_narrow_does_not_contain_wide() {
-        let wide = DenseCone::new(vec![0.0, 0.0], vec![1.0, 0.0], 2.5);
-        let narrow = DenseCone::new(vec![0.0, 0.0], vec![1.0, 0.0], 0.5);
-        let p = narrow.containment_prob(&wide, 0.1);
+    fn dense_cone_distance_far_entity_has_high_distance() {
+        let query = DenseCone::new(vec![0.0, 0.0], vec![0.3, 0.3]);
+        let near = DenseCone::new(vec![0.1, 0.1], vec![0.1, 0.1]);
+        let far = DenseCone::new(vec![3.0, 3.0], vec![0.1, 0.1]);
+
+        let d_near = query.cone_distance(&near, 0.02);
+        let d_far = query.cone_distance(&far, 0.02);
+
         assert!(
-            p < 0.01,
-            "narrow cone should not contain wide cone, got {}",
-            p
+            d_far > d_near,
+            "far entity should have higher distance: near={d_near}, far={d_far}"
         );
     }
 
     #[test]
     fn trainable_cone_update_amsgrad_does_not_panic() {
-        let mut cone = TrainableCone::new(vec![0.0, 0.0], vec![1.0, 0.0], 0.0);
+        let mut cone = TrainableCone::new(vec![0.0, 0.0], vec![0.0, 0.0]);
         let mut state = AMSGradState::new(cone.num_parameters(), 0.01);
-        let grad_apex = vec![0.1, -0.1];
-        let grad_axis = vec![0.05, 0.05];
-        let grad_aperture = -0.01;
-        cone.update_amsgrad(&grad_apex, &grad_axis, grad_aperture, &mut state);
-        // Should not panic and values should remain finite
-        assert!(cone.apex.iter().all(|x| x.is_finite()));
-        assert!(cone.raw_axis.iter().all(|x| x.is_finite()));
-        assert!(cone.log_aperture.is_finite());
+        let grad_axes = vec![0.1, -0.1];
+        let grad_apertures = vec![0.05, 0.05];
+        cone.update_amsgrad(&grad_axes, &grad_apertures, &mut state);
+        assert!(cone.raw_axes.iter().all(|x| x.is_finite()));
+        assert!(cone.raw_apertures.iter().all(|x| x.is_finite()));
     }
 }

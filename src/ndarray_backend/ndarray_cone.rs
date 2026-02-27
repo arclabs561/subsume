@@ -1,27 +1,47 @@
 //! Ndarray implementation of the Cone trait.
+//!
+//! Implements the ConE model (Zhang & Wang, NeurIPS 2021) using Cartesian products
+//! of 2D angular sectors. Each dimension has an axis angle in \[-pi, pi\] and an
+//! aperture (half-width) in \[0, pi\].
 
 use crate::cone::{Cone, ConeError};
 use ndarray::Array1;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::f32::consts::PI;
+
+/// Normalize an angle to \[-pi, pi\].
+#[inline]
+fn normalize_angle(mut a: f32) -> f32 {
+    // Use fmod-style wrapping.
+    a %= 2.0 * PI;
+    if a > PI {
+        a -= 2.0 * PI;
+    } else if a < -PI {
+        a += 2.0 * PI;
+    }
+    a
+}
+
+/// Clamp a value to \[0, pi\].
+#[inline]
+fn clamp_aperture(a: f32) -> f32 {
+    a.clamp(0.0, PI)
+}
 
 /// A cone embedding implemented using `ndarray::Array1<f32>`.
 ///
-/// Each cone is defined by:
-/// - **apex**: a point in d-dimensional space (the cone's origin)
-/// - **axis**: a unit direction vector (the cone's central direction)
-/// - **aperture**: half-angle in radians, in (0, pi)
+/// Each cone is a Cartesian product of `d` independent 2D angular sectors:
+/// - **axes**: per-dimension center angles, each in \[-pi, pi\]
+/// - **apertures**: per-dimension half-widths, each in \[0, pi\]
 ///
-/// Larger aperture means a more general concept. A cone with aperture near pi
-/// covers almost the entire angular space; a cone with aperture near 0 is very
-/// specific.
+/// Wider apertures mean more general concepts. An aperture of pi covers the
+/// entire circle in that dimension; an aperture of 0 is a single point.
 #[derive(Debug, Clone)]
 pub struct NdarrayCone {
-    /// Apex point [d].
-    apex: Array1<f32>,
-    /// Unit axis direction [d].
-    axis: Array1<f32>,
-    /// Half-angle aperture in radians, in (0, pi).
-    aperture: f32,
+    /// Per-dimension axis angles \[d\], each in \[-pi, pi\].
+    axes: Array1<f32>,
+    /// Per-dimension apertures (half-widths) \[d\], each in \[0, pi\].
+    apertures: Array1<f32>,
 }
 
 impl Serialize for NdarrayCone {
@@ -30,10 +50,9 @@ impl Serialize for NdarrayCone {
         S: Serializer,
     {
         use serde::ser::SerializeStruct;
-        let mut state = serializer.serialize_struct("NdarrayCone", 3)?;
-        state.serialize_field("apex", &self.apex.to_vec())?;
-        state.serialize_field("axis", &self.axis.to_vec())?;
-        state.serialize_field("aperture", &self.aperture)?;
+        let mut state = serializer.serialize_struct("NdarrayCone", 2)?;
+        state.serialize_field("axes", &self.axes.to_vec())?;
+        state.serialize_field("apertures", &self.apertures.to_vec())?;
         state.end()
     }
 }
@@ -49,9 +68,8 @@ impl<'de> Deserialize<'de> for NdarrayCone {
         #[derive(Deserialize)]
         #[serde(field_identifier, rename_all = "lowercase")]
         enum Field {
-            Apex,
-            Axis,
-            Aperture,
+            Axes,
+            Apertures,
         }
 
         struct NdarrayConeVisitor;
@@ -60,48 +78,40 @@ impl<'de> Deserialize<'de> for NdarrayCone {
             type Value = NdarrayCone;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("struct NdarrayCone")
+                formatter.write_str("struct NdarrayCone with fields axes, apertures")
             }
 
             fn visit_map<V>(self, mut map: V) -> Result<NdarrayCone, V::Error>
             where
                 V: MapAccess<'de>,
             {
-                let mut apex = None;
-                let mut axis = None;
-                let mut aperture = None;
+                let mut axes = None;
+                let mut apertures = None;
                 while let Some(key) = map.next_key()? {
                     match key {
-                        Field::Apex => {
-                            if apex.is_some() {
-                                return Err(de::Error::duplicate_field("apex"));
+                        Field::Axes => {
+                            if axes.is_some() {
+                                return Err(de::Error::duplicate_field("axes"));
                             }
-                            apex = Some(map.next_value::<Vec<f32>>()?);
+                            axes = Some(map.next_value::<Vec<f32>>()?);
                         }
-                        Field::Axis => {
-                            if axis.is_some() {
-                                return Err(de::Error::duplicate_field("axis"));
+                        Field::Apertures => {
+                            if apertures.is_some() {
+                                return Err(de::Error::duplicate_field("apertures"));
                             }
-                            axis = Some(map.next_value::<Vec<f32>>()?);
-                        }
-                        Field::Aperture => {
-                            if aperture.is_some() {
-                                return Err(de::Error::duplicate_field("aperture"));
-                            }
-                            aperture = Some(map.next_value()?);
+                            apertures = Some(map.next_value::<Vec<f32>>()?);
                         }
                     }
                 }
-                let apex = apex.ok_or_else(|| de::Error::missing_field("apex"))?;
-                let axis = axis.ok_or_else(|| de::Error::missing_field("axis"))?;
-                let aperture =
-                    aperture.ok_or_else(|| de::Error::missing_field("aperture"))?;
-                NdarrayCone::new(Array1::from(apex), Array1::from(axis), aperture)
-                    .map_err(|e| de::Error::custom(format!("Invalid cone: {}", e)))
+                let axes = axes.ok_or_else(|| de::Error::missing_field("axes"))?;
+                let apertures =
+                    apertures.ok_or_else(|| de::Error::missing_field("apertures"))?;
+                NdarrayCone::new(Array1::from(axes), Array1::from(apertures))
+                    .map_err(|e| de::Error::custom(format!("Invalid cone: {e}")))
             }
         }
 
-        const FIELDS: &[&str] = &["apex", "axis", "aperture"];
+        const FIELDS: &[&str] = &["axes", "apertures"];
         deserializer.deserialize_struct("NdarrayCone", FIELDS, NdarrayConeVisitor)
     }
 }
@@ -109,108 +119,132 @@ impl<'de> Deserialize<'de> for NdarrayCone {
 impl NdarrayCone {
     /// Create a new `NdarrayCone`.
     ///
-    /// The axis vector is normalized to unit length. Aperture must be in (0, pi).
+    /// Axes are normalized to \[-pi, pi\]; apertures are clamped to \[0, pi\].
     ///
     /// # Errors
     ///
-    /// - [`ConeError::DimensionMismatch`] if apex and axis have different lengths.
-    /// - [`ConeError::ZeroAxis`] if the axis vector has zero norm.
-    /// - [`ConeError::InvalidAperture`] if aperture is not in (0, pi).
-    pub fn new(apex: Array1<f32>, axis: Array1<f32>, aperture: f32) -> Result<Self, ConeError> {
-        if apex.len() != axis.len() {
+    /// - [`ConeError::DimensionMismatch`] if axes and apertures have different lengths.
+    pub fn new(axes: Array1<f32>, apertures: Array1<f32>) -> Result<Self, ConeError> {
+        if axes.len() != apertures.len() {
             return Err(ConeError::DimensionMismatch {
-                expected: apex.len(),
-                actual: axis.len(),
+                expected: axes.len(),
+                actual: apertures.len(),
             });
         }
 
-        if aperture <= 0.0 || aperture >= std::f32::consts::PI {
-            return Err(ConeError::InvalidAperture {
-                value: aperture as f64,
-            });
-        }
+        let axes = axes.mapv(normalize_angle);
+        let apertures = apertures.mapv(clamp_aperture);
 
-        // Normalize axis to unit length.
-        let norm = axis.dot(&axis).sqrt();
-        if norm < 1e-12 {
-            return Err(ConeError::ZeroAxis);
-        }
-        let axis = &axis / norm;
-
-        Ok(Self {
-            apex,
-            axis,
-            aperture,
-        })
+        Ok(Self { axes, apertures })
     }
 
-    /// Create a `NdarrayCone` from a pre-normalized axis (no normalization check).
+    /// Create a `NdarrayCone` from pre-validated arrays (no clamping).
     ///
-    /// This is an internal fast path. The caller must guarantee that `axis` is unit-length.
-    fn from_raw(apex: Array1<f32>, axis: Array1<f32>, aperture: f32) -> Self {
+    /// Internal fast path. The caller must guarantee axes are in \[-pi, pi\] and
+    /// apertures are in \[0, pi\].
+    fn from_raw(axes: Array1<f32>, apertures: Array1<f32>) -> Self {
+        Self { axes, apertures }
+    }
+
+    /// Create a uniform cone covering the entire angular space in each dimension.
+    ///
+    /// This is the "top" element: it contains every other cone.
+    #[must_use]
+    pub fn full(dim: usize) -> Self {
         Self {
-            apex,
-            axis,
-            aperture,
+            axes: Array1::zeros(dim),
+            apertures: Array1::from_elem(dim, PI),
         }
     }
-}
 
-/// Numerically stable sigmoid: 1 / (1 + exp(-x)), clamped to avoid overflow.
-fn sigmoid(x: f32) -> f32 {
-    if x >= 0.0 {
-        let e = (-x).exp();
-        1.0 / (1.0 + e)
-    } else {
-        let e = x.exp();
-        e / (1.0 + e)
+    /// Create a point cone (zero aperture in every dimension).
+    ///
+    /// This is the "bottom" element: contained by every non-degenerate cone
+    /// whose axis matches.
+    #[must_use]
+    pub fn point(axes: Array1<f32>) -> Self {
+        let d = axes.len();
+        let axes = axes.mapv(normalize_angle);
+        Self {
+            axes,
+            apertures: Array1::zeros(d),
+        }
     }
-}
-
-/// Compute the angular distance between two unit vectors.
-///
-/// Returns arccos(dot(a, b)), clamped to [0, pi].
-fn angular_distance(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
-    let dot = a.dot(b).clamp(-1.0, 1.0);
-    dot.acos()
 }
 
 impl Cone for NdarrayCone {
     type Scalar = f32;
     type Vector = Array1<f32>;
 
-    fn apex(&self) -> &Self::Vector {
-        &self.apex
+    fn axes(&self) -> &Self::Vector {
+        &self.axes
     }
 
-    fn axis(&self) -> &Self::Vector {
-        &self.axis
-    }
-
-    fn aperture(&self) -> Self::Scalar {
-        self.aperture
+    fn apertures(&self) -> &Self::Vector {
+        &self.apertures
     }
 
     fn dim(&self) -> usize {
-        self.apex.len()
+        self.axes.len()
     }
 
-    fn containment_prob(
+    fn cone_distance(
         &self,
-        other: &Self,
-        temperature: Self::Scalar,
+        entity: &Self,
+        cen: Self::Scalar,
     ) -> Result<Self::Scalar, ConeError> {
-        if self.dim() != other.dim() {
+        if self.dim() != entity.dim() {
             return Err(ConeError::DimensionMismatch {
                 expected: self.dim(),
-                actual: other.dim(),
+                actual: entity.dim(),
             });
         }
 
-        // P(other inside self) = sigmoid((self.aperture - angular_dist - other.aperture) / temp)
-        let ang_dist = angular_distance(&self.axis, &other.axis);
-        let margin = self.aperture - ang_dist - other.aperture;
-        Ok(sigmoid(margin / temperature))
+        // Per-dimension ConE scoring (Zhang & Wang, 2021).
+        // self = query, entity = entity being scored.
+        let mut dist_out_sum = 0.0_f32;
+        let mut dist_in_sum = 0.0_f32;
+
+        for i in 0..self.dim() {
+            let e = entity.axes[i];
+            let q_axis = self.axes[i];
+            let q_aper = self.apertures[i];
+
+            let distance_to_axis = ((e - q_axis) / 2.0).sin().abs();
+            let distance_base = (q_aper / 2.0).sin().abs();
+
+            if distance_to_axis < distance_base {
+                // Entity is inside the cone in this dimension.
+                let dist_in = distance_to_axis.min(distance_base);
+                dist_in_sum += dist_in;
+            } else {
+                // Entity is outside the cone in this dimension.
+                // Distance to nearest boundary.
+                let delta1 = e - (q_axis - q_aper);
+                let delta2 = e - (q_axis + q_aper);
+                let d1 = (delta1 / 2.0).sin().abs();
+                let d2 = (delta2 / 2.0).sin().abs();
+                dist_out_sum += d1.min(d2);
+            }
+        }
+
+        Ok(dist_out_sum + cen * dist_in_sum)
+    }
+
+    fn complement(&self) -> Self {
+        // Per-dimension negation (ConE paper):
+        // - axis[i] shifts by pi (positive -> subtract pi, negative -> add pi)
+        // - aperture[i] = pi - aperture[i]
+        let new_axes = self.axes.mapv(|a| {
+            if a >= 0.0 {
+                a - PI
+            } else {
+                a + PI
+            }
+        });
+        let new_apertures = self.apertures.mapv(|a| PI - a);
+
+        NdarrayCone::from_raw(new_axes, new_apertures)
     }
 
     fn intersection(&self, other: &Self) -> Result<Self, ConeError> {
@@ -221,80 +255,46 @@ impl Cone for NdarrayCone {
             });
         }
 
-        let ang_dist = angular_distance(&self.axis, &other.axis);
+        let d = self.dim();
+        let mut new_axes = Array1::zeros(d);
+        let mut new_apertures = Array1::zeros(d);
 
-        // Check if cones overlap angularly.
-        // Overlap exists when the sum of apertures exceeds the angular distance.
-        if ang_dist >= self.aperture + other.aperture {
-            // No overlap: return a degenerate cone (minimal aperture) along the midpoint axis.
-            let mid_axis = (&self.axis + &other.axis) / 2.0;
-            let norm = mid_axis.dot(&mid_axis).sqrt();
-            let axis = if norm < 1e-12 {
-                self.axis.clone()
+        for i in 0..d {
+            // Circular mean: convert to (cos, sin), average, then atan2.
+            let x = self.axes[i].cos() + other.axes[i].cos();
+            let y = self.axes[i].sin() + other.axes[i].sin();
+
+            // Guard against zero-length resultant (opposite angles).
+            if x.abs() < 1e-8 && y.abs() < 1e-8 {
+                new_axes[i] = self.axes[i]; // Arbitrary choice when opposite.
             } else {
-                &mid_axis / norm
-            };
-            // Use a very small aperture to represent "empty" intersection.
-            let eps = 1e-6_f32;
-            return Ok(NdarrayCone::from_raw(self.apex.clone(), axis, eps));
+                new_axes[i] = y.atan2(x);
+            }
+
+            // Per-dimension minimum aperture.
+            new_apertures[i] = self.apertures[i].min(other.apertures[i]);
         }
 
-        // Compute the intersection cone.
-        // The intersection axis bisects the overlap region.
-        // Weighted average of axes, biased toward the narrower cone.
-        let w_self = other.aperture;
-        let w_other = self.aperture;
-        let weighted_axis = &self.axis * w_self + &other.axis * w_other;
-        let norm = weighted_axis.dot(&weighted_axis).sqrt();
-        let axis = if norm < 1e-12 {
-            self.axis.clone()
-        } else {
-            &weighted_axis / norm
-        };
-
-        // The intersection aperture is the angular extent of the overlap region.
-        // Each cone spans [center - aperture, center + aperture] on the angular axis.
-        // Overlap half-width = (aperture_A + aperture_B - angular_dist) / 2
-        let intersection_aperture =
-            ((self.aperture + other.aperture - ang_dist) / 2.0).clamp(1e-6, std::f32::consts::PI - 1e-6);
-
-        // Use the midpoint of the two apexes as the intersection apex.
-        let apex = (&self.apex + &other.apex) / 2.0;
-
-        Ok(NdarrayCone::from_raw(apex, axis, intersection_aperture))
+        Ok(NdarrayCone::from_raw(new_axes, new_apertures))
     }
 
-    fn complement(&self) -> Result<Self, ConeError> {
-        // Complement: negate the axis, aperture becomes pi - aperture.
-        let new_aperture = std::f32::consts::PI - self.aperture;
-
-        if new_aperture <= 0.0 || new_aperture >= std::f32::consts::PI {
-            return Err(ConeError::InvalidAperture {
-                value: new_aperture as f64,
-            });
-        }
-
-        let neg_axis = &self.axis * -1.0;
-        Ok(NdarrayCone::from_raw(self.apex.clone(), neg_axis, new_aperture))
-    }
-
-    fn overlap_prob(
+    fn project(
         &self,
-        other: &Self,
-        temperature: Self::Scalar,
-    ) -> Result<Self::Scalar, ConeError> {
-        if self.dim() != other.dim() {
+        relation_axes: &Self::Vector,
+        relation_apertures: &Self::Vector,
+    ) -> Result<Self, ConeError> {
+        if self.dim() != relation_axes.len() || self.dim() != relation_apertures.len() {
             return Err(ConeError::DimensionMismatch {
                 expected: self.dim(),
-                actual: other.dim(),
+                actual: relation_axes.len(),
             });
         }
 
-        // Overlap exists when the sum of apertures exceeds the angular distance.
-        // P(overlap) = sigmoid((aperture_A + aperture_B - angular_dist) / temperature)
-        let ang_dist = angular_distance(&self.axis, &other.axis);
-        let margin = self.aperture + other.aperture - ang_dist;
-        Ok(sigmoid(margin / temperature))
+        // Per-dimension rotation + aperture adjustment.
+        let new_axes = (&self.axes + relation_axes).mapv(normalize_angle);
+        let new_apertures = (&self.apertures + relation_apertures).mapv(clamp_aperture);
+
+        Ok(NdarrayCone::from_raw(new_axes, new_apertures))
     }
 }
 
@@ -302,119 +302,89 @@ impl Cone for NdarrayCone {
 mod tests {
     use super::*;
     use ndarray::array;
-    use std::f32::consts::PI;
+    use proptest::prelude::*;
 
     // ---- Construction ----
 
     #[test]
-    fn new_normalizes_axis() {
-        let cone = NdarrayCone::new(array![0.0, 0.0], array![3.0, 4.0], 0.5).unwrap();
-        let norm: f32 = cone.axis().dot(cone.axis()).sqrt();
-        assert!(
-            (norm - 1.0).abs() < 1e-6,
-            "Axis should be unit-length, got norm {}",
-            norm
-        );
-    }
+    fn new_normalizes_axes_and_clamps_apertures() {
+        let cone = NdarrayCone::new(
+            array![4.0, -4.0],  // Outside [-pi, pi]
+            array![-0.5, 4.0],  // Outside [0, pi]
+        )
+        .unwrap();
 
-    #[test]
-    fn new_rejects_zero_axis() {
-        let result = NdarrayCone::new(array![0.0, 0.0], array![0.0, 0.0], 0.5);
-        assert!(matches!(result, Err(ConeError::ZeroAxis)));
-    }
-
-    #[test]
-    fn new_rejects_invalid_aperture_zero() {
-        let result = NdarrayCone::new(array![0.0], array![1.0], 0.0);
-        assert!(matches!(result, Err(ConeError::InvalidAperture { .. })));
-    }
-
-    #[test]
-    fn new_rejects_invalid_aperture_pi() {
-        let result = NdarrayCone::new(array![0.0], array![1.0], PI);
-        assert!(matches!(result, Err(ConeError::InvalidAperture { .. })));
+        for &a in cone.axes().iter() {
+            assert!(
+                a >= -PI && a <= PI,
+                "axis should be in [-pi, pi], got {a}"
+            );
+        }
+        for &a in cone.apertures().iter() {
+            assert!(
+                a >= 0.0 && a <= PI,
+                "aperture should be in [0, pi], got {a}"
+            );
+        }
     }
 
     #[test]
     fn new_rejects_dimension_mismatch() {
-        let result = NdarrayCone::new(array![0.0, 0.0], array![1.0], 0.5);
+        let result = NdarrayCone::new(array![0.0, 0.0], array![0.5]);
         assert!(matches!(result, Err(ConeError::DimensionMismatch { .. })));
     }
 
-    // ---- Containment ----
+    // ---- Containment / Distance ----
 
     #[test]
-    fn containment_same_axis_wider_contains_narrower() {
-        // Wide cone (aperture 1.5) should contain narrow cone (aperture 0.3)
-        // when they share the same axis.
-        let wide = NdarrayCone::new(array![0.0, 0.0], array![1.0, 0.0], 1.5).unwrap();
-        let narrow = NdarrayCone::new(array![0.0, 0.0], array![1.0, 0.0], 0.3).unwrap();
-        let p = wide.containment_prob(&narrow, 0.1).unwrap();
+    fn distance_self_is_small() {
+        // A cone's distance to itself should be small (only the cen * inside component).
+        let cone = NdarrayCone::new(array![0.5, -0.3, 1.0], array![0.8, 0.5, 1.2]).unwrap();
+        let d = cone.cone_distance(&cone, 0.02).unwrap();
+        // Each dimension contributes cen * min(0, distance_base) for the inside part.
+        // Since entity == query, distance_to_axis == 0 < distance_base, so dist_in = 0.
         assert!(
-            p > 0.99,
-            "Wide cone should contain narrow cone with same axis, got {}",
-            p
+            d < 0.01,
+            "Self-distance should be near zero, got {d}"
         );
     }
 
     #[test]
-    fn containment_narrower_does_not_contain_wider() {
-        let wide = NdarrayCone::new(array![0.0, 0.0], array![1.0, 0.0], 1.5).unwrap();
-        let narrow = NdarrayCone::new(array![0.0, 0.0], array![1.0, 0.0], 0.3).unwrap();
-        let p = narrow.containment_prob(&wide, 0.1).unwrap();
+    fn wider_cone_has_lower_distance_to_entity() {
+        // A wider cone should have lower distance to an entity inside it.
+        let entity = NdarrayCone::new(array![0.3, -0.2], array![0.1, 0.1]).unwrap();
+        let wide = NdarrayCone::new(array![0.3, -0.2], array![1.5, 1.5]).unwrap();
+        let narrow = NdarrayCone::new(array![0.3, -0.2], array![0.2, 0.2]).unwrap();
+
+        let d_wide = wide.cone_distance(&entity, 0.02).unwrap();
+        let d_narrow = narrow.cone_distance(&entity, 0.02).unwrap();
+
         assert!(
-            p < 0.01,
-            "Narrow cone should not contain wide cone, got {}",
-            p
+            d_wide <= d_narrow + 1e-6,
+            "Wider cone should have <= distance: wide={d_wide}, narrow={d_narrow}"
         );
     }
 
     #[test]
-    fn containment_distant_axes_low_prob() {
-        // Cones pointing in opposite directions should have very low containment.
-        let a = NdarrayCone::new(array![0.0, 0.0], array![1.0, 0.0], 0.5).unwrap();
-        let b = NdarrayCone::new(array![0.0, 0.0], array![-1.0, 0.0], 0.5).unwrap();
-        let p = a.containment_prob(&b, 0.1).unwrap();
+    fn distant_entity_has_high_distance() {
+        let query = NdarrayCone::new(array![0.0, 0.0], array![0.3, 0.3]).unwrap();
+        let near = NdarrayCone::new(array![0.1, 0.1], array![0.1, 0.1]).unwrap();
+        let far = NdarrayCone::new(array![PI, PI], array![0.1, 0.1]).unwrap();
+
+        let d_near = query.cone_distance(&near, 0.02).unwrap();
+        let d_far = query.cone_distance(&far, 0.02).unwrap();
+
         assert!(
-            p < 0.01,
-            "Opposite-direction cones should have near-zero containment, got {}",
-            p
+            d_far > d_near,
+            "Far entity should have higher distance: near={d_near}, far={d_far}"
         );
     }
 
     #[test]
-    fn containment_self_is_boundary() {
-        // Self-containment: margin = aperture - 0 - aperture = 0, so sigmoid(0) = 0.5.
-        // This is the expected boundary behavior with the sigmoid relaxation: a cone
-        // exactly contains itself at probability 0.5 (the decision boundary).
-        let a = NdarrayCone::new(array![0.0, 0.0, 0.0], array![1.0, 1.0, 0.0], 1.0).unwrap();
-        let p = a.containment_prob(&a, 0.1).unwrap();
-        assert!(
-            (p - 0.5).abs() < 0.01,
-            "Self-containment should be ~0.5 (sigmoid boundary), got {}",
-            p
-        );
-    }
-
-    #[test]
-    fn containment_strictly_wider_is_high() {
-        // A cone with larger aperture and same axis should have high containment prob
-        // for a narrower cone, even at the sigmoid boundary.
-        let wide = NdarrayCone::new(array![0.0, 0.0, 0.0], array![1.0, 1.0, 0.0], 1.5).unwrap();
-        let narrow = NdarrayCone::new(array![0.0, 0.0, 0.0], array![1.0, 1.0, 0.0], 0.5).unwrap();
-        let p = wide.containment_prob(&narrow, 0.1).unwrap();
-        assert!(
-            p > 0.99,
-            "Strictly wider cone should have high containment, got {}",
-            p
-        );
-    }
-
-    #[test]
-    fn containment_dimension_mismatch() {
-        let a = NdarrayCone::new(array![0.0, 0.0], array![1.0, 0.0], 0.5).unwrap();
-        let b = NdarrayCone::new(array![0.0, 0.0, 0.0], array![1.0, 0.0, 0.0], 0.5).unwrap();
-        let result = a.containment_prob(&b, 1.0);
+    fn distance_dimension_mismatch() {
+        let a = NdarrayCone::new(array![0.0, 0.0], array![0.5, 0.5]).unwrap();
+        let b = NdarrayCone::new(array![0.0, 0.0, 0.0], array![0.5, 0.5, 0.5]).unwrap();
+        let result = a.cone_distance(&b, 0.02);
         assert!(matches!(result, Err(ConeError::DimensionMismatch { .. })));
     }
 
@@ -422,258 +392,321 @@ mod tests {
 
     #[test]
     fn complement_aperture_is_pi_minus_original() {
-        let a = NdarrayCone::new(array![0.0, 0.0], array![1.0, 0.0], 0.8).unwrap();
-        let comp = a.complement().unwrap();
-        let expected_aperture = PI - 0.8;
-        assert!(
-            (comp.aperture() - expected_aperture).abs() < 1e-6,
-            "Complement aperture should be pi - 0.8 = {}, got {}",
-            expected_aperture,
-            comp.aperture()
-        );
+        let cone = NdarrayCone::new(array![0.5, -0.3], array![0.8, 1.2]).unwrap();
+        let comp = cone.complement();
+        for (i, (&orig, &neg)) in cone.apertures().iter().zip(comp.apertures().iter()).enumerate() {
+            let expected = PI - orig;
+            assert!(
+                (neg - expected).abs() < 1e-6,
+                "Complement aperture[{i}] should be pi - {orig} = {expected}, got {neg}"
+            );
+        }
     }
 
     #[test]
-    fn complement_axis_is_negated() {
-        let a = NdarrayCone::new(array![0.0, 0.0], array![1.0, 0.0], 0.8).unwrap();
-        let comp = a.complement().unwrap();
-        for (orig, neg) in a.axis().iter().zip(comp.axis().iter()) {
-            assert!(
-                (orig + neg).abs() < 1e-6,
-                "Complement axis should be negated"
-            );
-        }
+    fn complement_axis_shifts_by_pi() {
+        let cone = NdarrayCone::new(array![0.5, -0.3], array![0.8, 1.2]).unwrap();
+        let comp = cone.complement();
+        // axis[0] = 0.5 (positive) -> 0.5 - pi
+        assert!(
+            (comp.axes()[0] - (0.5 - PI)).abs() < 1e-6,
+            "Complement axes[0] should be 0.5 - pi, got {}",
+            comp.axes()[0]
+        );
+        // axis[1] = -0.3 (negative) -> -0.3 + pi
+        assert!(
+            (comp.axes()[1] - (-0.3 + PI)).abs() < 1e-6,
+            "Complement axes[1] should be -0.3 + pi, got {}",
+            comp.axes()[1]
+        );
     }
 
     #[test]
     fn double_complement_is_identity() {
-        let a = NdarrayCone::new(array![0.0, 0.0], array![1.0, 0.0], 0.8).unwrap();
-        let double_comp = a.complement().unwrap().complement().unwrap();
-        assert!(
-            (a.aperture() - double_comp.aperture()).abs() < 1e-5,
-            "Double complement aperture should equal original"
-        );
-        for (orig, dc) in a.axis().iter().zip(double_comp.axis().iter()) {
+        let cone = NdarrayCone::new(array![0.5, -0.3, 2.0], array![0.8, 1.2, 0.5]).unwrap();
+        let double = cone.complement().complement();
+
+        for (i, (&orig, &dc)) in cone.axes().iter().zip(double.axes().iter()).enumerate() {
             assert!(
                 (orig - dc).abs() < 1e-5,
-                "Double complement axis should equal original"
+                "Double complement axes[{i}]: {orig} vs {dc}"
             );
         }
-    }
-
-    // ---- Overlap ----
-
-    #[test]
-    fn overlap_identical_cones_is_high() {
-        let a = NdarrayCone::new(array![0.0, 0.0], array![1.0, 0.0], 1.0).unwrap();
-        let p = a.overlap_prob(&a, 0.1).unwrap();
-        assert!(
-            p > 0.99,
-            "Identical cones should have high overlap, got {}",
-            p
-        );
-    }
-
-    #[test]
-    fn overlap_opposite_narrow_cones_is_low() {
-        let a = NdarrayCone::new(array![0.0, 0.0], array![1.0, 0.0], 0.3).unwrap();
-        let b = NdarrayCone::new(array![0.0, 0.0], array![-1.0, 0.0], 0.3).unwrap();
-        let p = a.overlap_prob(&b, 0.1).unwrap();
-        assert!(
-            p < 0.01,
-            "Opposite narrow cones should have low overlap, got {}",
-            p
-        );
-    }
-
-    #[test]
-    fn overlap_nearby_axes_moderate() {
-        // Two cones at ~45 degrees apart, each with aperture 0.5 rad (~28 deg).
-        // Angular distance ~0.785 rad, sum of apertures = 1.0 > 0.785, so they overlap.
-        let a = NdarrayCone::new(array![0.0, 0.0], array![1.0, 0.0], 0.5).unwrap();
-        let b = NdarrayCone::new(array![0.0, 0.0], array![1.0, 1.0], 0.5).unwrap();
-        let p = a.overlap_prob(&b, 0.5).unwrap();
-        assert!(
-            p > 0.1 && p < 1.0,
-            "Nearby cones should have moderate overlap, got {}",
-            p
-        );
+        for (i, (&orig, &dc)) in cone.apertures().iter().zip(double.apertures().iter()).enumerate() {
+            assert!(
+                (orig - dc).abs() < 1e-5,
+                "Double complement apertures[{i}]: {orig} vs {dc}"
+            );
+        }
     }
 
     // ---- Intersection ----
 
     #[test]
-    fn intersection_of_identical_cones_has_same_aperture() {
-        let a = NdarrayCone::new(array![0.0, 0.0], array![1.0, 0.0], 1.0).unwrap();
-        let inter = a.intersection(&a).unwrap();
-        // Intersection aperture = (1.0 + 1.0 - 0.0) / 2 = 1.0
-        assert!(
-            (inter.aperture() - 1.0).abs() < 1e-5,
-            "Intersection of identical cones should have same aperture, got {}",
-            inter.aperture()
-        );
+    fn intersection_of_identical_cones_preserves_apertures() {
+        let cone = NdarrayCone::new(array![0.5, -0.3], array![0.8, 1.2]).unwrap();
+        let inter = cone.intersection(&cone).unwrap();
+
+        for (i, (&orig, &intr)) in cone.apertures().iter().zip(inter.apertures().iter()).enumerate()
+        {
+            assert!(
+                (orig - intr).abs() < 1e-5,
+                "Intersection aperture[{i}] should match: {orig} vs {intr}"
+            );
+        }
     }
 
     #[test]
-    fn intersection_of_disjoint_cones_is_degenerate() {
-        let a = NdarrayCone::new(array![0.0, 0.0], array![1.0, 0.0], 0.3).unwrap();
-        let b = NdarrayCone::new(array![0.0, 0.0], array![-1.0, 0.0], 0.3).unwrap();
+    fn intersection_takes_min_aperture() {
+        let a = NdarrayCone::new(array![0.0, 0.0], array![1.0, 0.5]).unwrap();
+        let b = NdarrayCone::new(array![0.0, 0.0], array![0.3, 0.8]).unwrap();
         let inter = a.intersection(&b).unwrap();
-        assert!(
-            inter.aperture() < 1e-4,
-            "Disjoint cones should produce degenerate intersection, got aperture {}",
-            inter.aperture()
-        );
+
+        assert!((inter.apertures()[0] - 0.3).abs() < 1e-6);
+        assert!((inter.apertures()[1] - 0.5).abs() < 1e-6);
     }
 
     #[test]
     fn intersection_dimension_mismatch() {
-        let a = NdarrayCone::new(array![0.0, 0.0], array![1.0, 0.0], 0.5).unwrap();
-        let b = NdarrayCone::new(array![0.0, 0.0, 0.0], array![1.0, 0.0, 0.0], 0.5).unwrap();
+        let a = NdarrayCone::new(array![0.0, 0.0], array![0.5, 0.5]).unwrap();
+        let b = NdarrayCone::new(array![0.0, 0.0, 0.0], array![0.5, 0.5, 0.5]).unwrap();
         let result = a.intersection(&b);
         assert!(matches!(result, Err(ConeError::DimensionMismatch { .. })));
+    }
+
+    // ---- Projection ----
+
+    #[test]
+    fn projection_rotates_axes() {
+        let cone = NdarrayCone::new(array![0.0, 0.0], array![0.5, 0.5]).unwrap();
+        let projected = cone.project(&array![0.5, -0.3], &array![0.0, 0.0]).unwrap();
+        assert!((projected.axes()[0] - 0.5).abs() < 1e-6);
+        assert!((projected.axes()[1] - (-0.3)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn projection_adjusts_apertures() {
+        let cone = NdarrayCone::new(array![0.0, 0.0], array![0.5, 0.5]).unwrap();
+        let projected = cone.project(&array![0.0, 0.0], &array![0.3, -0.2]).unwrap();
+        assert!((projected.apertures()[0] - 0.8).abs() < 1e-6);
+        assert!((projected.apertures()[1] - 0.3).abs() < 1e-6);
+    }
+
+    #[test]
+    fn projection_clamps_apertures() {
+        let cone = NdarrayCone::new(array![0.0], array![2.5]).unwrap();
+        let projected = cone.project(&array![0.0], &array![2.0]).unwrap();
+        // 2.5 + 2.0 = 4.5 > pi, should clamp to pi.
+        assert!((projected.apertures()[0] - PI).abs() < 1e-6);
+    }
+
+    #[test]
+    fn projection_wraps_axes() {
+        let cone = NdarrayCone::new(array![2.5], array![0.5]).unwrap();
+        let projected = cone.project(&array![2.0], &array![0.0]).unwrap();
+        // 2.5 + 2.0 = 4.5, wraps to 4.5 - 2*pi ~ -1.783
+        let expected = normalize_angle(4.5);
+        assert!(
+            (projected.axes()[0] - expected).abs() < 1e-5,
+            "Expected {expected}, got {}",
+            projected.axes()[0]
+        );
+    }
+
+    // ---- Higher dimensions ----
+
+    #[test]
+    fn works_in_high_dimensions() {
+        let d = 128;
+        let axes_a = Array1::from_vec(vec![0.5; d]);
+        let aper_a = Array1::from_vec(vec![1.0; d]);
+        let axes_b = Array1::from_vec(vec![0.6; d]);
+        let aper_b = Array1::from_vec(vec![0.3; d]);
+
+        let a = NdarrayCone::new(axes_a, aper_a).unwrap();
+        let b = NdarrayCone::new(axes_b, aper_b).unwrap();
+
+        let dist = a.cone_distance(&b, 0.02).unwrap();
+        assert!(dist.is_finite());
+
+        let inter = a.intersection(&b).unwrap();
+        assert_eq!(inter.dim(), d);
+
+        let comp = a.complement();
+        assert_eq!(comp.dim(), d);
+
+        let rel_axes = Array1::from_vec(vec![0.1; d]);
+        let rel_aper = Array1::from_vec(vec![0.05; d]);
+        let proj = a.project(&rel_axes, &rel_aper).unwrap();
+        assert_eq!(proj.dim(), d);
     }
 
     // ---- Numerical stability ----
 
     #[test]
-    fn containment_prob_finite_at_extreme_temperatures() {
-        let a = NdarrayCone::new(array![0.0, 0.0], array![1.0, 0.0], 1.0).unwrap();
-        let b = NdarrayCone::new(array![0.0, 0.0], array![1.0, 1.0], 0.5).unwrap();
+    fn distance_finite_at_boundary_values() {
+        // Aperture at 0 (point) and pi (full circle).
+        let point = NdarrayCone::new(array![0.0], array![0.0]).unwrap();
+        let full = NdarrayCone::new(array![0.0], array![PI]).unwrap();
 
-        let p_cold = a.containment_prob(&b, 0.001).unwrap();
-        assert!(p_cold.is_finite(), "Containment prob must be finite at low temp");
-        assert!((0.0..=1.0).contains(&p_cold), "Containment prob must be in [0,1]");
+        let d1 = full.cone_distance(&point, 0.02).unwrap();
+        assert!(d1.is_finite(), "Distance must be finite, got {d1}");
 
-        let p_hot = a.containment_prob(&b, 100.0).unwrap();
-        assert!(p_hot.is_finite(), "Containment prob must be finite at high temp");
-        assert!((0.0..=1.0).contains(&p_hot), "Containment prob must be in [0,1]");
+        let d2 = point.cone_distance(&full, 0.02).unwrap();
+        assert!(d2.is_finite(), "Distance must be finite, got {d2}");
     }
-
-    #[test]
-    fn overlap_prob_finite_at_extreme_temperatures() {
-        let a = NdarrayCone::new(array![0.0, 0.0], array![1.0, 0.0], 1.0).unwrap();
-        let b = NdarrayCone::new(array![0.0, 0.0], array![1.0, 1.0], 0.5).unwrap();
-
-        let p_cold = a.overlap_prob(&b, 0.001).unwrap();
-        assert!(p_cold.is_finite(), "Overlap prob must be finite at low temp");
-
-        let p_hot = a.overlap_prob(&b, 100.0).unwrap();
-        assert!(p_hot.is_finite(), "Overlap prob must be finite at high temp");
-    }
-
-    // ---- Higher dimensions ----
 
     // ---- Property tests ----
 
-    fn arb_unit_vec(dim: usize) -> impl Strategy<Value = Array1<f32>> {
-        proptest::collection::vec(-1.0f32..1.0, dim).prop_filter_map(
-            "non-zero vector",
-            move |v| {
-                let arr = Array1::from(v);
-                let norm = arr.dot(&arr).sqrt();
-                if norm < 1e-6 {
-                    None
-                } else {
-                    Some(&arr / norm)
-                }
-            },
-        )
+    fn arb_axes(dim: usize) -> impl Strategy<Value = Array1<f32>> {
+        proptest::collection::vec(-PI..PI, dim).prop_map(Array1::from)
+    }
+
+    fn arb_apertures(dim: usize) -> impl Strategy<Value = Array1<f32>> {
+        proptest::collection::vec(0.01f32..PI - 0.01, dim).prop_map(Array1::from)
     }
 
     fn arb_cone(dim: usize) -> impl Strategy<Value = NdarrayCone> {
-        (
-            proptest::collection::vec(-10.0f32..10.0, dim),
-            arb_unit_vec(dim),
-            0.1f32..2.9, // aperture in (0, pi)
-        )
-            .prop_map(|(apex, axis, aperture)| {
-                NdarrayCone::from_raw(Array1::from(apex), axis, aperture)
-            })
+        (arb_axes(dim), arb_apertures(dim))
+            .prop_map(|(axes, apertures)| NdarrayCone::from_raw(axes, apertures))
     }
 
-    use proptest::prelude::*;
-
     proptest! {
+        /// complement(complement(cone)) = cone (involution).
         #[test]
-        fn prop_complement_involutory(cone in arb_cone(4)) {
-            let double = cone.complement().unwrap().complement().unwrap();
-            prop_assert!(
-                (cone.aperture() - double.aperture()).abs() < 1e-5,
-                "double complement aperture: {} vs {}", cone.aperture(), double.aperture()
-            );
-            for (a, b) in cone.axis().iter().zip(double.axis().iter()) {
+        fn prop_complement_of_complement_is_identity(cone in arb_cone(4)) {
+            let double = cone.complement().complement();
+            for (i, (&orig, &dc)) in cone.axes().iter().zip(double.axes().iter()).enumerate() {
                 prop_assert!(
-                    (a - b).abs() < 1e-5,
-                    "double complement axis element: {a} vs {b}"
+                    (orig - dc).abs() < 1e-4,
+                    "double complement axes[{i}]: {orig} vs {dc}"
+                );
+            }
+            for (i, (&orig, &dc)) in cone.apertures().iter().zip(double.apertures().iter()).enumerate() {
+                prop_assert!(
+                    (orig - dc).abs() < 1e-4,
+                    "double complement apertures[{i}]: {orig} vs {dc}"
                 );
             }
         }
 
+        /// aperture + complement.aperture = pi (per dimension).
         #[test]
-        fn prop_complement_aperture_is_pi_minus(cone in arb_cone(4)) {
-            let comp = cone.complement().unwrap();
-            let expected = std::f32::consts::PI - cone.aperture();
+        fn prop_complement_aperture_sum_is_pi(cone in arb_cone(4)) {
+            let comp = cone.complement();
+            for (i, (&orig, &neg)) in cone.apertures().iter().zip(comp.apertures().iter()).enumerate() {
+                let sum = orig + neg;
+                prop_assert!(
+                    (sum - PI).abs() < 1e-5,
+                    "aperture[{i}] sum should be pi: {orig} + {neg} = {sum}"
+                );
+            }
+        }
+
+        /// Any cone's distance to itself should be very small (reflexive containment).
+        #[test]
+        fn prop_containment_is_reflexive(cone in arb_cone(4)) {
+            let d = cone.cone_distance(&cone, 0.02).unwrap();
+            // Self-distance: distance_to_axis = 0 in every dim, so all dims are "inside"
+            // with dist_in = 0. Total = cen * 0 = 0.
             prop_assert!(
-                (comp.aperture() - expected).abs() < 1e-5,
-                "complement aperture: expected {expected}, got {}", comp.aperture()
+                d < 1e-5,
+                "Self-distance should be near zero, got {d}"
             );
         }
 
+        /// If all apertures of A >= B and axes match, A "contains" B (lower distance).
         #[test]
-        fn prop_containment_prob_in_unit(
-            (a, b) in (arb_cone(4), arb_cone(4)),
-            temp in 0.01f32..10.0,
+        fn prop_wider_cone_contains_narrower(
+            axes in arb_axes(4),
+            aper_wide in proptest::collection::vec(0.5f32..PI - 0.01, 4usize).prop_map(Array1::from),
         ) {
-            let p = a.containment_prob(&b, temp).unwrap();
-            prop_assert!(p >= 0.0 && p <= 1.0, "containment prob {p} out of [0,1]");
+            // Make narrow apertures strictly smaller.
+            let aper_narrow = aper_wide.mapv(|a| (a - 0.3).max(0.01));
+            let entity = NdarrayCone::from_raw(axes.clone(), aper_narrow.clone());
+            let wide = NdarrayCone::from_raw(axes.clone(), aper_wide.clone());
+            let narrow = NdarrayCone::from_raw(axes.clone(), aper_narrow);
+
+            let d_wide = wide.cone_distance(&entity, 0.02).unwrap();
+            let d_narrow = narrow.cone_distance(&entity, 0.02).unwrap();
+
+            prop_assert!(
+                d_wide <= d_narrow + 1e-5,
+                "Wider cone should have <= distance to entity: wide={d_wide}, narrow={d_narrow}"
+            );
         }
 
+        /// Modifying dimension i does not affect the scoring contribution from dimension j.
         #[test]
-        fn prop_overlap_prob_in_unit(
-            (a, b) in (arb_cone(4), arb_cone(4)),
-            temp in 0.01f32..10.0,
+        fn prop_per_dimension_independence(
+            cone in arb_cone(4),
+            entity in arb_cone(4),
         ) {
-            let p = a.overlap_prob(&b, temp).unwrap();
-            prop_assert!(p >= 0.0 && p <= 1.0, "overlap prob {p} out of [0,1]");
+            // Compute full distance, then modify dim 0 of entity and check that
+            // the change in distance comes only from dim 0's contribution.
+            let d_orig = cone.cone_distance(&entity, 0.0).unwrap(); // cen=0 so only outside
+
+            // Create modified entity with dim 0 shifted.
+            let mut modified_axes = entity.axes().clone();
+            modified_axes[0] = normalize_angle(modified_axes[0] + 0.5);
+            let modified = NdarrayCone::from_raw(modified_axes, entity.apertures().clone());
+            let d_mod = cone.cone_distance(&modified, 0.0).unwrap();
+
+            // The difference should be explainable by dim 0 alone.
+            // Compute dim-0 only contributions.
+            let dim0_orig = {
+                let c = NdarrayCone::from_raw(
+                    array![cone.axes()[0]],
+                    array![cone.apertures()[0]],
+                );
+                let e = NdarrayCone::from_raw(
+                    array![entity.axes()[0]],
+                    array![entity.apertures()[0]],
+                );
+                c.cone_distance(&e, 0.0).unwrap()
+            };
+            let dim0_mod = {
+                let c = NdarrayCone::from_raw(
+                    array![cone.axes()[0]],
+                    array![cone.apertures()[0]],
+                );
+                let e = NdarrayCone::from_raw(
+                    array![modified.axes()[0]],
+                    array![modified.apertures()[0]],
+                );
+                c.cone_distance(&e, 0.0).unwrap()
+            };
+
+            let full_delta = (d_mod - d_orig).abs();
+            let dim0_delta = (dim0_mod - dim0_orig).abs();
+
+            prop_assert!(
+                (full_delta - dim0_delta).abs() < 1e-4,
+                "Modifying dim 0 should only affect dim 0: full_delta={full_delta}, dim0_delta={dim0_delta}"
+            );
         }
-    }
 
-    #[test]
-    fn works_in_high_dimensions() {
-        let d = 128;
-        let mut apex = vec![0.0f32; d];
-        let mut axis_a = vec![0.0f32; d];
-        let mut axis_b = vec![0.0f32; d];
-        apex[0] = 1.0;
-        axis_a[0] = 1.0;
-        axis_b[1] = 1.0;
+        /// After projection, result is still a valid cone (apertures in [0, pi], axes in [-pi, pi]).
+        #[test]
+        fn prop_projection_preserves_cone_structure(
+            cone in arb_cone(4),
+            rel_axes in arb_axes(4),
+            rel_aper in proptest::collection::vec(-1.0f32..1.0, 4usize).prop_map(Array1::from),
+        ) {
+            let projected = cone.project(&rel_axes, &rel_aper).unwrap();
 
-        let a = NdarrayCone::new(
-            Array1::from(apex.clone()),
-            Array1::from(axis_a),
-            1.2,
-        )
-        .unwrap();
-        let b = NdarrayCone::new(
-            Array1::from(apex),
-            Array1::from(axis_b),
-            0.8,
-        )
-        .unwrap();
-
-        let p_cont = a.containment_prob(&b, 0.5).unwrap();
-        assert!(p_cont.is_finite());
-        assert!((0.0..=1.0).contains(&p_cont));
-
-        let p_over = a.overlap_prob(&b, 0.5).unwrap();
-        assert!(p_over.is_finite());
-        assert!((0.0..=1.0).contains(&p_over));
-
-        let inter = a.intersection(&b).unwrap();
-        assert_eq!(inter.dim(), d);
-
-        let comp = a.complement().unwrap();
-        assert_eq!(comp.dim(), d);
+            for (i, &a) in projected.axes().iter().enumerate() {
+                prop_assert!(
+                    a >= -PI - 1e-6 && a <= PI + 1e-6,
+                    "Projected axes[{i}] should be in [-pi, pi], got {a}"
+                );
+            }
+            for (i, &a) in projected.apertures().iter().enumerate() {
+                prop_assert!(
+                    a >= -1e-6 && a <= PI + 1e-6,
+                    "Projected apertures[{i}] should be in [0, pi], got {a}"
+                );
+            }
+        }
     }
 }

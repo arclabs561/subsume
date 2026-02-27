@@ -284,10 +284,10 @@ pub fn sigma_clipping_loss(g: &GaussianBox, min_sigma: f32) -> f32 {
         .sum()
 }
 
-/// Sigma ceiling loss: prevents sigma from growing too large (paper's L_clip).
+/// Sigma ceiling loss: prevents sigma from growing too large (paper's L_clip, Eq. 14).
 ///
-/// Returns `(1/d) * sum_i max(0, sigma_i^2 - max_var)^2`, matching the
-/// TaxoBell paper's squared Frobenius norm with `1/d` normalization.
+/// Returns `(1/d) * sum_i max(0, sigma_i^2 - max_var)`, matching the
+/// TaxoBell paper's linear hinge `tr([Sigma - M]+)` with `1/d` normalization.
 ///
 /// Use this together with [`sigma_clipping_loss`] (floor) to bound sigma
 /// in both directions, or use this alone to match the paper's formulation.
@@ -300,10 +300,7 @@ pub fn sigma_ceiling_loss(g: &GaussianBox, max_var: f32) -> f32 {
     let sum: f32 = g
         .sigma
         .iter()
-        .map(|&s| {
-            let excess = (s * s - max_var).max(0.0);
-            excess * excess
-        })
+        .map(|&s| (s * s - max_var).max(0.0))
         .sum();
     sum / d as f32
 }
@@ -449,6 +446,34 @@ mod tests {
         ) {
             let loss = sigma_ceiling_loss(&g, max_var);
             prop_assert!(loss >= 0.0, "sigma_ceiling_loss should be non-negative, got {loss}");
+        }
+
+        /// sigma_ceiling_loss uses a linear hinge: scaling sigma excess by k
+        /// should scale the loss linearly, not quadratically.
+        #[test]
+        fn sigma_ceiling_is_linear_hinge(
+            base_sigma in 1.1f32..10.0,
+            max_var in 0.01f32..1.0,
+        ) {
+            // Single dimension: sigma^2 > max_var guaranteed since base_sigma > 1.1 and max_var < 1.0.
+            let g1 = GaussianBox::new(vec![0.0], vec![base_sigma]).unwrap();
+            // Double the excess: sigma2^2 - max_var = 2 * (sigma1^2 - max_var)
+            // sigma2 = sqrt(2 * sigma1^2 - max_var)
+            let doubled_var = 2.0 * base_sigma * base_sigma - max_var;
+            if doubled_var <= 0.0 {
+                return Ok(());
+            }
+            let g2 = GaussianBox::new(vec![0.0], vec![doubled_var.sqrt()]).unwrap();
+
+            let loss1 = sigma_ceiling_loss(&g1, max_var);
+            let loss2 = sigma_ceiling_loss(&g2, max_var);
+
+            // With linear hinge: loss2 / loss1 should be ~2.0 (not 4.0 as squared would give).
+            let ratio = loss2 / loss1;
+            prop_assert!(
+                (ratio - 2.0).abs() < 0.01,
+                "linear hinge ratio should be ~2.0, got {ratio} (loss1={loss1}, loss2={loss2})"
+            );
         }
 
         // -- volume_regularization >= 0 (already tested, but explicit) --
@@ -611,10 +636,10 @@ mod tests {
         );
 
         // Ceiling max_var = 1.0: sigma^2 = [0.0025, 0.09, 25.0]
-        // Only dim 2 violates: excess = 25.0 - 1.0 = 24.0, sq = 576.0
-        // Result = 576.0 / 3 = 192.0
+        // Only dim 2 violates: excess = 25.0 - 1.0 = 24.0 (linear hinge)
+        // Result = 24.0 / 3 = 8.0
         let ceil_loss = sigma_ceiling_loss(&g, 1.0);
-        let expected_ceil = 576.0 / 3.0;
+        let expected_ceil = 24.0 / 3.0;
         assert!(
             (ceil_loss - expected_ceil).abs() < 1e-3,
             "ceiling loss: expected {expected_ceil}, got {ceil_loss}"
@@ -795,10 +820,10 @@ mod tests {
     fn test_sigma_ceiling_loss_above_threshold() {
         let g = GaussianBox::new(vec![0.0, 0.0], vec![2.0, 0.5]).unwrap();
         // max_var = 1.0; sigma^2 = [4.0, 0.25]
-        // dim 0: excess = (4.0 - 1.0) = 3.0, sq = 9.0
+        // dim 0: excess = (4.0 - 1.0) = 3.0 (linear hinge)
         // dim 1: excess = 0
-        // result = 9.0 / 2 = 4.5
+        // result = 3.0 / 2 = 1.5
         let loss = sigma_ceiling_loss(&g, 1.0);
-        assert!((loss - 4.5).abs() < 1e-5, "expected 4.5, got {loss}");
+        assert!((loss - 1.5).abs() < 1e-5, "expected 1.5, got {loss}");
     }
 }

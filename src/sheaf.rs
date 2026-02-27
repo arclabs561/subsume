@@ -305,12 +305,10 @@ pub struct DiffusionConfig {
     pub num_steps: usize,
     /// Step size (learning rate for diffusion).
     pub step_size: f32,
-    /// Whether to normalize the Laplacian.
+    /// Whether to normalize the Laplacian (D^{-1/2} L D^{-1/2}).
     pub normalize: bool,
-    /// Type of Laplacian to use.
+    /// Type of Laplacian to use (Connection, General, or Diagonal).
     pub laplacian_type: LaplacianType,
-    /// Regularization weight for restriction maps.
-    pub restriction_regularization: f32,
 }
 
 impl Default for DiffusionConfig {
@@ -320,7 +318,6 @@ impl Default for DiffusionConfig {
             step_size: 0.1,
             normalize: true,
             laplacian_type: LaplacianType::General,
-            restriction_regularization: 0.01,
         }
     }
 }
@@ -1180,7 +1177,6 @@ mod tests {
         assert!((config.step_size - 0.1).abs() < 1e-6);
         assert!(config.normalize);
         assert_eq!(config.laplacian_type, LaplacianType::General);
-        assert!((config.restriction_regularization - 0.01).abs() < 1e-6);
     }
 
     #[test]
