@@ -26,8 +26,8 @@ include = [
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 rand = { version = "0.9", optional = true }
-hyperball = { version = "0.1.0", path = "../hyperball" }
-skel = { version = "0.1.0", path = "../skel" }
+hyperball = { version = "0.1.1", path = "../hyperball" }
+skel = { version = "0.1.1", path = "../skel" }
 ndarray = { version = "0.16", features = ["serde-1"], optional = true }
 serde_json = { version = "1.0", optional = true }
 candle-core = { version = "0.9", optional = true }
