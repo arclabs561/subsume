@@ -1,12 +1,12 @@
 //! # subsume
 //!
-//! Geometric box embeddings for modeling containment, entailment, and overlap.
+//! Geometric region embeddings for subsumption, entailment, and logical query answering.
 //!
 //! `subsume` provides framework-agnostic traits and concrete backends for
-//! **box embeddings** -- axis-aligned hyperrectangles in d-dimensional space that
-//! encode hierarchical relationships through geometric containment. If box A
-//! contains box B (B ⊆ A), then A *subsumes* B: the more general concept
-//! contains the more specific one.
+//! geometric embeddings -- boxes, cones, octagons, Gaussians, and hyperbolic
+//! intervals -- that encode hierarchical relationships through geometric
+//! containment. If region A contains region B (B ⊆ A), then A *subsumes* B:
+//! the more general concept contains the more specific one.
 //!
 //! # Getting Started
 //!

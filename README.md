@@ -4,7 +4,7 @@
 [![Documentation](https://docs.rs/subsume/badge.svg)](https://docs.rs/subsume)
 [![CI](https://github.com/arclabs561/subsume/actions/workflows/ci.yml/badge.svg)](https://github.com/arclabs561/subsume/actions/workflows/ci.yml)
 
-Geometric box embeddings: containment, entailment, overlap. Ndarray and Candle backends.
+Geometric region embeddings for subsumption, entailment, and logical query answering. Boxes, cones, octagons, Gaussians, hyperbolic intervals, and sheaf networks. Ndarray and Candle backends.
 
 ![Box embedding concepts](docs/box_concepts.png)
 
@@ -12,31 +12,49 @@ Geometric box embeddings: containment, entailment, overlap. Ndarray and Candle b
 
 ## What it provides
 
+### Geometric primitives
+
 | Component | What it does |
 |---|---|
-| `Box` trait | Framework-agnostic axis-aligned hyperrectangle: volume, containment, overlap, distance |
-| `GumbelBox` trait | Probabilistic boxes via Gumbel random variables (dense gradients, no flat regions) |
-| Gumbel operations | Softplus Bessel volume, LSE intersection (Dasgupta et al., 2020) |
+| `Box` trait | Axis-aligned hyperrectangle: volume, containment, overlap, distance |
+| `GumbelBox` trait | Probabilistic boxes via Gumbel random variables (dense gradients, no flat regions; Dasgupta et al., 2020) |
+| `Cone` trait | Angular cones on the unit sphere: containment via aperture, closed under negation (Zhang & Wang, NeurIPS 2021) |
+| `Octagon` trait | Axis-aligned polytopes with diagonal constraints, ~50% tighter than boxes (Charpenay & Schockaert, IJCAI 2024) |
+| `gaussian` | Diagonal Gaussian boxes: KL divergence (asymmetric containment) and Bhattacharyya coefficient (symmetric overlap) |
+| `hyperbolic` | Poincare ball embeddings and hyperbolic box intervals (via `hyperball`) |
+| `sheaf` | Sheaf neural networks: stalks, restriction maps, Laplacian diffusion (Hansen & Ghrist 2019; Bodnar et al., ICLR 2022) |
+| `Region` trait | Generic region interface unifying boxes, cones, and balls |
+
+### Scoring and query answering
+
+| Component | What it does |
+|---|---|
 | BoxE scoring | Point-entity BoxE model (Abboud et al., 2020) + box-to-box variant |
-| `NdarrayBox` / `NdarrayGumbelBox` | CPU backend using `ndarray::Array1<f32>` |
-| `CandleBox` / `CandleGumbelBox` | GPU/Metal backend using `candle_core::Tensor` |
-| Training utilities | Negative sampling, volume regularization, temperature scheduling, AMSGrad |
-| Evaluation | Mean rank, MRR, Hits@k, NDCG, calibration, reliability diagrams |
-| Sheaf networks | Sheaf neural networks for transitivity (Hansen & Ghrist 2019) |
-| Hyperbolic boxes | Box embeddings in Poincare ball (via `hyperball`) |
-| `gaussian` | Diagonal Gaussian box embeddings: KL divergence (asymmetric containment) and Bhattacharyya coefficient (symmetric overlap) |
-| `el` | EL++ ontology embedding primitives: inclusion loss, role translation/composition, existential boxes, disjointness (Box2EL/TransBox) |
-| `taxonomy` | TaxoBell-format taxonomy dataset loader: `.terms`/`.taxo` parsing, train/val/test splitting, conversion to `Triple`s |
-| `taxobell` | TaxoBell combined training loss: symmetric (Bhattacharyya triplet), asymmetric (KL containment), volume regularization, sigma clipping |
-| `octagon` | Octagon embeddings: axis-aligned polytopes with diagonal constraints (Charpenay & Schockaert, IJCAI 2024) |
+| `distance` | Depth-based (RegD), boundary, and vector-to-box distance metrics |
 | `fuzzy` | Fuzzy t-norms/t-conorms for logical query answering (FuzzQE, Chen et al., AAAI 2022) |
-| `query2box_distance` | Alpha-weighted distance scoring for query answering (Ren et al., NeurIPS 2020) |
+| `el` | EL++ ontology embedding: inclusion loss, role translation/composition, existential boxes, disjointness (Box2EL/TransBox) |
+
+### Taxonomy and training
+
+| Component | What it does |
+|---|---|
+| `taxonomy` | TaxoBell-format dataset loader: `.terms`/`.taxo` parsing, train/val/test splitting |
+| `taxobell` | TaxoBell combined loss: Bhattacharyya triplet + KL containment + volume regularization + sigma clipping |
+| Training utilities | Negative sampling, temperature scheduling, AMSGrad, cosine annealing LR |
+| Evaluation | MRR, Hits@k, NDCG, calibration (ECE, Brier), reliability diagrams |
+
+### Backends
+
+| Component | What it does |
+|---|---|
+| `NdarrayBox` / `NdarrayGumbelBox` / `NdarrayCone` / `NdarrayOctagon` | CPU backend using `ndarray::Array1<f32>` |
+| `CandleBox` / `CandleGumbelBox` | GPU/Metal backend using `candle_core::Tensor` |
 
 ## Usage
 
 ```toml
 [dependencies]
-subsume = { version = "0.1.4", features = ["ndarray-backend"] }
+subsume = { version = "0.1.5", features = ["ndarray-backend"] }
 ndarray = "0.16"
 ```
 
@@ -77,14 +95,25 @@ See [`examples/README.md`](examples/README.md) for a guide to choosing the right
 cargo test -p subsume
 ```
 
-634 tests (unit + property + doc) covering:
+Unit, property, and doc tests covering:
 
 - Box geometry: intersection, union, containment, overlap, distance, volume, truncation
 - Gumbel boxes: membership probability, temperature edge cases, Bessel volume
-- Training: MRR, Hits@k, NDCG, calibration, negative sampling, AMSGrad
+- Cones: angular containment, negation closure, aperture bounds
 - Octagon: intersection closure, containment, Sutherland-Hodgman volume
 - Fuzzy: t-norm/t-conorm commutativity, associativity, De Morgan duality
 - Gaussian boxes, EL++ ontology losses, sheaf networks, hyperbolic geometry, quasimetrics
+- Training: MRR, Hits@k, NDCG, calibration, negative sampling, AMSGrad
+
+## Choosing a geometry
+
+| Geometry | When to use it | Negation? | Key tradeoff |
+|---|---|---|---|
+| Box / GumbelBox | Axis-aligned containment hierarchies, each dimension independent | No | Simple, fast; Gumbel variant adds dense gradients |
+| Cone | Multi-hop reasoning with NOT; FOL queries requiring negation | Yes | Closed under complement, but angular parameterization is harder to initialize |
+| Octagon | Rule-aware KG completion; need tighter volume than boxes | No | ~50% tighter bounds via diagonal constraints; more parameters per entity |
+| Gaussian | Taxonomy expansion with uncertainty; TaxoBell-style training | No | KL gives asymmetric containment for free; Bhattacharyya gives symmetric overlap |
+| Hyperbolic | Tree-like hierarchies with low distortion | No | Exponential capacity in limited dimensions; numerical care near boundary |
 
 ## Why Gumbel boxes?
 
@@ -106,17 +135,25 @@ levels where Gaussian boxes fail completely.
 ## References
 
 - Vilnis et al. (2018). "Probabilistic Embedding of Knowledge Graphs with Box Lattice Measures"
+- Nickel & Kiela (2017). "Poincare Embeddings for Learning Hierarchical Representations"
 - Abboud et al. (2020). "BoxE: A Box Embedding Model for Knowledge Base Completion"
 - Dasgupta et al. (2020). "Improving Local Identifiability in Probabilistic Box Embeddings"
 - Ren et al. (2020). "Query2Box: Reasoning over Knowledge Graphs using Box Embeddings"
+- Hansen & Ghrist (2019). "Toward a Spectral Theory of Cellular Sheaves"
+- Bodnar et al. (2022). "Neural Sheaf Diffusion: A Topological Perspective on Heterophily and Oversmoothing in GNNs"
+- Zhang & Wang (2021). "ConE: Cone Embeddings for Multi-Hop Reasoning over Knowledge Graphs"
 - Chen et al. (2022). "Fuzzy Logic Based Logical Query Answering on Knowledge Graphs"
+- Jackermeier et al. (2023). "Dual Box Embeddings for the Description Logic EL++"
+- Yang, Chen & Sattler (2024). "TransBox: EL++-closed Ontology Embedding"
 - Charpenay & Schockaert (2024). "Capturing Knowledge Graphs and Rules with Octagon Embeddings"
+- Yang & Chen (2025). "Achieving Hyperbolic-Like Expressiveness with Arbitrary Euclidean Regions"
+- Xiong et al. (2026). "TaxoBell: Taxonomy Expansion via Bell-Curve Gaussian Box Embeddings"
 
 ## See also
 
 - [`innr`](https://crates.io/crates/innr) -- SIMD-accelerated vector similarity primitives
 - [`kuji`](https://crates.io/crates/kuji) -- stochastic sampling (Gumbel-max uses the same distribution)
-- [`anno`](https://crates.io/crates/anno) -- information extraction with optional box-embedding coreference
+- [`anno`](https://crates.io/crates/anno) -- information extraction; uses subsume's box embeddings for coreference resolution
 
 ## License
 
