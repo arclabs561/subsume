@@ -77,7 +77,7 @@ See [`examples/README.md`](examples/README.md) for a guide to choosing the right
 cargo test -p subsume
 ```
 
-617 tests (unit + property + doc) covering:
+634 tests (unit + property + doc) covering:
 
 - Box geometry: intersection, union, containment, overlap, distance, volume, truncation
 - Gumbel boxes: membership probability, temperature edge cases, Bessel volume
