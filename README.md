@@ -8,6 +8,8 @@ Geometric box embeddings: containment, entailment, overlap. Ndarray and Candle b
 
 ![Box embedding concepts](docs/box_concepts.png)
 
+*(a) Containment: nested boxes encode taxonomic is-a relationships. (b) Gumbel soft boundary: temperature controls membership sharpness. (c) Octagon: diagonal constraints cut corners, 50% tighter than the bounding box.*
+
 ## What it provides
 
 | Component | What it does |
@@ -75,7 +77,14 @@ See [`examples/README.md`](examples/README.md) for a guide to choosing the right
 cargo test -p subsume
 ```
 
-617 unit tests + property tests + doc tests covering box operations (intersection, union, containment, overlap, distance, truncation), Gumbel box membership and temperature edge cases, serialization round-trips, training metrics (MRR, Hits@k, NDCG), calibration diagnostics, negative sampling, sheaf networks, hyperbolic geometry, quasimetric properties, Gaussian box KL/Bhattacharyya scoring, EL++ ontology losses, taxonomy dataset loading, TaxoBell combined training losses, octagon intersection/containment/volume, fuzzy t-norm/t-conorm operators, and Query2Box distance scoring.
+617 tests (unit + property + doc) covering:
+
+- Box geometry: intersection, union, containment, overlap, distance, volume, truncation
+- Gumbel boxes: membership probability, temperature edge cases, Bessel volume
+- Training: MRR, Hits@k, NDCG, calibration, negative sampling, AMSGrad
+- Octagon: intersection closure, containment, Sutherland-Hodgman volume
+- Fuzzy: t-norm/t-conorm commutativity, associativity, De Morgan duality
+- Gaussian boxes, EL++ ontology losses, sheaf networks, hyperbolic geometry, quasimetrics
 
 ## Why Gumbel boxes?
 
