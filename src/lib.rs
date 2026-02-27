@@ -162,6 +162,18 @@ pub mod training;
 /// Numerical stability: log-space volume, stable sigmoid, temperature scheduling.
 pub mod utils;
 
+/// Diagonal Gaussian box embeddings for taxonomy expansion (TaxoBell).
+pub mod gaussian;
+
+/// EL++ ontology embedding primitives (Box2EL / TransBox).
+pub mod el;
+
+/// Taxonomy dataset loading for the TaxoBell format (`.terms` / `.taxo` / `dic.json`).
+pub mod taxonomy;
+
+/// TaxoBell combined training loss for taxonomy expansion.
+pub mod taxobell;
+
 // ---------------------------------------------------------------------------
 // Re-exports: primary traits and types
 // ---------------------------------------------------------------------------
@@ -232,6 +244,25 @@ pub use sheaf::{
     consistency_score, diffuse_until_convergence, DenseRestriction, DiffusionConfig, LaplacianType,
     RestrictionMap, SheafBuilder, SheafEdge, SheafError, SheafGraph, SimpleSheafGraph, Stalk,
     VecStalk,
+};
+
+// Re-exports: Gaussian boxes
+pub use gaussian::{
+    bhattacharyya_coefficient, bhattacharyya_distance,
+    kl_divergence as gaussian_kl_divergence, sigma_ceiling_loss, sigma_clipping_loss,
+    volume_regularization as gaussian_volume_regularization, GaussianBox,
+};
+
+// Re-exports: taxonomy
+pub use taxonomy::{TaxonomyDataset, TaxonomyNode};
+
+// Re-exports: TaxoBell loss
+pub use taxobell::{CombinedLossResult, TaxoBellConfig, TaxoBellLoss};
+
+// Re-exports: EL++ ontology
+pub use el::{
+    compose_roles, disjointness_loss, el_inclusion_loss, existential_box,
+    intersection_nonempty_loss, translate,
 };
 
 // Re-exports: utilities

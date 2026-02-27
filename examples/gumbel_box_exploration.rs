@@ -83,20 +83,24 @@ fn main() -> Result<(), subsume::BoxError> {
     // flow even when boxes are disjoint, because membership is soft.
 
     println!("\n--- Part 2: Soft containment probabilities ---\n");
+    // NOTE: At temperature=1.0, Gumbel softening spreads probability mass well
+    // beyond the hard box boundaries, so containment probabilities are much lower
+    // than 1.0 even for geometrically nested boxes. Use low temperature (e.g. 0.01)
+    // to recover hard-box-like scores. The Part 3 table below shows this effect.
     println!(
-        "  P(dog inside animal)  = {:.4}   (should be ~1.0: dog IS-A animal)",
+        "  P(dog inside animal)  = {:.4}   (dog IS-A animal; <1 due to temp=1.0 softening)",
         animal.containment_prob(&dog, temperature)?
     );
     println!(
-        "  P(dog inside mammal)  = {:.4}   (should be ~1.0: dog IS-A mammal)",
+        "  P(dog inside mammal)  = {:.4}   (dog IS-A mammal; <1 due to temp=1.0 softening)",
         mammal.containment_prob(&dog, temperature)?
     );
     println!(
-        "  P(mammal inside animal) = {:.4} (should be ~1.0: mammal IS-A animal)",
+        "  P(mammal inside animal) = {:.4} (mammal IS-A animal; <1 due to temp=1.0 softening)",
         animal.containment_prob(&mammal, temperature)?
     );
     println!(
-        "  P(animal inside dog)  = {:.4}   (should be < 1:  animal is NOT a dog)",
+        "  P(animal inside dog)  = {:.4}   (should be < P(dog|animal): animal is NOT a dog)",
         dog.containment_prob(&animal, temperature)?
     );
     println!(

@@ -45,6 +45,14 @@ criterion = { version = "0.5", features = ["html_reports"] }
 proptest = "1.5"
 tempfile = "3"
 
+[[bench]]
+name = "gaussian_bench"
+harness = false
+
+[[bench]]
+name = "el_bench"
+harness = false
+
 [lints.rust]
 missing_docs = "warn"
 unsafe_code = "warn"
