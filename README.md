@@ -26,6 +26,9 @@ Geometric box embeddings: containment, entailment, overlap. Ndarray and Candle b
 | `el` | EL++ ontology embedding primitives: inclusion loss, role translation/composition, existential boxes, disjointness (Box2EL/TransBox) |
 | `taxonomy` | TaxoBell-format taxonomy dataset loader: `.terms`/`.taxo` parsing, train/val/test splitting, conversion to `Triple`s |
 | `taxobell` | TaxoBell combined training loss: symmetric (Bhattacharyya triplet), asymmetric (KL containment), volume regularization, sigma clipping |
+| `octagon` | Octagon embeddings: axis-aligned polytopes with diagonal constraints (Charpenay & Schockaert, IJCAI 2024) |
+| `fuzzy` | Fuzzy t-norms/t-conorms for logical query answering (FuzzQE, Chen et al., AAAI 2022) |
+| `query2box_distance` | Alpha-weighted distance scoring for query answering (Ren et al., NeurIPS 2020) |
 
 ## Usage
 
@@ -59,6 +62,9 @@ cargo run -p subsume --example gumbel_box_exploration   # Gumbel boxes, soft con
 cargo run -p subsume --example cone_training            # training cone embeddings on a taxonomy
 cargo run -p subsume --example box_training             # training box embeddings on a 25-entity taxonomy
 cargo run -p subsume --example taxobell_demo            # TaxoBell Gaussian box losses on a mini taxonomy
+cargo run -p subsume --example query2box                # Query2Box: multi-hop queries, box intersection, distance scoring
+cargo run -p subsume --example octagon_demo             # octagon embeddings: diagonal constraints, containment, volume
+cargo run -p subsume --example fuzzy_query              # fuzzy query answering: t-norms, De Morgan duality, rankings
 ```
 
 See [`examples/README.md`](examples/README.md) for a guide to choosing the right example.
@@ -69,7 +75,7 @@ See [`examples/README.md`](examples/README.md) for a guide to choosing the right
 cargo test -p subsume
 ```
 
-614 unit tests + property tests + doc tests covering box operations (intersection, union, containment, overlap, distance, truncation), Gumbel box membership and temperature edge cases, serialization round-trips, training metrics (MRR, Hits@k, NDCG), calibration diagnostics, negative sampling, sheaf networks, hyperbolic geometry, quasimetric properties, Gaussian box KL/Bhattacharyya scoring, EL++ ontology losses, taxonomy dataset loading, and TaxoBell combined training losses.
+614 unit tests + property tests + doc tests covering box operations (intersection, union, containment, overlap, distance, truncation), Gumbel box membership and temperature edge cases, serialization round-trips, training metrics (MRR, Hits@k, NDCG), calibration diagnostics, negative sampling, sheaf networks, hyperbolic geometry, quasimetric properties, Gaussian box KL/Bhattacharyya scoring, EL++ ontology losses, taxonomy dataset loading, TaxoBell combined training losses, octagon intersection/containment/volume, fuzzy t-norm/t-conorm operators, and Query2Box distance scoring.
 
 ## Why Gumbel boxes?
 
@@ -86,7 +92,7 @@ levels where Gaussian boxes fail completely.
 
 ![Training convergence](docs/training_convergence.png)
 
-*Box embeddings learning a 25-entity containment hierarchy over 200 epochs. Run `cargo run --example box_training` to reproduce, or `uv run scripts/plot_training.py` to regenerate the plot.*
+*25-entity taxonomy learned over 200 epochs. Left: total violation drops 3 orders of magnitude. Right: containment probabilities converge to 1.0 at different rates depending on hierarchy depth. Reproduce: `cargo run --example box_training` or `uv run scripts/plot_training.py`.*
 
 ## References
 
@@ -94,6 +100,8 @@ levels where Gaussian boxes fail completely.
 - Abboud et al. (2020). "BoxE: A Box Embedding Model for Knowledge Base Completion"
 - Dasgupta et al. (2020). "Improving Local Identifiability in Probabilistic Box Embeddings"
 - Ren et al. (2020). "Query2Box: Reasoning over Knowledge Graphs using Box Embeddings"
+- Chen et al. (2022). "Fuzzy Logic Based Logical Query Answering on Knowledge Graphs"
+- Charpenay & Schockaert (2024). "Capturing Knowledge Graphs and Rules with Octagon Embeddings"
 
 ## See also
 

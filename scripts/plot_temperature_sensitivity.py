@@ -7,17 +7,9 @@
 Shows how Gumbel temperature (beta) controls the crispness of
 containment probability for a fixed pair of nested boxes.
 
-Inspired by Dasgupta et al. 2020, Figure 4. Grounds the
-temperature_schedule module in subsume.
+Inspired by Dasgupta et al. 2020, Figure 4.
 
-Containment probability for inner box [a_min, a_max] inside outer
-box [b_min, b_max] in one dimension:
-    P(b_min <= a_min) * P(a_max <= b_max)
-where F(t) = exp(-exp(-t)) is the standard Gumbel CDF:
-    P(a_min >= b_min) = F((a_min - b_min) / beta)
-    P(a_max <= b_max) = 1 - F((a_max - b_max) / beta)
-
-For d dimensions, containment = product over all dimensions.
+Style: distill.pub-inspired. Matches the palette of the other subsume plots.
 """
 
 import matplotlib
@@ -25,57 +17,72 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-# Fixed box pair (inner fully contained in outer with some margin).
-# All dimensions identical for simplicity.
+# ── Color palette ─────────────────────────────────────────────────────
+BG = "#fafafa"
+GRID = "#e5e7eb"
+TEXT = "#374151"
+BLUE = "#3b82f6"
+GREEN = "#22c55e"
+AMBER = "#f59e0b"
+ROSE = "#f43f5e"
+SLATE = "#64748b"
+SLATE_LIGHT = "#94a3b8"
+
+palette = [BLUE, GREEN, AMBER, ROSE]
+
+# ── Data ──────────────────────────────────────────────────────────────
 b_min, b_max = 0.0, 10.0   # outer box
 a_min, a_max = 2.0, 8.0    # inner box (margin = 2.0 on each side)
-
 dims = [1, 5, 20, 50]
-
 beta_values = np.logspace(np.log10(0.01), np.log10(10.0), 300)
 
-fig, ax = plt.subplots(figsize=(6, 4))
+# ── Plot ──────────────────────────────────────────────────────────────
+fig, ax = plt.subplots(figsize=(5.5, 3.8))
+fig.patch.set_facecolor("white")
+ax.set_facecolor(BG)
 
-for d in dims:
-    containment = []
-    for beta in beta_values:
-        # Per-dimension containment factors
-        # P(A_min >= B_min) = F((a_min - b_min) / beta)
-        # P(A_max <= B_max) = 1 - F((a_max - b_max) / beta)
-        # where F(t) = exp(-exp(-t)) is the standard Gumbel CDF
-        p_min = np.exp(-np.exp(-(a_min - b_min) / beta))
-        p_max = 1.0 - np.exp(-np.exp(-(a_max - b_max) / beta))
-        p_dim = p_min * p_max
-        # d dimensions (all identical margins)
-        p_total = p_dim ** d
-        containment.append(p_total)
-    ax.plot(beta_values, containment, linewidth=1.8, label=f"d = {d}")
-
-ax.set_xscale("log")
-ax.set_xlabel("Gumbel temperature $\\beta$", fontsize=10)
-ax.set_ylabel("Containment probability $P(A \\subseteq B)$", fontsize=10)
-ax.set_title("Temperature sensitivity of containment probability", fontsize=11, fontweight="bold")
-ax.set_xlim(0.01, 10.0)
-ax.set_ylim(-0.02, 1.05)
-ax.legend(fontsize=8.5, frameon=True, title="dimensions", title_fontsize=8)
-ax.grid(True, alpha=0.3)
+for spine in ax.spines.values():
+    spine.set_color(GRID)
+    spine.set_linewidth(0.8)
 ax.spines["top"].set_visible(False)
 ax.spines["right"].set_visible(False)
 
-# Annotations for the two regimes
-ax.annotate("crisp\n($\\beta \\to 0$)", xy=(0.02, 0.95), fontsize=8,
-            color="#475569", ha="center", style="italic")
-ax.annotate("fuzzy\n($\\beta \\to \\infty$)", xy=(7.0, 0.35), fontsize=8,
-            color="#475569", ha="center", style="italic")
+for i, d in enumerate(dims):
+    containment = []
+    for beta in beta_values:
+        p_min = np.exp(-np.exp(-(a_min - b_min) / beta))
+        p_max = 1.0 - np.exp(-np.exp(-(a_max - b_max) / beta))
+        containment.append((p_min * p_max) ** d)
+    ax.plot(beta_values, containment, linewidth=1.6, color=palette[i],
+            label=f"$d = {d}$")
+
+ax.set_xscale("log")
+ax.set_xlabel("Gumbel temperature $\\beta$", fontsize=9, color=TEXT)
+ax.set_ylabel("$P(A \\subseteq B)$", fontsize=9, color=TEXT)
+ax.set_title("Temperature sensitivity", fontsize=10, fontweight="bold",
+             color=TEXT, pad=8)
+ax.set_xlim(0.01, 10.0)
+ax.set_ylim(-0.02, 1.08)
+
+ax.legend(fontsize=7, frameon=True, fancybox=False, edgecolor=GRID,
+          framealpha=0.9, title="dimensions", title_fontsize=7)
+ax.grid(True, alpha=0.3, linewidth=0.4, color=GRID)
+ax.tick_params(labelsize=7, colors=SLATE_LIGHT)
+
+# Regime annotations
+ax.annotate("crisp ($\\beta \\to 0$)", xy=(0.015, 0.97), fontsize=7.5,
+            color=SLATE, fontstyle="italic")
+ax.annotate("fuzzy ($\\beta \\to \\infty$)", xy=(5.0, 0.25), fontsize=7.5,
+            color=SLATE, fontstyle="italic")
 
 # Box geometry note
 ax.text(0.98, 0.02,
-        f"Outer box: [{b_min}, {b_max}]$^d$,  Inner box: [{a_min}, {a_max}]$^d$\n"
-        f"Per-dimension margin: {a_min - b_min:.1f}",
-        transform=ax.transAxes, fontsize=6.5, color="#94a3b8",
+        f"Outer: $[{b_min:.0f},{b_max:.0f}]^d$  "
+        f"Inner: $[{a_min:.0f},{a_max:.0f}]^d$  "
+        f"Margin: {a_min - b_min:.0f}",
+        transform=ax.transAxes, fontsize=6, color=SLATE_LIGHT,
         ha="right", va="bottom")
 
-fig.tight_layout()
 fig.savefig("/Users/arc/Documents/dev/subsume/docs/temperature_sensitivity.png",
-            dpi=150, bbox_inches="tight", facecolor="white")
+            dpi=180, bbox_inches="tight", facecolor="white")
 print("Saved subsume/docs/temperature_sensitivity.png")

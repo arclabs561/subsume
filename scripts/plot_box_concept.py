@@ -2,181 +2,242 @@
 # requires-python = ">=3.11"
 # dependencies = ["matplotlib", "numpy"]
 # ///
-"""Generate conceptual box embedding diagram for subsume README.
+"""Generate hero concept figure for subsume README.
 
-Panels:
-  (a) Containment (subsumption) -- boxes with coordinate labels
-  (b) Overlap vs disjoint
-  (c) Gumbel box (soft boundary) -- 2D view + 1D cross-section subplot
+Three panels, each communicating one core idea:
+  (a) Containment (subsumption) -- nested axis-aligned boxes
+  (b) Gumbel soft boundary -- 1D membership sigmoid vs hard box
+  (c) Octagon vs box -- diagonal constraints cut unreachable corners
+
+Style: distill.pub-inspired. Sharp rectangles, muted palette, minimal chrome,
+one idea per panel. No rounded corners (these are axis-aligned hyperrectangles).
 """
 
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.patches import FancyBboxPatch
-import matplotlib.patheffects as pe
+from matplotlib.patches import Rectangle, Polygon
+from matplotlib.lines import Line2D
 import numpy as np
 
-fig = plt.figure(figsize=(14, 5.0))
+# ── Color palette (muted, academic) ────────────────────────────────────
+BG = "#fafafa"
+GRID = "#e5e7eb"
+TEXT = "#374151"
+BLUE = "#3b82f6"
+BLUE_DARK = "#1d4ed8"
+GREEN = "#22c55e"
+GREEN_DARK = "#15803d"
+AMBER = "#f59e0b"
+AMBER_DARK = "#b45309"
+ROSE = "#f43f5e"
+ROSE_DARK = "#be123c"
+SLATE = "#64748b"
+SLATE_LIGHT = "#94a3b8"
 
-# Layout: three conceptual panels on top, 1D cross-section below panel (c)
-# Use gridspec for the panel (c) split
-gs = fig.add_gridspec(2, 3, height_ratios=[3, 2], hspace=0.35, wspace=0.3)
+# ── Figure setup ───────────────────────────────────────────────────────
+fig, axes = plt.subplots(1, 3, figsize=(13.5, 4.2),
+                         gridspec_kw={"wspace": 0.32})
+fig.patch.set_facecolor("white")
 
-# --- Panel (a): Containment (subsumption) ---
-ax_a = fig.add_subplot(gs[0, 0])
-ax_a.set_xlim(-0.5, 10.5)
-ax_a.set_ylim(-0.5, 10.5)
-ax_a.set_aspect("equal")
-ax_a.set_title("(a) Containment (subsumption)", fontsize=10, fontweight="bold", pad=8)
+for ax in axes:
+    ax.set_facecolor(BG)
+    for spine in ax.spines.values():
+        spine.set_color(GRID)
+        spine.set_linewidth(0.8)
 
-# Animal (large box)
-animal = FancyBboxPatch((0.5, 0.5), 9, 9, boxstyle="round,pad=0.2",
-                         facecolor="#dbeafe", edgecolor="#2563eb", linewidth=1.8)
-ax_a.add_patch(animal)
-ax_a.text(5, 9.8, "animal", ha="center", va="top", fontsize=9, color="#1e40af", fontweight="bold")
+# ══════════════════════════════════════════════════════════════════════
+# Panel (a): Containment (subsumption)
+# ══════════════════════════════════════════════════════════════════════
+ax = axes[0]
+ax.set_xlim(-0.5, 10.5)
+ax.set_ylim(-0.5, 10.5)
+ax.set_aspect("equal")
 
-# Dog (medium box inside animal)
-dog = FancyBboxPatch((1.2, 1.0), 4.0, 5.5, boxstyle="round,pad=0.15",
-                      facecolor="#dcfce7", edgecolor="#16a34a", linewidth=1.6)
-ax_a.add_patch(dog)
-ax_a.text(3.2, 6.7, "dog", ha="center", va="top", fontsize=9, color="#166534", fontweight="bold")
+# animal -- large outer box
+ax.add_patch(Rectangle((0.3, 0.3), 9.4, 9.4,
+    linewidth=1.6, edgecolor=BLUE, facecolor=BLUE, alpha=0.06))
+ax.add_patch(Rectangle((0.3, 0.3), 9.4, 9.4,
+    linewidth=1.6, edgecolor=BLUE, facecolor="none"))
+ax.text(5.0, 10.1, "animal", ha="center", va="bottom", fontsize=9,
+        color=BLUE_DARK, fontweight="bold", fontstyle="italic")
 
-# Poodle (small box inside dog)
-poodle = FancyBboxPatch((1.8, 1.5), 2.5, 2.5, boxstyle="round,pad=0.1",
-                         facecolor="#fef9c3", edgecolor="#ca8a04", linewidth=1.4)
-ax_a.add_patch(poodle)
-ax_a.text(3.05, 3.3, "poodle", ha="center", va="center", fontsize=8, color="#854d0e", fontweight="bold")
+# mammal -- medium box inside animal
+ax.add_patch(Rectangle((0.8, 0.8), 5.2, 6.0,
+    linewidth=1.4, edgecolor=GREEN, facecolor=GREEN, alpha=0.06))
+ax.add_patch(Rectangle((0.8, 0.8), 5.2, 6.0,
+    linewidth=1.4, edgecolor=GREEN, facecolor="none"))
+ax.text(3.4, 7.1, "mammal", ha="center", va="bottom", fontsize=8.5,
+        color=GREEN_DARK, fontweight="bold", fontstyle="italic")
 
-# Cat (medium box inside animal, beside dog)
-cat = FancyBboxPatch((5.8, 1.0), 3.5, 5.0, boxstyle="round,pad=0.15",
-                      facecolor="#fce7f3", edgecolor="#db2777", linewidth=1.6)
-ax_a.add_patch(cat)
-ax_a.text(7.55, 6.2, "cat", ha="center", va="top", fontsize=9, color="#9d174d", fontweight="bold")
+# dog -- small box inside mammal
+ax.add_patch(Rectangle((1.3, 1.3), 2.8, 3.0,
+    linewidth=1.2, edgecolor=AMBER, facecolor=AMBER, alpha=0.08))
+ax.add_patch(Rectangle((1.3, 1.3), 2.8, 3.0,
+    linewidth=1.2, edgecolor=AMBER, facecolor="none"))
+ax.text(2.7, 3.0, "dog", ha="center", va="center", fontsize=8,
+        color=AMBER_DARK, fontweight="bold", fontstyle="italic")
 
-# Axis labels with coordinate values
-ax_a.set_xlabel("$x_1$", fontsize=9)
-ax_a.set_ylabel("$x_2$", fontsize=9)
-ax_a.set_xticks([0, 2, 4, 6, 8, 10])
-ax_a.set_yticks([0, 2, 4, 6, 8, 10])
-ax_a.tick_params(labelsize=7)
-# Light grid to reinforce coordinate system
-ax_a.grid(True, alpha=0.15, linewidth=0.5)
-ax_a.spines["top"].set_visible(False)
-ax_a.spines["right"].set_visible(False)
+# bird -- medium box, partially overlapping mammal region inside animal
+ax.add_patch(Rectangle((5.0, 1.5), 4.2, 4.5,
+    linewidth=1.4, edgecolor=ROSE, facecolor=ROSE, alpha=0.06))
+ax.add_patch(Rectangle((5.0, 1.5), 4.2, 4.5,
+    linewidth=1.4, edgecolor=ROSE, facecolor="none"))
+ax.text(7.1, 3.8, "bird", ha="center", va="center", fontsize=8.5,
+        color=ROSE_DARK, fontweight="bold", fontstyle="italic")
 
-# Annotation
-ax_a.annotate("poodle $\\subseteq$ dog $\\subseteq$ animal",
-              xy=(5, -0.3), fontsize=7.5, ha="center", color="#475569",
-              style="italic")
+# Subsumption annotation
+ax.text(5.0, -0.3, "dog $\\subseteq$ mammal $\\subseteq$ animal",
+        ha="center", va="top", fontsize=7.5, color=SLATE, fontstyle="italic")
 
-# --- Panel (b): Overlap vs disjoint ---
-ax_b = fig.add_subplot(gs[0, 1])
-ax_b.set_xlim(-0.5, 10.5)
-ax_b.set_ylim(-0.5, 10.5)
-ax_b.set_aspect("equal")
-ax_b.set_title("(b) Overlap vs. disjoint", fontsize=10, fontweight="bold", pad=8)
+# Clean axes
+ax.set_xlabel("$x_1$", fontsize=8.5, color=TEXT)
+ax.set_ylabel("$x_2$", fontsize=8.5, color=TEXT)
+ax.set_xticks([0, 2, 4, 6, 8, 10])
+ax.set_yticks([0, 2, 4, 6, 8, 10])
+ax.tick_params(labelsize=7, colors=SLATE_LIGHT)
+ax.grid(True, alpha=0.3, linewidth=0.4, color=GRID)
+ax.set_title("(a) Containment", fontsize=10, fontweight="bold",
+             color=TEXT, pad=10)
 
-# Swimmer (overlaps with athlete)
-swimmer = FancyBboxPatch((0.5, 3.0), 5.5, 4.5, boxstyle="round,pad=0.15",
-                          facecolor="#dbeafe", edgecolor="#2563eb", linewidth=1.6, alpha=0.7)
-ax_b.add_patch(swimmer)
-ax_b.text(2.0, 7.8, "swimmer", ha="center", va="top", fontsize=9, color="#1e40af", fontweight="bold")
+# ══════════════════════════════════════════════════════════════════════
+# Panel (b): Gumbel soft boundary (1D membership)
+# ══════════════════════════════════════════════════════════════════════
+ax = axes[1]
 
-# Athlete (overlaps with swimmer)
-athlete = FancyBboxPatch((3.5, 2.0), 6.0, 5.0, boxstyle="round,pad=0.15",
-                          facecolor="#dcfce7", edgecolor="#16a34a", linewidth=1.6, alpha=0.7)
-ax_b.add_patch(athlete)
-ax_b.text(8.5, 7.3, "athlete", ha="center", va="top", fontsize=9, color="#166534", fontweight="bold")
-
-# Planet (disjoint)
-planet = FancyBboxPatch((6.5, 0.2), 3.2, 1.5, boxstyle="round,pad=0.1",
-                         facecolor="#fef9c3", edgecolor="#ca8a04", linewidth=1.4)
-ax_b.add_patch(planet)
-ax_b.text(8.1, 1.1, "planet", ha="center", va="center", fontsize=8, color="#854d0e", fontweight="bold")
-
-# Overlap region annotation
-ax_b.annotate("overlap", xy=(4.8, 5.0), fontsize=8, ha="center",
-              color="#7c3aed", fontweight="bold",
-              path_effects=[pe.withStroke(linewidth=2.5, foreground="white")])
-
-ax_b.annotate("disjoint", xy=(3.0, 1.0), fontsize=7.5, ha="center", color="#475569", style="italic")
-ax_b.axis("off")
-
-# --- Panel (c) top: Gumbel box 2D view ---
-ax_c = fig.add_subplot(gs[0, 2])
-ax_c.set_xlim(-1, 11)
-ax_c.set_ylim(-1, 11)
-ax_c.set_aspect("equal")
-ax_c.set_title("(c) Gumbel box (soft boundary)", fontsize=10, fontweight="bold", pad=8)
-
-# Concentric alpha-faded rectangles for soft boundary
-for i, alpha in enumerate(np.linspace(0.02, 0.15, 12)):
-    pad = i * 0.35
-    rect = FancyBboxPatch((2.5 - pad, 2.0 - pad), 6.0 + 2*pad, 5.0 + 2*pad,
-                           boxstyle="round,pad=0.2",
-                           facecolor="#2563eb", edgecolor="none", alpha=alpha)
-    ax_c.add_patch(rect)
-
-# Core box
-core = FancyBboxPatch((2.5, 2.0), 6.0, 5.0, boxstyle="round,pad=0.15",
-                        facecolor="#dbeafe", edgecolor="#2563eb", linewidth=1.8)
-ax_c.add_patch(core)
-ax_c.text(5.5, 4.5, "concept", ha="center", va="center", fontsize=10,
-          color="#1e40af", fontweight="bold")
-
-# Horizontal line indicating the cross-section shown below
-ax_c.axhline(y=4.5, xmin=0.0, xmax=1.0, color="#64748b", linewidth=0.8,
-             linestyle="--", alpha=0.5)
-ax_c.text(10.2, 4.5, "cross-section", fontsize=6.5, color="#64748b",
-          va="center", ha="left", style="italic")
-
-ax_c.axis("off")
-
-# --- Panel (c) bottom: 1D cross-section P(x in box) ---
-ax_cs = fig.add_subplot(gs[1, 2])
-
-# Box boundaries in the x-dimension (matching the 2D box above)
-x_min, x_max = 2.5, 8.5  # box min and max along x
-beta = 0.5  # Gumbel temperature
-
+x_min, x_max = 2.0, 8.0  # box boundaries
 x = np.linspace(-1, 11, 500)
 
 # Hard box: step function
 hard = np.where((x >= x_min) & (x <= x_max), 1.0, 0.0)
 
-# Gumbel box membership along one dimension (Li et al. 2019):
-# Let F(t) = exp(-exp(-t)) be the standard Gumbel CDF.
-#   P(x >= min) = F((x - x_min) / beta)  -- rises at x_min
-#   P(x <= max) = 1 - F((x - x_max) / beta)  -- falls at x_max
-#   P(x in box) = P(x >= min) * P(x <= max)
-p_above_min = np.exp(-np.exp(-(x - x_min) / beta))
-p_below_max = 1.0 - np.exp(-np.exp(-(x - x_max) / beta))
-gumbel_membership = p_above_min * p_below_max
+# Gumbel membership for several temperatures
+betas = [0.3, 0.8, 2.0]
+beta_colors = [BLUE, GREEN, AMBER]
+beta_alphas = [1.0, 0.8, 0.6]
 
-ax_cs.plot(x, hard, color="#64748b", linewidth=1.5, linestyle="--", label="hard box")
-ax_cs.plot(x, gumbel_membership, color="#2563eb", linewidth=2.0, label=f"Gumbel ($\\beta$={beta})")
+# Hard box background fill
+ax.fill_between(x, 0, hard, color=SLATE, alpha=0.06, step="mid")
+ax.plot(x, hard, color=SLATE, linewidth=1.2, linestyle="--",
+        alpha=0.5, label="hard box")
 
-ax_cs.set_xlabel("$x_1$ coordinate", fontsize=8)
-ax_cs.set_ylabel("$P(x \\in \\mathrm{box})$", fontsize=8)
-ax_cs.set_xlim(-1, 11)
-ax_cs.set_ylim(-0.05, 1.1)
-ax_cs.tick_params(labelsize=7)
-ax_cs.legend(fontsize=7, loc="upper left", frameon=True)
-ax_cs.grid(True, alpha=0.15, linewidth=0.5)
-ax_cs.spines["top"].set_visible(False)
-ax_cs.spines["right"].set_visible(False)
+for beta, col, alp in zip(betas, beta_colors, beta_alphas):
+    p_above = np.exp(-np.exp(-(x - x_min) / beta))
+    p_below = 1.0 - np.exp(-np.exp(-(x - x_max) / beta))
+    membership = p_above * p_below
+    ax.plot(x, membership, color=col, linewidth=1.8, alpha=alp,
+            label=f"$\\beta = {beta}$")
 
 # Mark box boundaries
 for bnd in [x_min, x_max]:
-    ax_cs.axvline(x=bnd, color="#94a3b8", linewidth=0.7, linestyle=":")
+    ax.axvline(x=bnd, color=SLATE_LIGHT, linewidth=0.6, linestyle=":")
 
-# Empty out the unused bottom-left cells
-ax_empty1 = fig.add_subplot(gs[1, 0])
-ax_empty1.axis("off")
-ax_empty2 = fig.add_subplot(gs[1, 1])
-ax_empty2.axis("off")
+# Boundary labels (above the curve, at the boundary)
+ax.annotate("$\\ell$", xy=(x_min, 0.5), fontsize=9, color=SLATE,
+            ha="right", va="center",
+            xytext=(-6, 0), textcoords="offset points")
+ax.annotate("$u$", xy=(x_max, 0.5), fontsize=9, color=SLATE,
+            ha="left", va="center",
+            xytext=(6, 0), textcoords="offset points")
 
-fig.savefig("/Users/arc/Documents/dev/subsume/docs/box_concepts.png", dpi=150,
-            bbox_inches="tight", facecolor="white")
+ax.set_xlabel("coordinate value", fontsize=8.5, color=TEXT)
+ax.set_ylabel("$P(x \\in \\mathrm{box})$", fontsize=8.5, color=TEXT)
+ax.set_xlim(-1, 11)
+ax.set_ylim(-0.05, 1.12)
+ax.set_xticks([0, 2, 4, 6, 8, 10])
+ax.tick_params(labelsize=7, colors=SLATE_LIGHT)
+ax.legend(fontsize=7, loc="upper left", frameon=True, fancybox=False,
+          edgecolor=GRID, framealpha=0.9)
+ax.grid(True, alpha=0.3, linewidth=0.4, color=GRID)
+ax.set_title("(b) Gumbel soft boundary", fontsize=10, fontweight="bold",
+             color=TEXT, pad=10)
+
+# ══════════════════════════════════════════════════════════════════════
+# Panel (c): Octagon vs box
+# ══════════════════════════════════════════════════════════════════════
+ax = axes[2]
+ax.set_xlim(-0.5, 5.5)
+ax.set_ylim(-0.5, 5.5)
+ax.set_aspect("equal")
+
+# Bounding box [0,5] x [0,5]
+ax.add_patch(Rectangle((0, 0), 5, 5,
+    linewidth=1.4, edgecolor=SLATE, facecolor=SLATE, alpha=0.04,
+    linestyle=(0, (4, 3))))
+
+# Octagon: axis [0,5]x[0,5] with diagonal constraints:
+#   1.5 <= x+y <= 8.5
+#   -3.0 <= x-y <= 3.0
+# Compute vertices by intersecting all half-planes
+# The 8 constraint lines:
+#   x = 0, x = 5, y = 0, y = 5
+#   x + y = 1.5, x + y = 8.5
+#   x - y = -3, x - y = 3
+# Octagon vertices (going counterclockwise from bottom-left):
+oct_verts = [
+    (0, 1.5),    # x=0, x+y=1.5
+    (1.5, 0),    # y=0, x+y=1.5
+    (3.0, 0),    # y=0, x-y=3
+    (5, 2.0),    # x=5, x-y=3
+    (5, 3.5),    # x=5, x+y=8.5
+    (3.5, 5),    # y=5, x+y=8.5
+    (2.0, 5),    # y=5, x-y=-3
+    (0, 3.0),    # x=0, x-y=-3
+]
+
+ax.add_patch(Polygon(oct_verts, closed=True,
+    linewidth=1.8, edgecolor=BLUE, facecolor=BLUE, alpha=0.10))
+ax.add_patch(Polygon(oct_verts, closed=True,
+    linewidth=1.8, edgecolor=BLUE, facecolor="none"))
+
+# Shade the cut corners
+# Bottom-left corner: (0,0), (0,1.5), (1.5,0)
+for corner_verts, corner_label_pos in [
+    ([(0,0), (0,1.5), (1.5,0)], None),
+    ([(5,0), (3,0), (5,2)], None),
+    ([(5,5), (5,3.5), (3.5,5)], None),
+    ([(0,5), (2,5), (0,3)], None),
+]:
+    ax.add_patch(Polygon(corner_verts, closed=True,
+        facecolor=ROSE, alpha=0.12, edgecolor="none"))
+
+# Diagonal constraint lines (faint)
+for label, xs, ys, pos, rot in [
+    ("$x{+}y = 1.5$", [-0.3, 1.8], [1.8, -0.3], (0.4, 0.3), 315),
+    ("$x{+}y = 8.5$", [3.2, 5.3], [5.3, 3.2], (4.6, 4.7), 315),
+    ("$x{-}y = 3$", [2.7, 5.3], [-0.3, 2.3], (4.3, 0.7), 45),
+    ("$x{-}y = {-}3$", [-0.3, 2.3], [2.7, 5.3], (0.7, 4.3), 45),
+]:
+    ax.plot(xs, ys, color=ROSE, linewidth=0.7, linestyle="-", alpha=0.4)
+
+# Labels
+ax.text(2.5, 2.5, "octagon", ha="center", va="center", fontsize=9,
+        color=BLUE_DARK, fontweight="bold", fontstyle="italic")
+# Box/octagon legend
+legend_els = [
+    Line2D([0], [0], color=BLUE, linewidth=1.8, label="octagon"),
+    Line2D([0], [0], color=SLATE, linewidth=1.4, linestyle=(0, (4, 3)), label="bounding box"),
+]
+ax.legend(handles=legend_els, fontsize=7, loc="lower right", frameon=True,
+          fancybox=False, edgecolor=GRID, framealpha=0.9)
+
+# Annotation for cut corners
+ax.annotate("diagonal\nconstraints\ncut corners",
+            xy=(0.5, 0.5), xytext=(2.8, 0.6),
+            fontsize=7, color=ROSE_DARK,
+            arrowprops=dict(arrowstyle="->", color=ROSE, lw=0.8),
+            ha="center")
+
+ax.set_xlabel("$x_1$", fontsize=8.5, color=TEXT)
+ax.set_ylabel("$x_2$", fontsize=8.5, color=TEXT)
+ax.set_xticks([0, 1, 2, 3, 4, 5])
+ax.set_yticks([0, 1, 2, 3, 4, 5])
+ax.tick_params(labelsize=7, colors=SLATE_LIGHT)
+ax.grid(True, alpha=0.3, linewidth=0.4, color=GRID)
+ax.set_title("(c) Octagon $\\supset$ box", fontsize=10, fontweight="bold",
+             color=TEXT, pad=10)
+
+# ── Save ───────────────────────────────────────────────────────────────
+fig.savefig("/Users/arc/Documents/dev/subsume/docs/box_concepts.png",
+            dpi=180, bbox_inches="tight", facecolor="white")
 print("Saved subsume/docs/box_concepts.png")
