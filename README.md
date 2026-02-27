@@ -8,7 +8,7 @@ Geometric region embeddings for subsumption, entailment, and logical query answe
 
 ![Box embedding concepts](docs/box_concepts.png)
 
-*(a) Containment: nested boxes encode taxonomic is-a relationships. (b) Gumbel soft boundary: temperature controls membership sharpness. (c) Octagon: diagonal constraints cut corners, 50% tighter than the bounding box.*
+*(a) Containment: nested boxes encode taxonomic is-a relationships. (b) Gumbel soft boundary: temperature controls membership sharpness. (c) Octagon: diagonal constraints cut corners for tighter volume bounds.*
 
 ## What it provides
 
@@ -18,11 +18,11 @@ Geometric region embeddings for subsumption, entailment, and logical query answe
 |---|---|
 | `Box` trait | Axis-aligned hyperrectangle: volume, containment, overlap, distance |
 | `GumbelBox` trait | Probabilistic boxes via Gumbel random variables (dense gradients, no flat regions; Dasgupta et al., 2020) |
-| `Cone` trait | Angular cones on the unit sphere: containment via aperture, closed under negation (Zhang & Wang, NeurIPS 2021) |
-| `Octagon` trait | Axis-aligned polytopes with diagonal constraints, ~50% tighter than boxes (Charpenay & Schockaert, IJCAI 2024) |
+| `Cone` trait | Angular cones in d-dimensional space: containment via aperture, closed under negation (inspired by Zhang & Wang, NeurIPS 2021) |
+| `Octagon` trait | Axis-aligned polytopes with diagonal constraints; tighter volume bounds than boxes (Charpenay & Schockaert, IJCAI 2024) |
 | `gaussian` | Diagonal Gaussian boxes: KL divergence (asymmetric containment) and Bhattacharyya coefficient (symmetric overlap) |
 | `hyperbolic` | Poincare ball embeddings and hyperbolic box intervals (via `hyperball`) |
-| `sheaf` | Sheaf neural networks: stalks, restriction maps, Laplacian diffusion (Hansen & Ghrist 2019; Bodnar et al., ICLR 2022) |
+| `sheaf` | Sheaf diffusion primitives: stalks, restriction maps, Laplacian (Hansen & Ghrist 2019; Bodnar et al., ICLR 2022) |
 | `Region` trait | Generic region interface unifying boxes, cones, and balls |
 
 ### Scoring and query answering
@@ -111,7 +111,7 @@ Unit, property, and doc tests covering:
 |---|---|---|---|
 | Box / GumbelBox | Axis-aligned containment hierarchies, each dimension independent | No | Simple, fast; Gumbel variant adds dense gradients |
 | Cone | Multi-hop reasoning with NOT; FOL queries requiring negation | Yes | Closed under complement, but angular parameterization is harder to initialize |
-| Octagon | Rule-aware KG completion; need tighter volume than boxes | No | ~50% tighter bounds via diagonal constraints; more parameters per entity |
+| Octagon | Rule-aware KG completion; need tighter volume than boxes | No | Tighter bounds via diagonal constraints; more parameters per entity |
 | Gaussian | Taxonomy expansion with uncertainty; TaxoBell-style training | No | KL gives asymmetric containment for free; Bhattacharyya gives symmetric overlap |
 | Hyperbolic | Tree-like hierarchies with low distortion | No | Exponential capacity in limited dimensions; numerical care near boundary |
 
@@ -146,6 +146,7 @@ levels where Gaussian boxes fail completely.
 - Jackermeier et al. (2023). "Dual Box Embeddings for the Description Logic EL++"
 - Yang, Chen & Sattler (2024). "TransBox: EL++-closed Ontology Embedding"
 - Charpenay & Schockaert (2024). "Capturing Knowledge Graphs and Rules with Octagon Embeddings"
+- Huang et al. (2023). "Concept2Box: Joint Geometric Embeddings for Learning Two-View Knowledge Graphs"
 - Yang & Chen (2025). "Achieving Hyperbolic-Like Expressiveness with Arbitrary Euclidean Regions"
 - Xiong et al. (2026). "TaxoBell: Taxonomy Expansion via Bell-Curve Gaussian Box Embeddings"
 

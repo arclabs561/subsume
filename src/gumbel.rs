@@ -86,7 +86,7 @@
 //! The `temperature` parameter (denoted `β` or `τ`) controls the "softness":
 //!
 //! - **β → 0**: Hard bounds (standard boxes, discrete-like behavior)
-//! - **β → ∞**: Soft bounds (approaches uniform distribution)
+//! - **β → ∞**: Soft bounds (spread increases; volume shrinks toward zero)
 //!
 //! The temperature must remain **constant across dimensions** to preserve min-max stability.
 //!
@@ -139,7 +139,7 @@ use crate::{Box, BoxError};
 ///
 /// **Key Papers**:
 /// - **Dasgupta et al. (2020)**: Introduces Gumbel-box process to solve identifiability
-///   - Paper: [arXiv:2004.13131](https://arxiv.org/abs/2004.13131) | [NeurIPS 2020](https://proceedings.neurips.cc/paper/2020/hash/2cfa8a9da6cdae0c7ac0b94a2c3f4c0d-Abstract.html)
+///   - Paper: [arXiv:2010.04831](https://arxiv.org/abs/2010.04831) | [NeurIPS 2020](https://proceedings.neurips.cc/paper/2020/hash/01c9d2c5b3ff5cbba349ec39a570b5e3-Abstract.html)
 ///   - Key contribution: Expected volume formula using Bessel function \(K_0\)
 ///   - Reports improvements over SmoothBox on entailment tasks (Table 2)
 ///   - Section 3: Derives Bessel function from Gumbel PDFs

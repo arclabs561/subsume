@@ -20,7 +20,7 @@ This document summarizes all research paper references integrated into the Rust 
 - **Dasgupta et al. (2020)**: "Improving Local Identifiability in Probabilistic Box Embeddings" (NeurIPS)
   - Introduces Gumbel-box process to solve local identifiability problem
   - Expected volume formula using Bessel function \(K_0\)
-  - Reference: [arXiv:2004.13131](https://arxiv.org/abs/2004.13131) | [NeurIPS 2020](https://proceedings.neurips.cc/paper/2020/hash/2cfa8a9da6cdae0c7ac0b94a2c3f4c0d-Abstract.html)
+  - Reference: [arXiv:2010.04831](https://arxiv.org/abs/2010.04831) | [NeurIPS 2020](https://proceedings.neurips.cc/paper/2020/hash/01c9d2c5b3ff5cbba349ec39a570b5e3-Abstract.html)
   
 - **Jang et al. (2017)**: "Categorical Reparameterization with Gumbel-Softmax"
   - Foundation for Gumbel-Softmax trick used in probabilistic embeddings

@@ -227,7 +227,7 @@ ax.legend(handles=legend_els, fontsize=7, loc="lower right", frameon=True,
           fancybox=False, edgecolor=GRID, framealpha=0.9)
 
 # Volume comparison
-ax.text(2.5, -0.35, "50% tighter than box",
+ax.text(2.5, -0.35, "tighter than box",
         ha="center", va="top", fontsize=6.5, color=SLATE, fontstyle="italic")
 
 ax.set_xlabel("$x_1$", fontsize=8.5, color=TEXT)

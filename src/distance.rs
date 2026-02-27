@@ -440,9 +440,8 @@ where
 ///
 /// ## References
 ///
-/// - Ren et al. (NeurIPS 2020), "Beta Embeddings for Multi-Hop Logical Reasoning
-///   in Knowledge Graphs" (the original Query2Box paper uses this scoring in the
-///   box embedding variant)
+/// - Ren et al. (ICLR 2020), "Query2Box: Reasoning over Knowledge Graphs in
+///   Vector Space Using Box Embeddings"
 pub fn query2box_distance(
     query_center: &[f32],
     query_offset: &[f32],

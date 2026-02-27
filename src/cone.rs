@@ -41,8 +41,12 @@
 //!
 //! # Reference
 //!
-//! Zhang & Wang (2021), "ConE: Cone Embeddings for Multi-Hop Reasoning over Knowledge
-//! Graphs" (NeurIPS 2021).
+//! Inspired by Zhang & Wang (2021), "ConE: Cone Embeddings for Multi-Hop Reasoning
+//! over Knowledge Graphs" (NeurIPS 2021). Note: this implementation uses a single
+//! angular cone in d-dimensional space (apex + axis + aperture), whereas ConE uses
+//! Cartesian products of 2D angular sectors with per-dimension scoring and learned
+//! projection operators. The negation-closure property is shared; the parameterization
+//! and scoring differ.
 //!
 //! # Related Work and Future Directions
 //!

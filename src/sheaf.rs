@@ -1,4 +1,4 @@
-//! # Sheaf Neural Networks
+//! # Sheaf Diffusion
 //!
 //! Algebraic structures for enforcing transitivity and consistency in graphs.
 //!
@@ -6,11 +6,17 @@
 //! (restriction maps) to edges. The key insight: if data is "consistent" across
 //! the graph, the Dirichlet energy is zero. Non-zero energy indicates inconsistency.
 //!
+//! This module provides the mathematical primitives (sheaf Laplacian, Euler-step
+//! diffusion) from Hansen & Ghrist (2019) and Bodnar et al. (ICLR 2022).
+//! It does **not** implement learnable restriction maps or neural architectures --
+//! those would be built on top of these primitives.
+//!
 //! # Why Sheaves for Coreference?
 //!
 //! Coreference requires transitivity: if A=B and B=C, then A=C.
 //! Traditional approaches enforce this post-hoc (transitive closure).
-//! Sheaf networks enforce it **at the gradient level** during training.
+//! A sheaf Laplacian can enforce it structurally: diffusion drives stalks toward
+//! consistency across the graph.
 //!
 //! ```text
 //! Mention A ──[restriction]──> Mention B ──[restriction]──> Mention C
