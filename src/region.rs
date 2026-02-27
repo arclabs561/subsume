@@ -302,4 +302,47 @@ mod tests {
         assert!(a.depth_dissimilarity(&b).is_err());
         assert!(a.boundary_dissimilarity(&b).is_err());
     }
+
+    /// Zero-volume regions (radius=0) should not panic; depth_dissimilarity
+    /// falls back to raw center distance.
+    #[test]
+    fn depth_dissimilarity_zero_volume_regions() {
+        let a = UnitBall { center: vec![0.0, 0.0], radius: 0.0 };
+        let b = UnitBall { center: vec![3.0, 4.0], radius: 0.0 };
+        let d = a.depth_dissimilarity(&b).unwrap();
+        // Both volumes are 0 => denom < 1e-12 => falls back to center distance = 5.0
+        assert!(
+            (d - 5.0).abs() < 1e-4,
+            "zero-volume fallback should return center distance 5.0, got {d}"
+        );
+    }
+
+    /// boundary_dissimilarity: when r1 contains r2, r2.boundary_dissimilarity(r1) should be > 0
+    /// (the big ball "protrudes" beyond the small ball).
+    #[test]
+    fn boundary_dissimilarity_asymmetric_direction() {
+        let big = UnitBall { center: vec![0.0, 0.0], radius: 5.0 };
+        let small = UnitBall { center: vec![0.0, 0.0], radius: 1.0 };
+
+        let d_small_big = small.boundary_dissimilarity(&big).unwrap();
+        let d_big_small = big.boundary_dissimilarity(&small).unwrap();
+
+        // small is inside big => small doesn't protrude beyond big => ~0
+        assert!(d_small_big < 1e-6, "small inside big: expected ~0, got {d_small_big}");
+        // big protrudes beyond small
+        assert!(d_big_small > 0.0, "big should protrude beyond small, got {d_big_small}");
+    }
+
+    /// depth_dissimilarity is symmetric: d(a,b) == d(b,a).
+    #[test]
+    fn depth_dissimilarity_is_symmetric() {
+        let a = UnitBall { center: vec![1.0, 2.0], radius: 1.5 };
+        let b = UnitBall { center: vec![4.0, 6.0], radius: 3.0 };
+        let d_ab = a.depth_dissimilarity(&b).unwrap();
+        let d_ba = b.depth_dissimilarity(&a).unwrap();
+        assert!(
+            (d_ab - d_ba).abs() < 1e-6,
+            "depth_dissimilarity should be symmetric: {d_ab} vs {d_ba}"
+        );
+    }
 }

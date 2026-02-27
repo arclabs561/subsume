@@ -626,4 +626,60 @@ mod tests {
             }
         }
     }
+
+    // ---- hand-computed partial overlap ----
+
+    /// Verify boxe_score for a known partial overlap case.
+    ///
+    /// Head [0,0]-[2,2], bump [1,0] => bumped head [1,0]-[3,2].
+    /// Tail [2,0]-[4,2].
+    /// Intersection: [2,0]-[3,2] => volume = 1*2 = 2.
+    /// Tail volume: 2*2 = 4.
+    /// Score: 2/4 = 0.5.
+    #[test]
+    fn test_boxe_score_hand_computed_partial_overlap() {
+        let score = boxe_score(
+            &[0.0, 0.0], &[2.0, 2.0], // head
+            &[2.0, 0.0], &[4.0, 2.0], // tail
+            &[1.0, 0.0],              // bump
+            1.0,
+        )
+        .unwrap();
+        assert!(
+            (score - 0.5).abs() < 1e-6,
+            "partial overlap: expected 0.5, got {score}"
+        );
+    }
+
+    /// Zero-volume tail (degenerate box) should return 0.
+    #[test]
+    fn test_boxe_score_zero_volume_tail() {
+        let score = boxe_score(
+            &[0.0], &[1.0],
+            &[0.5], &[0.5], // zero-width tail
+            &[0.0],
+            1.0,
+        )
+        .unwrap();
+        assert_eq!(score, 0.0, "zero-volume tail should yield score 0");
+    }
+
+    /// boxe_loss is non-negative for any inputs.
+    #[test]
+    fn test_boxe_loss_always_nonneg() {
+        assert!(boxe_loss(-10.0, 10.0, 5.0) >= 0.0);
+        assert!(boxe_loss(10.0, -10.0, 5.0) >= 0.0);
+        assert!(boxe_loss(0.0, 0.0, 0.0) >= 0.0);
+    }
+
+    /// boxe_dim_distance: degenerate box (lo == hi).
+    #[test]
+    fn test_boxe_dim_distance_degenerate_box() {
+        // Point at box location => inside => distance involves (half_width + 1) denom
+        let d = boxe_dim_distance(5.0, 5.0, 5.0);
+        assert!(d.abs() < 1e-6, "point at degenerate box center: expected 0, got {d}");
+        // Point away from degenerate box => outside
+        let d2 = boxe_dim_distance(8.0, 5.0, 5.0);
+        assert!((d2 - 3.0).abs() < 1e-6, "point 3 units from degenerate box: expected 3.0, got {d2}");
+    }
 }

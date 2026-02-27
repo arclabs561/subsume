@@ -87,6 +87,51 @@ mod tests {
         assert!(uw <= uv + vw + 1e-6);
     }
 
+    #[test]
+    fn test_reachability_self_is_zero() {
+        let u = IntervalEmbedding::new(vec![1.0, 2.0, 3.0], vec![4.0, 5.0, 6.0]);
+        let d = u.reachability(&u, 0.5);
+        assert!(
+            d.abs() < 1e-10,
+            "reachability to self should be 0, got {d}"
+        );
+    }
+
+    #[test]
+    fn test_reachability_asymmetric() {
+        // u contains v, so u->v = 0, but v->u > 0
+        let u = IntervalEmbedding::new(vec![0.0], vec![10.0]);
+        let v = IntervalEmbedding::new(vec![3.0], vec![7.0]);
+        let d_uv = u.reachability(&v, 0.5);
+        let d_vu = v.reachability(&u, 0.5);
+        assert!(d_uv.abs() < 1e-10, "u contains v: d(u,v) should be 0, got {d_uv}");
+        assert!(d_vu > 0.0, "v does not contain u: d(v,u) should be > 0, got {d_vu}");
+    }
+
+    #[test]
+    fn test_reachability_zero_dim() {
+        let u = IntervalEmbedding::new(vec![], vec![]);
+        let v = IntervalEmbedding::new(vec![], vec![]);
+        let d = u.reachability(&v, 0.5);
+        assert!(d.abs() < 1e-10, "zero-dim reachability should be 0, got {d}");
+    }
+
+    #[test]
+    fn test_reachability_alpha_extremes() {
+        let u = IntervalEmbedding::new(vec![0.0, 0.0], vec![1.0, 1.0]);
+        let v = IntervalEmbedding::new(vec![2.0, 5.0], vec![3.0, 6.0]);
+        // alpha=1 => pure mean; alpha=0 => pure max
+        let d_mean = u.reachability(&v, 1.0);
+        let d_max = u.reachability(&v, 0.0);
+        // gaps: dim0: left=0, right=max(0,3-1)=2, gap=2
+        //        dim1: left=0, right=max(0,6-1)=5, gap=5
+        // total=7, max=5, dim=2
+        // alpha=1: 1.0*(7/2) + 0.0*5 = 3.5
+        // alpha=0: 0.0*(7/2) + 1.0*5 = 5.0
+        assert!((d_mean - 3.5).abs() < 1e-10, "alpha=1 should be mean gap = 3.5, got {d_mean}");
+        assert!((d_max - 5.0).abs() < 1e-10, "alpha=0 should be max gap = 5.0, got {d_max}");
+    }
+
     use proptest::prelude::*;
     proptest! {
         #[test]

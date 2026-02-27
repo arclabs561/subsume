@@ -525,4 +525,74 @@ mod tests {
         assert!((result.coords[0] - target.coords[0]).abs() < 1e-6);
         assert!((result.coords[1] - target.coords[1]).abs() < 1e-6);
     }
+
+    #[test]
+    fn test_curvature_validation() {
+        // Positive curvature should fail.
+        assert!(Curvature::new(1.0).is_err());
+        assert!(Curvature::new(0.0).is_err());
+        // Negative curvature should succeed.
+        let c = Curvature::new(-2.0).unwrap();
+        assert!((c.abs() - 2.0).abs() < 1e-10);
+        assert!((c.sqrt_abs() - 2.0_f64.sqrt()).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_outside_ball_rejected() {
+        // Norm > 1 should fail for standard curvature.
+        let result = PoincareBallPoint::new(vec![0.8, 0.8], Curvature::STANDARD);
+        assert!(
+            result.is_err(),
+            "point with norm > 1 should be rejected, norm = {}",
+            (0.8_f64 * 0.8 + 0.8 * 0.8).sqrt()
+        );
+    }
+
+    #[test]
+    fn test_dimension_mismatch_distance() {
+        let p1 = PoincareBallPoint::new(vec![0.1, 0.2], Curvature::STANDARD).unwrap();
+        let p2 = PoincareBallPoint::new(vec![0.1, 0.2, 0.3], Curvature::STANDARD).unwrap();
+        assert!(p1.distance(&p2).is_err());
+    }
+
+    #[test]
+    fn test_pairwise_distances_symmetric() {
+        let points = vec![
+            PoincareBallPoint::new(vec![0.1, 0.0], Curvature::STANDARD).unwrap(),
+            PoincareBallPoint::new(vec![0.0, 0.2], Curvature::STANDARD).unwrap(),
+            PoincareBallPoint::origin(2, Curvature::STANDARD),
+        ];
+        let dists = pairwise_distances(&points).unwrap();
+        assert_eq!(dists.len(), 3);
+        for i in 0..3 {
+            assert!(dists[i][i].abs() < 1e-10, "diagonal should be 0");
+            for j in 0..3 {
+                assert!(
+                    (dists[i][j] - dists[j][i]).abs() < 1e-10,
+                    "distance matrix should be symmetric"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_hierarchy_preserved_basic() {
+        // Parent closer to origin (smaller norm), child farther.
+        let parent = PoincareBallPoint::new(vec![0.1, 0.0], Curvature::STANDARD).unwrap();
+        let child = PoincareBallPoint::new(vec![0.5, 0.0], Curvature::STANDARD).unwrap();
+        let points = vec![parent, child];
+
+        let accuracy = hierarchy_preserved(&points, &[(0, 1)]).unwrap();
+        assert!(
+            (accuracy - 1.0).abs() < 1e-10,
+            "parent (norm 0.1) should be closer to origin than child (norm 0.5), accuracy = {accuracy}"
+        );
+
+        // Reversed: child closer to origin => accuracy = 0
+        let accuracy_rev = hierarchy_preserved(&points, &[(1, 0)]).unwrap();
+        assert!(
+            accuracy_rev.abs() < 1e-10,
+            "reversed hierarchy should have accuracy 0, got {accuracy_rev}"
+        );
+    }
 }

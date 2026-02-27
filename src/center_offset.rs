@@ -238,4 +238,87 @@ mod tests {
             assert!(max[i] >= 0.0 && max[i] <= 1.0, "max[{}] out of bounds", i);
         }
     }
+
+    #[test]
+    fn test_dimension_mismatch_errors() {
+        let mut min_out = [0.0; 2];
+        let mut max_out = [0.0; 2];
+        assert!(
+            center_offset_to_min_max(&[0.0; 2], &[0.0; 3], &mut min_out, &mut max_out).is_err(),
+            "mismatched center/offset lengths should error"
+        );
+        let mut center_out = [0.0; 2];
+        let mut offset_out = [0.0; 3];
+        assert!(
+            min_max_to_center_offset(&[0.3; 2], &[0.7; 3], &mut center_out, &mut offset_out).is_err(),
+            "mismatched min/max lengths should error"
+        );
+    }
+
+    /// Large negative offset -> softplus ~ 0 -> min ~ max ~ sigmoid(center).
+    #[test]
+    fn test_large_negative_offset_produces_thin_box() {
+        let center = [0.0; 3];
+        let offset = [-100.0; 3]; // softplus(-100) ~ 0
+        let mut min_out = [0.0; 3];
+        let mut max_out = [0.0; 3];
+        center_offset_to_min_max(&center, &offset, &mut min_out, &mut max_out).unwrap();
+        for i in 0..3 {
+            assert!(
+                (max_out[i] - min_out[i]).abs() < 1e-3,
+                "dim {i}: very negative offset should produce nearly degenerate box, gap = {}",
+                max_out[i] - min_out[i]
+            );
+            // sigmoid(0) = 0.5
+            assert!(
+                (min_out[i] - 0.5).abs() < 0.01,
+                "dim {i}: min should be ~0.5, got {}",
+                min_out[i]
+            );
+        }
+    }
+
+    /// Large positive offset -> softplus ~ offset -> min near 0, max near 1.
+    #[test]
+    fn test_large_positive_offset_produces_wide_box() {
+        let center = [0.0; 2];
+        let offset = [20.0; 2]; // softplus(20) ~ 20
+        let mut min_out = [0.0; 2];
+        let mut max_out = [0.0; 2];
+        center_offset_to_min_max(&center, &offset, &mut min_out, &mut max_out).unwrap();
+        for i in 0..2 {
+            // sigmoid(0 - 20) ~ 0, sigmoid(0 + 20) ~ 1
+            assert!(min_out[i] < 0.01, "dim {i}: min should be near 0, got {}", min_out[i]);
+            assert!(max_out[i] > 0.99, "dim {i}: max should be near 1, got {}", max_out[i]);
+        }
+    }
+
+    /// Round-trip with values near the sigmoid saturation zone.
+    #[test]
+    fn test_round_trip_near_boundaries() {
+        let min = [0.05, 0.95];
+        let max = [0.06, 0.96];
+        let mut center = [0.0; 2];
+        let mut offset = [0.0; 2];
+        let mut min_out = [0.0; 2];
+        let mut max_out = [0.0; 2];
+
+        min_max_to_center_offset(&min, &max, &mut center, &mut offset).unwrap();
+        center_offset_to_min_max(&center, &offset, &mut min_out, &mut max_out).unwrap();
+
+        for i in 0..2 {
+            assert!(
+                (min_out[i] - min[i]).abs() < 1e-3,
+                "dim {i}: min round-trip failed: {} vs {}",
+                min_out[i],
+                min[i]
+            );
+            assert!(
+                (max_out[i] - max[i]).abs() < 1e-3,
+                "dim {i}: max round-trip failed: {} vs {}",
+                max_out[i],
+                max[i]
+            );
+        }
+    }
 }
