@@ -22,6 +22,28 @@
 //!
 //! - Chen et al. (AAAI 2022), "Fuzzy Logic Based Logical Query Answering on
 //!   Knowledge Graphs" (FuzzQE)
+//!
+//! # Examples
+//!
+//! ```rust
+//! use subsume::fuzzy::{TNorm, TConorm, fuzzy_negation};
+//!
+//! // Fuzzy intersection: how "aquatic" AND "mammal" is a dolphin?
+//! let aquatic = 0.9;
+//! let mammal = 0.95;
+//!
+//! let min = TNorm::Min.apply(aquatic, mammal);       // 0.9
+//! let prod = TNorm::Product.apply(aquatic, mammal);   // 0.855
+//! let luk = TNorm::Lukasiewicz.apply(aquatic, mammal); // 0.85
+//! assert!(min >= prod && prod >= luk); // Min >= Product >= Lukasiewicz
+//!
+//! // De Morgan duality: neg(T(a,b)) = S(neg(a), neg(b))
+//! let t = TNorm::Product;
+//! let s = t.dual(); // TConorm::Probabilistic
+//! let lhs = fuzzy_negation(t.apply(0.7, 0.4));
+//! let rhs = s.apply(fuzzy_negation(0.7), fuzzy_negation(0.4));
+//! assert!((lhs - rhs).abs() < 1e-6);
+//! ```
 
 /// Godel t-norm: `min(a, b)`.
 ///

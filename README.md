@@ -75,7 +75,7 @@ See [`examples/README.md`](examples/README.md) for a guide to choosing the right
 cargo test -p subsume
 ```
 
-614 unit tests + property tests + doc tests covering box operations (intersection, union, containment, overlap, distance, truncation), Gumbel box membership and temperature edge cases, serialization round-trips, training metrics (MRR, Hits@k, NDCG), calibration diagnostics, negative sampling, sheaf networks, hyperbolic geometry, quasimetric properties, Gaussian box KL/Bhattacharyya scoring, EL++ ontology losses, taxonomy dataset loading, TaxoBell combined training losses, octagon intersection/containment/volume, fuzzy t-norm/t-conorm operators, and Query2Box distance scoring.
+617 unit tests + property tests + doc tests covering box operations (intersection, union, containment, overlap, distance, truncation), Gumbel box membership and temperature edge cases, serialization round-trips, training metrics (MRR, Hits@k, NDCG), calibration diagnostics, negative sampling, sheaf networks, hyperbolic geometry, quasimetric properties, Gaussian box KL/Bhattacharyya scoring, EL++ ontology losses, taxonomy dataset loading, TaxoBell combined training losses, octagon intersection/containment/volume, fuzzy t-norm/t-conorm operators, and Query2Box distance scoring.
 
 ## Why Gumbel boxes?
 

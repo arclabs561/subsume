@@ -68,6 +68,32 @@
 //! - Gomber & Singh (2025, ICLR Workshop), "Neural Abstract Interpretation" --
 //!   connects octagon embeddings to differentiable abstract interpretation; the Octagon
 //!   abstract domain from static analysis is the same geometric object used here
+//!
+//! # Examples
+//!
+//! ```rust
+//! use ndarray::array;
+//! use subsume::ndarray_backend::ndarray_octagon::{NdarrayDiagBounds, NdarrayOctagon};
+//! use subsume::Octagon;
+//!
+//! // 2D octagon: box [0,4]x[0,4] with diagonal cuts
+//! let oct = NdarrayOctagon::new(
+//!     array![0.0, 0.0],
+//!     array![4.0, 4.0],
+//!     vec![NdarrayDiagBounds {
+//!         sum_min: 2.0, sum_max: 6.0,
+//!         diff_min: -2.0, diff_max: 2.0,
+//!     }],
+//! ).unwrap();
+//!
+//! // Center (2,2) is inside; corner (0.1, 0.1) violates x+y >= 2
+//! assert!(oct.contains(&[2.0, 2.0]).unwrap());
+//! assert!(!oct.contains(&[0.1, 0.1]).unwrap());
+//!
+//! // Volume is smaller than the bounding box
+//! let box_only = NdarrayOctagon::from_box_bounds(array![0.0, 0.0], array![4.0, 4.0]).unwrap();
+//! assert!(oct.volume().unwrap() < box_only.volume().unwrap());
+//! ```
 
 /// Errors that can occur during octagon operations.
 #[derive(Debug, Clone, thiserror::Error)]

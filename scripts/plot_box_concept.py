@@ -78,12 +78,12 @@ ax.add_patch(Rectangle((1.3, 1.3), 2.8, 3.0,
 ax.text(2.7, 3.0, "dog", ha="center", va="center", fontsize=8,
         color=AMBER_DARK, fontweight="bold", fontstyle="italic")
 
-# bird -- medium box, partially overlapping mammal region inside animal
-ax.add_patch(Rectangle((5.0, 1.5), 4.2, 4.5,
+# bird -- medium box, disjoint from mammal (birds are not mammals)
+ax.add_patch(Rectangle((6.3, 1.0), 3.0, 5.0,
     linewidth=1.4, edgecolor=ROSE, facecolor=ROSE, alpha=0.06))
-ax.add_patch(Rectangle((5.0, 1.5), 4.2, 4.5,
+ax.add_patch(Rectangle((6.3, 1.0), 3.0, 5.0,
     linewidth=1.4, edgecolor=ROSE, facecolor="none"))
-ax.text(7.1, 3.8, "bird", ha="center", va="center", fontsize=8.5,
+ax.text(7.8, 3.5, "bird", ha="center", va="center", fontsize=8.5,
         color=ROSE_DARK, fontweight="bold", fontstyle="italic")
 
 # Subsumption annotation
@@ -201,14 +201,19 @@ for corner_verts, corner_label_pos in [
     ax.add_patch(Polygon(corner_verts, closed=True,
         facecolor=ROSE, alpha=0.12, edgecolor="none"))
 
-# Diagonal constraint lines (faint)
-for label, xs, ys, pos, rot in [
-    ("$x{+}y = 1.5$", [-0.3, 1.8], [1.8, -0.3], (0.4, 0.3), 315),
-    ("$x{+}y = 8.5$", [3.2, 5.3], [5.3, 3.2], (4.6, 4.7), 315),
-    ("$x{-}y = 3$", [2.7, 5.3], [-0.3, 2.3], (4.3, 0.7), 45),
-    ("$x{-}y = {-}3$", [-0.3, 2.3], [2.7, 5.3], (0.7, 4.3), 45),
-]:
-    ax.plot(xs, ys, color=ROSE, linewidth=0.7, linestyle="-", alpha=0.4)
+# Diagonal constraint lines with labels
+# x + y = 1.5 (lower-left cut)
+ax.plot([-0.3, 1.8], [1.8, -0.3], color=ROSE, linewidth=0.8, alpha=0.5)
+ax.text(0.15, 1.85, "$x{+}y{=}1.5$", fontsize=5.5, color=ROSE_DARK,
+        rotation=-45, ha="left", va="bottom", alpha=0.7)
+# x + y = 8.5 (upper-right cut)
+ax.plot([3.2, 5.3], [5.3, 3.2], color=ROSE, linewidth=0.8, alpha=0.5)
+ax.text(4.2, 4.6, "$x{+}y{=}8.5$", fontsize=5.5, color=ROSE_DARK,
+        rotation=-45, ha="left", va="bottom", alpha=0.7)
+# x - y = 3 (lower-right cut)
+ax.plot([2.7, 5.3], [-0.3, 2.3], color=ROSE, linewidth=0.8, alpha=0.5)
+# x - y = -3 (upper-left cut)
+ax.plot([-0.3, 2.3], [2.7, 5.3], color=ROSE, linewidth=0.8, alpha=0.5)
 
 # Labels
 ax.text(2.5, 2.5, "octagon", ha="center", va="center", fontsize=9,
@@ -221,12 +226,9 @@ legend_els = [
 ax.legend(handles=legend_els, fontsize=7, loc="lower right", frameon=True,
           fancybox=False, edgecolor=GRID, framealpha=0.9)
 
-# Annotation for cut corners
-ax.annotate("diagonal\nconstraints\ncut corners",
-            xy=(0.5, 0.5), xytext=(2.8, 0.6),
-            fontsize=7, color=ROSE_DARK,
-            arrowprops=dict(arrowstyle="->", color=ROSE, lw=0.8),
-            ha="center")
+# Volume comparison
+ax.text(2.5, -0.35, "50% tighter than box",
+        ha="center", va="top", fontsize=6.5, color=SLATE, fontstyle="italic")
 
 ax.set_xlabel("$x_1$", fontsize=8.5, color=TEXT)
 ax.set_ylabel("$x_2$", fontsize=8.5, color=TEXT)

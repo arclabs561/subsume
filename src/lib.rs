@@ -14,6 +14,8 @@
 //! |------|-----------|
 //! | Understand the core abstraction | [`Box`] trait, [`BoxError`] |
 //! | Use probabilistic (Gumbel) boxes | [`GumbelBox`] trait, [`gumbel`] module |
+//! | Use octagon embeddings (box + diagonal constraints) | [`Octagon`] trait, [`octagon`] module |
+//! | Fuzzy query answering (t-norms) | [`TNorm`], [`TConorm`], [`fuzzy`] module |
 //! | Load a knowledge graph dataset | [`Dataset`], [`Triple`] |
 //! | Train box embeddings (ndarray) | [`ndarray_backend`], [`TrainingConfig`] |
 //! | Evaluate with link prediction | [`evaluate_link_prediction`], [`training::metrics`] |
@@ -38,18 +40,27 @@
 //!
 //! - [`box_trait`] -- the [`Box`] trait: containment, overlap, volume
 //! - [`gumbel`] -- the [`GumbelBox`] trait: probabilistic box operations
+//! - [`octagon`] -- octagon embeddings: boxes + diagonal constraints (IJCAI 2024)
 //! - [`cone`] -- angular cone embeddings for subsumption with negation
 //! - [`hyperbolic`] -- Poincare ball embeddings for tree-like hierarchies
 //! - [`hyperbolic_box`] -- boxes in hyperbolic space (high-capacity hierarchies)
 //! - [`quasimetric`] -- interval quasimetric embeddings (asymmetric reachability)
 //! - [`sheaf`] -- sheaf neural networks for transitivity/consistency on graphs
+//! - [`gaussian`] -- diagonal Gaussian box embeddings (KL, Bhattacharyya)
 //!
 //! ## Representations and scoring
 //!
 //! - [`center_offset`] -- center+offset <-> min/max coordinate conversion
 //! - [`boxe`] -- BoxE scoring model (Abboud et al., NeurIPS 2020)
-//! - [`distance`] -- depth-based, boundary, and vector-to-box distance metrics
+//! - [`distance`] -- depth-based, boundary, Query2Box, and vector-to-box distance metrics
 //! - [`embedding`] -- [`BoxCollection`] and [`BoxEmbedding`] collection traits
+//! - [`fuzzy`] -- t-norms, t-conorms, and negation for fuzzy query answering (FuzzQE)
+//!
+//! ## Ontology and taxonomy
+//!
+//! - [`el`] -- EL++ ontology embedding primitives (Box2EL / TransBox)
+//! - [`taxonomy`] -- TaxoBell-format taxonomy dataset loader
+//! - [`taxobell`] -- TaxoBell combined training loss
 //!
 //! ## Training and evaluation
 //!

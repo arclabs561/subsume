@@ -416,6 +416,28 @@ where
 ///
 /// Returns [`BoxError::DimensionMismatch`] if vectors differ in length.
 ///
+/// ## Example
+///
+/// ```rust
+/// use subsume::distance::query2box_distance;
+///
+/// // Query box with center [5, 5] and half-width [2, 2] => box [3,7] x [3,7]
+/// let center = [5.0, 5.0];
+/// let offset = [2.0, 2.0];
+///
+/// // Entity at center: d_out=0, d_in=0
+/// let d = query2box_distance(&center, &offset, &[5.0, 5.0], 0.02).unwrap();
+/// assert!(d < 1e-6);
+///
+/// // Entity inside but off-center: only d_in contributes (scaled by alpha)
+/// let d = query2box_distance(&center, &offset, &[4.0, 4.0], 0.02).unwrap();
+/// assert!(d > 0.0 && d < 0.1); // small due to alpha=0.02
+///
+/// // Entity outside: d_out dominates
+/// let d = query2box_distance(&center, &offset, &[10.0, 10.0], 0.02).unwrap();
+/// assert!(d > 5.0); // d_out = (10-7) + (10-7) = 6
+/// ```
+///
 /// ## References
 ///
 /// - Ren et al. (NeurIPS 2020), "Beta Embeddings for Multi-Hop Logical Reasoning
