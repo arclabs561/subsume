@@ -8,7 +8,9 @@
 | `gumbel_box_exploration` | Gumbel box properties: soft containment, membership probability, temperature annealing (no training) |
 | `cone_training` | Training cone embeddings on an 18-entity taxonomy (3+ levels); aperture reflects generality |
 | `box_training` | Training box embeddings with direct coordinate updates on a 25-entity taxonomy; volume reflects generality |
-| `query2box` | Query2Box-style compositional query answering: multi-hop KG queries via box intersection and containment ranking |
+| `query2box` | Query2Box-style compositional query answering: multi-hop KG queries via box intersection, containment ranking, and alpha-weighted distance scoring |
+| `octagon_demo` | Octagon embeddings: diagonal constraints, point containment, intersection (closure), volume comparison, soft containment/overlap |
+| `fuzzy_query` | Fuzzy query answering with t-norms (Min/Product/Lukasiewicz), t-conorms, negation, and De Morgan duality on a small KG |
 
 ## Decision tree
 
@@ -20,6 +22,12 @@
 
 - **Want to answer multi-hop knowledge graph queries with box intersection?**
   Start with `query2box`.
+
+- **Want to understand octagon embeddings (boxes + diagonal constraints)?**
+  Start with `octagon_demo`.
+
+- **Want to explore fuzzy logic operators for query answering?**
+  Start with `fuzzy_query`.
 
 - **Want to train embeddings on a hierarchy?**
   - Cone model (angular containment, supports negation): `cone_training`
@@ -33,6 +41,8 @@ cargo run -p subsume --example gumbel_box_exploration
 cargo run -p subsume --example cone_training
 cargo run -p subsume --example box_training
 cargo run -p subsume --example query2box
+cargo run -p subsume --example octagon_demo
+cargo run -p subsume --example fuzzy_query
 ```
 
 ## Visualization scripts

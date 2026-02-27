@@ -147,6 +147,49 @@ pub fn boundary_distance(
     Ok(Some(min_gap))
 }
 
+/// Compute Query2Box alpha-weighted distance from an entity point to a query box.
+///
+/// This is the ndarray-specific implementation. See [`crate::distance::query2box_distance`]
+/// for the generic (slice-based) version and full documentation.
+///
+/// # Parameters
+///
+/// - `query_box`: The query box (center = `(min + max) / 2`, offset = `(max - min) / 2`)
+/// - `entity_point`: The entity point as `Array1<f32>`
+/// - `alpha`: Weight for inside distance (typically 0.02)
+pub fn query2box_distance(
+    query_box: &NdarrayBox,
+    entity_point: &Array1<f32>,
+    alpha: f32,
+) -> Result<f32, BoxError> {
+    if entity_point.len() != query_box.dim() {
+        return Err(BoxError::DimensionMismatch {
+            expected: query_box.dim(),
+            actual: entity_point.len(),
+        });
+    }
+
+    let mut d_out = 0.0f32;
+    let mut d_in = 0.0f32;
+
+    for i in 0..query_box.dim() {
+        let lo = query_box.min()[i];
+        let hi = query_box.max()[i];
+        let center = (lo + hi) * 0.5;
+        let v = entity_point[i];
+
+        if v < lo {
+            d_out += lo - v;
+        } else if v > hi {
+            d_out += v - hi;
+        } else {
+            d_in += (v - center).abs();
+        }
+    }
+
+    Ok(d_out + alpha * d_in)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,5 +246,31 @@ mod tests {
         let inner = NdarrayBox::new(array![0.5, 0.5], array![1.5, 1.5], 1.0).unwrap();
         let dist = boundary_distance(&outer, &inner, 1.0).unwrap();
         assert!(dist.is_none()); // Not contained
+    }
+
+    // ---- query2box_distance ----
+
+    #[test]
+    fn test_query2box_inside() {
+        let q = NdarrayBox::new(array![0.0, 0.0], array![2.0, 2.0], 1.0).unwrap();
+        let e = array![1.0, 1.0]; // center
+        let d = query2box_distance(&q, &e, 0.02).unwrap();
+        assert_eq!(d, 0.0, "entity at center: distance should be 0");
+    }
+
+    #[test]
+    fn test_query2box_outside() {
+        let q = NdarrayBox::new(array![0.0, 0.0], array![2.0, 2.0], 1.0).unwrap();
+        let e = array![5.0, 5.0];
+        let d = query2box_distance(&q, &e, 0.02).unwrap();
+        // d_out = (5-2) + (5-2) = 6
+        assert!((d - 6.0).abs() < 1e-5, "expected 6.0, got {d}");
+    }
+
+    #[test]
+    fn test_query2box_dim_mismatch() {
+        let q = NdarrayBox::new(array![0.0, 0.0], array![2.0, 2.0], 1.0).unwrap();
+        let e = array![1.0];
+        assert!(query2box_distance(&q, &e, 0.02).is_err());
     }
 }

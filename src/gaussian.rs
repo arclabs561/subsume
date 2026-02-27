@@ -429,6 +429,45 @@ mod tests {
             let loss = sigma_clipping_loss(&g, min_sigma);
             prop_assert!(loss >= 0.0, "Sigma clipping loss should be non-negative, got {}", loss);
         }
+
+        // -- Bhattacharyya distance >= 0 --
+
+        #[test]
+        fn prop_bhattacharyya_distance_nonneg(
+            (a, b) in arb_gaussian_pair(8)
+        ) {
+            let bd = bhattacharyya_distance(&a, &b).unwrap();
+            prop_assert!(bd >= -1e-5, "BD should be non-negative, got {bd}");
+        }
+
+        // -- sigma_ceiling_loss >= 0 --
+
+        #[test]
+        fn prop_sigma_ceiling_nonneg(
+            g in arb_gaussian(8),
+            max_var in 0.01f32..100.0,
+        ) {
+            let loss = sigma_ceiling_loss(&g, max_var);
+            prop_assert!(loss >= 0.0, "sigma_ceiling_loss should be non-negative, got {loss}");
+        }
+
+        // -- volume_regularization >= 0 (already tested, but explicit) --
+
+        #[test]
+        fn prop_volume_regularization_is_squared(
+            g in arb_gaussian(8),
+            target in -10.0f32..10.0,
+        ) {
+            let loss = volume_regularization(&g, target);
+            prop_assert!(loss >= 0.0, "volume_regularization should be non-negative, got {loss}");
+            // Verify it's actually (log_vol - target)^2.
+            let log_vol = g.log_volume();
+            let expected = (log_vol - target).powi(2);
+            prop_assert!(
+                (loss - expected).abs() < 1e-3,
+                "volume_regularization mismatch: {loss} vs expected {expected}"
+            );
+        }
     }
 
     // --- Edge case tests ---

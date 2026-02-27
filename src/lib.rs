@@ -123,6 +123,9 @@ pub mod center_offset;
 /// Cone embeddings: angular containment on the unit sphere, with negation support.
 pub mod cone;
 
+/// Octagon embeddings: axis-aligned polytopes with diagonal constraints (IJCAI 2024).
+pub mod octagon;
+
 /// Knowledge graph dataset loading (WN18RR, FB15k-237, YAGO3-10, and similar formats).
 pub mod dataset;
 
@@ -168,6 +171,9 @@ pub mod gaussian;
 /// EL++ ontology embedding primitives (Box2EL / TransBox).
 pub mod el;
 
+/// Fuzzy set-theoretic operators: t-norms, t-conorms, and negation (FuzzQE).
+pub mod fuzzy;
+
 /// Taxonomy dataset loading for the TaxoBell format (`.terms` / `.taxo` / `dic.json`).
 pub mod taxonomy;
 
@@ -197,7 +203,10 @@ pub use dataset::{Dataset, DatasetError, DatasetStats, Triple};
 // Re-exports: representations and scoring
 pub use boxe::{boxe_loss, boxe_point_score, boxe_score, Bump};
 pub use center_offset::{center_offset_to_min_max, min_max_to_center_offset};
-pub use distance::{boundary_distance, depth_distance, depth_similarity, vector_to_box_distance};
+pub use distance::{
+    boundary_distance, depth_distance, depth_similarity, query2box_distance,
+    vector_to_box_distance,
+};
 pub use embedding::{BoxCollection, BoxEmbedding};
 
 // Re-exports: training
@@ -264,6 +273,15 @@ pub use el::{
     compose_roles, disjointness_loss, el_inclusion_loss, existential_box,
     intersection_nonempty_loss, translate,
 };
+
+// Re-exports: fuzzy operators
+pub use fuzzy::{
+    fuzzy_negation, tconorm_lukasiewicz, tconorm_max, tconorm_probabilistic, tnorm_lukasiewicz,
+    tnorm_min, tnorm_product, TConorm, TNorm,
+};
+
+// Re-exports: octagon
+pub use octagon::{DiagonalBounds, Octagon, OctagonError};
 
 // Re-exports: utilities
 pub use utils::validation;

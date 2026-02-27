@@ -28,7 +28,8 @@
 //!
 //! Run: cargo run -p subsume --example query2box
 
-use ndarray::array;
+use ndarray::{array, Array1};
+use subsume::ndarray_backend::distance::query2box_distance;
 use subsume::ndarray_backend::NdarrayBox;
 use subsume::Box as BoxTrait;
 
@@ -46,6 +47,27 @@ fn rank_candidates<'a>(
         })
         .collect();
     scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+    scored
+}
+
+/// Rank candidates by Query2Box alpha-weighted distance (ascending = closer = better).
+///
+/// Uses the center of each candidate box as the entity point.
+fn rank_by_distance<'a>(
+    query: &NdarrayBox,
+    candidates: &[(&'a str, &NdarrayBox)],
+    alpha: f32,
+) -> Vec<(&'a str, f32)> {
+    let mut scored: Vec<(&str, f32)> = candidates
+        .iter()
+        .map(|(name, b)| {
+            // Use center of candidate box as the entity point.
+            let center: Array1<f32> = (b.min() + b.max()) * 0.5;
+            let d = query2box_distance(query, &center, alpha).unwrap_or(f32::INFINITY);
+            (*name, d)
+        })
+        .collect();
+    scored.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap()); // ascending: lower distance = better
     scored
 }
 
@@ -158,12 +180,52 @@ fn main() -> Result<(), subsume::BoxError> {
     let q3 = rank_candidates(&hop1, &lang_candidates, temp);
     print_ranking("Rank by P(hop1_box contains language):", &q3);
 
+    // --- Q4: alpha-weighted distance scoring (Query2Box original) ---
+    //
+    // The original Query2Box paper scores candidates by distance, not containment
+    // probability: d(q, v) = d_out(q, v) + alpha * d_in(q, v)
+    //
+    // d_out = L1 distance from entity to nearest box boundary (0 if inside)
+    // d_in  = L1 distance from entity to box center (0 if outside)
+    // alpha < 1 penalizes inside-center distance less than outside distance.
+
+    println!("Q4: Alpha-weighted distance scoring (Ren et al., 2020)\n");
+
+    let alpha = 0.02;
+    println!("  alpha = {alpha}  (inside penalty << outside penalty)\n");
+
+    println!("  Q1 re-scored: cities in France (by distance, ascending)\n");
+    let q4a = rank_by_distance(&france, &city_candidates, alpha);
+    for (i, (name, dist)) in q4a.iter().enumerate() {
+        let marker = if *dist < 1.0 { "<-- answer" } else { "" };
+        println!("    {}: {:>8} dist={:.4} {}", i + 1, name, dist, marker);
+    }
+    println!();
+
+    println!("  Q2 re-scored: languages in France (by distance, ascending)\n");
+    let q4b = rank_by_distance(&france, &lang_candidates, alpha);
+    for (i, (name, dist)) in q4b.iter().enumerate() {
+        println!("    {}: {:>8} dist={:.4}", i + 1, name, dist);
+    }
+    println!();
+
+    // Show how alpha affects ranking
+    println!("  Alpha sensitivity: distance for Paris across alpha values\n");
+    let paris_center: Array1<f32> = (paris.min() + paris.max()) * 0.5;
+    for &a in &[0.0, 0.02, 0.1, 0.5, 1.0] {
+        let d = query2box_distance(&france, &paris_center, a)?;
+        println!("    alpha={a:.2}: dist={d:.4}");
+    }
+    println!();
+
     // --- Summary ---
     println!("--- Summary ---\n");
     println!("  Q1 correctly ranks Paris and Lyon above London.");
     println!("  Q2 ranks French highest (fully inside France).");
     println!("  Q3 chains two hops: city containment, then language containment.");
     println!("  Intersection volume decreases at each hop, narrowing the answer set.");
+    println!("  Q4 shows Query2Box distance scoring: lower distance = better answer.");
+    println!("  Alpha controls inside-vs-outside penalty balance.");
 
     Ok(())
 }

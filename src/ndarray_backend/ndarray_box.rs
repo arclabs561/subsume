@@ -1327,4 +1327,93 @@ mod proptest_tests {
             }
         }
     }
+
+    // ---- Property 8: Intersection volume <= min(input volumes) ----
+
+    /// Strategy for a non-degenerate box (positive width per dimension).
+    fn arb_nondegenerate_box(dim: usize) -> impl Strategy<Value = NdarrayBox> {
+        proptest::collection::vec((-20.0f32..20.0f32, 0.1f32..10.0f32), dim).prop_map(
+            move |pairs| {
+                let mut mins = Vec::with_capacity(dim);
+                let mut maxs = Vec::with_capacity(dim);
+                for (lo, width) in pairs {
+                    mins.push(lo);
+                    maxs.push(lo + width);
+                }
+                NdarrayBox::new(Array1::from(mins), Array1::from(maxs), 1.0).unwrap()
+            },
+        )
+    }
+
+    proptest! {
+        #[test]
+        fn proptest_intersection_volume_le_min_input(
+            (a, b) in (arb_nondegenerate_box(3), arb_nondegenerate_box(3))
+        ) {
+            let inter = a.intersection(&b).unwrap();
+            let vol_inter = inter.volume(1.0).unwrap();
+            let vol_a = a.volume(1.0).unwrap();
+            let vol_b = b.volume(1.0).unwrap();
+            let min_vol = vol_a.min(vol_b);
+            prop_assert!(
+                vol_inter <= min_vol + 1e-4,
+                "intersection volume ({vol_inter}) must be <= min(vol_a={vol_a}, vol_b={vol_b})"
+            );
+        }
+    }
+
+    // ---- Property 9: Containment transitivity ----
+    // If A contains B and B contains C, then A contains C.
+
+    proptest! {
+        #[test]
+        fn proptest_containment_transitivity(
+            base in -10.0f32..10.0,
+            w1 in 1.0f32..10.0,
+            shrink1 in 0.1f32..0.4,
+            shrink2 in 0.1f32..0.4,
+        ) {
+            let dim = 3;
+            // A = [base, base+w1]^d
+            let a_lo = base;
+            let a_hi = base + w1;
+            // B = A shrunk by shrink1 on each side
+            let b_lo = a_lo + shrink1;
+            let b_hi = a_hi - shrink1;
+            prop_assume!(b_lo < b_hi);
+            // C = B shrunk by shrink2 on each side
+            let c_lo = b_lo + shrink2;
+            let c_hi = b_hi - shrink2;
+            prop_assume!(c_lo < c_hi);
+
+            let a = NdarrayBox::new(
+                Array1::from(vec![a_lo; dim]),
+                Array1::from(vec![a_hi; dim]),
+                1.0,
+            ).unwrap();
+            let b = NdarrayBox::new(
+                Array1::from(vec![b_lo; dim]),
+                Array1::from(vec![b_hi; dim]),
+                1.0,
+            ).unwrap();
+            let c = NdarrayBox::new(
+                Array1::from(vec![c_lo; dim]),
+                Array1::from(vec![c_hi; dim]),
+                1.0,
+            ).unwrap();
+
+            let p_ab = a.containment_prob(&b, 1.0).unwrap();
+            let p_bc = b.containment_prob(&c, 1.0).unwrap();
+            let p_ac = a.containment_prob(&c, 1.0).unwrap();
+
+            // If A contains B and B contains C, then A must contain C.
+            if p_ab > 0.99 && p_bc > 0.99 {
+                prop_assert!(
+                    p_ac > 0.99,
+                    "transitivity: A contains B ({p_ab}) and B contains C ({p_bc}), \
+                     but A contains C only {p_ac}"
+                );
+            }
+        }
+    }
 }

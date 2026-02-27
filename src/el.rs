@@ -905,5 +905,81 @@ mod tests {
             prop_assert!(disjointness_loss(&a, &a, &b, &b, 0.0).is_err());
             prop_assert!(intersection_nonempty_loss(&a, &a, &b, &b).is_err());
         }
+
+        // -- disjointness_loss >= 0 --
+
+        #[test]
+        fn prop_disjointness_loss_nonneg(
+            center_a in vec_f32(4),
+            offset_a in vec_f32_nonneg(4),
+            center_b in vec_f32(4),
+            offset_b in vec_f32_nonneg(4),
+            margin in 0.0f32..5.0,
+        ) {
+            let loss = disjointness_loss(&center_a, &offset_a, &center_b, &offset_b, margin).unwrap();
+            prop_assert!(loss >= 0.0, "disjointness_loss must be >= 0, got {loss}");
+        }
+
+        // -- el_inclusion_loss >= 0 --
+
+        #[test]
+        fn prop_el_inclusion_loss_nonneg_explicit(
+            center_a in vec_f32(4),
+            offset_a in vec_f32_nonneg(4),
+            center_b in vec_f32(4),
+            offset_b in vec_f32_nonneg(4),
+        ) {
+            let loss = el_inclusion_loss(&center_a, &offset_a, &center_b, &offset_b, 0.0).unwrap();
+            prop_assert!(loss >= 0.0, "el_inclusion_loss must be >= 0, got {loss}");
+        }
+
+        // -- intersection_nonempty_loss >= 0 --
+
+        #[test]
+        fn prop_intersection_nonempty_loss_nonneg(
+            center_a in vec_f32(4),
+            offset_a in vec_f32_nonneg(4),
+            center_b in vec_f32(4),
+            offset_b in vec_f32_nonneg(4),
+        ) {
+            let loss = intersection_nonempty_loss(&center_a, &offset_a, &center_b, &offset_b).unwrap();
+            prop_assert!(loss >= 0.0, "intersection_nonempty_loss must be >= 0, got {loss}");
+        }
+
+        // -- compose_roles associativity (proptest variant) --
+
+        #[test]
+        fn prop_compose_roles_associative(
+            ca in vec_f32(4),
+            oa in vec_f32_nonneg(4),
+            cb in vec_f32(4),
+            ob in vec_f32_nonneg(4),
+            cc in vec_f32(4),
+            oc in vec_f32_nonneg(4),
+        ) {
+            let dim = 4;
+            // (a o b) o c
+            let (mut ab_c, mut ab_o) = (vec![0.0f32; dim], vec![0.0f32; dim]);
+            compose_roles(&ca, &oa, &cb, &ob, &mut ab_c, &mut ab_o).unwrap();
+            let (mut left_c, mut left_o) = (vec![0.0f32; dim], vec![0.0f32; dim]);
+            compose_roles(&ab_c, &ab_o, &cc, &oc, &mut left_c, &mut left_o).unwrap();
+
+            // a o (b o c)
+            let (mut bc_c, mut bc_o) = (vec![0.0f32; dim], vec![0.0f32; dim]);
+            compose_roles(&cb, &ob, &cc, &oc, &mut bc_c, &mut bc_o).unwrap();
+            let (mut right_c, mut right_o) = (vec![0.0f32; dim], vec![0.0f32; dim]);
+            compose_roles(&ca, &oa, &bc_c, &bc_o, &mut right_c, &mut right_o).unwrap();
+
+            for i in 0..dim {
+                prop_assert!(
+                    (left_c[i] - right_c[i]).abs() < 1e-4,
+                    "compose_roles center not associative at dim {i}"
+                );
+                prop_assert!(
+                    (left_o[i] - right_o[i]).abs() < 1e-4,
+                    "compose_roles offset not associative at dim {i}"
+                );
+            }
+        }
     }
 }

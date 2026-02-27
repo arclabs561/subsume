@@ -564,6 +564,81 @@ mod tests {
 
     // ---- Higher dimensions ----
 
+    // ---- Property tests ----
+
+    fn arb_unit_vec(dim: usize) -> impl Strategy<Value = Array1<f32>> {
+        proptest::collection::vec(-1.0f32..1.0, dim).prop_filter_map(
+            "non-zero vector",
+            move |v| {
+                let arr = Array1::from(v);
+                let norm = arr.dot(&arr).sqrt();
+                if norm < 1e-6 {
+                    None
+                } else {
+                    Some(&arr / norm)
+                }
+            },
+        )
+    }
+
+    fn arb_cone(dim: usize) -> impl Strategy<Value = NdarrayCone> {
+        (
+            proptest::collection::vec(-10.0f32..10.0, dim),
+            arb_unit_vec(dim),
+            0.1f32..2.9, // aperture in (0, pi)
+        )
+            .prop_map(|(apex, axis, aperture)| {
+                NdarrayCone::from_raw(Array1::from(apex), axis, aperture)
+            })
+    }
+
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn prop_complement_involutory(cone in arb_cone(4)) {
+            let double = cone.complement().unwrap().complement().unwrap();
+            prop_assert!(
+                (cone.aperture() - double.aperture()).abs() < 1e-5,
+                "double complement aperture: {} vs {}", cone.aperture(), double.aperture()
+            );
+            for (a, b) in cone.axis().iter().zip(double.axis().iter()) {
+                prop_assert!(
+                    (a - b).abs() < 1e-5,
+                    "double complement axis element: {a} vs {b}"
+                );
+            }
+        }
+
+        #[test]
+        fn prop_complement_aperture_is_pi_minus(cone in arb_cone(4)) {
+            let comp = cone.complement().unwrap();
+            let expected = std::f32::consts::PI - cone.aperture();
+            prop_assert!(
+                (comp.aperture() - expected).abs() < 1e-5,
+                "complement aperture: expected {expected}, got {}", comp.aperture()
+            );
+        }
+
+        #[test]
+        fn prop_containment_prob_in_unit(
+            (a, b) in (arb_cone(4), arb_cone(4)),
+            temp in 0.01f32..10.0,
+        ) {
+            let p = a.containment_prob(&b, temp).unwrap();
+            prop_assert!(p >= 0.0 && p <= 1.0, "containment prob {p} out of [0,1]");
+        }
+
+        #[test]
+        fn prop_overlap_prob_in_unit(
+            (a, b) in (arb_cone(4), arb_cone(4)),
+            temp in 0.01f32..10.0,
+        ) {
+            let p = a.overlap_prob(&b, temp).unwrap();
+            prop_assert!(p >= 0.0 && p <= 1.0, "overlap prob {p} out of [0,1]");
+        }
+    }
+
     #[test]
     fn works_in_high_dimensions() {
         let d = 128;
