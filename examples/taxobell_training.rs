@@ -1,14 +1,9 @@
 //! TaxoBell end-to-end training: encoder + loss + evaluation.
 //!
 //! Trains a TaxoBell MLP encoder on a synthetic taxonomy with random
-//! pre-computed embeddings. Demonstrates the full pipeline:
+//! pre-computed embeddings. Uses candle autograd for exact gradients.
 //!
-//! 1. Build a taxonomy (nodes + parent-child edges)
-//! 2. Generate random "text embeddings" per node (simulating a frozen encoder)
-//! 3. Train MLP encoder (embeddings → Gaussian boxes) with TaxoBell loss
-//! 4. Evaluate MRR/Hits@k on held-out edges
-//!
-//! Run: cargo run -p subsume --example taxobell_training
+//! Run: cargo run -p subsume --features candle-backend --example taxobell_training
 //!
 //! Reference: TaxoBell (WWW 2026, arXiv:2601.09633)
 
@@ -17,7 +12,7 @@ use subsume::taxobell::TaxoBellConfig;
 use subsume::taxobell_encoder::{evaluate_taxobell, train_taxobell, TaxoBellTrainingConfig};
 
 fn main() {
-    println!("=== TaxoBell Training: MLP Encoder + Gaussian Box Loss ===\n");
+    println!("=== TaxoBell Training: MLP Encoder + Candle Autograd ===\n");
 
     // --- Build a synthetic taxonomy ---
     //
@@ -66,7 +61,6 @@ fn main() {
     let config = TaxoBellTrainingConfig {
         learning_rate: 5e-3,
         epochs: 50,
-        grad_epsilon: 1e-3,
         num_negatives: 2,
         hidden_dim: 16,
         box_dim: 8,
@@ -96,9 +90,8 @@ fn main() {
     println!("{}", "-".repeat(75));
 
     let (encoder, snapshots) =
-        train_taxobell(&embeddings, train_edges, &node_ids, &node_index, &config);
+        train_taxobell(&embeddings, train_edges, &node_ids, &node_index, &config).unwrap();
 
-    // Print every 5th epoch + last
     for snap in &snapshots {
         if snap.epoch % 10 == 0 || snap.epoch == config.epochs - 1 {
             println!(
@@ -121,14 +114,15 @@ fn main() {
     // --- Evaluate on held-out edges ---
     println!("\n--- Evaluation on test edges ---\n");
 
-    let eval = evaluate_taxobell(&encoder, &embeddings, test_edges, &node_ids, &node_index);
+    let eval =
+        evaluate_taxobell(&encoder, &embeddings, test_edges, &node_ids, &node_index).unwrap();
     println!("  MRR:      {:.4}", eval.mrr);
     println!("  Hits@1:   {:.4}", eval.hits_at_1);
     println!("  Hits@3:   {:.4}", eval.hits_at_3);
     println!("  Hits@10:  {:.4}", eval.hits_at_10);
 
-    // Also evaluate on training edges for comparison.
-    let eval_train = evaluate_taxobell(&encoder, &embeddings, train_edges, &node_ids, &node_index);
+    let eval_train =
+        evaluate_taxobell(&encoder, &embeddings, train_edges, &node_ids, &node_index).unwrap();
     println!("\n--- Evaluation on train edges (sanity check) ---\n");
     println!("  MRR:      {:.4}", eval_train.mrr);
     println!("  Hits@1:   {:.4}", eval_train.hits_at_1);
@@ -142,7 +136,7 @@ fn main() {
     );
     println!("{}", "-".repeat(50));
     for (i, name) in node_names.iter().enumerate() {
-        let gb = encoder.encode(&embeddings[i]).unwrap();
+        let gb = encoder.encode_one(&embeddings[i]).unwrap();
         println!(
             "{:>10}  {:>12.4}  {:>12.4}  {:>12.4}",
             name,
@@ -155,7 +149,6 @@ fn main() {
     println!("\nKey observations:");
     println!("  - Parent nodes should have larger log-volume (wider distributions)");
     println!("  - KL(child || parent) should be small for true parent-child pairs");
-    println!("  - The MLP encoder learns to map text embeddings to hierarchical Gaussian boxes");
 }
 
 /// Generate random embeddings using xorshift64.

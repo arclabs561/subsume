@@ -196,7 +196,11 @@ pub mod taxonomy;
 /// TaxoBell combined training loss for taxonomy expansion.
 pub mod taxobell;
 
-/// TaxoBell MLP encoder and training loop for taxonomy expansion.
+/// TaxoBell MLP encoder and training loop with candle autograd.
+///
+/// Requires the `candle-backend` feature.
+#[cfg(feature = "candle-backend")]
+#[cfg_attr(docsrs, doc(cfg(feature = "candle-backend")))]
 pub mod taxobell_encoder;
 
 // ---------------------------------------------------------------------------
@@ -286,7 +290,8 @@ pub use taxonomy::{TaxonomyDataset, TaxonomyNode};
 // Re-exports: TaxoBell loss
 pub use taxobell::{CombinedLossResult, TaxoBellConfig, TaxoBellLoss};
 
-// Re-exports: TaxoBell encoder and training
+// Re-exports: TaxoBell encoder and training (candle-backend)
+#[cfg(feature = "candle-backend")]
 pub use taxobell_encoder::{
     evaluate_taxobell, train_taxobell, Mlp, TaxoBellEncoder, TaxoBellEvalResult,
     TaxoBellTrainingConfig, TrainingSnapshot,

@@ -53,6 +53,10 @@ harness = false
 name = "el_bench"
 harness = false
 
+[[example]]
+name = "taxobell_training"
+required-features = ["candle-backend"]
+
 [lints.rust]
 missing_docs = "warn"
 unsafe_code = "warn"

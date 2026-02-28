@@ -1,36 +1,54 @@
-//! TaxoBell MLP encoder: text embeddings → Gaussian box parameters.
+//! TaxoBell MLP encoder with candle autograd.
 //!
 //! Maps pre-computed text embeddings to diagonal Gaussian boxes via two
-//! small MLPs (one for center, one for offset). The offset MLP output is
-//! passed through softplus to ensure positive sigma values.
+//! small MLPs (one for center, one for offset/sigma). Training uses
+//! candle's automatic differentiation for exact gradients.
 //!
 //! Architecture per MLP:
 //! ```text
 //! input (embed_dim) → Linear → ReLU → Linear → output (box_dim)
 //! ```
 //!
+//! The offset MLP output is passed through softplus to ensure positive sigma.
+//!
 //! # References
 //!
 //! - TaxoBell (WWW 2026, arXiv:2601.09633), Section 4.1: Gaussian box encoder
 
-use crate::gaussian::GaussianBox;
-use crate::optimizer::AMSGradState;
-use crate::taxobell::{CombinedLossResult, TaxoBellConfig, TaxoBellLoss};
+use crate::taxobell::{CombinedLossResult, TaxoBellConfig};
 use crate::BoxError;
+use candle_core::{DType, Device, Result as CResult, Tensor, Var, D};
 
-/// A two-layer MLP: `Linear(in, hidden) → ReLU → Linear(hidden, out)`.
+// ---------------------------------------------------------------------------
+// Numerically stable softplus
+// ---------------------------------------------------------------------------
+
+/// Softplus: ln(1 + exp(x)), numerically stable.
+fn softplus(x: &Tensor) -> CResult<Tensor> {
+    // softplus(x) = max(x, 0) + ln(1 + exp(-|x|))
+    let zero = x.zeros_like()?;
+    let relu_x = x.maximum(&zero)?;
+    let neg_abs = x.abs()?.neg()?;
+    let log_term = neg_abs
+        .exp()?
+        .broadcast_add(&Tensor::new(&[1.0f32], x.device())?.broadcast_as(x.shape())?)?;
+    relu_x.add(&log_term.log()?)
+}
+
+// ---------------------------------------------------------------------------
+// MLP
+// ---------------------------------------------------------------------------
+
+/// A two-layer MLP with learnable `Var` parameters for autograd.
 ///
-/// Weights are stored in row-major order.
-#[derive(Debug, Clone)]
+/// `Linear(in, hidden) → ReLU → Linear(hidden, out)`.
+/// Weights are Xavier-uniform initialized.
+#[derive(Debug)]
 pub struct Mlp {
-    /// Weight matrix for the first layer, shape `[hidden_dim, input_dim]` (row-major).
-    pub w1: Vec<f32>,
-    /// Bias vector for the first layer, length `hidden_dim`.
-    pub b1: Vec<f32>,
-    /// Weight matrix for the second layer, shape `[output_dim, hidden_dim]` (row-major).
-    pub w2: Vec<f32>,
-    /// Bias vector for the second layer, length `output_dim`.
-    pub b2: Vec<f32>,
+    w1: Var,
+    b1: Var,
+    w2: Var,
+    b2: Var,
     /// Input dimension.
     pub input_dim: usize,
     /// Hidden dimension.
@@ -41,33 +59,23 @@ pub struct Mlp {
 
 impl Mlp {
     /// Create a new MLP with Xavier-uniform initialization.
-    ///
-    /// Uses a simple xorshift64 PRNG seeded by `seed` to avoid pulling in `rand`.
-    #[must_use]
-    pub fn new(input_dim: usize, hidden_dim: usize, output_dim: usize, seed: u64) -> Self {
-        let mut state = seed.wrapping_add(1);
-        let mut next_f32 = move || -> f32 {
-            state ^= state << 13;
-            state ^= state >> 7;
-            state ^= state << 17;
-            // Map to [-1, 1]
-            (state as f32 / u64::MAX as f32) * 2.0 - 1.0
-        };
+    pub fn new(
+        input_dim: usize,
+        hidden_dim: usize,
+        output_dim: usize,
+        device: &Device,
+    ) -> Result<Self, BoxError> {
+        let map_err = |e: candle_core::Error| BoxError::Internal(e.to_string());
 
-        // Xavier uniform: U(-sqrt(6/(fan_in+fan_out)), sqrt(6/(fan_in+fan_out)))
-        let scale1 = (6.0 / (input_dim + hidden_dim) as f32).sqrt();
-        let w1: Vec<f32> = (0..hidden_dim * input_dim)
-            .map(|_| next_f32() * scale1)
-            .collect();
-        let b1 = vec![0.0; hidden_dim];
+        let scale1 = (6.0 / (input_dim + hidden_dim) as f64).sqrt() as f32;
+        let w1 = Var::rand(-scale1, scale1, (hidden_dim, input_dim), device).map_err(map_err)?;
+        let b1 = Var::zeros(hidden_dim, DType::F32, device).map_err(map_err)?;
 
-        let scale2 = (6.0 / (hidden_dim + output_dim) as f32).sqrt();
-        let w2: Vec<f32> = (0..output_dim * hidden_dim)
-            .map(|_| next_f32() * scale2)
-            .collect();
-        let b2 = vec![0.0; output_dim];
+        let scale2 = (6.0 / (hidden_dim + output_dim) as f64).sqrt() as f32;
+        let w2 = Var::rand(-scale2, scale2, (output_dim, hidden_dim), device).map_err(map_err)?;
+        let b2 = Var::zeros(output_dim, DType::F32, device).map_err(map_err)?;
 
-        Self {
+        Ok(Self {
             w1,
             b1,
             w2,
@@ -75,143 +83,414 @@ impl Mlp {
             input_dim,
             hidden_dim,
             output_dim,
-        }
+        })
     }
 
     /// Forward pass: `Linear → ReLU → Linear`.
-    #[must_use]
-    pub fn forward(&self, input: &[f32]) -> Vec<f32> {
-        debug_assert_eq!(input.len(), self.input_dim);
+    ///
+    /// `x`: `[batch, input_dim]` or `[input_dim]`.
+    pub fn forward(&self, x: &Tensor) -> CResult<Tensor> {
+        // h = relu(x @ W1^T + b1)
+        let h = x
+            .matmul(&self.w1.as_tensor().t()?)?
+            .broadcast_add(self.b1.as_tensor())?
+            .relu()?;
+        // out = h @ W2^T + b2
+        h.matmul(&self.w2.as_tensor().t()?)?
+            .broadcast_add(self.b2.as_tensor())
+    }
 
-        // Layer 1: hidden = ReLU(W1 * input + b1)
-        let mut hidden = self.b1.clone();
-        for h in 0..self.hidden_dim {
-            let row_start = h * self.input_dim;
-            let mut sum = hidden[h];
-            for j in 0..self.input_dim {
-                sum += self.w1[row_start + j] * input[j];
-            }
-            hidden[h] = sum.max(0.0); // ReLU
-        }
-
-        // Layer 2: output = W2 * hidden + b2
-        let mut output = self.b2.clone();
-        for o in 0..self.output_dim {
-            let row_start = o * self.hidden_dim;
-            let mut sum = output[o];
-            for h in 0..self.hidden_dim {
-                sum += self.w2[row_start + h] * hidden[h];
-            }
-            output[o] = sum;
-        }
-
-        output
+    /// Collect all learnable `Var` parameters.
+    pub fn vars(&self) -> Vec<&Var> {
+        vec![&self.w1, &self.b1, &self.w2, &self.b2]
     }
 
     /// Total number of learnable parameters.
     #[must_use]
     pub fn num_params(&self) -> usize {
-        self.w1.len() + self.b1.len() + self.w2.len() + self.b2.len()
-    }
-
-    /// Collect all parameters into a flat vector (for optimizer updates).
-    #[must_use]
-    pub fn params_flat(&self) -> Vec<f32> {
-        let mut p = Vec::with_capacity(self.num_params());
-        p.extend_from_slice(&self.w1);
-        p.extend_from_slice(&self.b1);
-        p.extend_from_slice(&self.w2);
-        p.extend_from_slice(&self.b2);
-        p
-    }
-
-    /// Set parameters from a flat vector.
-    pub fn set_params_flat(&mut self, params: &[f32]) {
-        debug_assert_eq!(params.len(), self.num_params());
-        let mut offset = 0;
-        let n = self.w1.len();
-        self.w1.copy_from_slice(&params[offset..offset + n]);
-        offset += n;
-        let n = self.b1.len();
-        self.b1.copy_from_slice(&params[offset..offset + n]);
-        offset += n;
-        let n = self.w2.len();
-        self.w2.copy_from_slice(&params[offset..offset + n]);
-        offset += n;
-        let n = self.b2.len();
-        self.b2.copy_from_slice(&params[offset..offset + n]);
+        self.hidden_dim * self.input_dim
+            + self.hidden_dim
+            + self.output_dim * self.hidden_dim
+            + self.output_dim
     }
 }
 
+// ---------------------------------------------------------------------------
+// Encoder
+// ---------------------------------------------------------------------------
+
 /// TaxoBell encoder: two MLPs mapping text embeddings to Gaussian box parameters.
 ///
-/// - `center_mlp`: text embedding → center (mu) of the Gaussian
-/// - `offset_mlp`: text embedding → raw offset, then softplus → sigma
-///
-/// The resulting `GaussianBox` has `mu = center_mlp(embed)` and
-/// `sigma = softplus(offset_mlp(embed))`.
-#[derive(Debug, Clone)]
+/// - `center_mlp`: embedding → mu (center of Gaussian)
+/// - `offset_mlp`: embedding → raw offset → softplus → sigma (std dev)
+#[derive(Debug)]
 pub struct TaxoBellEncoder {
-    /// MLP producing the center (mu) of the Gaussian box.
+    /// MLP producing center (mu).
     pub center_mlp: Mlp,
-    /// MLP producing the raw offset (pre-softplus sigma) of the Gaussian box.
+    /// MLP producing raw offset (pre-softplus sigma).
     pub offset_mlp: Mlp,
-    /// Embedding dimension (input to both MLPs).
+    /// Embedding input dimension.
     pub embed_dim: usize,
-    /// Box dimension (output of both MLPs).
+    /// Box output dimension.
     pub box_dim: usize,
+    /// Device (CPU or GPU).
+    pub device: Device,
 }
 
 impl TaxoBellEncoder {
     /// Create a new encoder with Xavier-initialized MLPs.
-    ///
-    /// # Arguments
-    ///
-    /// * `embed_dim` - dimension of input text embeddings
-    /// * `hidden_dim` - hidden layer width for both MLPs
-    /// * `box_dim` - dimension of the output Gaussian box
-    /// * `seed` - RNG seed for weight initialization
-    #[must_use]
-    pub fn new(embed_dim: usize, hidden_dim: usize, box_dim: usize, seed: u64) -> Self {
-        Self {
-            center_mlp: Mlp::new(embed_dim, hidden_dim, box_dim, seed),
-            offset_mlp: Mlp::new(embed_dim, hidden_dim, box_dim, seed.wrapping_add(7919)),
+    pub fn new(
+        embed_dim: usize,
+        hidden_dim: usize,
+        box_dim: usize,
+        device: &Device,
+    ) -> Result<Self, BoxError> {
+        let center_mlp = Mlp::new(embed_dim, hidden_dim, box_dim, device)?;
+        let offset_mlp = Mlp::new(embed_dim, hidden_dim, box_dim, device)?;
+        Ok(Self {
+            center_mlp,
+            offset_mlp,
             embed_dim,
             box_dim,
-        }
+            device: device.clone(),
+        })
     }
 
-    /// Encode a text embedding into a Gaussian box.
+    /// Encode a batch of embeddings into (mu, sigma) tensors.
     ///
-    /// Returns `GaussianBox` with `mu = center_mlp(embed)` and
-    /// `sigma = softplus(offset_mlp(embed))`.
-    pub fn encode(&self, embedding: &[f32]) -> Result<GaussianBox, BoxError> {
-        let center = self.center_mlp.forward(embedding);
-        let raw_offset = self.offset_mlp.forward(embedding);
-        GaussianBox::from_center_offset(center, raw_offset)
+    /// - Input: `[batch, embed_dim]`
+    /// - Returns: `(mu, sigma)` each `[batch, box_dim]` where `sigma > 0`.
+    pub fn encode(&self, embeddings: &Tensor) -> CResult<(Tensor, Tensor)> {
+        let mu = self.center_mlp.forward(embeddings)?;
+        let raw_offset = self.offset_mlp.forward(embeddings)?;
+        let sigma = softplus(&raw_offset)?;
+        Ok((mu, sigma))
     }
 
-    /// Total number of learnable parameters across both MLPs.
+    /// Encode a single embedding into a `GaussianBox` (for evaluation).
+    pub fn encode_one(&self, embedding: &[f32]) -> Result<crate::gaussian::GaussianBox, BoxError> {
+        let map_err = |e: candle_core::Error| BoxError::Internal(e.to_string());
+        let t = Tensor::new(&embedding[..], &self.device).map_err(map_err)?;
+        let t = t.unsqueeze(0).map_err(map_err)?; // [1, embed_dim]
+        let (mu, sigma) = self.encode(&t).map_err(map_err)?;
+        let mu_vec: Vec<f32> = mu.squeeze(0).map_err(map_err)?.to_vec1().map_err(map_err)?;
+        let sigma_vec: Vec<f32> = sigma
+            .squeeze(0)
+            .map_err(map_err)?
+            .to_vec1()
+            .map_err(map_err)?;
+        crate::gaussian::GaussianBox::new(mu_vec, sigma_vec)
+    }
+
+    /// Collect all learnable `Var` parameters from both MLPs.
+    pub fn vars(&self) -> Vec<&Var> {
+        let mut v = self.center_mlp.vars();
+        v.extend(self.offset_mlp.vars());
+        v
+    }
+
+    /// Total number of learnable parameters.
     #[must_use]
     pub fn num_params(&self) -> usize {
         self.center_mlp.num_params() + self.offset_mlp.num_params()
     }
+}
 
-    /// Collect all parameters into a flat vector.
-    #[must_use]
-    pub fn params_flat(&self) -> Vec<f32> {
-        let mut p = self.center_mlp.params_flat();
-        p.extend(self.offset_mlp.params_flat());
-        p
+// ---------------------------------------------------------------------------
+// Tensor-based loss functions (differentiable)
+// ---------------------------------------------------------------------------
+
+/// Bhattacharyya coefficient between batches of diagonal Gaussians.
+///
+/// Inputs: `[batch, dim]` tensors. Returns: `[batch]` BC values in `[0, 1]`.
+fn bhattacharyya_coeff_batch(
+    mu1: &Tensor,
+    s1: &Tensor,
+    mu2: &Tensor,
+    s2: &Tensor,
+) -> CResult<Tensor> {
+    let v1 = s1.sqr()?; // [batch, dim]
+    let v2 = s2.sqr()?;
+    // sigma_avg = (v1 + v2) / 2
+    let sigma_avg = v1.add(&v2)?.affine(0.5, 0.0)?;
+    let mu_diff = mu1.sub(mu2)?;
+
+    // BD = 0.25 * sum((mu_diff^2 / sigma_avg), dim=-1)
+    //    + 0.5 * sum(ln(sigma_avg), dim=-1)
+    //    - 0.25 * sum(ln(v1), dim=-1)
+    //    - 0.25 * sum(ln(v2), dim=-1)
+    let t1 = mu_diff
+        .sqr()?
+        .div(&sigma_avg)?
+        .sum(D::Minus1)?
+        .affine(0.25, 0.0)?;
+    let t2 = sigma_avg.log()?.sum(D::Minus1)?.affine(0.5, 0.0)?;
+    let t3 = v1.log()?.sum(D::Minus1)?.affine(0.25, 0.0)?;
+    let t4 = v2.log()?.sum(D::Minus1)?.affine(0.25, 0.0)?;
+
+    let bd = t1.add(&t2)?.sub(&t3)?.sub(&t4)?;
+    bd.neg()?.exp() // BC = exp(-BD)
+}
+
+/// KL divergence KL(q || p) between batches of diagonal Gaussians.
+///
+/// Inputs: `[batch, dim]` tensors. Returns: `[batch]` KL values >= 0.
+fn kl_divergence_batch(
+    mu_q: &Tensor,
+    s_q: &Tensor,
+    mu_p: &Tensor,
+    s_p: &Tensor,
+) -> CResult<Tensor> {
+    let vq = s_q.sqr()?;
+    let vp = s_p.sqr()?;
+    let mu_diff = mu_p.sub(mu_q)?;
+
+    // KL = 0.5 * sum(vq/vp + (mu_p - mu_q)^2/vp - 1 + ln(vp/vq), dim=-1)
+    let ratio = vq.div(&vp)?;
+    let mu_term = mu_diff.sqr()?.div(&vp)?;
+    let log_term = vp.div(&vq)?.log()?;
+
+    // per_dim = ratio + mu_term + log_term - 1
+    let per_dim = ratio.add(&mu_term)?.add(&log_term)?.affine(1.0, -1.0)?;
+    per_dim.sum(D::Minus1)?.affine(0.5, 0.0)
+}
+
+/// Log-volume of diagonal Gaussians: sum(ln(sigma), dim=-1).
+///
+/// Input: `sigma [batch, dim]`. Returns: `[batch]`.
+fn log_volume_batch(sigma: &Tensor) -> CResult<Tensor> {
+    sigma.log()?.sum(D::Minus1)
+}
+
+/// Volume regularization (Eq. 13): per-dim squared hinge floor on variance.
+///
+/// `L_reg = (1/d) * sum(max(0, min_var - sigma^2)^2, dim=-1)`
+fn volume_reg_batch(sigma: &Tensor, min_var: f32) -> CResult<Tensor> {
+    let var = sigma.sqr()?;
+    let zero = var.zeros_like()?;
+    // gap = min_var - var
+    let gap = var.affine(-1.0, min_var as f64)?;
+    let hinge = gap.maximum(&zero)?;
+    let d = sigma.dim(D::Minus1)? as f64;
+    hinge.sqr()?.sum(D::Minus1)?.affine(1.0 / d, 0.0)
+}
+
+/// Sigma ceiling (Eq. 14): per-dim linear hinge ceiling on variance.
+///
+/// `L_clip = (1/d) * sum(max(0, sigma^2 - max_var), dim=-1)`
+fn sigma_ceiling_batch(sigma: &Tensor, max_var: f32) -> CResult<Tensor> {
+    let var = sigma.sqr()?;
+    let zero = var.zeros_like()?;
+    // gap = var - max_var
+    let gap = var.affine(1.0, -(max_var as f64))?;
+    let hinge = gap.maximum(&zero)?;
+    let d = sigma.dim(D::Minus1)? as f64;
+    hinge.sum(D::Minus1)?.affine(1.0 / d, 0.0)
+}
+
+// ---------------------------------------------------------------------------
+// Combined loss (returns Tensor for backward + CombinedLossResult for logging)
+// ---------------------------------------------------------------------------
+
+/// Compute the four-component TaxoBell loss on tensor batches.
+///
+/// Returns `(total_loss_tensor, breakdown)` where `total_loss_tensor` supports
+/// `.backward()` for autograd.
+#[allow(clippy::too_many_arguments)]
+fn combined_loss_tensor(
+    mu_child: &Tensor,
+    s_child: &Tensor,
+    mu_parent: &Tensor,
+    s_parent: &Tensor,
+    mu_anchor: &Tensor,
+    s_anchor: &Tensor,
+    mu_pos: &Tensor,
+    s_pos: &Tensor,
+    mu_neg: &Tensor,
+    s_neg: &Tensor,
+    mu_all: &Tensor,
+    s_all: &Tensor,
+    config: &TaxoBellConfig,
+) -> CResult<(Tensor, CombinedLossResult)> {
+    let device = mu_child.device();
+    let eps_val = 1e-7f64;
+    let one_minus_eps = 1.0 - eps_val;
+
+    // --- L_sym: symmetric BCE on Bhattacharyya coefficient ---
+    let n_neg = mu_neg.dim(0)?;
+    let l_sym_scalar;
+    let l_sym_t;
+    if n_neg > 0 {
+        let bc_pos = bhattacharyya_coeff_batch(mu_anchor, s_anchor, mu_pos, s_pos)?;
+        let bc_neg = bhattacharyya_coeff_batch(mu_anchor, s_anchor, mu_neg, s_neg)?;
+
+        // Clamp for log stability
+        let eps_t = Tensor::new(&[eps_val as f32], device)?.broadcast_as(bc_pos.shape())?;
+        let one_me = Tensor::new(&[one_minus_eps as f32], device)?.broadcast_as(bc_pos.shape())?;
+        let bc_pos_c = bc_pos.maximum(&eps_t)?.minimum(&one_me)?;
+        let bc_neg_c = bc_neg.maximum(&eps_t)?.minimum(&one_me)?;
+
+        // -log(bc_pos) - log(1 - bc_neg)
+        let term1 = bc_pos_c.log()?.neg()?;
+        let one_t = Tensor::new(&[1.0f32], device)?.broadcast_as(bc_neg_c.shape())?;
+        let term2 = one_t.sub(&bc_neg_c)?.log()?.neg()?;
+        let per_sample = term1.add(&term2)?;
+        l_sym_t = per_sample.mean_all()?;
+        l_sym_scalar = l_sym_t.to_vec0::<f32>()?;
+    } else {
+        l_sym_t = Tensor::new(0.0f32, device)?;
+        l_sym_scalar = 0.0;
     }
 
-    /// Set all parameters from a flat vector.
-    pub fn set_params_flat(&mut self, params: &[f32]) {
-        let split = self.center_mlp.num_params();
-        self.center_mlp.set_params_flat(&params[..split]);
-        self.offset_mlp.set_params_flat(&params[split..]);
+    // --- L_asym: asymmetric KL containment ---
+    let n_edges = mu_child.dim(0)?;
+    let l_asym_scalar;
+    let l_asym_t;
+    if n_edges > 0 {
+        let kl = kl_divergence_batch(mu_child, s_child, mu_parent, s_parent)?;
+        // L_align = relu(kl - margin)
+        let zero_edges = kl.zeros_like()?;
+        let l_align = kl
+            .affine(1.0, -(config.asymmetric_margin as f64))?
+            .maximum(&zero_edges)?;
+
+        let l_diverge = if config.asymmetric_diverge_c > 0.0 {
+            let kl_rev = kl_divergence_batch(mu_parent, s_parent, mu_child, s_child)?;
+            let lv_parent = log_volume_batch(s_parent)?;
+            let lv_child = log_volume_batch(s_child)?;
+            let d_rep = lv_parent.sub(&lv_child)?;
+            // relu(C * d_rep - kl_rev)
+            let zero_d = d_rep.zeros_like()?;
+            d_rep
+                .affine(config.asymmetric_diverge_c as f64, 0.0)?
+                .sub(&kl_rev)?
+                .maximum(&zero_d)?
+        } else {
+            kl.zeros_like()?
+        };
+
+        // L_asym = mean(L_align + lambda * L_diverge)
+        let asym_per = l_align.add(&l_diverge.affine(config.diverge_lambda as f64, 0.0)?)?;
+        l_asym_t = asym_per.mean_all()?;
+        l_asym_scalar = l_asym_t.to_vec0::<f32>()?;
+    } else {
+        l_asym_t = Tensor::new(0.0f32, device)?;
+        l_asym_scalar = 0.0;
+    }
+
+    // --- L_reg + L_clip on all boxes ---
+    let n_all = mu_all.dim(0)?;
+    let l_reg_scalar;
+    let l_reg_t;
+    let l_clip_scalar;
+    let l_clip_t;
+    if n_all > 0 {
+        l_reg_t = volume_reg_batch(s_all, config.min_var)?.mean_all()?;
+        l_clip_t = sigma_ceiling_batch(s_all, config.max_var)?.mean_all()?;
+        l_reg_scalar = l_reg_t.to_vec0::<f32>()?;
+        l_clip_scalar = l_clip_t.to_vec0::<f32>()?;
+    } else {
+        l_reg_t = Tensor::new(0.0f32, device)?;
+        l_clip_t = Tensor::new(0.0f32, device)?;
+        l_reg_scalar = 0.0;
+        l_clip_scalar = 0.0;
+    }
+
+    // --- Total: weighted sum ---
+    let total = l_sym_t
+        .affine(config.alpha as f64, 0.0)?
+        .add(&l_asym_t.affine(config.beta as f64, 0.0)?)?
+        .add(&l_reg_t.affine(config.gamma as f64, 0.0)?)?
+        .add(&l_clip_t.affine(config.delta as f64, 0.0)?)?;
+
+    let total_scalar = total.to_vec0::<f32>()?;
+
+    let result = CombinedLossResult {
+        total: total_scalar,
+        l_sym: l_sym_scalar,
+        l_asym: l_asym_scalar,
+        l_reg: l_reg_scalar,
+        l_clip: l_clip_scalar,
+    };
+
+    Ok((total, result))
+}
+
+// ---------------------------------------------------------------------------
+// AMSGrad optimizer state
+// ---------------------------------------------------------------------------
+
+struct AmsGrad {
+    m: Vec<Tensor>,
+    v: Vec<Tensor>,
+    v_hat: Vec<Tensor>,
+    beta1: f64,
+    beta2: f64,
+    eps: f64,
+    t: usize,
+}
+
+impl AmsGrad {
+    fn new(vars: &[&Var], beta1: f64, beta2: f64, eps: f64) -> CResult<Self> {
+        let mut m = Vec::with_capacity(vars.len());
+        let mut v = Vec::with_capacity(vars.len());
+        let mut v_hat = Vec::with_capacity(vars.len());
+        for var in vars {
+            let z = var.as_tensor().zeros_like()?;
+            m.push(z.clone());
+            v.push(z.clone());
+            v_hat.push(z);
+        }
+        Ok(Self {
+            m,
+            v,
+            v_hat,
+            beta1,
+            beta2,
+            eps,
+            t: 0,
+        })
+    }
+
+    fn step(
+        &mut self,
+        vars: &[&Var],
+        grads: &candle_core::backprop::GradStore,
+        lr: f64,
+    ) -> CResult<()> {
+        self.t += 1;
+        let bc1 = 1.0 - self.beta1.powi(self.t as i32);
+
+        for (i, var) in vars.iter().enumerate() {
+            if let Some(grad) = grads.get(var.as_tensor()) {
+                // m = beta1 * m + (1 - beta1) * g
+                self.m[i] = self.m[i]
+                    .affine(self.beta1, 0.0)?
+                    .add(&grad.affine(1.0 - self.beta1, 0.0)?)?;
+                // v = beta2 * v + (1 - beta2) * g^2
+                let v_new = self.v[i]
+                    .affine(self.beta2, 0.0)?
+                    .add(&grad.sqr()?.affine(1.0 - self.beta2, 0.0)?)?;
+                self.v[i] = v_new.clone();
+                // v_hat = max(v_hat, v) [AMSGrad]
+                self.v_hat[i] = self.v_hat[i].maximum(&v_new)?;
+                // m_hat = m / (1 - beta1^t)
+                let m_hat = self.m[i].affine(1.0 / bc1, 0.0)?;
+                // update = lr * m_hat / (sqrt(v_hat) + eps)
+                let denom = self.v_hat[i].sqrt()?.affine(1.0, self.eps)?;
+                let update = m_hat.affine(lr, 0.0)?.div(&denom)?;
+                // param -= update
+                let new_val = var.as_tensor().sub(&update)?;
+                var.set(&new_val)?;
+            }
+        }
+        Ok(())
     }
 }
+
+// ---------------------------------------------------------------------------
+// Config, result types (plain Rust, no candle dependency)
+// ---------------------------------------------------------------------------
 
 /// Configuration for TaxoBell training.
 #[derive(Debug, Clone)]
@@ -220,8 +499,6 @@ pub struct TaxoBellTrainingConfig {
     pub learning_rate: f32,
     /// Number of training epochs.
     pub epochs: usize,
-    /// Step size for numerical gradient estimation (finite differences).
-    pub grad_epsilon: f32,
     /// Number of negative samples per positive edge.
     pub num_negatives: usize,
     /// Loss function configuration.
@@ -230,7 +507,7 @@ pub struct TaxoBellTrainingConfig {
     pub hidden_dim: usize,
     /// Output box dimension.
     pub box_dim: usize,
-    /// RNG seed for reproducibility.
+    /// RNG seed for negative sampling.
     pub seed: u64,
     /// Number of warmup epochs (linear LR warmup).
     pub warmup_epochs: usize,
@@ -241,7 +518,6 @@ impl Default for TaxoBellTrainingConfig {
         Self {
             learning_rate: 1e-3,
             epochs: 100,
-            grad_epsilon: 1e-4,
             num_negatives: 3,
             loss_config: TaxoBellConfig::default(),
             hidden_dim: 64,
@@ -276,35 +552,64 @@ pub struct TrainingSnapshot {
     pub lr: f32,
 }
 
+// ---------------------------------------------------------------------------
+// Training
+// ---------------------------------------------------------------------------
+
 /// Train a TaxoBell encoder on a taxonomy dataset.
+///
+/// Uses candle autograd for exact gradient computation. Returns the trained
+/// encoder and per-epoch loss snapshots.
 ///
 /// # Arguments
 ///
-/// * `embeddings` - pre-computed text embeddings, one per node (indexed by node position)
+/// * `embeddings` - pre-computed text embeddings, one per node
 /// * `edges` - training edges as `(parent_id, child_id)` pairs
 /// * `all_node_ids` - list of all node IDs (for negative sampling)
+/// * `node_index` - maps node ID → index into `embeddings`
 /// * `config` - training configuration
-///
-/// # Returns
-///
-/// The trained encoder and a vec of per-epoch loss snapshots.
 pub fn train_taxobell(
     embeddings: &[Vec<f32>],
     edges: &[(usize, usize)],
     all_node_ids: &[usize],
     node_index: &std::collections::HashMap<usize, usize>,
     config: &TaxoBellTrainingConfig,
-) -> (TaxoBellEncoder, Vec<TrainingSnapshot>) {
+) -> Result<(TaxoBellEncoder, Vec<TrainingSnapshot>), BoxError> {
+    let map_err = |e: candle_core::Error| BoxError::Internal(e.to_string());
+    let device = Device::Cpu;
     let embed_dim = embeddings[0].len();
-    let mut encoder =
-        TaxoBellEncoder::new(embed_dim, config.hidden_dim, config.box_dim, config.seed);
-    let loss_fn = TaxoBellLoss::new(config.loss_config.clone());
 
-    let n_params = encoder.num_params();
-    let mut opt_state = AMSGradState::new(n_params, config.learning_rate);
+    // Load all embeddings as a single tensor [n_nodes, embed_dim].
+    let flat: Vec<f32> = embeddings.iter().flat_map(|e| e.iter().copied()).collect();
+    let n_nodes = embeddings.len();
+    let all_embeds = Tensor::from_vec(flat, (n_nodes, embed_dim), &device).map_err(map_err)?;
+
+    // Build index arrays for edges.
+    let child_indices: Vec<u32> = edges
+        .iter()
+        .map(|&(_, child_id)| node_index[&child_id] as u32)
+        .collect();
+    let parent_indices: Vec<u32> = edges
+        .iter()
+        .map(|&(parent_id, _)| node_index[&parent_id] as u32)
+        .collect();
+    let all_indices: Vec<u32> = (0..n_nodes as u32).collect();
+
+    let child_idx_t =
+        Tensor::from_vec(child_indices.clone(), edges.len(), &device).map_err(map_err)?;
+    let parent_idx_t =
+        Tensor::from_vec(parent_indices.clone(), edges.len(), &device).map_err(map_err)?;
+    let all_idx_t = Tensor::from_vec(all_indices, n_nodes, &device).map_err(map_err)?;
+
+    // Create encoder.
+    let encoder = TaxoBellEncoder::new(embed_dim, config.hidden_dim, config.box_dim, &device)?;
+
+    // AMSGrad optimizer.
+    let vars = encoder.vars();
+    let mut opt = AmsGrad::new(&vars, 0.9, 0.999, 1e-8).map_err(map_err)?;
     let mut snapshots = Vec::with_capacity(config.epochs);
 
-    // Simple xorshift for negative sampling
+    // Xorshift RNG for negative sampling.
     let mut rng_state = config.seed.wrapping_add(1);
     let mut rng_next = |bound: usize| -> usize {
         rng_state ^= rng_state << 13;
@@ -313,27 +618,93 @@ pub fn train_taxobell(
         (rng_state as usize) % bound
     };
 
+    let n_edges = edges.len();
+    let n_neg = config.num_negatives;
+    let n_total_neg = n_edges * n_neg;
+
     for epoch in 0..config.epochs {
-        // Learning rate schedule: linear warmup + cosine decay
+        // LR schedule: linear warmup + cosine decay.
         let lr = crate::optimizer::get_learning_rate(
             epoch,
             config.epochs,
             config.learning_rate,
             config.warmup_epochs,
         );
-        opt_state.set_lr(lr);
 
-        // --- Compute loss for the current parameters ---
-        let loss_result = compute_batch_loss(
-            &encoder,
-            embeddings,
-            edges,
-            all_node_ids,
-            node_index,
-            &loss_fn,
-            config.num_negatives,
-            &mut rng_next,
-        );
+        // Sample negatives for this epoch.
+        let neg_node_indices: Vec<u32> = (0..n_total_neg)
+            .map(|_| {
+                let node_id = all_node_ids[rng_next(all_node_ids.len())];
+                node_index[&node_id] as u32
+            })
+            .collect();
+        // Anchor/positive indices: repeat each edge's child/parent n_neg times.
+        let anchor_indices: Vec<u32> = child_indices
+            .iter()
+            .flat_map(|&idx| std::iter::repeat_n(idx, n_neg))
+            .collect();
+        let pos_indices: Vec<u32> = parent_indices
+            .iter()
+            .flat_map(|&idx| std::iter::repeat_n(idx, n_neg))
+            .collect();
+
+        // --- Forward pass: encode all nodes once ---
+        let (mu_all, s_all) = encoder.encode(&all_embeds).map_err(map_err)?;
+
+        // Gather child, parent, anchor, positive, negative.
+        let mu_child = mu_all.index_select(&child_idx_t, 0).map_err(map_err)?;
+        let s_child = s_all.index_select(&child_idx_t, 0).map_err(map_err)?;
+        let mu_parent = mu_all.index_select(&parent_idx_t, 0).map_err(map_err)?;
+        let s_parent = s_all.index_select(&parent_idx_t, 0).map_err(map_err)?;
+
+        let (mu_anchor, s_anchor, mu_pos, s_pos, mu_neg_t, s_neg_t) = if n_total_neg > 0 {
+            let anchor_t =
+                Tensor::from_vec(anchor_indices, n_total_neg, &device).map_err(map_err)?;
+            let pos_t = Tensor::from_vec(pos_indices, n_total_neg, &device).map_err(map_err)?;
+            let neg_t =
+                Tensor::from_vec(neg_node_indices, n_total_neg, &device).map_err(map_err)?;
+
+            (
+                mu_all.index_select(&anchor_t, 0).map_err(map_err)?,
+                s_all.index_select(&anchor_t, 0).map_err(map_err)?,
+                mu_all.index_select(&pos_t, 0).map_err(map_err)?,
+                s_all.index_select(&pos_t, 0).map_err(map_err)?,
+                mu_all.index_select(&neg_t, 0).map_err(map_err)?,
+                s_all.index_select(&neg_t, 0).map_err(map_err)?,
+            )
+        } else {
+            let empty = Tensor::zeros((0, config.box_dim), DType::F32, &device).map_err(map_err)?;
+            (
+                empty.clone(),
+                empty.clone(),
+                empty.clone(),
+                empty.clone(),
+                empty.clone(),
+                empty,
+            )
+        };
+
+        // Regularization uses all nodes.
+        let mu_all_reg = mu_all.index_select(&all_idx_t, 0).map_err(map_err)?;
+        let s_all_reg = s_all.index_select(&all_idx_t, 0).map_err(map_err)?;
+
+        // --- Compute loss ---
+        let (loss_t, loss_result) = combined_loss_tensor(
+            &mu_child,
+            &s_child,
+            &mu_parent,
+            &s_parent,
+            &mu_anchor,
+            &s_anchor,
+            &mu_pos,
+            &s_pos,
+            &mu_neg_t,
+            &s_neg_t,
+            &mu_all_reg,
+            &s_all_reg,
+            &config.loss_config,
+        )
+        .map_err(map_err)?;
 
         snapshots.push(TrainingSnapshot {
             epoch,
@@ -341,89 +712,47 @@ pub fn train_taxobell(
             lr,
         });
 
-        // --- Numerical gradients via forward finite differences ---
-        let params = encoder.params_flat();
-        let base_loss = loss_result.total;
-        let mut grads = vec![0.0f32; n_params];
-
-        for i in 0..n_params {
-            let mut params_plus = params.clone();
-            params_plus[i] += config.grad_epsilon;
-            encoder.set_params_flat(&params_plus);
-
-            let loss_plus = compute_batch_loss(
-                &encoder,
-                embeddings,
-                edges,
-                all_node_ids,
-                node_index,
-                &loss_fn,
-                config.num_negatives,
-                &mut rng_next,
-            )
-            .total;
-
-            grads[i] = (loss_plus - base_loss) / config.grad_epsilon;
-        }
-
-        // Restore original params before update
-        encoder.set_params_flat(&params);
-
-        // --- AMSGrad update ---
-        opt_state.t += 1;
-        let t = opt_state.t as f32;
-        let bias_correction1 = 1.0 - opt_state.beta1.powf(t);
-
-        let mut new_params = params;
-        for i in 0..n_params {
-            let g = grads[i];
-            opt_state.m[i] = opt_state.beta1 * opt_state.m[i] + (1.0 - opt_state.beta1) * g;
-            let v_new = opt_state.beta2 * opt_state.v[i] + (1.0 - opt_state.beta2) * g * g;
-            opt_state.v[i] = v_new;
-            opt_state.v_hat[i] = opt_state.v_hat[i].max(v_new);
-
-            let m_hat = opt_state.m[i] / bias_correction1;
-            let update = opt_state.lr * m_hat / (opt_state.v_hat[i].sqrt() + opt_state.epsilon);
-            new_params[i] -= update;
-            if !new_params[i].is_finite() {
-                new_params[i] = 0.0;
-            }
-        }
-
-        encoder.set_params_flat(&new_params);
+        // --- Backward + AMSGrad step ---
+        let grads = loss_t.backward().map_err(map_err)?;
+        let vars = encoder.vars();
+        opt.step(&vars, &grads, lr as f64).map_err(map_err)?;
     }
 
-    (encoder, snapshots)
+    Ok((encoder, snapshots))
 }
+
+// ---------------------------------------------------------------------------
+// Evaluation
+// ---------------------------------------------------------------------------
 
 /// Evaluate a trained encoder on a set of edges.
 ///
-/// For each `(parent_id, child_id)` edge, computes the KL-divergence rank of the
-/// true parent among all candidate nodes. Lower KL → better containment → higher rank.
+/// For each `(parent_id, child_id)`, ranks the true parent among all candidates
+/// by KL divergence (lower KL = better containment = higher rank).
 pub fn evaluate_taxobell(
     encoder: &TaxoBellEncoder,
     embeddings: &[Vec<f32>],
     test_edges: &[(usize, usize)],
     all_node_ids: &[usize],
     node_index: &std::collections::HashMap<usize, usize>,
-) -> TaxoBellEvalResult {
+) -> Result<TaxoBellEvalResult, BoxError> {
     if test_edges.is_empty() {
-        return TaxoBellEvalResult {
+        return Ok(TaxoBellEvalResult {
             mrr: 0.0,
             hits_at_1: 0.0,
             hits_at_3: 0.0,
             hits_at_10: 0.0,
-        };
+        });
     }
 
-    // Pre-encode all nodes.
-    let boxes: Vec<GaussianBox> = all_node_ids
+    // Encode all nodes (no grad needed).
+    let boxes: Vec<crate::gaussian::GaussianBox> = all_node_ids
         .iter()
         .map(|&id| {
             let idx = node_index[&id];
-            encoder.encode(&embeddings[idx]).unwrap()
+            encoder.encode_one(&embeddings[idx])
         })
-        .collect();
+        .collect::<Result<Vec<_>, _>>()?;
 
     let mut reciprocal_ranks = Vec::with_capacity(test_edges.len());
     let mut hits1 = 0usize;
@@ -432,9 +761,8 @@ pub fn evaluate_taxobell(
 
     for &(parent_id, child_id) in test_edges {
         let child_idx = node_index[&child_id];
-        let child_box = encoder.encode(&embeddings[child_idx]).unwrap();
+        let child_box = encoder.encode_one(&embeddings[child_idx])?;
 
-        // Score all candidate parents by KL(child || candidate): lower = better.
         let mut scores: Vec<(usize, f32)> = all_node_ids
             .iter()
             .enumerate()
@@ -445,10 +773,8 @@ pub fn evaluate_taxobell(
             })
             .collect();
 
-        // Sort by ascending KL (best parent first).
         scores.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
-        // Find rank of true parent (1-indexed).
         let rank = scores
             .iter()
             .position(|&(id, _)| id == parent_id)
@@ -468,157 +794,80 @@ pub fn evaluate_taxobell(
     }
 
     let n = test_edges.len() as f32;
-    TaxoBellEvalResult {
+    Ok(TaxoBellEvalResult {
         mrr: reciprocal_ranks.iter().sum::<f32>() / n,
         hits_at_1: hits1 as f32 / n,
         hits_at_3: hits3 as f32 / n,
         hits_at_10: hits10 as f32 / n,
-    }
-}
-
-/// Compute the combined TaxoBell loss over a batch of edges with negative sampling.
-fn compute_batch_loss(
-    encoder: &TaxoBellEncoder,
-    embeddings: &[Vec<f32>],
-    edges: &[(usize, usize)],
-    all_node_ids: &[usize],
-    node_index: &std::collections::HashMap<usize, usize>,
-    loss_fn: &TaxoBellLoss,
-    num_negatives: usize,
-    rng_next: &mut impl FnMut(usize) -> usize,
-) -> CombinedLossResult {
-    if edges.is_empty() {
-        return CombinedLossResult {
-            total: 0.0,
-            l_sym: 0.0,
-            l_asym: 0.0,
-            l_reg: 0.0,
-            l_clip: 0.0,
-        };
-    }
-
-    // Encode all referenced nodes.
-    let mut box_cache: std::collections::HashMap<usize, GaussianBox> =
-        std::collections::HashMap::new();
-    let mut ensure_box = |id: usize, enc: &TaxoBellEncoder| -> GaussianBox {
-        box_cache
-            .entry(id)
-            .or_insert_with(|| {
-                let idx = node_index[&id];
-                enc.encode(&embeddings[idx]).unwrap()
-            })
-            .clone()
-    };
-
-    // Build positive pairs and negative triples.
-    let mut all_boxes_vec: Vec<GaussianBox> = Vec::new();
-
-    // Positives: (child, parent)
-    let mut pos_pairs: Vec<(GaussianBox, GaussianBox)> = Vec::with_capacity(edges.len());
-    for &(parent_id, child_id) in edges {
-        let child_box = ensure_box(child_id, encoder);
-        let parent_box = ensure_box(parent_id, encoder);
-        pos_pairs.push((child_box, parent_box));
-    }
-
-    // Negatives: for each edge, sample random negative nodes for symmetric triplet loss.
-    let mut neg_triples: Vec<(GaussianBox, GaussianBox, GaussianBox)> = Vec::new();
-    for &(parent_id, child_id) in edges {
-        let anchor = ensure_box(child_id, encoder);
-        let positive = ensure_box(parent_id, encoder);
-        for _ in 0..num_negatives {
-            let neg_id = all_node_ids[rng_next(all_node_ids.len())];
-            let negative = ensure_box(neg_id, encoder);
-            neg_triples.push((anchor.clone(), positive.clone(), negative));
-        }
-    }
-
-    // Collect all unique boxes for regularization.
-    for (_, gb) in &box_cache {
-        all_boxes_vec.push(gb.clone());
-    }
-
-    // Build references for the loss function.
-    let positives_ref: Vec<(&GaussianBox, &GaussianBox)> =
-        pos_pairs.iter().map(|(c, p)| (c, p)).collect();
-    let negatives_ref: Vec<(&GaussianBox, &GaussianBox, &GaussianBox)> =
-        neg_triples.iter().map(|(a, p, n)| (a, p, n)).collect();
-    let all_ref: Vec<&GaussianBox> = all_boxes_vec.iter().collect();
-
-    loss_fn
-        .combined_loss(&positives_ref, &negatives_ref, &all_ref)
-        .unwrap_or(CombinedLossResult {
-            total: 0.0,
-            l_sym: 0.0,
-            l_asym: 0.0,
-            l_reg: 0.0,
-            l_clip: 0.0,
-        })
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn device() -> Device {
+        Device::Cpu
+    }
+
     #[test]
     fn mlp_forward_shape() {
-        let mlp = Mlp::new(8, 16, 4, 42);
-        let input = vec![1.0; 8];
-        let output = mlp.forward(&input);
-        assert_eq!(output.len(), 4);
-        assert!(output.iter().all(|x| x.is_finite()));
+        let mlp = Mlp::new(8, 16, 4, &device()).unwrap();
+        let input = Tensor::ones((3, 8), DType::F32, &device()).unwrap();
+        let output = mlp.forward(&input).unwrap();
+        assert_eq!(output.dims(), &[3, 4]);
     }
 
     #[test]
-    fn mlp_params_roundtrip() {
-        let mlp = Mlp::new(4, 8, 2, 123);
-        let params = mlp.params_flat();
-        assert_eq!(params.len(), mlp.num_params());
-
-        let mut mlp2 = Mlp::new(4, 8, 2, 999); // different init
-        mlp2.set_params_flat(&params);
-        assert_eq!(mlp2.params_flat(), params);
-    }
-
-    #[test]
-    fn encoder_produces_valid_gaussian() {
-        let encoder = TaxoBellEncoder::new(8, 16, 4, 42);
-        let embed = vec![0.5; 8];
-        let gb = encoder.encode(&embed).unwrap();
-        assert_eq!(gb.dim(), 4);
-        for &s in &gb.sigma {
-            assert!(s > 0.0, "sigma must be positive, got {s}");
+    fn encoder_produces_positive_sigma() {
+        let enc = TaxoBellEncoder::new(8, 16, 4, &device()).unwrap();
+        let embed = Tensor::ones((2, 8), DType::F32, &device()).unwrap();
+        let (_mu, sigma) = enc.encode(&embed).unwrap();
+        let vals: Vec<Vec<f32>> = sigma.to_vec2().unwrap();
+        for row in &vals {
+            for &s in row {
+                assert!(s > 0.0, "sigma must be positive, got {s}");
+            }
         }
     }
 
     #[test]
-    fn encoder_params_roundtrip() {
-        let encoder = TaxoBellEncoder::new(8, 16, 4, 42);
-        let params = encoder.params_flat();
-        assert_eq!(params.len(), encoder.num_params());
-
-        let mut encoder2 = TaxoBellEncoder::new(8, 16, 4, 999);
-        encoder2.set_params_flat(&params);
-        assert_eq!(encoder2.params_flat(), params);
+    fn encoder_different_inputs_different_outputs() {
+        let enc = TaxoBellEncoder::new(8, 16, 4, &device()).unwrap();
+        let a = Tensor::zeros((1, 8), DType::F32, &device()).unwrap();
+        let b = Tensor::ones((1, 8), DType::F32, &device()).unwrap();
+        let (mu_a, _) = enc.encode(&a).unwrap();
+        let (mu_b, _) = enc.encode(&b).unwrap();
+        let va: Vec<f32> = mu_a.squeeze(0).unwrap().to_vec1().unwrap();
+        let vb: Vec<f32> = mu_b.squeeze(0).unwrap().to_vec1().unwrap();
+        assert_ne!(va, vb, "different inputs should produce different centers");
     }
 
     #[test]
-    fn encoder_different_inputs_different_outputs() {
-        let encoder = TaxoBellEncoder::new(8, 16, 4, 42);
-        let a = encoder.encode(&vec![0.0; 8]).unwrap();
-        let b = encoder.encode(&vec![1.0; 8]).unwrap();
-        // Outputs should differ (not a degenerate encoder).
-        assert_ne!(
-            a.mu, b.mu,
-            "different inputs should produce different centers"
-        );
+    fn backward_produces_gradients() {
+        let enc = TaxoBellEncoder::new(4, 8, 2, &device()).unwrap();
+        let embed = Tensor::ones((2, 4), DType::F32, &device()).unwrap();
+        let (mu, sigma) = enc.encode(&embed).unwrap();
+        // Simple loss: sum of mu + sum of sigma
+        let loss = mu
+            .sum_all()
+            .unwrap()
+            .add(&sigma.sum_all().unwrap())
+            .unwrap();
+        let grads = loss.backward().unwrap();
+        // Every Var should have a gradient.
+        for var in enc.vars() {
+            assert!(
+                grads.get(var.as_tensor()).is_some(),
+                "missing gradient for var"
+            );
+        }
     }
 
     #[test]
     fn train_loss_decreases() {
-        // Tiny taxonomy: root → A, root → B
         let node_ids = vec![0usize, 1, 2];
-        let edges = vec![(0, 1), (0, 2)]; // parent=0, children=1,2
+        let edges = vec![(0, 1), (0, 2)];
         let embeddings = vec![
             vec![0.0, 0.5, 1.0, 0.2],
             vec![1.0, 0.0, 0.5, 0.8],
@@ -631,28 +880,28 @@ mod tests {
             .collect();
 
         let config = TaxoBellTrainingConfig {
-            learning_rate: 1e-2,
-            epochs: 20,
-            grad_epsilon: 1e-3,
+            learning_rate: 5e-3,
+            epochs: 30,
             num_negatives: 1,
             hidden_dim: 8,
             box_dim: 4,
             seed: 42,
-            warmup_epochs: 2,
+            warmup_epochs: 3,
             ..Default::default()
         };
 
-        let (_, snapshots) = train_taxobell(&embeddings, &edges, &node_ids, &node_index, &config);
+        let (_, snapshots) =
+            train_taxobell(&embeddings, &edges, &node_ids, &node_index, &config).unwrap();
 
-        assert_eq!(snapshots.len(), 20);
-        let first_loss = snapshots[0].loss.total;
-        let last_loss = snapshots.last().unwrap().loss.total;
+        assert_eq!(snapshots.len(), 30);
+        let first = snapshots[0].loss.total;
+        let last = snapshots.last().unwrap().loss.total;
+        assert!(first.is_finite());
+        assert!(last.is_finite());
         assert!(
-            last_loss <= first_loss + 0.1,
-            "loss should not increase significantly: first={first_loss}, last={last_loss}"
+            last < first,
+            "loss should decrease: first={first}, last={last}"
         );
-        assert!(first_loss.is_finite());
-        assert!(last_loss.is_finite());
     }
 
     #[test]
@@ -670,10 +919,10 @@ mod tests {
             .map(|(i, &id)| (id, i))
             .collect();
 
-        let encoder = TaxoBellEncoder::new(2, 4, 2, 42);
+        let encoder = TaxoBellEncoder::new(2, 4, 2, &Device::Cpu).unwrap();
         let test_edges = vec![(0, 1), (0, 2)];
-
-        let result = evaluate_taxobell(&encoder, &embeddings, &test_edges, &node_ids, &node_index);
+        let result =
+            evaluate_taxobell(&encoder, &embeddings, &test_edges, &node_ids, &node_index).unwrap();
         assert!(result.mrr >= 0.0 && result.mrr <= 1.0);
         assert!(result.hits_at_1 >= 0.0 && result.hits_at_1 <= 1.0);
         assert!(result.hits_at_10 >= 0.0 && result.hits_at_10 <= 1.0);
@@ -689,8 +938,33 @@ mod tests {
             .map(|(i, &id)| (id, i))
             .collect();
 
-        let encoder = TaxoBellEncoder::new(2, 4, 2, 42);
-        let result = evaluate_taxobell(&encoder, &embeddings, &[], &node_ids, &node_index);
+        let encoder = TaxoBellEncoder::new(2, 4, 2, &Device::Cpu).unwrap();
+        let result = evaluate_taxobell(&encoder, &embeddings, &[], &node_ids, &node_index).unwrap();
         assert_eq!(result.mrr, 0.0);
+    }
+
+    #[test]
+    fn encode_one_matches_batch() {
+        let enc = TaxoBellEncoder::new(4, 8, 2, &device()).unwrap();
+        let embed = vec![0.5f32, -0.3, 1.0, 0.2];
+
+        // Encode via batch path.
+        let t = Tensor::new(&embed[..], &device())
+            .unwrap()
+            .unsqueeze(0)
+            .unwrap();
+        let (mu_batch, sigma_batch) = enc.encode(&t).unwrap();
+        let mu_b: Vec<f32> = mu_batch.squeeze(0).unwrap().to_vec1().unwrap();
+        let sigma_b: Vec<f32> = sigma_batch.squeeze(0).unwrap().to_vec1().unwrap();
+
+        // Encode via single path.
+        let gb = enc.encode_one(&embed).unwrap();
+
+        for (a, b) in mu_b.iter().zip(gb.mu.iter()) {
+            assert!((a - b).abs() < 1e-5, "mu mismatch: {a} vs {b}");
+        }
+        for (a, b) in sigma_b.iter().zip(gb.sigma.iter()) {
+            assert!((a - b).abs() < 1e-5, "sigma mismatch: {a} vs {b}");
+        }
     }
 }
