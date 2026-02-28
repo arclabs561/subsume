@@ -11,8 +11,8 @@
 //! |-----------|---------|-----------------|
 //! | `L_sym`   | Sibling triplet loss (symmetric) | Bhattacharyya coefficient |
 //! | `L_asym`  | Parent-child containment (asymmetric) | KL divergence |
-//! | `L_reg`   | Volume regularization | Log-volume deviation |
-//! | `L_clip`  | Sigma clipping (prevent collapse) | Min-sigma hinge |
+//! | `L_reg`   | Volume regularization (Eq. 13) | Per-dim squared hinge floor on variance |
+//! | `L_clip`  | Variance ceiling (Eq. 14) | Per-dim linear hinge ceiling on variance |
 //!
 //! # Usage
 //!
@@ -31,7 +31,7 @@
 //! ```
 
 use crate::gaussian::{
-    bhattacharyya_coefficient, kl_divergence, sigma_clipping_loss, volume_regularization,
+    bhattacharyya_coefficient, kl_divergence, sigma_ceiling_loss, volume_regularization,
     GaussianBox,
 };
 use crate::BoxError;
@@ -53,36 +53,38 @@ pub struct TaxoBellConfig {
     pub symmetric_margin: f32,
     /// Margin for the asymmetric alignment triplet loss (delta in paper Eq. 10).
     pub asymmetric_margin: f32,
-    /// Constant `C` for the diverge component of asymmetric loss (paper Eq. 12).
-    /// The diverge loss is `max(0, C * D_rep - KL(parent || child))`.
-    /// Set to 0.0 to disable the diverge component.
+    /// Scale factor `C` for the diverge component (paper Eq. 11).
+    /// `L_diverge = max(0, C * D_rep - KL(parent || child))` where
+    /// D_rep = logVol(parent) - logVol(child) is computed dynamically.
+    /// Default 1.5 per paper. Set to 0.0 to disable L_diverge.
     pub asymmetric_diverge_c: f32,
-    /// Reference repulsion distance `D_rep` for the diverge component.
-    pub asymmetric_diverge_d_rep: f32,
     /// Lambda weight for L_diverge in the asymmetric loss (paper Eq. 12).
-    /// `L_asym = L_align + lambda * L_diverge`. Default 0.3 per paper appendix.
+    /// `L_asym = L_align + lambda * L_diverge`. Default 0.3 per paper.
     pub diverge_lambda: f32,
 
-    /// Target log-volume for regularization (0.0 = unit volume).
-    pub target_log_volume: f32,
-    /// Minimum sigma threshold for clipping loss.
-    pub min_sigma: f32,
+    /// Minimum variance threshold for L_reg (paper Eq. 13, delta_var).
+    /// Variances below this are penalized with a squared hinge.
+    /// Reference code uses 0.25 (= 0.5^2, hinge on std).
+    pub min_var: f32,
+    /// Maximum variance threshold for L_clip (paper Eq. 14, M_var).
+    /// Variances above this are penalized with a linear hinge.
+    /// Reference code uses 10.0.
+    pub max_var: f32,
 }
 
 impl Default for TaxoBellConfig {
     fn default() -> Self {
         Self {
-            alpha: 1.0,
-            beta: 1.0,
-            gamma: 0.01,
-            delta: 0.01,
+            alpha: 0.45,
+            beta: 0.45,
+            gamma: 0.10,
+            delta: 0.10,
             symmetric_margin: 0.1,
-            asymmetric_margin: 1.0,
-            asymmetric_diverge_c: 0.0,
-            asymmetric_diverge_d_rep: 1.0,
+            asymmetric_margin: 0.5,
+            asymmetric_diverge_c: 1.5,
             diverge_lambda: 0.3,
-            target_log_volume: 0.0,
-            min_sigma: 0.01,
+            min_var: 0.25,
+            max_var: 10.0,
         }
     }
 }
@@ -157,22 +159,19 @@ impl TaxoBellLoss {
 
     /// Asymmetric containment loss using KL divergence (paper Eq. 10-12).
     ///
-    /// The full asymmetric loss has two components:
-    ///
     /// ```text
-    /// L_align  = max(0, KL(child || parent) - KL(child || negative) + delta)
+    /// L_align   = max(0, KL(child || parent) - delta)
+    /// D_rep     = logVol(parent) - logVol(child)          [dynamic]
     /// L_diverge = max(0, C * D_rep - KL(parent || child))
-    /// L_asym   = L_align + L_diverge
+    /// L_asym    = L_align + lambda * L_diverge
     /// ```
     ///
-    /// - **L_align** (Eq. 10): triplet loss ensuring the child is closer to
-    ///   the parent than to a negative, with margin `delta`.
-    /// - **L_diverge** (Eq. 12): ensures the parent is sufficiently "larger"
-    ///   than the child by requiring `KL(parent || child) >= C * D_rep`.
+    /// - **L_align**: hinge ensuring child is "contained" (small forward KL).
+    /// - **L_diverge** (Eq. 11): ensures the parent is sufficiently "larger"
+    ///   than the child. D_rep is the log-volume gap, computed dynamically.
     ///
-    /// When called without a negative (the 2-argument form), only L_align
-    /// with a simple hinge is used: `max(0, KL(child || parent) - delta)`.
-    /// Set `asymmetric_diverge_c = 0.0` (default) to disable L_diverge.
+    /// When called without a negative (this 2-argument form), L_align uses a
+    /// simple hinge. For the triplet form, use [`asymmetric_loss_triplet`](Self::asymmetric_loss_triplet).
     ///
     /// # Errors
     ///
@@ -187,8 +186,8 @@ impl TaxoBellLoss {
 
         let l_diverge = if self.config.asymmetric_diverge_c > 0.0 {
             let kl_reverse = kl_divergence(parent, child)?;
-            (self.config.asymmetric_diverge_c * self.config.asymmetric_diverge_d_rep - kl_reverse)
-                .max(0.0)
+            let d_rep = parent.log_volume() - child.log_volume();
+            (self.config.asymmetric_diverge_c * d_rep - kl_reverse).max(0.0)
         } else {
             0.0
         };
@@ -199,7 +198,8 @@ impl TaxoBellLoss {
     /// Asymmetric containment loss with negative sample (paper Eq. 10-12).
     ///
     /// ```text
-    /// L_align  = max(0, KL(child || parent) - KL(child || negative) + delta)
+    /// L_align   = max(0, KL(child || parent) - KL(child || negative) + delta)
+    /// D_rep     = logVol(parent) - logVol(child)          [dynamic]
     /// L_diverge = max(0, C * D_rep - KL(parent || child))
     /// ```
     ///
@@ -221,8 +221,8 @@ impl TaxoBellLoss {
 
         let l_diverge = if self.config.asymmetric_diverge_c > 0.0 {
             let kl_reverse = kl_divergence(parent, child)?;
-            (self.config.asymmetric_diverge_c * self.config.asymmetric_diverge_d_rep - kl_reverse)
-                .max(0.0)
+            let d_rep = parent.log_volume() - child.log_volume();
+            (self.config.asymmetric_diverge_c * d_rep - kl_reverse).max(0.0)
         } else {
             0.0
         };
@@ -294,12 +294,12 @@ impl TaxoBellLoss {
             l_asym /= positives.len() as f32;
         }
 
-        // L_reg + L_clip: regularization over all boxes
+        // L_reg (Eq. 13) + L_clip (Eq. 14): regularization over all boxes
         let mut l_reg = 0.0f32;
         let mut l_clip = 0.0f32;
         for &g in all_boxes {
-            l_reg += volume_regularization(g, self.config.target_log_volume);
-            l_clip += sigma_clipping_loss(g, self.config.min_sigma);
+            l_reg += volume_regularization(g, self.config.min_var);
+            l_clip += sigma_ceiling_loss(g, self.config.max_var);
         }
         if !all_boxes.is_empty() {
             let n = all_boxes.len() as f32;
@@ -431,7 +431,6 @@ mod tests {
         let config = TaxoBellConfig {
             asymmetric_margin: 0.0,
             asymmetric_diverge_c: 1.0,
-            asymmetric_diverge_d_rep: 5.0,
             ..TaxoBellConfig::default()
         };
         let loss_fn = TaxoBellLoss::new(config);
@@ -474,10 +473,9 @@ mod tests {
             symmetric_margin: 0.1,
             asymmetric_margin: 0.0,
             asymmetric_diverge_c: 0.0,
-            asymmetric_diverge_d_rep: 1.0,
             diverge_lambda: 0.3,
-            target_log_volume: 0.0,
-            min_sigma: 0.01,
+            min_var: 0.01,
+            max_var: 100.0,
         };
         let loss_fn = TaxoBellLoss::new(config);
 
@@ -523,12 +521,13 @@ mod tests {
     #[test]
     fn test_default_config() {
         let cfg = TaxoBellConfig::default();
-        assert!((cfg.alpha - 1.0).abs() < f32::EPSILON);
-        assert!((cfg.beta - 1.0).abs() < f32::EPSILON);
-        assert!(cfg.gamma > 0.0);
-        assert!(cfg.delta > 0.0);
+        assert!((cfg.alpha - 0.45).abs() < f32::EPSILON);
+        assert!((cfg.beta - 0.45).abs() < f32::EPSILON);
+        assert!((cfg.gamma - 0.10).abs() < f32::EPSILON);
+        assert!((cfg.delta - 0.10).abs() < f32::EPSILON);
         assert!(cfg.symmetric_margin > 0.0);
-        assert!(cfg.min_sigma > 0.0);
+        assert!(cfg.min_var > 0.0);
+        assert!(cfg.max_var > cfg.min_var);
     }
 
     // -- Audit-driven regression tests --
@@ -579,32 +578,33 @@ mod tests {
         assert!(triplet_bad > triplet, "Triplet loss should increase when positive/negative swapped");
     }
 
-    /// Test L_diverge component: when c > 0, L_diverge = max(0, c*D_rep - KL(parent||child)).
-    /// When parent is very narrow and child is wide, KL(parent||child) is small,
-    /// so L_diverge should be positive (penalizing insufficient size difference).
+    /// Test L_diverge component: when c > 0, L_diverge = max(0, c*D_rep - KL(parent||child))
+    /// where D_rep = logVol(parent) - logVol(child) (dynamic).
+    /// When parent is moderately wider than child, D_rep > 0 but KL(parent||child) is small,
+    /// so L_diverge should be positive.
     #[test]
     fn test_asymmetric_loss_with_diverge_active() {
         let config = TaxoBellConfig {
             asymmetric_margin: 100.0, // large margin so l_align = 0
             asymmetric_diverge_c: 2.0,
-            asymmetric_diverge_d_rep: 10.0,
             ..TaxoBellConfig::default()
         };
         let loss_fn = TaxoBellLoss::new(config);
 
-        // Parent narrower than child => KL(parent||child) is small
-        let child = make_box(&[0.0; 4], &[5.0; 4]);
-        let parent = make_box(&[0.0; 4], &[4.9; 4]);
+        // Parent moderately wider than child => D_rep > 0, KL(parent||child) moderate
+        // With sigma_c=1.0, sigma_p=2.0: D_rep=4*ln(2)=2.77, KL(p||c)=3.23, c*D_rep=5.55>3.23
+        let child = make_box(&[0.0; 4], &[1.0; 4]);
+        let parent = make_box(&[0.0; 4], &[2.0; 4]);
 
         let l = loss_fn.asymmetric_loss(&child, &parent).unwrap();
         // l_align should be 0 (large margin).
-        // KL(parent||child) is small (similar sigmas), so L_diverge = max(0, 2*10 - small) > 0
+        // D_rep = logVol(parent) - logVol(child) > 0, c*D_rep should exceed KL
         assert!(
             l > 0.0,
-            "L_diverge should be active when parent is not sufficiently larger, got {l}"
+            "L_diverge should be active when parent is moderately larger, got {l}"
         );
 
-        // Now with parent much wider: KL(parent||child) large => L_diverge small/zero
+        // Now with parent much wider: KL(parent||child) grows faster than D_rep
         let parent_wide = make_box(&[0.0; 4], &[100.0; 4]);
         let l2 = loss_fn.asymmetric_loss(&child, &parent_wide).unwrap();
         assert!(
@@ -650,10 +650,9 @@ mod tests {
             symmetric_margin: 0.1,
             asymmetric_margin: 1.0,
             asymmetric_diverge_c: 0.0,
-            asymmetric_diverge_d_rep: 1.0,
             diverge_lambda: 0.3,
-            target_log_volume: 0.0,
-            min_sigma: 0.01,
+            min_var: 0.01,
+            max_var: 100.0,
         };
         let loss_fn = TaxoBellLoss::new(config);
 
@@ -727,10 +726,9 @@ mod tests {
             symmetric_margin: 0.1,
             asymmetric_margin: 0.0,
             asymmetric_diverge_c: 0.0,
-            asymmetric_diverge_d_rep: 1.0,
             diverge_lambda: 0.3,
-            target_log_volume: 0.0,
-            min_sigma: 0.01,
+            min_var: 0.01,
+            max_var: 100.0,
         });
 
         let root = make_box(&[0.0; 8], &[4.0; 8]);
@@ -885,7 +883,6 @@ mod tests {
                 let config_zero = TaxoBellConfig {
                     asymmetric_margin: 10.0,
                     asymmetric_diverge_c: 1.0,
-                    asymmetric_diverge_d_rep: 10.0,
                     diverge_lambda: 0.0,
                     ..TaxoBellConfig::default()
                 };

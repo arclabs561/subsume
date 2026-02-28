@@ -238,44 +238,47 @@ pub fn bhattacharyya_coefficient(a: &GaussianBox, b: &GaussianBox) -> Result<f32
 
 /// Volume regularization loss for a Gaussian box.
 ///
-/// Penalizes extreme volumes (too large or too small) to keep embeddings
-/// well-conditioned during training. The loss is the squared deviation
-/// of the log-volume from a target.
+/// Variance floor loss (paper's L_reg, Eq. 13): prevents variance collapse.
 ///
-/// # Design note (divergence from paper)
+/// Per-dimension squared hinge on variance falling below a threshold:
 ///
-/// The TaxoBell paper's `L_reg` uses a per-dimension hinge on minimum
-/// variance with squared Frobenius norm: `(1/d) * ||relu(min_var - sigma^2)||_F^2`.
-/// This implementation uses an aggregate log-volume quadratic penalty instead,
-/// which is simpler and serves the same purpose (preventing volume collapse or
-/// explosion) without requiring a per-dimension minimum variance threshold.
-/// The log-space formulation also provides smoother gradients across scale ranges.
+/// ```text
+/// L_reg = (1/d) * sum_i max(0, min_var - sigma_i^2)^2
+/// ```
+///
+/// This matches TaxoBell Eq. 13: `(1/d) * ||(delta_var * I - Sigma)_+||_F^2`
+/// for diagonal Sigma.
 ///
 /// # Arguments
 ///
 /// * `g` - The Gaussian box to regularize
-/// * `target_log_vol` - Target log-volume (default: 0.0, meaning unit volume)
+/// * `min_var` - Minimum variance threshold (delta_var in the paper; reference code uses 0.25)
 #[must_use]
-pub fn volume_regularization(g: &GaussianBox, target_log_vol: f32) -> f32 {
-    let lv = g.log_volume();
-    (lv - target_log_vol).powi(2)
+pub fn volume_regularization(g: &GaussianBox, min_var: f32) -> f32 {
+    let d = g.sigma.len();
+    if d == 0 {
+        return 0.0;
+    }
+    let sum: f32 = g
+        .sigma
+        .iter()
+        .map(|&s| {
+            let deficit = (min_var - s * s).max(0.0);
+            deficit * deficit
+        })
+        .sum();
+    sum / d as f32
 }
 
 /// Sigma floor loss: prevents sigma from collapsing to near-zero.
 ///
 /// Returns `sum_i max(0, min_sigma - sigma_i)` over all dimensions.
+/// This is a simpler linear-hinge variant of [`volume_regularization`].
 ///
-/// # Design note (divergence from paper)
-///
-/// The TaxoBell paper's `L_clip` penalizes sigma being **too large**
-/// (max enforcement): `(1/d) * ||relu(sigma^2 - max_var)||_F^2`.
-/// This implementation penalizes sigma being **too small** (min enforcement),
-/// which prevents distribution collapse -- a more common failure mode in
-/// practice during early training. For max enforcement (preventing sigma
-/// explosion), use [`sigma_ceiling_loss`].
-///
-/// The paper also uses squared Frobenius norm with `1/d` normalization;
-/// this uses a simpler linear sum. Both are valid regularizers.
+/// For the paper-faithful squared-hinge on variance (Eq. 13), use
+/// [`volume_regularization`] instead. This function is retained for
+/// backward compatibility and for cases where a linear penalty on
+/// the standard deviation (not variance) is preferred.
 #[must_use]
 pub fn sigma_clipping_loss(g: &GaussianBox, min_sigma: f32) -> f32 {
     g.sigma
@@ -284,13 +287,19 @@ pub fn sigma_clipping_loss(g: &GaussianBox, min_sigma: f32) -> f32 {
         .sum()
 }
 
-/// Sigma ceiling loss: prevents sigma from growing too large (paper's L_clip, Eq. 14).
+/// Variance ceiling loss (paper's L_clip, Eq. 14): prevents variance explosion.
 ///
-/// Returns `(1/d) * sum_i max(0, sigma_i^2 - max_var)`, matching the
-/// TaxoBell paper's linear hinge `tr([Sigma - M]+)` with `1/d` normalization.
+/// Linear hinge on variance exceeding a maximum threshold:
 ///
-/// Use this together with [`sigma_clipping_loss`] (floor) to bound sigma
-/// in both directions, or use this alone to match the paper's formulation.
+/// ```text
+/// L_clip = (1/d) * sum_i max(0, sigma_i^2 - max_var)
+/// ```
+///
+/// This matches TaxoBell Eq. 14: `(1/d) * tr([Sigma - M * I]_+)` for
+/// diagonal Sigma.
+///
+/// Use together with [`volume_regularization`] (floor) to bound variance
+/// in both directions.
 #[must_use]
 pub fn sigma_ceiling_loss(g: &GaussianBox, max_var: f32) -> f32 {
     let d = g.sigma.len();
@@ -478,16 +487,19 @@ mod tests {
 
         // -- volume_regularization >= 0 (already tested, but explicit) --
 
+        /// volume_regularization is a per-dim squared hinge on variance below min_var.
         #[test]
-        fn prop_volume_regularization_is_squared(
+        fn prop_volume_regularization_is_per_dim_squared_hinge(
             g in arb_gaussian(8),
-            target in -10.0f32..10.0,
+            min_var in 0.01f32..10.0,
         ) {
-            let loss = volume_regularization(&g, target);
+            let loss = volume_regularization(&g, min_var);
             prop_assert!(loss >= 0.0, "volume_regularization should be non-negative, got {loss}");
-            // Verify it's actually (log_vol - target)^2.
-            let log_vol = g.log_volume();
-            let expected = (log_vol - target).powi(2);
+            // Verify formula: (1/d) * sum max(0, min_var - sigma_i^2)^2
+            let d = g.sigma.len() as f32;
+            let expected: f32 = g.sigma.iter()
+                .map(|&s| { let deficit = (min_var - s * s).max(0.0); deficit * deficit })
+                .sum::<f32>() / d;
             prop_assert!(
                 (loss - expected).abs() < 1e-3,
                 "volume_regularization mismatch: {loss} vs expected {expected}"
@@ -677,24 +689,28 @@ mod tests {
         assert!(kl_ba >= 0.0);
     }
 
-    /// Volume regularization loss is 0 when log_volume equals target.
+    /// Volume regularization (Eq. 13) is 0 when all variances >= min_var.
     #[test]
-    fn test_volume_regularization_zero_at_target() {
-        // sigma = [e^0.5, e^(-0.3), e^(0.8)] => log_volume = 0.5 - 0.3 + 0.8 = 1.0
-        let sigma: Vec<f32> = [0.5_f32, -0.3, 0.8].iter().map(|&x| x.exp()).collect();
-        let g = GaussianBox::new(vec![0.0; 3], sigma).unwrap();
-        let log_vol = g.log_volume();
-        let loss = volume_regularization(&g, log_vol);
+    fn test_volume_regularization_zero_above_threshold() {
+        // sigma = [2.0, 3.0, 1.5] => variance = [4.0, 9.0, 2.25]
+        let g = GaussianBox::new(vec![0.0; 3], vec![2.0, 3.0, 1.5]).unwrap();
+        // min_var = 1.0: all variances exceed it, so loss = 0
+        let loss = volume_regularization(&g, 1.0);
         assert!(
             loss.abs() < 1e-10,
-            "loss should be 0 when target matches log_volume, got {loss}"
+            "loss should be 0 when all variances >= min_var, got {loss}"
         );
 
-        // Also verify with non-matching target
-        let loss_nonzero = volume_regularization(&g, log_vol + 2.0);
+        // min_var = 5.0: dims 0 and 2 violate (4.0 < 5.0, 2.25 < 5.0)
+        // deficit_0 = 5.0 - 4.0 = 1.0, sq = 1.0
+        // deficit_1 = 0 (9.0 >= 5.0)
+        // deficit_2 = 5.0 - 2.25 = 2.75, sq = 7.5625
+        // mean = (1.0 + 0 + 7.5625) / 3 = 2.854167
+        let loss_nonzero = volume_regularization(&g, 5.0);
+        let expected = (1.0 + 0.0 + 2.75 * 2.75) / 3.0;
         assert!(
-            (loss_nonzero - 4.0).abs() < 1e-4,
-            "loss should be (2.0)^2 = 4.0 when off by 2.0, got {loss_nonzero}"
+            (loss_nonzero - expected).abs() < 1e-4,
+            "loss should be {expected}, got {loss_nonzero}"
         );
     }
 
@@ -795,9 +811,15 @@ mod tests {
 
     #[test]
     fn test_volume_regularization() {
+        // unit Gaussian: sigma = [1.0; 4], variance = [1.0; 4]
         let g = GaussianBox::unit(4);
-        let loss = volume_regularization(&g, 0.0);
-        assert!(loss.abs() < 1e-6, "unit Gaussian log-vol=0, loss should be 0");
+        // min_var = 0.5: all variances (1.0) exceed it, so loss = 0
+        let loss = volume_regularization(&g, 0.5);
+        assert!(loss.abs() < 1e-6, "unit Gaussian with min_var=0.5 should have loss=0, got {loss}");
+        // min_var = 2.0: all variances (1.0) are below, deficit=1.0 per dim
+        // loss = (1/4) * 4 * 1.0^2 = 1.0
+        let loss2 = volume_regularization(&g, 2.0);
+        assert!((loss2 - 1.0).abs() < 1e-6, "expected 1.0, got {loss2}");
     }
 
     #[test]
