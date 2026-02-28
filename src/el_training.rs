@@ -534,7 +534,14 @@ fn disjointness_grads(
     (ga, gb, norm)
 }
 
-/// Compute negative inclusion gradients (push A OUT of B).
+/// Heuristic gradient for negative inclusion (push A OUT of B).
+///
+/// This is NOT an analytical gradient of the negative penalty
+/// `(margin - inclusion_loss(A, B)).max(0)`. It uses a fixed scale
+/// to push centers apart and shrink the superclass offset. The true
+/// subgradient w.r.t. `A.offset` is nonzero but omitted here for
+/// stability — in practice the positive inclusion signal already
+/// adjusts offsets sufficiently.
 fn negative_inclusion_grads(
     ca: &[f32],
     _oa: &[f32],
@@ -801,7 +808,11 @@ pub fn evaluate_subsumption(result: &ElTrainingResult, axioms: &[Axiom]) -> (f32
 
     for axiom in axioms {
         if let Axiom::SubClassOf { sub, sup } = axiom {
+            // Standard link-prediction protocol: filter the subject from
+            // the candidate list to avoid trivial self-containment (a
+            // concept always has zero inclusion loss with itself).
             let mut scores: Vec<(usize, f32)> = (0..nc)
+                .filter(|&c| c != *sub)
                 .map(|c| {
                     let loss = result.subsumption_score(*sub, c);
                     (c, loss)
@@ -813,7 +824,7 @@ pub fn evaluate_subsumption(result: &ElTrainingResult, axioms: &[Axiom]) -> (f32
                 .iter()
                 .position(|(c, _)| c == sup)
                 .map(|p| p + 1)
-                .unwrap_or(nc);
+                .unwrap_or(nc - 1);
 
             if rank == 1 {
                 hits1 += 1;
