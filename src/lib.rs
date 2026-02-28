@@ -182,6 +182,11 @@ pub mod gaussian;
 /// EL++ ontology embedding primitives (Box2EL / TransBox).
 pub mod el;
 
+/// EL++ ontology embedding training: axiom parsing, training loop, evaluation.
+#[cfg(feature = "rand")]
+#[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
+pub mod el_training;
+
 /// Fuzzy set-theoretic operators: t-norms, t-conorms, and negation (FuzzQE).
 pub mod fuzzy;
 
@@ -190,6 +195,9 @@ pub mod taxonomy;
 
 /// TaxoBell combined training loss for taxonomy expansion.
 pub mod taxobell;
+
+/// TaxoBell MLP encoder and training loop for taxonomy expansion.
+pub mod taxobell_encoder;
 
 // ---------------------------------------------------------------------------
 // Re-exports: primary traits and types
@@ -215,8 +223,7 @@ pub use dataset::{Dataset, DatasetError, DatasetStats, Triple};
 pub use boxe::{boxe_loss, boxe_point_score, boxe_score, Bump};
 pub use center_offset::{center_offset_to_min_max, min_max_to_center_offset};
 pub use distance::{
-    boundary_distance, depth_distance, depth_similarity, query2box_distance,
-    vector_to_box_distance,
+    boundary_distance, depth_distance, depth_similarity, query2box_distance, vector_to_box_distance,
 };
 pub use embedding::{BoxCollection, BoxEmbedding};
 
@@ -268,8 +275,8 @@ pub use sheaf::{
 
 // Re-exports: Gaussian boxes
 pub use gaussian::{
-    bhattacharyya_coefficient, bhattacharyya_distance,
-    kl_divergence as gaussian_kl_divergence, sigma_ceiling_loss, sigma_clipping_loss,
+    bhattacharyya_coefficient, bhattacharyya_distance, kl_divergence as gaussian_kl_divergence,
+    sigma_ceiling_loss, sigma_clipping_loss,
     volume_regularization as gaussian_volume_regularization, GaussianBox,
 };
 
@@ -279,10 +286,22 @@ pub use taxonomy::{TaxonomyDataset, TaxonomyNode};
 // Re-exports: TaxoBell loss
 pub use taxobell::{CombinedLossResult, TaxoBellConfig, TaxoBellLoss};
 
+// Re-exports: TaxoBell encoder and training
+pub use taxobell_encoder::{
+    evaluate_taxobell, train_taxobell, Mlp, TaxoBellEncoder, TaxoBellEvalResult,
+    TaxoBellTrainingConfig, TrainingSnapshot,
+};
+
 // Re-exports: EL++ ontology
 pub use el::{
     compose_roles, disjointness_loss, el_inclusion_loss, existential_box,
     intersection_nonempty_loss, translate,
+};
+
+// Re-exports: EL++ training
+#[cfg(feature = "rand")]
+pub use el_training::{
+    evaluate_subsumption, train_el_embeddings, Axiom, ElTrainingConfig, ElTrainingResult, Ontology,
 };
 
 // Re-exports: fuzzy operators
@@ -298,9 +317,9 @@ pub use octagon::{DiagonalBounds, Octagon, OctagonError};
 pub use utils::validation;
 pub use utils::{
     bessel_log_volume, bessel_side_length, clamp_temperature, clamp_temperature_default,
-    gumbel_lse_max, gumbel_lse_min, gumbel_membership_prob, is_cross_pattern,
-    is_perfectly_nested, log_space_volume, map_gumbel_to_bounds, safe_init_bounds, sample_gumbel,
-    softplus, stable_logsumexp, stable_sigmoid, suggested_min_separation, temperature_scheduler,
+    gumbel_lse_max, gumbel_lse_min, gumbel_membership_prob, is_cross_pattern, is_perfectly_nested,
+    log_space_volume, map_gumbel_to_bounds, safe_init_bounds, sample_gumbel, softplus,
+    stable_logsumexp, stable_sigmoid, suggested_min_separation, temperature_scheduler,
     volume_containment_loss, volume_overlap_loss, volume_regularization, EULER_GAMMA,
     MAX_TEMPERATURE, MIN_TEMPERATURE,
 };
