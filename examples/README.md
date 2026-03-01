@@ -11,6 +11,9 @@
 | `query2box` | Query2Box-style compositional query answering: multi-hop KG queries via box intersection, containment ranking, and alpha-weighted distance scoring |
 | `octagon_demo` | Octagon embeddings: diagonal constraints, point containment, intersection (closure), volume comparison, soft containment/overlap |
 | `fuzzy_query` | Fuzzy query answering with t-norms (Min/Product/Lukasiewicz), t-conorms, negation, and De Morgan duality on a small KG |
+| `taxobell_demo` | TaxoBell Gaussian box losses on a mini taxonomy (no training, loss inspection only) |
+| `el_training` | End-to-end EL++ box embedding training on a biomedical-style ontology |
+| `taxobell_training` | TaxoBell MLP encoder training with Candle autograd (requires `--features candle-backend`) |
 
 ## Decision tree
 
@@ -32,6 +35,11 @@
 - **Want to train embeddings on a hierarchy?**
   - Cone model (angular containment, supports negation): `cone_training`
   - Box model (axis-aligned hyperrectangles, volume-based): `box_training`
+  - EL++ ontology (subsumption + roles): `el_training`
+  - TaxoBell (Gaussian boxes + MLP encoder, Candle): `taxobell_training`
+
+- **Want to see TaxoBell losses without training?**
+  Start with `taxobell_demo`.
 
 ## Running
 
@@ -43,6 +51,9 @@ cargo run -p subsume --example box_training
 cargo run -p subsume --example query2box
 cargo run -p subsume --example octagon_demo
 cargo run -p subsume --example fuzzy_query
+cargo run -p subsume --example taxobell_demo
+cargo run -p subsume --example el_training
+cargo run -p subsume --features candle-backend --example taxobell_training
 ```
 
 ## Visualization scripts
