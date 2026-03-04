@@ -156,9 +156,7 @@ levels where Gaussian boxes fail completely.
 
 ## See also
 
-- [`innr`](https://crates.io/crates/innr) -- SIMD-accelerated vector similarity primitives
-- [`kuji`](https://crates.io/crates/kuji) -- stochastic sampling (Gumbel-max uses the same distribution)
-- [`anno`](https://crates.io/crates/anno) -- information extraction; uses subsume's box embeddings for coreference resolution
+- [`hyperball`](https://crates.io/crates/hyperball) -- hyperbolic geometry primitives (direct dependency for Poincare/Lorentz embeddings)
 
 ## License
 
