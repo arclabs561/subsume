@@ -158,10 +158,7 @@ fn main() {
 
     // --- Evaluate learned cones ---
     println!("\n--- Learned Cone Properties ---\n");
-    println!(
-        "{:>14} {:>12} {:>12}",
-        "entity", "mean_aper", "mean_deg"
-    );
+    println!("{:>14} {:>12} {:>12}", "entity", "mean_aper", "mean_deg");
     println!("{}", "-".repeat(40));
 
     let mut entity_ids: Vec<usize> = entity_names.keys().copied().collect();

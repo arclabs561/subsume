@@ -68,7 +68,10 @@ fn main() -> Result<(), subsume::OctagonError> {
     println!("Part 2: Point containment\n");
     let points = [
         ([2.0, 2.0], "center"),
-        ([0.1, 0.1], "corner (0.1, 0.1) -- inside box, outside octagon"),
+        (
+            [0.1, 0.1],
+            "corner (0.1, 0.1) -- inside box, outside octagon",
+        ),
         ([1.0, 1.5], "off-center (1.0, 1.5)"),
         ([3.5, 3.5], "near corner (3.5, 3.5) -- x+y=7 > 6"),
         ([0.0, 2.0], "edge (0.0, 2.0) -- x+y=2, x-y=-2"),
@@ -76,7 +79,13 @@ fn main() -> Result<(), subsume::OctagonError> {
 
     for (pt, desc) in &points {
         let inside = oct.contains(pt)?;
-        println!("  ({:.1}, {:.1}) {}: {}", pt[0], pt[1], desc, if inside { "INSIDE" } else { "outside" });
+        println!(
+            "  ({:.1}, {:.1}) {}: {}",
+            pt[0],
+            pt[1],
+            desc,
+            if inside { "INSIDE" } else { "outside" }
+        );
     }
     println!();
 

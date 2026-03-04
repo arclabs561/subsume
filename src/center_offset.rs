@@ -250,7 +250,8 @@ mod tests {
         let mut center_out = [0.0; 2];
         let mut offset_out = [0.0; 3];
         assert!(
-            min_max_to_center_offset(&[0.3; 2], &[0.7; 3], &mut center_out, &mut offset_out).is_err(),
+            min_max_to_center_offset(&[0.3; 2], &[0.7; 3], &mut center_out, &mut offset_out)
+                .is_err(),
             "mismatched min/max lengths should error"
         );
     }
@@ -288,8 +289,16 @@ mod tests {
         center_offset_to_min_max(&center, &offset, &mut min_out, &mut max_out).unwrap();
         for i in 0..2 {
             // sigmoid(0 - 20) ~ 0, sigmoid(0 + 20) ~ 1
-            assert!(min_out[i] < 0.01, "dim {i}: min should be near 0, got {}", min_out[i]);
-            assert!(max_out[i] > 0.99, "dim {i}: max should be near 1, got {}", max_out[i]);
+            assert!(
+                min_out[i] < 0.01,
+                "dim {i}: min should be near 0, got {}",
+                min_out[i]
+            );
+            assert!(
+                max_out[i] > 0.99,
+                "dim {i}: max should be near 1, got {}",
+                max_out[i]
+            );
         }
     }
 

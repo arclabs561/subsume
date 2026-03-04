@@ -1,7 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use subsume::gaussian::{
-    bhattacharyya_coefficient, kl_divergence, GaussianBox,
-};
+use subsume::gaussian::{bhattacharyya_coefficient, kl_divergence, GaussianBox};
 
 fn make_pair(dim: usize) -> (GaussianBox, GaussianBox) {
     let a = GaussianBox::new(vec![0.5; dim], vec![1.0; dim]).unwrap();
@@ -36,10 +34,7 @@ fn bench_from_center_offset(c: &mut Criterion) {
     let offset = vec![0.5f32; 64];
     c.bench_function("from_center_offset/64", |bench| {
         bench.iter(|| {
-            GaussianBox::from_center_offset(
-                black_box(center.clone()),
-                black_box(offset.clone()),
-            )
+            GaussianBox::from_center_offset(black_box(center.clone()), black_box(offset.clone()))
         });
     });
 }

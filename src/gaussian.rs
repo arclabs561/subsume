@@ -281,10 +281,7 @@ pub fn volume_regularization(g: &GaussianBox, min_var: f32) -> f32 {
 /// the standard deviation (not variance) is preferred.
 #[must_use]
 pub fn sigma_clipping_loss(g: &GaussianBox, min_sigma: f32) -> f32 {
-    g.sigma
-        .iter()
-        .map(|&s| (min_sigma - s).max(0.0))
-        .sum()
+    g.sigma.iter().map(|&s| (min_sigma - s).max(0.0)).sum()
 }
 
 /// Variance ceiling loss (paper's L_clip, Eq. 14): prevents variance explosion.
@@ -306,11 +303,7 @@ pub fn sigma_ceiling_loss(g: &GaussianBox, max_var: f32) -> f32 {
     if d == 0 {
         return 0.0;
     }
-    let sum: f32 = g
-        .sigma
-        .iter()
-        .map(|&s| (s * s - max_var).max(0.0))
-        .sum();
+    let sum: f32 = g.sigma.iter().map(|&s| (s * s - max_var).max(0.0)).sum();
     sum / d as f32
 }
 
@@ -514,7 +507,10 @@ mod tests {
         let a = GaussianBox::unit(256);
         let b = GaussianBox::unit(256);
         let kl = kl_divergence(&a, &b).unwrap();
-        assert!(kl.abs() < 1e-4, "KL of identical 256-d unit Gaussians: {kl}");
+        assert!(
+            kl.abs() < 1e-4,
+            "KL of identical 256-d unit Gaussians: {kl}"
+        );
         let bc = bhattacharyya_coefficient(&a, &b).unwrap();
         assert!((bc - 1.0).abs() < 1e-4, "BC of identical 256-d: {bc}");
     }
@@ -524,7 +520,10 @@ mod tests {
         let a = GaussianBox::unit(1024);
         let b = GaussianBox::unit(1024);
         let kl = kl_divergence(&a, &b).unwrap();
-        assert!(kl.abs() < 1e-3, "KL of identical 1024-d unit Gaussians: {kl}");
+        assert!(
+            kl.abs() < 1e-3,
+            "KL of identical 1024-d unit Gaussians: {kl}"
+        );
     }
 
     #[test]
@@ -542,7 +541,10 @@ mod tests {
         let a = GaussianBox::new(vec![0.0], vec![1e-6]).unwrap();
         let b = GaussianBox::new(vec![0.0], vec![1.0]).unwrap();
         let kl = kl_divergence(&a, &b).unwrap();
-        assert!(kl.is_finite(), "KL should be finite with small sigma, got {kl}");
+        assert!(
+            kl.is_finite(),
+            "KL should be finite with small sigma, got {kl}"
+        );
         assert!(kl >= 0.0);
     }
 
@@ -551,7 +553,10 @@ mod tests {
         let a = GaussianBox::new(vec![0.0], vec![1e6]).unwrap();
         let b = GaussianBox::new(vec![0.0], vec![1.0]).unwrap();
         let kl = kl_divergence(&a, &b).unwrap();
-        assert!(kl.is_finite(), "KL should be finite with large sigma, got {kl}");
+        assert!(
+            kl.is_finite(),
+            "KL should be finite with large sigma, got {kl}"
+        );
     }
 
     #[test]
@@ -560,14 +565,20 @@ mod tests {
         let mu_far: Vec<f32> = vec![1000.0; 8];
         let b = GaussianBox::new(mu_far, vec![1.0; 8]).unwrap();
         let bc = bhattacharyya_coefficient(&a, &b).unwrap();
-        assert!(bc < 1e-10, "BC for very distant Gaussians should be ~0, got {bc}");
+        assert!(
+            bc < 1e-10,
+            "BC for very distant Gaussians should be ~0, got {bc}"
+        );
     }
 
     #[test]
     fn test_sigma_clipping_all_above_threshold() {
         let g = GaussianBox::new(vec![0.0, 0.0], vec![1.0, 2.0]).unwrap();
         let loss = sigma_clipping_loss(&g, 0.5);
-        assert!(loss.abs() < 1e-10, "All sigmas above threshold: loss should be 0, got {loss}");
+        assert!(
+            loss.abs() < 1e-10,
+            "All sigmas above threshold: loss should be 0, got {loss}"
+        );
     }
 
     // --- Audit-driven regression tests ---
@@ -616,10 +627,7 @@ mod tests {
     fn test_bhattacharyya_coefficient_identical_distributions() {
         let g = GaussianBox::new(vec![1.5, -2.3, 0.7], vec![0.3, 2.1, 1.0]).unwrap();
         let bc = bhattacharyya_coefficient(&g, &g).unwrap();
-        assert!(
-            (bc - 1.0).abs() < 1e-6,
-            "BC(N,N) should be 1.0, got {bc}"
-        );
+        assert!((bc - 1.0).abs() < 1e-6, "BC(N,N) should be 1.0, got {bc}");
     }
 
     // BC must always be in [0, 1] -- proptest with wider ranges than the existing test.
@@ -661,11 +669,8 @@ mod tests {
     /// from_center_offset with extreme negative offsets produces sigma >= 1e-7.
     #[test]
     fn test_softplus_floor_not_too_small() {
-        let g = GaussianBox::from_center_offset(
-            vec![0.0; 4],
-            vec![-100.0, -50.0, -25.0, -21.0],
-        )
-        .unwrap();
+        let g = GaussianBox::from_center_offset(vec![0.0; 4], vec![-100.0, -50.0, -25.0, -21.0])
+            .unwrap();
         for (i, &s) in g.sigma.iter().enumerate() {
             assert!(
                 s >= 1e-7,
@@ -738,7 +743,10 @@ mod tests {
     fn test_kl_identical() {
         let g = GaussianBox::unit(4);
         let kl = kl_divergence(&g, &g).unwrap();
-        assert!((kl).abs() < 1e-6, "KL of identical Gaussians should be 0, got {kl}");
+        assert!(
+            (kl).abs() < 1e-6,
+            "KL of identical Gaussians should be 0, got {kl}"
+        );
     }
 
     #[test]
@@ -815,7 +823,10 @@ mod tests {
         let g = GaussianBox::unit(4);
         // min_var = 0.5: all variances (1.0) exceed it, so loss = 0
         let loss = volume_regularization(&g, 0.5);
-        assert!(loss.abs() < 1e-6, "unit Gaussian with min_var=0.5 should have loss=0, got {loss}");
+        assert!(
+            loss.abs() < 1e-6,
+            "unit Gaussian with min_var=0.5 should have loss=0, got {loss}"
+        );
         // min_var = 2.0: all variances (1.0) are below, deficit=1.0 per dim
         // loss = (1/4) * 4 * 1.0^2 = 1.0
         let loss2 = volume_regularization(&g, 2.0);
@@ -835,7 +846,10 @@ mod tests {
         let g = GaussianBox::new(vec![0.0, 0.0], vec![0.5, 0.8]).unwrap();
         // max_var = 1.0; sigma^2 = [0.25, 0.64], both below 1.0
         let loss = sigma_ceiling_loss(&g, 1.0);
-        assert!(loss.abs() < 1e-10, "all below threshold: expected 0, got {loss}");
+        assert!(
+            loss.abs() < 1e-10,
+            "all below threshold: expected 0, got {loss}"
+        );
     }
 
     #[test]

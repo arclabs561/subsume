@@ -11,9 +11,7 @@
 //!
 //! Run: cargo run -p subsume --example taxobell_demo
 
-use subsume::gaussian::{
-    bhattacharyya_coefficient, kl_divergence, GaussianBox,
-};
+use subsume::gaussian::{bhattacharyya_coefficient, kl_divergence, GaussianBox};
 use subsume::taxobell::{TaxoBellConfig, TaxoBellLoss};
 
 fn main() -> Result<(), subsume::BoxError> {
@@ -32,13 +30,13 @@ fn main() -> Result<(), subsume::BoxError> {
 
     let dim = 8;
 
-    let entity  = GaussianBox::new(vec![0.0; dim], vec![4.0; dim])?;
-    let animal  = GaussianBox::new(vec![-1.0; dim], vec![2.0; dim])?;
+    let entity = GaussianBox::new(vec![0.0; dim], vec![4.0; dim])?;
+    let animal = GaussianBox::new(vec![-1.0; dim], vec![2.0; dim])?;
     let vehicle = GaussianBox::new(vec![3.0; dim], vec![2.0; dim])?;
-    let dog     = GaussianBox::new(vec![-1.5; dim], vec![0.5; dim])?;
-    let cat     = GaussianBox::new(vec![-0.5; dim], vec![0.5; dim])?;
-    let car     = GaussianBox::new(vec![2.5; dim], vec![0.5; dim])?;
-    let truck   = GaussianBox::new(vec![3.5; dim], vec![0.5; dim])?;
+    let dog = GaussianBox::new(vec![-1.5; dim], vec![0.5; dim])?;
+    let cat = GaussianBox::new(vec![-0.5; dim], vec![0.5; dim])?;
+    let car = GaussianBox::new(vec![2.5; dim], vec![0.5; dim])?;
+    let truck = GaussianBox::new(vec![3.5; dim], vec![0.5; dim])?;
 
     let nodes: Vec<(&str, &GaussianBox)> = vec![
         ("entity", &entity),
@@ -54,12 +52,7 @@ fn main() -> Result<(), subsume::BoxError> {
     println!("{:>10} {:>12} {:>12}", "concept", "log-volume", "sigma[0]");
     println!("{}", "-".repeat(36));
     for (name, g) in &nodes {
-        println!(
-            "{:>10} {:>12.4} {:>12.4}",
-            name,
-            g.log_volume(),
-            g.sigma[0],
-        );
+        println!("{:>10} {:>12.4} {:>12.4}", name, g.log_volume(), g.sigma[0],);
     }
 
     // --- Part 2: Asymmetric containment via KL divergence ---
@@ -70,12 +63,12 @@ fn main() -> Result<(), subsume::BoxError> {
     println!("\n--- Part 2: KL divergence (child -> parent containment) ---\n");
 
     let parent_child_pairs: Vec<(&str, &GaussianBox, &str, &GaussianBox)> = vec![
-        ("animal",  &animal,  "entity",  &entity),
-        ("vehicle", &vehicle, "entity",  &entity),
-        ("dog",     &dog,     "animal",  &animal),
-        ("cat",     &cat,     "animal",  &animal),
-        ("car",     &car,     "vehicle", &vehicle),
-        ("truck",   &truck,   "vehicle", &vehicle),
+        ("animal", &animal, "entity", &entity),
+        ("vehicle", &vehicle, "entity", &entity),
+        ("dog", &dog, "animal", &animal),
+        ("cat", &cat, "animal", &animal),
+        ("car", &car, "vehicle", &vehicle),
+        ("truck", &truck, "vehicle", &vehicle),
     ];
 
     println!(
@@ -120,9 +113,9 @@ fn main() -> Result<(), subsume::BoxError> {
     println!("\n--- Part 3: Bhattacharyya coefficient (symmetric similarity) ---\n");
 
     let sibling_pairs: Vec<(&str, &GaussianBox, &str, &GaussianBox)> = vec![
-        ("dog",    &dog,    "cat",   &cat),     // siblings under animal
-        ("car",    &car,    "truck", &truck),    // siblings under vehicle
-        ("dog",    &dog,    "car",   &car),      // cross-domain (not siblings)
+        ("dog", &dog, "cat", &cat),               // siblings under animal
+        ("car", &car, "truck", &truck),           // siblings under vehicle
+        ("dog", &dog, "car", &car),               // cross-domain (not siblings)
         ("animal", &animal, "vehicle", &vehicle), // cross-domain top-level
     ];
 
@@ -176,14 +169,12 @@ fn main() -> Result<(), subsume::BoxError> {
 
     // Sibling triples: (anchor, positive_sibling, negative_non_sibling)
     let negatives: Vec<(&GaussianBox, &GaussianBox, &GaussianBox)> = vec![
-        (&dog, &cat, &car),       // dog-cat are siblings, car is not
-        (&car, &truck, &dog),     // car-truck are siblings, dog is not
+        (&dog, &cat, &car),        // dog-cat are siblings, car is not
+        (&car, &truck, &dog),      // car-truck are siblings, dog is not
         (&animal, &vehicle, &dog), // animal-vehicle are siblings under entity, dog is not
     ];
 
-    let all_boxes: Vec<&GaussianBox> = vec![
-        &entity, &animal, &vehicle, &dog, &cat, &car, &truck,
-    ];
+    let all_boxes: Vec<&GaussianBox> = vec![&entity, &animal, &vehicle, &dog, &cat, &car, &truck];
 
     let result = loss_fn.combined_loss(&positives, &negatives, &all_boxes)?;
 
@@ -194,10 +185,7 @@ fn main() -> Result<(), subsume::BoxError> {
     println!();
     println!(
         "  Total = {:.2}*{:.4} + {:.2}*{:.4} + {:.2}*{:.4} + {:.2}*{:.4}",
-        1.0, result.l_sym,
-        1.0, result.l_asym,
-        0.01, result.l_reg,
-        0.01, result.l_clip,
+        1.0, result.l_sym, 1.0, result.l_asym, 0.01, result.l_reg, 0.01, result.l_clip,
     );
     println!("        = {:.6}", result.total);
 

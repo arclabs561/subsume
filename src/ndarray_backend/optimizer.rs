@@ -419,9 +419,15 @@ mod tests {
             optimizer.update("p", &mut param, grad.view());
         }
         // After many steps with constant positive grad on dim0, param[0] should decrease
-        assert!(param[0] < 5.0, "param[0] should decrease under positive gradient");
+        assert!(
+            param[0] < 5.0,
+            "param[0] should decrease under positive gradient"
+        );
         // Constant negative grad on dim1, param[1] should increase
-        assert!(param[1] > -3.0, "param[1] should increase under negative gradient");
+        assert!(
+            param[1] > -3.0,
+            "param[1] should increase under negative gradient"
+        );
     }
 
     #[test]
@@ -448,7 +454,8 @@ mod tests {
         assert!(
             (p2_shared[0] - p2_fresh[0]).abs() < 1e-7,
             "p2 in shared optimizer should match fresh optimizer at t=1: shared={}, fresh={}",
-            p2_shared[0], p2_fresh[0]
+            p2_shared[0],
+            p2_fresh[0]
         );
     }
 
@@ -516,7 +523,10 @@ mod tests {
             assert!(
                 steps[i] > steps[i - 1] - 1e-7,
                 "Momentum should cause non-decreasing step sizes: step[{}]={}, step[{}]={}",
-                i - 1, steps[i - 1], i, steps[i]
+                i - 1,
+                steps[i - 1],
+                i,
+                steps[i]
             );
         }
     }
@@ -574,7 +584,8 @@ mod tests {
         assert!(
             p_high[0] < p_low[0],
             "Higher weight decay should shrink more: low={}, high={}",
-            p_low[0], p_high[0]
+            p_low[0],
+            p_high[0]
         );
     }
 

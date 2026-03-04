@@ -148,7 +148,10 @@ mod tests {
         // At last epoch, progress = 1.0, cos(pi) = -1
         // lr = min_lr + (base - min_lr) * (1 + (-1)) / 2 = min_lr = 0.1 * base
         let lr = get_learning_rate(99, 100, 1.0, 10);
-        assert!((lr - 0.1).abs() < 1e-3, "cosine end should approach 0.1*base, got {lr}");
+        assert!(
+            (lr - 0.1).abs() < 1e-3,
+            "cosine end should approach 0.1*base, got {lr}"
+        );
     }
 
     #[test]
@@ -161,7 +164,10 @@ mod tests {
         let mid = total / 2;
         let lr = get_learning_rate(mid, total, base, warmup);
         let expected = (base + 0.1 * base) / 2.0; // 0.55
-        assert!((lr - expected).abs() < 1e-3, "expected ~{expected}, got {lr}");
+        assert!(
+            (lr - expected).abs() < 1e-3,
+            "expected ~{expected}, got {lr}"
+        );
     }
 
     #[test]
@@ -172,7 +178,10 @@ mod tests {
         let mut prev = get_learning_rate(warmup, total, base, warmup);
         for epoch in (warmup + 1)..total {
             let lr = get_learning_rate(epoch, total, base, warmup);
-            assert!(lr <= prev + 1e-6, "LR should be non-increasing in cosine phase: epoch {epoch}");
+            assert!(
+                lr <= prev + 1e-6,
+                "LR should be non-increasing in cosine phase: epoch {epoch}"
+            );
             prev = lr;
         }
     }
@@ -185,7 +194,10 @@ mod tests {
         let mut prev = get_learning_rate(0, total, base, warmup);
         for epoch in 1..warmup {
             let lr = get_learning_rate(epoch, total, base, warmup);
-            assert!(lr >= prev - 1e-6, "LR should be non-decreasing in warmup: epoch {epoch}");
+            assert!(
+                lr >= prev - 1e-6,
+                "LR should be non-decreasing in warmup: epoch {epoch}"
+            );
             prev = lr;
         }
     }
@@ -194,7 +206,10 @@ mod tests {
     fn lr_no_warmup() {
         // warmup_epochs = 0 means no warmup, cosine from epoch 0
         let lr0 = get_learning_rate(0, 100, 1.0, 0);
-        assert!((lr0 - 1.0).abs() < 1e-6, "no warmup: epoch 0 should be base_lr");
+        assert!(
+            (lr0 - 1.0).abs() < 1e-6,
+            "no warmup: epoch 0 should be base_lr"
+        );
     }
 
     #[test]

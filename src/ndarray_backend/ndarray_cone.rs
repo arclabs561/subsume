@@ -104,8 +104,7 @@ impl<'de> Deserialize<'de> for NdarrayCone {
                     }
                 }
                 let axes = axes.ok_or_else(|| de::Error::missing_field("axes"))?;
-                let apertures =
-                    apertures.ok_or_else(|| de::Error::missing_field("apertures"))?;
+                let apertures = apertures.ok_or_else(|| de::Error::missing_field("apertures"))?;
                 NdarrayCone::new(Array1::from(axes), Array1::from(apertures))
                     .map_err(|e| de::Error::custom(format!("Invalid cone: {e}")))
             }
@@ -188,11 +187,7 @@ impl Cone for NdarrayCone {
         self.axes.len()
     }
 
-    fn cone_distance(
-        &self,
-        entity: &Self,
-        cen: Self::Scalar,
-    ) -> Result<Self::Scalar, ConeError> {
+    fn cone_distance(&self, entity: &Self, cen: Self::Scalar) -> Result<Self::Scalar, ConeError> {
         if self.dim() != entity.dim() {
             return Err(ConeError::DimensionMismatch {
                 expected: self.dim(),
@@ -235,13 +230,7 @@ impl Cone for NdarrayCone {
         // Per-dimension negation (ConE paper):
         // - axis[i] shifts by pi (positive -> subtract pi, negative -> add pi)
         // - aperture[i] = pi - aperture[i]
-        let new_axes = self.axes.mapv(|a| {
-            if a >= 0.0 {
-                a - PI
-            } else {
-                a + PI
-            }
-        });
+        let new_axes = self.axes.mapv(|a| if a >= 0.0 { a - PI } else { a + PI });
         let new_apertures = self.apertures.mapv(|a| PI - a);
 
         NdarrayCone::from_raw(new_axes, new_apertures)
@@ -309,16 +298,13 @@ mod tests {
     #[test]
     fn new_normalizes_axes_and_clamps_apertures() {
         let cone = NdarrayCone::new(
-            array![4.0, -4.0],  // Outside [-pi, pi]
-            array![-0.5, 4.0],  // Outside [0, pi]
+            array![4.0, -4.0], // Outside [-pi, pi]
+            array![-0.5, 4.0], // Outside [0, pi]
         )
         .unwrap();
 
         for &a in cone.axes().iter() {
-            assert!(
-                a >= -PI && a <= PI,
-                "axis should be in [-pi, pi], got {a}"
-            );
+            assert!(a >= -PI && a <= PI, "axis should be in [-pi, pi], got {a}");
         }
         for &a in cone.apertures().iter() {
             assert!(
@@ -343,10 +329,7 @@ mod tests {
         let d = cone.cone_distance(&cone, 0.02).unwrap();
         // Each dimension contributes cen * min(0, distance_base) for the inside part.
         // Since entity == query, distance_to_axis == 0 < distance_base, so dist_in = 0.
-        assert!(
-            d < 0.01,
-            "Self-distance should be near zero, got {d}"
-        );
+        assert!(d < 0.01, "Self-distance should be near zero, got {d}");
     }
 
     #[test]
@@ -394,7 +377,12 @@ mod tests {
     fn complement_aperture_is_pi_minus_original() {
         let cone = NdarrayCone::new(array![0.5, -0.3], array![0.8, 1.2]).unwrap();
         let comp = cone.complement();
-        for (i, (&orig, &neg)) in cone.apertures().iter().zip(comp.apertures().iter()).enumerate() {
+        for (i, (&orig, &neg)) in cone
+            .apertures()
+            .iter()
+            .zip(comp.apertures().iter())
+            .enumerate()
+        {
             let expected = PI - orig;
             assert!(
                 (neg - expected).abs() < 1e-6,
@@ -432,7 +420,12 @@ mod tests {
                 "Double complement axes[{i}]: {orig} vs {dc}"
             );
         }
-        for (i, (&orig, &dc)) in cone.apertures().iter().zip(double.apertures().iter()).enumerate() {
+        for (i, (&orig, &dc)) in cone
+            .apertures()
+            .iter()
+            .zip(double.apertures().iter())
+            .enumerate()
+        {
             assert!(
                 (orig - dc).abs() < 1e-5,
                 "Double complement apertures[{i}]: {orig} vs {dc}"
@@ -447,7 +440,11 @@ mod tests {
         let cone = NdarrayCone::new(array![0.5, -0.3], array![0.8, 1.2]).unwrap();
         let inter = cone.intersection(&cone).unwrap();
 
-        for (i, (&orig, &intr)) in cone.apertures().iter().zip(inter.apertures().iter()).enumerate()
+        for (i, (&orig, &intr)) in cone
+            .apertures()
+            .iter()
+            .zip(inter.apertures().iter())
+            .enumerate()
         {
             assert!(
                 (orig - intr).abs() < 1e-5,

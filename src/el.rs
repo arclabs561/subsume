@@ -59,10 +59,7 @@ pub fn el_inclusion_loss(
     if offset_a.len() != dim || center_b.len() != dim || offset_b.len() != dim {
         return Err(BoxError::DimensionMismatch {
             expected: dim,
-            actual: offset_a
-                .len()
-                .max(center_b.len())
-                .max(offset_b.len()),
+            actual: offset_a.len().max(center_b.len()).max(offset_b.len()),
         });
     }
 
@@ -247,10 +244,7 @@ pub fn disjointness_loss(
     if offset_a.len() != dim || center_b.len() != dim || offset_b.len() != dim {
         return Err(BoxError::DimensionMismatch {
             expected: dim,
-            actual: offset_a
-                .len()
-                .max(center_b.len())
-                .max(offset_b.len()),
+            actual: offset_a.len().max(center_b.len()).max(offset_b.len()),
         });
     }
 
@@ -279,10 +273,7 @@ pub fn intersection_nonempty_loss(
     if offset_a.len() != dim || center_b.len() != dim || offset_b.len() != dim {
         return Err(BoxError::DimensionMismatch {
             expected: dim,
-            actual: offset_a
-                .len()
-                .max(center_b.len())
-                .max(offset_b.len()),
+            actual: offset_a.len().max(center_b.len()).max(offset_b.len()),
         });
     }
 
@@ -316,14 +307,8 @@ mod tests {
     #[test]
     fn test_inclusion_loss_contained() {
         // Box A (small) inside box B (large): center same, offset_a < offset_b
-        let loss = el_inclusion_loss(
-            &[0.0, 0.0],
-            &[0.5, 0.5],
-            &[0.0, 0.0],
-            &[2.0, 2.0],
-            0.0,
-        )
-        .unwrap();
+        let loss =
+            el_inclusion_loss(&[0.0, 0.0], &[0.5, 0.5], &[0.0, 0.0], &[2.0, 2.0], 0.0).unwrap();
         assert!(loss < 1e-6, "contained box should have loss ~0, got {loss}");
     }
 
@@ -338,7 +323,10 @@ mod tests {
             0.0,
         )
         .unwrap();
-        assert!(loss > 0.0, "non-contained box should have loss > 0, got {loss}");
+        assert!(
+            loss > 0.0,
+            "non-contained box should have loss > 0, got {loss}"
+        );
     }
 
     #[test]
@@ -347,25 +335,17 @@ mod tests {
         // loss = relu(|0-0| + 0.9 - 1.0 - margin)
         // margin=0: relu(-0.1) = 0
         // margin=-0.5: relu(0.4) = 0.4 (negative margin = tighter)
-        let loss_no_margin = el_inclusion_loss(
-            &[0.0],
-            &[0.9],
-            &[0.0],
-            &[1.0],
-            0.0,
-        )
-        .unwrap();
+        let loss_no_margin = el_inclusion_loss(&[0.0], &[0.9], &[0.0], &[1.0], 0.0).unwrap();
         // Just barely not contained: offset_a > offset_b
-        let loss_not_contained = el_inclusion_loss(
-            &[0.0],
-            &[1.5],
-            &[0.0],
-            &[1.0],
-            0.0,
-        )
-        .unwrap();
-        assert!(loss_no_margin < 1e-6, "contained box, loss should be 0, got {loss_no_margin}");
-        assert!(loss_not_contained > 0.0, "non-contained should have loss > 0");
+        let loss_not_contained = el_inclusion_loss(&[0.0], &[1.5], &[0.0], &[1.0], 0.0).unwrap();
+        assert!(
+            loss_no_margin < 1e-6,
+            "contained box, loss should be 0, got {loss_no_margin}"
+        );
+        assert!(
+            loss_not_contained > 0.0,
+            "non-contained should have loss > 0"
+        );
     }
 
     #[test]
@@ -419,29 +399,18 @@ mod tests {
     fn test_disjointness_loss_far_apart() {
         // centers 100 apart, offsets 0.1 each, margin 1.0
         // per-dim: relu(-100 + 0.2 - 1.0) = relu(-100.8) = 0
-        let loss = disjointness_loss(
-            &[0.0],
-            &[0.1],
-            &[100.0],
-            &[0.1],
-            1.0,
-        )
-        .unwrap();
-        assert!(loss < 1e-6, "far-apart boxes should have disjointness loss ~0, got {loss}");
+        let loss = disjointness_loss(&[0.0], &[0.1], &[100.0], &[0.1], 1.0).unwrap();
+        assert!(
+            loss < 1e-6,
+            "far-apart boxes should have disjointness loss ~0, got {loss}"
+        );
     }
 
     #[test]
     fn test_disjointness_loss_overlapping() {
         // centers 0.5 apart, offsets 1.0 each, margin 0.0
         // per-dim: relu(-0.5 + 2.0 - 0.0) = 1.5
-        let loss = disjointness_loss(
-            &[0.0],
-            &[1.0],
-            &[0.5],
-            &[1.0],
-            0.0,
-        )
-        .unwrap();
+        let loss = disjointness_loss(&[0.0], &[1.0], &[0.5], &[1.0], 0.0).unwrap();
         assert!(
             (loss - 1.5).abs() < 1e-6,
             "overlapping boxes: expected 1.5, got {loss}"
@@ -472,26 +441,21 @@ mod tests {
 
     #[test]
     fn test_intersection_nonempty_overlapping() {
-        let loss = intersection_nonempty_loss(
-            &[0.0, 0.0],
-            &[2.0, 2.0],
-            &[1.0, 1.0],
-            &[2.0, 2.0],
-        )
-        .unwrap();
-        assert!(loss < 1e-6, "overlapping boxes should have loss ~0, got {loss}");
+        let loss =
+            intersection_nonempty_loss(&[0.0, 0.0], &[2.0, 2.0], &[1.0, 1.0], &[2.0, 2.0]).unwrap();
+        assert!(
+            loss < 1e-6,
+            "overlapping boxes should have loss ~0, got {loss}"
+        );
     }
 
     #[test]
     fn test_intersection_nonempty_disjoint() {
-        let loss = intersection_nonempty_loss(
-            &[0.0],
-            &[0.5],
-            &[5.0],
-            &[0.5],
-        )
-        .unwrap();
-        assert!(loss > 0.0, "disjoint boxes should have loss > 0, got {loss}");
+        let loss = intersection_nonempty_loss(&[0.0], &[0.5], &[5.0], &[0.5]).unwrap();
+        assert!(
+            loss > 0.0,
+            "disjoint boxes should have loss > 0, got {loss}"
+        );
     }
 
     #[test]
@@ -585,20 +549,28 @@ mod tests {
         let mut c_out = vec![0.0f32; dim];
         let mut o_sub = vec![0.0f32; dim];
         existential_box(
-            &vec![0.0; dim], &role_o,
-            &vec![0.0; dim], &filler_o,
-            &mut c_out, &mut o_sub,
+            &vec![0.0; dim],
+            &role_o,
+            &vec![0.0; dim],
+            &filler_o,
+            &mut c_out,
+            &mut o_sub,
         )
         .unwrap();
 
         // TransBox additive: offset = filler + role
-        let o_add: Vec<f32> = filler_o.iter().zip(role_o.iter()).map(|(f, r)| f + r).collect();
+        let o_add: Vec<f32> = filler_o
+            .iter()
+            .zip(role_o.iter())
+            .map(|(f, r)| f + r)
+            .collect();
 
         for i in 0..dim {
             assert!(
                 o_sub[i] <= o_add[i] + 1e-7,
                 "dim {i}: subtractive offset {:.4} should be <= additive {:.4}",
-                o_sub[i], o_add[i]
+                o_sub[i],
+                o_add[i]
             );
         }
     }
@@ -609,12 +581,8 @@ mod tests {
     /// A is fully inside B, so loss should be 0.
     #[test]
     fn test_inclusion_loss_matches_box2el() {
-        let loss = el_inclusion_loss(
-            &[1.0, 0.0], &[2.0, 1.0],
-            &[0.0, 0.0], &[5.0, 5.0],
-            0.0,
-        )
-        .unwrap();
+        let loss =
+            el_inclusion_loss(&[1.0, 0.0], &[2.0, 1.0], &[0.0, 0.0], &[5.0, 5.0], 0.0).unwrap();
         assert!(loss < 1e-6, "A inside B => loss should be 0, got {loss}");
 
         // Now a case where A is NOT inside B:
@@ -623,16 +591,9 @@ mod tests {
         // dim 0: relu(|4-0| + 2 - 3) = relu(3) = 3
         // dim 1: relu(|0-0| + 1 - 3) = relu(-2) = 0
         // L2 = 3.0
-        let loss2 = el_inclusion_loss(
-            &[4.0, 0.0], &[2.0, 1.0],
-            &[0.0, 0.0], &[3.0, 3.0],
-            0.0,
-        )
-        .unwrap();
-        assert!(
-            (loss2 - 3.0).abs() < 1e-6,
-            "expected 3.0, got {loss2}"
-        );
+        let loss2 =
+            el_inclusion_loss(&[4.0, 0.0], &[2.0, 1.0], &[0.0, 0.0], &[3.0, 3.0], 0.0).unwrap();
+        assert!((loss2 - 3.0).abs() < 1e-6, "expected 3.0, got {loss2}");
     }
 
     /// Compose roles is associative for centers: (a o b) o c == a o (b o c).
@@ -662,11 +623,15 @@ mod tests {
         for i in 0..dim {
             assert!(
                 (left_c[i] - right_c[i]).abs() < 1e-6,
-                "center[{i}] not associative: {} vs {}", left_c[i], right_c[i]
+                "center[{i}] not associative: {} vs {}",
+                left_c[i],
+                right_c[i]
             );
             assert!(
                 (left_o[i] - right_o[i]).abs() < 1e-6,
-                "offset[{i}] not associative: {} vs {}", left_o[i], right_o[i]
+                "offset[{i}] not associative: {} vs {}",
+                left_o[i],
+                right_o[i]
             );
         }
     }
@@ -685,8 +650,14 @@ mod tests {
         let disj = disjointness_loss(&ca, &oa, &cb, &ob, 0.0).unwrap();
         let inter = intersection_nonempty_loss(&ca, &oa, &cb, &ob).unwrap();
 
-        assert!(disj < 1e-6, "separated boxes: disjointness should be 0, got {disj}");
-        assert!(inter > 0.0, "separated boxes: intersection_nonempty should be > 0, got {inter}");
+        assert!(
+            disj < 1e-6,
+            "separated boxes: disjointness should be 0, got {disj}"
+        );
+        assert!(
+            inter > 0.0,
+            "separated boxes: intersection_nonempty should be > 0, got {inter}"
+        );
 
         // Fully overlapping boxes
         let ca2 = [0.0];
@@ -697,8 +668,14 @@ mod tests {
         let disj2 = disjointness_loss(&ca2, &oa2, &cb2, &ob2, 0.0).unwrap();
         let inter2 = intersection_nonempty_loss(&ca2, &oa2, &cb2, &ob2).unwrap();
 
-        assert!(disj2 > 0.0, "overlapping boxes: disjointness should be > 0, got {disj2}");
-        assert!(inter2 < 1e-6, "overlapping boxes: intersection_nonempty should be 0, got {inter2}");
+        assert!(
+            disj2 > 0.0,
+            "overlapping boxes: disjointness should be > 0, got {disj2}"
+        );
+        assert!(
+            inter2 < 1e-6,
+            "overlapping boxes: intersection_nonempty should be 0, got {inter2}"
+        );
     }
 
     // ---- cross-validation with known geometry ----
@@ -713,7 +690,10 @@ mod tests {
         let center_b = vec![0.5f32; d];
         let offset_b = vec![1.5f32; d];
         let loss = el_inclusion_loss(&center_a, &offset_a, &center_b, &offset_b, 0.0).unwrap();
-        assert!(loss < 1e-6, "unit box inside [-1,2]^d should have loss 0, got {loss}");
+        assert!(
+            loss < 1e-6,
+            "unit box inside [-1,2]^d should have loss 0, got {loss}"
+        );
     }
 
     #[test]
@@ -742,10 +722,16 @@ mod tests {
         let filler_o = vec![0.5f32; d];
         let mut c_out = vec![0.0f32; d];
         let mut o_out = vec![0.0f32; d];
-        existential_box(&role_c, &role_o, &filler_c, &filler_o, &mut c_out, &mut o_out).unwrap();
+        existential_box(
+            &role_c, &role_o, &filler_c, &filler_o, &mut c_out, &mut o_out,
+        )
+        .unwrap();
         for i in 0..d {
             assert!((c_out[i] - 3.0).abs() < 1e-6);
-            assert!((o_out[i] - 0.5).abs() < 1e-6, "filler offset preserved when role offset=0");
+            assert!(
+                (o_out[i] - 0.5).abs() < 1e-6,
+                "filler offset preserved when role offset=0"
+            );
         }
     }
 

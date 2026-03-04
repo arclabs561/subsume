@@ -353,7 +353,9 @@ mod tests {
         let positive = make_box(&[0.1, 0.1], &[1.0, 1.0]);
         let negative = make_box(&[10.0, 10.0], &[1.0, 1.0]);
 
-        let l = loss_fn.symmetric_loss(&anchor, &positive, &negative).unwrap();
+        let l = loss_fn
+            .symmetric_loss(&anchor, &positive, &negative)
+            .unwrap();
         // BCE: -log(BC_pos ~1) - log(1 - BC_neg ~0) should be small
         assert!(
             l < 1.0,
@@ -369,8 +371,13 @@ mod tests {
         let positive = make_box(&[10.0, 10.0], &[1.0, 1.0]);
         let negative = make_box(&[0.1, 0.1], &[1.0, 1.0]);
 
-        let l = loss_fn.symmetric_loss(&anchor, &positive, &negative).unwrap();
-        assert!(l > 1.0, "loss should be large when negative is closer than positive, got {l}");
+        let l = loss_fn
+            .symmetric_loss(&anchor, &positive, &negative)
+            .unwrap();
+        assert!(
+            l > 1.0,
+            "loss should be large when negative is closer than positive, got {l}"
+        );
     }
 
     #[test]
@@ -380,7 +387,9 @@ mod tests {
         let positive = make_box(&[0.1, 0.1], &[1.0, 1.0]);
         let negative = make_box(&[10.0, 10.0], &[1.0, 1.0]);
 
-        let l = loss_fn.symmetric_loss_triplet(&anchor, &positive, &negative).unwrap();
+        let l = loss_fn
+            .symmetric_loss_triplet(&anchor, &positive, &negative)
+            .unwrap();
         assert!(
             l < 1e-6,
             "triplet loss should be ~0 when positive is much closer, got {l}"
@@ -454,7 +463,9 @@ mod tests {
         let parent = make_box(&[0.0, 0.0], &[2.0, 2.0]);
         let negative = make_box(&[10.0, 10.0], &[0.5, 0.5]);
 
-        let l = loss_fn.asymmetric_loss_triplet(&child, &parent, &negative).unwrap();
+        let l = loss_fn
+            .asymmetric_loss_triplet(&child, &parent, &negative)
+            .unwrap();
         // KL(child||parent) should be much less than KL(child||negative)
         // so triplet loss should be ~0
         assert!(
@@ -487,13 +498,16 @@ mod tests {
         let negatives = vec![(&a, &b, &c)]; // a-b similar, c dissimilar
         let all_boxes = vec![&a, &b, &c];
 
-        let result = loss_fn.combined_loss(&positives, &negatives, &all_boxes).unwrap();
+        let result = loss_fn
+            .combined_loss(&positives, &negatives, &all_boxes)
+            .unwrap();
 
         assert!(result.total >= 0.0, "total loss must be non-negative");
         assert!(result.l_reg >= 0.0, "l_reg must be non-negative");
         assert!(result.l_clip >= 0.0, "l_clip must be non-negative");
         // total = alpha*l_sym + beta*l_asym + gamma*l_reg + delta*l_clip
-        let expected = 1.0 * result.l_sym + 1.0 * result.l_asym + 0.1 * result.l_reg + 0.1 * result.l_clip;
+        let expected =
+            1.0 * result.l_sym + 1.0 * result.l_asym + 0.1 * result.l_reg + 0.1 * result.l_clip;
         assert!(
             (result.total - expected).abs() < 1e-6,
             "total={} != expected={expected}",
@@ -505,7 +519,10 @@ mod tests {
     fn test_combined_loss_empty_batch() {
         let loss_fn = TaxoBellLoss::new(TaxoBellConfig::default());
         let result = loss_fn.combined_loss(&[], &[], &[]).unwrap();
-        assert!((result.total).abs() < 1e-6, "empty batch should yield zero loss");
+        assert!(
+            (result.total).abs() < 1e-6,
+            "empty batch should yield zero loss"
+        );
     }
 
     #[test]
@@ -546,7 +563,10 @@ mod tests {
 
         let l = loss_fn.symmetric_loss(&anchor, &anchor, &negative).unwrap();
         // -log(1-eps) - log(1 - ~0) ~ 0
-        assert!(l < 1e-4, "BCE loss should be ~0 when BC_pos=1 and BC_neg=0, got {l}");
+        assert!(
+            l < 1e-4,
+            "BCE loss should be ~0 when BC_pos=1 and BC_neg=0, got {l}"
+        );
     }
 
     /// Compare BCE and triplet symmetric loss on the same inputs.
@@ -562,20 +582,34 @@ mod tests {
         let positive = make_box(&[0.1; 4], &[1.0; 4]);
         let negative = make_box(&[10.0; 4], &[1.0; 4]);
 
-        let bce = loss_fn.symmetric_loss(&anchor, &positive, &negative).unwrap();
-        let triplet = loss_fn.symmetric_loss_triplet(&anchor, &positive, &negative).unwrap();
+        let bce = loss_fn
+            .symmetric_loss(&anchor, &positive, &negative)
+            .unwrap();
+        let triplet = loss_fn
+            .symmetric_loss_triplet(&anchor, &positive, &negative)
+            .unwrap();
 
         // Both should be small when positive is much closer than negative
         assert!(bce < 1.0, "BCE loss should be small, got {bce}");
         assert!(triplet < 0.2, "Triplet loss should be small, got {triplet}");
 
         // Now swap: negative closer than positive
-        let bce_bad = loss_fn.symmetric_loss(&anchor, &negative, &positive).unwrap();
-        let triplet_bad = loss_fn.symmetric_loss_triplet(&anchor, &negative, &positive).unwrap();
+        let bce_bad = loss_fn
+            .symmetric_loss(&anchor, &negative, &positive)
+            .unwrap();
+        let triplet_bad = loss_fn
+            .symmetric_loss_triplet(&anchor, &negative, &positive)
+            .unwrap();
 
         // Both should be larger in the bad case
-        assert!(bce_bad > bce, "BCE loss should increase when positive/negative swapped");
-        assert!(triplet_bad > triplet, "Triplet loss should increase when positive/negative swapped");
+        assert!(
+            bce_bad > bce,
+            "BCE loss should increase when positive/negative swapped"
+        );
+        assert!(
+            triplet_bad > triplet,
+            "Triplet loss should increase when positive/negative swapped"
+        );
     }
 
     /// Test L_diverge component: when c > 0, L_diverge = max(0, c*D_rep - KL(parent||child))
@@ -628,7 +662,9 @@ mod tests {
         let negative = make_box(&[50.0; 4], &[0.5; 4]);
 
         let l_simple = loss_fn.asymmetric_loss(&child, &parent).unwrap();
-        let l_triplet = loss_fn.asymmetric_loss_triplet(&child, &parent, &negative).unwrap();
+        let l_triplet = loss_fn
+            .asymmetric_loss_triplet(&child, &parent, &negative)
+            .unwrap();
 
         // Simple: max(0, KL(child||parent) - margin)
         // Triplet: max(0, KL(child||parent) - KL(child||negative) + margin)
@@ -670,7 +706,8 @@ mod tests {
         let expected = 0.45 * r.l_sym + 0.45 * r.l_asym + 0.05 * r.l_reg + 0.05 * r.l_clip;
         assert!(
             (r.total - expected).abs() < 1e-5,
-            "total={} != weighted sum={expected}", r.total
+            "total={} != weighted sum={expected}",
+            r.total
         );
         assert!(r.total.is_finite());
     }
@@ -756,10 +793,8 @@ mod tests {
         assert!(result.l_clip >= 0.0, "l_clip must be non-negative");
 
         // Verify weighted sum.
-        let expected = 1.0 * result.l_sym
-            + 1.0 * result.l_asym
-            + 0.01 * result.l_reg
-            + 0.01 * result.l_clip;
+        let expected =
+            1.0 * result.l_sym + 1.0 * result.l_asym + 0.01 * result.l_reg + 0.01 * result.l_clip;
         assert!(
             (result.total - expected).abs() < 1e-5,
             "total={} != expected={expected}",

@@ -8,11 +8,9 @@ use std::collections::HashMap;
 use std::io::Write;
 use tempfile::tempdir;
 
-use subsume::gaussian::{
-    bhattacharyya_coefficient, kl_divergence, GaussianBox,
-};
-use subsume::taxonomy::TaxonomyDataset;
+use subsume::gaussian::{bhattacharyya_coefficient, kl_divergence, GaussianBox};
 use subsume::taxobell::{TaxoBellConfig, TaxoBellLoss};
+use subsume::taxonomy::TaxonomyDataset;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -43,11 +41,7 @@ fn build_taxonomy() -> TaxonomyDataset {
 
     let mut taxo_file = std::fs::File::create(&taxo_path).unwrap();
     // parent_id  child_id
-    write!(
-        taxo_file,
-        "0\t1\n0\t2\n0\t6\n1\t3\n1\t4\n2\t5\n"
-    )
-    .unwrap();
+    write!(taxo_file, "0\t1\n0\t2\n0\t6\n1\t3\n1\t4\n2\t5\n").unwrap();
 
     // Keep the tempdir alive by leaking it (tests are short-lived).
     let ds = TaxonomyDataset::load(&terms_path, &taxo_path, None).unwrap();
@@ -66,19 +60,40 @@ fn build_boxes() -> HashMap<&'static str, GaussianBox> {
     let mut boxes = HashMap::new();
 
     // Root: wide box centered at origin.
-    boxes.insert("animal", GaussianBox::new(vec![0.0; dim], vec![4.0; dim]).unwrap());
+    boxes.insert(
+        "animal",
+        GaussianBox::new(vec![0.0; dim], vec![4.0; dim]).unwrap(),
+    );
 
     // Children of Animal: narrower, slightly offset.
-    boxes.insert("dog",  GaussianBox::new(vec![-1.0; dim], vec![2.0; dim]).unwrap());
-    boxes.insert("cat",  GaussianBox::new(vec![1.0; dim],  vec![2.0; dim]).unwrap());
-    boxes.insert("bird", GaussianBox::new(vec![6.0; dim],  vec![1.5; dim]).unwrap());
+    boxes.insert(
+        "dog",
+        GaussianBox::new(vec![-1.0; dim], vec![2.0; dim]).unwrap(),
+    );
+    boxes.insert(
+        "cat",
+        GaussianBox::new(vec![1.0; dim], vec![2.0; dim]).unwrap(),
+    );
+    boxes.insert(
+        "bird",
+        GaussianBox::new(vec![6.0; dim], vec![1.5; dim]).unwrap(),
+    );
 
     // Children of Dog: even narrower, close to dog's center.
-    boxes.insert("poodle",   GaussianBox::new(vec![-1.2; dim], vec![0.8; dim]).unwrap());
-    boxes.insert("labrador", GaussianBox::new(vec![-0.8; dim], vec![0.8; dim]).unwrap());
+    boxes.insert(
+        "poodle",
+        GaussianBox::new(vec![-1.2; dim], vec![0.8; dim]).unwrap(),
+    );
+    boxes.insert(
+        "labrador",
+        GaussianBox::new(vec![-0.8; dim], vec![0.8; dim]).unwrap(),
+    );
 
     // Child of Cat.
-    boxes.insert("siamese", GaussianBox::new(vec![1.1; dim], vec![0.7; dim]).unwrap());
+    boxes.insert(
+        "siamese",
+        GaussianBox::new(vec![1.1; dim], vec![0.7; dim]).unwrap(),
+    );
 
     boxes
 }
@@ -147,7 +162,11 @@ fn combined_loss_is_finite_and_positive() {
     let result = loss_fn.combined_loss(&positives, &negatives, &all).unwrap();
 
     assert!(result.total.is_finite(), "total loss must be finite");
-    assert!(result.total >= 0.0, "total loss must be non-negative, got {}", result.total);
+    assert!(
+        result.total >= 0.0,
+        "total loss must be non-negative, got {}",
+        result.total
+    );
     assert!(result.l_asym.is_finite(), "l_asym must be finite");
     assert!(result.l_reg.is_finite(), "l_reg must be finite");
     assert!(result.l_clip.is_finite(), "l_clip must be finite");
@@ -157,7 +176,7 @@ fn combined_loss_is_finite_and_positive() {
 fn loss_decreases_when_children_fit_inside_parents() {
     let dim = 8;
     let loss_fn = TaxoBellLoss::new(TaxoBellConfig {
-        alpha: 0.0,   // disable symmetric to isolate containment
+        alpha: 0.0, // disable symmetric to isolate containment
         beta: 1.0,
         gamma: 0.0,
         delta: 0.0,
@@ -221,18 +240,14 @@ fn bc_siblings_greater_than_bc_distant() {
     let boxes = build_boxes();
 
     // Siblings: poodle and labrador (both children of dog).
-    let bc_siblings = bhattacharyya_coefficient(
-        boxes.get("poodle").unwrap(),
-        boxes.get("labrador").unwrap(),
-    )
-    .unwrap();
+    let bc_siblings =
+        bhattacharyya_coefficient(boxes.get("poodle").unwrap(), boxes.get("labrador").unwrap())
+            .unwrap();
 
     // Distant: poodle and bird (different branches entirely).
-    let bc_distant = bhattacharyya_coefficient(
-        boxes.get("poodle").unwrap(),
-        boxes.get("bird").unwrap(),
-    )
-    .unwrap();
+    let bc_distant =
+        bhattacharyya_coefficient(boxes.get("poodle").unwrap(), boxes.get("bird").unwrap())
+            .unwrap();
 
     assert!(
         bc_siblings > bc_distant,
@@ -242,17 +257,12 @@ fn bc_siblings_greater_than_bc_distant() {
     // Also check cat-branch siblings vs distant.
     // Siamese is the only cat child, so compare cat vs siamese overlap
     // against cat vs bird overlap.
-    let bc_cat_siamese = bhattacharyya_coefficient(
-        boxes.get("cat").unwrap(),
-        boxes.get("siamese").unwrap(),
-    )
-    .unwrap();
+    let bc_cat_siamese =
+        bhattacharyya_coefficient(boxes.get("cat").unwrap(), boxes.get("siamese").unwrap())
+            .unwrap();
 
-    let bc_cat_bird = bhattacharyya_coefficient(
-        boxes.get("cat").unwrap(),
-        boxes.get("bird").unwrap(),
-    )
-    .unwrap();
+    let bc_cat_bird =
+        bhattacharyya_coefficient(boxes.get("cat").unwrap(), boxes.get("bird").unwrap()).unwrap();
 
     assert!(
         bc_cat_siamese > bc_cat_bird,
@@ -279,7 +289,10 @@ fn from_center_offset_roundtrip_in_pipeline() {
         )
         .unwrap();
 
-    assert!(result.total.is_finite(), "loss must be finite with from_center_offset boxes");
+    assert!(
+        result.total.is_finite(),
+        "loss must be finite with from_center_offset boxes"
+    );
     assert!(result.total >= 0.0);
 }
 
@@ -293,8 +306,10 @@ fn full_pipeline_smoke_test() {
 
     // Verify split is non-empty in each partition.
     assert!(!train_edges.is_empty(), "train split should be non-empty");
-    assert!(!val_edges.is_empty() || !test_edges.is_empty(),
-        "at least one of val/test should be non-empty for 6 edges");
+    assert!(
+        !val_edges.is_empty() || !test_edges.is_empty(),
+        "at least one of val/test should be non-empty for 6 edges"
+    );
 
     // Build positive pairs from training edges.
     let positives: Vec<(&GaussianBox, &GaussianBox)> = train_edges
@@ -307,13 +322,11 @@ fn full_pipeline_smoke_test() {
         .collect();
 
     // Build a few negative triples.
-    let negatives = vec![
-        (
-            boxes.get("dog").unwrap(),
-            boxes.get("cat").unwrap(),
-            boxes.get("bird").unwrap(),
-        ),
-    ];
+    let negatives = vec![(
+        boxes.get("dog").unwrap(),
+        boxes.get("cat").unwrap(),
+        boxes.get("bird").unwrap(),
+    )];
 
     let all: Vec<&GaussianBox> = boxes.values().collect();
 

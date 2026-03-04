@@ -104,11 +104,7 @@ impl Box for NdarrayGumbelBox {
         // No hard clipping: softplus volume handles "flipped" boxes (z > Z)
         // gracefully by returning near-zero volume.
         Ok(Self {
-            inner: NdarrayBox::new_unchecked(
-                Array1::from(new_min),
-                Array1::from(new_max),
-                t,
-            ),
+            inner: NdarrayBox::new_unchecked(Array1::from(new_min), Array1::from(new_max), t),
         })
     }
 
@@ -268,7 +264,7 @@ mod tests {
     fn membership_prob_always_in_unit_interval() {
         let gb = NdarrayGumbelBox::new(array![0.0, 0.0, 0.0], array![1.0, 1.0, 1.0], 0.5).unwrap();
         let test_points = vec![
-            array![0.5, 0.5, 0.5],   // inside
+            array![0.5, 0.5, 0.5],    // inside
             array![-5.0, -5.0, -5.0], // far below
             array![10.0, 10.0, 10.0], // far above
             array![0.0, 0.0, 0.0],    // on boundary (min)
@@ -293,12 +289,9 @@ mod tests {
         // lengths are smaller than the hard box. At T=1.0, the offset is ~1.154
         // per dimension. Containment probabilities are lower than hard-box but
         // should still show monotonicity: more nested = higher containment.
-        let a =
-            NdarrayGumbelBox::new(array![0.0, 0.0], array![10.0, 10.0], 1.0).unwrap();
-        let b =
-            NdarrayGumbelBox::new(array![1.0, 1.0], array![9.0, 9.0], 1.0).unwrap();
-        let c =
-            NdarrayGumbelBox::new(array![2.0, 2.0], array![8.0, 8.0], 1.0).unwrap();
+        let a = NdarrayGumbelBox::new(array![0.0, 0.0], array![10.0, 10.0], 1.0).unwrap();
+        let b = NdarrayGumbelBox::new(array![1.0, 1.0], array![9.0, 9.0], 1.0).unwrap();
+        let c = NdarrayGumbelBox::new(array![2.0, 2.0], array![8.0, 8.0], 1.0).unwrap();
 
         let p_b_in_a = a.containment_prob(&b, 1.0).unwrap();
         let p_c_in_a = a.containment_prob(&c, 1.0).unwrap();
@@ -313,7 +306,11 @@ mod tests {
         let a_sharp = NdarrayGumbelBox::new(array![0.0, 0.0], array![10.0, 10.0], 0.01).unwrap();
         let b_sharp = NdarrayGumbelBox::new(array![1.0, 1.0], array![9.0, 9.0], 0.01).unwrap();
         let p_sharp = a_sharp.containment_prob(&b_sharp, 0.01).unwrap();
-        assert!(p_sharp > 0.99, "At low T, containment should be ~1.0, got {}", p_sharp);
+        assert!(
+            p_sharp > 0.99,
+            "At low T, containment should be ~1.0, got {}",
+            p_sharp
+        );
     }
 
     // ---- Temperature effects on Gumbel membership ----
@@ -355,11 +352,9 @@ mod tests {
 
     #[test]
     fn gumbel_box_serde_round_trip() {
-        let original =
-            NdarrayGumbelBox::new(array![0.1, 0.2], array![0.8, 0.9], 0.5).unwrap();
+        let original = NdarrayGumbelBox::new(array![0.1, 0.2], array![0.8, 0.9], 0.5).unwrap();
         let json = serde_json::to_string(&original).expect("serialize");
-        let deserialized: NdarrayGumbelBox =
-            serde_json::from_str(&json).expect("deserialize");
+        let deserialized: NdarrayGumbelBox = serde_json::from_str(&json).expect("deserialize");
 
         assert_eq!(original.dim(), deserialized.dim());
         assert_eq!(original.temperature(), deserialized.temperature());
@@ -486,8 +481,16 @@ mod tests {
         let inter = a.intersection(&b).unwrap();
         let vol = inter.volume(1.0).unwrap();
         // Volume should be positive but less than the hard intersection volume (1.0)
-        assert!(vol > 0.0, "intersection volume should be positive, got {}", vol);
-        assert!(vol < 1.0, "LSE intersection volume should be < hard vol (1.0), got {}", vol);
+        assert!(
+            vol > 0.0,
+            "intersection volume should be positive, got {}",
+            vol
+        );
+        assert!(
+            vol < 1.0,
+            "LSE intersection volume should be < hard vol (1.0), got {}",
+            vol
+        );
 
         // At low temperature, should approach hard intersection
         let a_sharp = NdarrayGumbelBox::new(array![0.0, 0.0], array![2.0, 2.0], 0.01).unwrap();
@@ -524,7 +527,11 @@ mod tests {
         let a = NdarrayGumbelBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();
         let b = NdarrayGumbelBox::new(array![3.0, 0.0], array![4.0, 1.0], 1.0).unwrap();
         let d = a.distance(&b).unwrap();
-        assert!((d - 2.0).abs() < 1e-5, "Gap of 2 in x only, expected 2.0, got {}", d);
+        assert!(
+            (d - 2.0).abs() < 1e-5,
+            "Gap of 2 in x only, expected 2.0, got {}",
+            d
+        );
     }
 
     #[test]
@@ -552,12 +559,14 @@ mod tests {
         assert!(
             p_center > p_edge,
             "Center ({}) should have higher membership than near-edge ({})",
-            p_center, p_edge
+            p_center,
+            p_edge
         );
         assert!(
             p_edge > p_out,
             "Near-edge ({}) should have higher membership than outside ({})",
-            p_edge, p_out
+            p_edge,
+            p_out
         );
     }
 
@@ -570,14 +579,20 @@ mod tests {
         let large = NdarrayGumbelBox::new(array![0.0], array![5.0], 1.0).unwrap();
         let v_small = small.volume(1.0).unwrap();
         let v_large = large.volume(1.0).unwrap();
-        assert!(v_large > v_small, "larger box should have larger vol: {v_large} vs {v_small}");
+        assert!(
+            v_large > v_small,
+            "larger box should have larger vol: {v_large} vs {v_small}"
+        );
     }
 
     #[test]
     fn bessel_volume_positive_for_nonempty_box() {
         let b = NdarrayGumbelBox::new(array![0.0, 0.0, 0.0], array![1.0, 1.0, 1.0], 1.0).unwrap();
         let v = b.volume(1.0).unwrap();
-        assert!(v > 0.0, "non-empty box should have positive volume, got {v}");
+        assert!(
+            v > 0.0,
+            "non-empty box should have positive volume, got {v}"
+        );
         assert!(v.is_finite(), "volume should be finite");
     }
 
@@ -633,11 +648,13 @@ mod tests {
         // Hard intersection would be [1,3]^2
         assert!(
             (inter.min()[0] - 1.0).abs() < 0.05,
-            "LSE min should be ~1.0 at low T, got {}", inter.min()[0]
+            "LSE min should be ~1.0 at low T, got {}",
+            inter.min()[0]
         );
         assert!(
             (inter.max()[0] - 3.0).abs() < 0.05,
-            "LSE max should be ~3.0 at low T, got {}", inter.max()[0]
+            "LSE max should be ~3.0 at low T, got {}",
+            inter.max()[0]
         );
     }
 
@@ -655,11 +672,27 @@ mod tests {
         let b = NdarrayGumbelBox::new(array![2.0, 0.0], array![4.0, 7.0], 1.0).unwrap();
         let inter = a.intersection(&b).unwrap();
         // LSE min >= hard min: lse(0,2) >= max(0,2) = 2 and lse(1,0) >= max(1,0) = 1
-        assert!(inter.min()[0] >= 2.0 - 1e-6, "lse min[0] ({}) should be >= 2.0", inter.min()[0]);
-        assert!(inter.min()[1] >= 1.0 - 1e-6, "lse min[1] ({}) should be >= 1.0", inter.min()[1]);
+        assert!(
+            inter.min()[0] >= 2.0 - 1e-6,
+            "lse min[0] ({}) should be >= 2.0",
+            inter.min()[0]
+        );
+        assert!(
+            inter.min()[1] >= 1.0 - 1e-6,
+            "lse min[1] ({}) should be >= 1.0",
+            inter.min()[1]
+        );
         // LSE max <= hard max: -lse(-5,-4) <= min(5,4) = 4 and -lse(-6,-7) <= min(6,7) = 6
-        assert!(inter.max()[0] <= 4.0 + 1e-6, "lse max[0] ({}) should be <= 4.0", inter.max()[0]);
-        assert!(inter.max()[1] <= 6.0 + 1e-6, "lse max[1] ({}) should be <= 6.0", inter.max()[1]);
+        assert!(
+            inter.max()[0] <= 4.0 + 1e-6,
+            "lse max[0] ({}) should be <= 4.0",
+            inter.max()[0]
+        );
+        assert!(
+            inter.max()[1] <= 6.0 + 1e-6,
+            "lse max[1] ({}) should be <= 6.0",
+            inter.max()[1]
+        );
     }
 
     #[test]
@@ -667,7 +700,10 @@ mod tests {
         let a = NdarrayGumbelBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();
         let b = NdarrayGumbelBox::new(array![10.0, 10.0], array![11.0, 11.0], 1.0).unwrap();
         let p = a.containment_prob(&b, 1.0).unwrap();
-        assert!(p < 0.01, "disjoint boxes should have near-zero containment, got {p}");
+        assert!(
+            p < 0.01,
+            "disjoint boxes should have near-zero containment, got {p}"
+        );
     }
 
     #[test]
@@ -676,13 +712,19 @@ mod tests {
         let a = NdarrayGumbelBox::new(array![0.0, 0.0], array![3.0, 3.0], 1.0).unwrap();
         let b = NdarrayGumbelBox::new(array![1.0, 1.0], array![4.0, 4.0], 1.0).unwrap();
         let p = a.overlap_prob(&b, 1.0).unwrap();
-        assert!(p > 0.0, "overlapping boxes should have positive overlap, got {p}");
+        assert!(
+            p > 0.0,
+            "overlapping boxes should have positive overlap, got {p}"
+        );
         assert!(p <= 1.0, "overlap should be <= 1.0");
 
         // Disjoint boxes
         let c = NdarrayGumbelBox::new(array![10.0, 10.0], array![11.0, 11.0], 1.0).unwrap();
         let p_disjoint = a.overlap_prob(&c, 1.0).unwrap();
-        assert!(p_disjoint < 0.01, "disjoint boxes should have near-zero overlap, got {p_disjoint}");
+        assert!(
+            p_disjoint < 0.01,
+            "disjoint boxes should have near-zero overlap, got {p_disjoint}"
+        );
     }
 }
 

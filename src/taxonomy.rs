@@ -127,7 +127,11 @@ impl TaxonomyDataset {
         train_ratio: f64,
         val_ratio: f64,
         seed: u64,
-    ) -> (Vec<(usize, usize)>, Vec<(usize, usize)>, Vec<(usize, usize)>) {
+    ) -> (
+        Vec<(usize, usize)>,
+        Vec<(usize, usize)>,
+        Vec<(usize, usize)>,
+    ) {
         let mut edges = self.edges.clone();
         deterministic_shuffle(&mut edges, seed);
 
@@ -345,11 +349,7 @@ mod tests {
             "test.terms",
             "0\tanimal\n1\tdog\n2\tcat\n3\tmammal\n",
         );
-        let taxo = write_file(
-            dir.path(),
-            "test.taxo",
-            "0\t3\n3\t1\n3\t2\n",
-        );
+        let taxo = write_file(dir.path(), "test.taxo", "0\t3\n3\t1\n3\t2\n");
 
         let ds = TaxonomyDataset::load(&terms, &taxo, None).unwrap();
         assert_eq!(ds.num_nodes(), 4);
@@ -394,7 +394,11 @@ mod tests {
         // All edges accounted for.
         assert_eq!(train.len() + val.len() + test.len(), 9);
         // Approximate split sizes (rounding may shift by 1).
-        assert!(train.len() >= 4 && train.len() <= 6, "train len = {}", train.len());
+        assert!(
+            train.len() >= 4 && train.len() <= 6,
+            "train len = {}",
+            train.len()
+        );
         assert!(val.len() >= 1 && val.len() <= 3, "val len = {}", val.len());
     }
 
@@ -477,7 +481,10 @@ mod tests {
         // Different seeds produce different splits (with high probability for 49 edges)
         let (t_a, _, _) = ds.split(0.6, 0.2, 1);
         let (t_b, _, _) = ds.split(0.6, 0.2, 2);
-        assert_ne!(t_a, t_b, "different seeds should (almost surely) produce different splits");
+        assert_ne!(
+            t_a, t_b,
+            "different seeds should (almost surely) produce different splits"
+        );
     }
 
     /// to_triples: parent is head? No -- child is head, parent is tail.

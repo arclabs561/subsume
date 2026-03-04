@@ -91,10 +91,7 @@ mod tests {
     fn test_reachability_self_is_zero() {
         let u = IntervalEmbedding::new(vec![1.0, 2.0, 3.0], vec![4.0, 5.0, 6.0]);
         let d = u.reachability(&u, 0.5);
-        assert!(
-            d.abs() < 1e-10,
-            "reachability to self should be 0, got {d}"
-        );
+        assert!(d.abs() < 1e-10, "reachability to self should be 0, got {d}");
     }
 
     #[test]
@@ -104,8 +101,14 @@ mod tests {
         let v = IntervalEmbedding::new(vec![3.0], vec![7.0]);
         let d_uv = u.reachability(&v, 0.5);
         let d_vu = v.reachability(&u, 0.5);
-        assert!(d_uv.abs() < 1e-10, "u contains v: d(u,v) should be 0, got {d_uv}");
-        assert!(d_vu > 0.0, "v does not contain u: d(v,u) should be > 0, got {d_vu}");
+        assert!(
+            d_uv.abs() < 1e-10,
+            "u contains v: d(u,v) should be 0, got {d_uv}"
+        );
+        assert!(
+            d_vu > 0.0,
+            "v does not contain u: d(v,u) should be > 0, got {d_vu}"
+        );
     }
 
     #[test]
@@ -113,7 +116,10 @@ mod tests {
         let u = IntervalEmbedding::new(vec![], vec![]);
         let v = IntervalEmbedding::new(vec![], vec![]);
         let d = u.reachability(&v, 0.5);
-        assert!(d.abs() < 1e-10, "zero-dim reachability should be 0, got {d}");
+        assert!(
+            d.abs() < 1e-10,
+            "zero-dim reachability should be 0, got {d}"
+        );
     }
 
     #[test]
@@ -128,8 +134,14 @@ mod tests {
         // total=7, max=5, dim=2
         // alpha=1: 1.0*(7/2) + 0.0*5 = 3.5
         // alpha=0: 0.0*(7/2) + 1.0*5 = 5.0
-        assert!((d_mean - 3.5).abs() < 1e-10, "alpha=1 should be mean gap = 3.5, got {d_mean}");
-        assert!((d_max - 5.0).abs() < 1e-10, "alpha=0 should be max gap = 5.0, got {d_max}");
+        assert!(
+            (d_mean - 3.5).abs() < 1e-10,
+            "alpha=1 should be mean gap = 3.5, got {d_mean}"
+        );
+        assert!(
+            (d_max - 5.0).abs() < 1e-10,
+            "alpha=0 should be max gap = 5.0, got {d_max}"
+        );
     }
 
     use proptest::prelude::*;

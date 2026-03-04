@@ -201,7 +201,11 @@ pub trait Octagon: Sized {
     /// Number of adjacent dimension pairs = dim - 1.
     fn num_diagonal_pairs(&self) -> usize {
         let d = self.dim();
-        if d == 0 { 0 } else { d - 1 }
+        if d == 0 {
+            0
+        } else {
+            d - 1
+        }
     }
 
     /// Check whether a point lies inside this octagon.

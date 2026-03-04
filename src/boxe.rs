@@ -478,7 +478,10 @@ mod tests {
         let bt = [0.0, 0.0];
 
         let score = boxe_point_score(&h, &t, &rh_min, &rh_max, &rt_min, &rt_max, &bh, &bt).unwrap();
-        assert!((score - 0.0).abs() < 1e-6, "center point should have score 0, got {score}");
+        assert!(
+            (score - 0.0).abs() < 1e-6,
+            "center point should have score 0, got {score}"
+        );
     }
 
     #[test]
@@ -493,7 +496,10 @@ mod tests {
         let bt = [0.0, 0.0];
 
         let score = boxe_point_score(&h, &t, &rh_min, &rh_max, &rt_min, &rt_max, &bh, &bt).unwrap();
-        assert!(score < -5.0, "outside point should have very negative score, got {score}");
+        assert!(
+            score < -5.0,
+            "outside point should have very negative score, got {score}"
+        );
     }
 
     #[test]
@@ -508,7 +514,10 @@ mod tests {
         let bt = [-4.5, -4.5]; // bump_t moves h' = 5 + (-4.5) = 0.5, inside
 
         let score = boxe_point_score(&h, &t, &rh_min, &rh_max, &rt_min, &rt_max, &bh, &bt).unwrap();
-        assert!((score - 0.0).abs() < 1e-6, "bumped-in point should have score ~0, got {score}");
+        assert!(
+            (score - 0.0).abs() < 1e-6,
+            "bumped-in point should have score ~0, got {score}"
+        );
     }
 
     #[test]
@@ -548,16 +557,14 @@ mod tests {
 
         /// Strategy: generate valid box bounds (lo < hi) and a point in any range.
         fn arb_box_and_point(dim: usize) -> impl Strategy<Value = (Vec<f32>, Vec<f32>, Vec<f32>)> {
-            proptest::collection::vec(
-                (-10.0f32..10.0f32, 0.01f32..5.0f32),
-                dim,
+            proptest::collection::vec((-10.0f32..10.0f32, 0.01f32..5.0f32), dim).prop_flat_map(
+                move |pairs| {
+                    let lo: Vec<f32> = pairs.iter().map(|(l, _)| *l).collect();
+                    let hi: Vec<f32> = pairs.iter().map(|(l, w)| l + w).collect();
+                    let point_strat = proptest::collection::vec(-15.0f32..15.0f32, dim);
+                    (Just(lo), Just(hi), point_strat)
+                },
             )
-            .prop_flat_map(move |pairs| {
-                let lo: Vec<f32> = pairs.iter().map(|(l, _)| *l).collect();
-                let hi: Vec<f32> = pairs.iter().map(|(l, w)| l + w).collect();
-                let point_strat = proptest::collection::vec(-15.0f32..15.0f32, dim);
-                (Just(lo), Just(hi), point_strat)
-            })
         }
 
         // ---- boxe_point_score is non-positive for any inputs ----
@@ -639,9 +646,11 @@ mod tests {
     #[test]
     fn test_boxe_score_hand_computed_partial_overlap() {
         let score = boxe_score(
-            &[0.0, 0.0], &[2.0, 2.0], // head
-            &[2.0, 0.0], &[4.0, 2.0], // tail
-            &[1.0, 0.0],              // bump
+            &[0.0, 0.0],
+            &[2.0, 2.0], // head
+            &[2.0, 0.0],
+            &[4.0, 2.0], // tail
+            &[1.0, 0.0], // bump
             1.0,
         )
         .unwrap();
@@ -655,8 +664,10 @@ mod tests {
     #[test]
     fn test_boxe_score_zero_volume_tail() {
         let score = boxe_score(
-            &[0.0], &[1.0],
-            &[0.5], &[0.5], // zero-width tail
+            &[0.0],
+            &[1.0],
+            &[0.5],
+            &[0.5], // zero-width tail
             &[0.0],
             1.0,
         )
@@ -677,9 +688,15 @@ mod tests {
     fn test_boxe_dim_distance_degenerate_box() {
         // Point at box location => inside => distance involves (half_width + 1) denom
         let d = boxe_dim_distance(5.0, 5.0, 5.0);
-        assert!(d.abs() < 1e-6, "point at degenerate box center: expected 0, got {d}");
+        assert!(
+            d.abs() < 1e-6,
+            "point at degenerate box center: expected 0, got {d}"
+        );
         // Point away from degenerate box => outside
         let d2 = boxe_dim_distance(8.0, 5.0, 5.0);
-        assert!((d2 - 3.0).abs() < 1e-6, "point 3 units from degenerate box: expected 3.0, got {d2}");
+        assert!(
+            (d2 - 3.0).abs() < 1e-6,
+            "point 3 units from degenerate box: expected 3.0, got {d2}"
+        );
     }
 }

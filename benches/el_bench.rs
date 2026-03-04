@@ -64,5 +64,10 @@ fn bench_existential_box(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_inclusion_loss, bench_compose_roles, bench_existential_box);
+criterion_group!(
+    benches,
+    bench_inclusion_loss,
+    bench_compose_roles,
+    bench_existential_box
+);
 criterion_main!(benches);

@@ -40,7 +40,9 @@ fn bench_combined_loss(c: &mut Criterion) {
     let n_boxes = 50;
 
     // Pre-create boxes.
-    let boxes: Vec<GaussianBox> = (0..n_boxes).map(|i| make_box(dim, i as f32 * 0.3)).collect();
+    let boxes: Vec<GaussianBox> = (0..n_boxes)
+        .map(|i| make_box(dim, i as f32 * 0.3))
+        .collect();
 
     // Build positive pairs: (child, parent) cycling through boxes.
     let positives: Vec<(&GaussianBox, &GaussianBox)> = (0..n_pos)

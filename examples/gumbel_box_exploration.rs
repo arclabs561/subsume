@@ -32,11 +32,7 @@ fn main() -> Result<(), subsume::BoxError> {
 
     let temperature = 1.0;
 
-    let animal = NdarrayGumbelBox::new(
-        array![0.0, 0.0, 0.0],
-        array![1.0, 1.0, 1.0],
-        temperature,
-    )?;
+    let animal = NdarrayGumbelBox::new(array![0.0, 0.0, 0.0], array![1.0, 1.0, 1.0], temperature)?;
 
     let mammal = NdarrayGumbelBox::new(
         array![0.05, 0.05, 0.05],
@@ -44,17 +40,9 @@ fn main() -> Result<(), subsume::BoxError> {
         temperature,
     )?;
 
-    let dog = NdarrayGumbelBox::new(
-        array![0.1, 0.1, 0.1],
-        array![0.4, 0.4, 0.4],
-        temperature,
-    )?;
+    let dog = NdarrayGumbelBox::new(array![0.1, 0.1, 0.1], array![0.4, 0.4, 0.4], temperature)?;
 
-    let vehicle = NdarrayGumbelBox::new(
-        array![2.0, 2.0, 2.0],
-        array![3.0, 3.0, 3.0],
-        temperature,
-    )?;
+    let vehicle = NdarrayGumbelBox::new(array![2.0, 2.0, 2.0], array![3.0, 3.0, 3.0], temperature)?;
 
     println!("--- Part 1: Gumbel boxes created ---\n");
     let entities: Vec<(&str, &NdarrayGumbelBox)> = vec![
@@ -126,21 +114,9 @@ fn main() -> Result<(), subsume::BoxError> {
 
     for &t in &[0.01, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 100.0] {
         // Re-create boxes at this temperature to show membership effects.
-        let animal_t = NdarrayGumbelBox::new(
-            array![0.0, 0.0, 0.0],
-            array![1.0, 1.0, 1.0],
-            t,
-        )?;
-        let dog_t = NdarrayGumbelBox::new(
-            array![0.1, 0.1, 0.1],
-            array![0.4, 0.4, 0.4],
-            t,
-        )?;
-        let vehicle_t = NdarrayGumbelBox::new(
-            array![2.0, 2.0, 2.0],
-            array![3.0, 3.0, 3.0],
-            t,
-        )?;
+        let animal_t = NdarrayGumbelBox::new(array![0.0, 0.0, 0.0], array![1.0, 1.0, 1.0], t)?;
+        let dog_t = NdarrayGumbelBox::new(array![0.1, 0.1, 0.1], array![0.4, 0.4, 0.4], t)?;
+        let vehicle_t = NdarrayGumbelBox::new(array![2.0, 2.0, 2.0], array![3.0, 3.0, 3.0], t)?;
 
         let p_dog_animal = animal_t.containment_prob(&dog_t, t)?;
         let p_dog_vehicle = vehicle_t.containment_prob(&dog_t, t)?;
@@ -176,18 +152,11 @@ fn main() -> Result<(), subsume::BoxError> {
 
     println!("\n--- Part 5: Temperature sharpens membership ---\n");
     let boundary_point = array![0.0, 0.0, 0.0]; // on the boundary of animal
-    println!(
-        "{:>12} {:>25}",
-        "temperature", "P(boundary_pt in animal)"
-    );
+    println!("{:>12} {:>25}", "temperature", "P(boundary_pt in animal)");
     println!("{}", "-".repeat(39));
 
     for &t in &[0.01, 0.1, 0.5, 1.0, 5.0, 100.0] {
-        let animal_t = NdarrayGumbelBox::new(
-            array![0.0, 0.0, 0.0],
-            array![1.0, 1.0, 1.0],
-            t,
-        )?;
+        let animal_t = NdarrayGumbelBox::new(array![0.0, 0.0, 0.0], array![1.0, 1.0, 1.0], t)?;
         let p = animal_t.membership_probability(&boundary_point)?;
         println!("{:>12.2} {:>25.6}", t, p);
     }

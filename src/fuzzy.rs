@@ -234,10 +234,19 @@ mod tests {
     fn enum_apply() {
         assert_eq!(TNorm::Min.apply(0.3, 0.7), tnorm_min(0.3, 0.7));
         assert_eq!(TNorm::Product.apply(0.3, 0.7), tnorm_product(0.3, 0.7));
-        assert_eq!(TNorm::Lukasiewicz.apply(0.3, 0.7), tnorm_lukasiewicz(0.3, 0.7));
+        assert_eq!(
+            TNorm::Lukasiewicz.apply(0.3, 0.7),
+            tnorm_lukasiewicz(0.3, 0.7)
+        );
         assert_eq!(TConorm::Max.apply(0.3, 0.7), tconorm_max(0.3, 0.7));
-        assert_eq!(TConorm::Probabilistic.apply(0.3, 0.7), tconorm_probabilistic(0.3, 0.7));
-        assert_eq!(TConorm::Lukasiewicz.apply(0.3, 0.7), tconorm_lukasiewicz(0.3, 0.7));
+        assert_eq!(
+            TConorm::Probabilistic.apply(0.3, 0.7),
+            tconorm_probabilistic(0.3, 0.7)
+        );
+        assert_eq!(
+            TConorm::Lukasiewicz.apply(0.3, 0.7),
+            tconorm_lukasiewicz(0.3, 0.7)
+        );
     }
 
     #[test]

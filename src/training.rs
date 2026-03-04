@@ -3307,11 +3307,8 @@ mod tests {
 
     #[test]
     fn test_ece_empty_input() {
-        let ece = calibration::expected_calibration_error(
-            std::iter::empty(),
-            std::iter::empty(),
-            10,
-        );
+        let ece =
+            calibration::expected_calibration_error(std::iter::empty(), std::iter::empty(), 10);
         assert_eq!(ece, 0.0);
     }
 
@@ -3341,18 +3338,16 @@ mod tests {
     #[test]
     fn test_brier_score_clamps_out_of_range() {
         // Predictions outside [0, 1] should be clamped
-        let b = calibration::brier_score([1.5, -0.5].iter().copied(), [true, false].iter().copied());
+        let b =
+            calibration::brier_score([1.5, -0.5].iter().copied(), [true, false].iter().copied());
         // clamped to [1.0, 0.0] => perfect => Brier = 0
         assert_eq!(b, 0.0);
     }
 
     #[test]
     fn test_ace_empty() {
-        let ace = calibration::adaptive_calibration_error(
-            std::iter::empty(),
-            std::iter::empty(),
-            5,
-        );
+        let ace =
+            calibration::adaptive_calibration_error(std::iter::empty(), std::iter::empty(), 5);
         assert_eq!(ace, 0.0);
     }
 
@@ -3381,11 +3376,7 @@ mod tests {
 
     #[test]
     fn test_reliability_diagram_empty() {
-        let diagram = calibration::reliability_diagram(
-            std::iter::empty(),
-            std::iter::empty(),
-            5,
-        );
+        let diagram = calibration::reliability_diagram(std::iter::empty(), std::iter::empty(), 5);
         assert!(diagram.bin_centers.is_empty());
         assert!(diagram.empirical_accuracies.is_empty());
         assert!(diagram.bin_counts.is_empty());
@@ -3396,11 +3387,8 @@ mod tests {
         // All predictions are 0.5 => single bin
         let preds = [0.5, 0.5, 0.5, 0.5];
         let actuals = [false, true, false, true];
-        let diagram = calibration::reliability_diagram(
-            preds.iter().copied(),
-            actuals.iter().copied(),
-            10,
-        );
+        let diagram =
+            calibration::reliability_diagram(preds.iter().copied(), actuals.iter().copied(), 10);
         // Only one non-empty bin
         assert_eq!(diagram.bin_centers.len(), 1);
         // Empirical accuracy = 2/4 = 0.5
@@ -3412,11 +3400,8 @@ mod tests {
     fn test_reliability_diagram_all_true() {
         let preds = [0.1, 0.5, 0.9];
         let actuals = [true, true, true];
-        let diagram = calibration::reliability_diagram(
-            preds.iter().copied(),
-            actuals.iter().copied(),
-            3,
-        );
+        let diagram =
+            calibration::reliability_diagram(preds.iter().copied(), actuals.iter().copied(), 3);
         // All empirical accuracies should be 1.0
         for acc in &diagram.empirical_accuracies {
             assert_eq!(*acc, 1.0);
@@ -3428,11 +3413,8 @@ mod tests {
         // Predictions outside [0,1] should be clamped
         let preds = [-0.5, 1.5, 0.5];
         let actuals = [false, true, true];
-        let diagram = calibration::reliability_diagram(
-            preds.iter().copied(),
-            actuals.iter().copied(),
-            5,
-        );
+        let diagram =
+            calibration::reliability_diagram(preds.iter().copied(), actuals.iter().copied(), 5);
         // Should not panic; all bin centers should be in [0, 1]
         for center in &diagram.bin_centers {
             assert!((0.0..=1.0).contains(center));

@@ -38,9 +38,11 @@ struct FuzzyKG {
 
 fn build_kg() -> FuzzyKG {
     FuzzyKG {
-        entities: vec!["dolphin", "whale", "shark", "salmon", "eagle", "tiger", "panda"],
-        is_mammal:     vec![0.95, 0.98, 0.05, 0.02, 0.01, 0.97, 0.99],
-        is_aquatic:    vec![0.90, 0.92, 0.99, 0.95, 0.05, 0.10, 0.02],
+        entities: vec![
+            "dolphin", "whale", "shark", "salmon", "eagle", "tiger", "panda",
+        ],
+        is_mammal: vec![0.95, 0.98, 0.05, 0.02, 0.01, 0.97, 0.99],
+        is_aquatic: vec![0.90, 0.92, 0.99, 0.95, 0.05, 0.10, 0.02],
         is_endangered: vec![0.60, 0.85, 0.70, 0.30, 0.75, 0.90, 0.95],
     }
 }
@@ -54,9 +56,14 @@ fn main() {
     // --- Query 1: aquatic AND mammal (aquatic mammals) ---
 
     println!("Query 1: aquatic AND mammal  (t-norm = intersection)\n");
-    println!("  {:>10} | {:>7} {:>7} | {:>7} {:>7} {:>7}",
-        "entity", "mammal", "aquatic", "Min", "Product", "Lukasz");
-    println!("  {:-<10}-+-{:-<7}-{:-<7}-+-{:-<7}-{:-<7}-{:-<7}", "", "", "", "", "", "");
+    println!(
+        "  {:>10} | {:>7} {:>7} | {:>7} {:>7} {:>7}",
+        "entity", "mammal", "aquatic", "Min", "Product", "Lukasz"
+    );
+    println!(
+        "  {:-<10}-+-{:-<7}-{:-<7}-+-{:-<7}-{:-<7}-{:-<7}",
+        "", "", "", "", "", ""
+    );
 
     for (i, &name) in kg.entities.iter().enumerate() {
         let m = kg.is_mammal[i];
@@ -72,9 +79,14 @@ fn main() {
     // --- Query 2: aquatic OR endangered (t-conorm = union) ---
 
     println!("Query 2: aquatic OR endangered  (t-conorm = union)\n");
-    println!("  {:>10} | {:>7} {:>7} | {:>7} {:>7} {:>7}",
-        "entity", "aquatic", "endgrd", "Max", "Prob", "Lukasz");
-    println!("  {:-<10}-+-{:-<7}-{:-<7}-+-{:-<7}-{:-<7}-{:-<7}", "", "", "", "", "", "");
+    println!(
+        "  {:>10} | {:>7} {:>7} | {:>7} {:>7} {:>7}",
+        "entity", "aquatic", "endgrd", "Max", "Prob", "Lukasz"
+    );
+    println!(
+        "  {:-<10}-+-{:-<7}-{:-<7}-+-{:-<7}-{:-<7}-{:-<7}",
+        "", "", "", "", "", ""
+    );
 
     for (i, &name) in kg.entities.iter().enumerate() {
         let a = kg.is_aquatic[i];
@@ -91,9 +103,14 @@ fn main() {
     // --- Query 3: NOT mammal AND aquatic (non-mammal aquatic = fish/sharks) ---
 
     println!("Query 3: NOT mammal AND aquatic  (negation + t-norm)\n");
-    println!("  {:>10} | {:>7} {:>7} {:>7} | {:>7}",
-        "entity", "mammal", "NOT_m", "aquatic", "result");
-    println!("  {:-<10}-+-{:-<7}-{:-<7}-{:-<7}-+-{:-<7}", "", "", "", "", "");
+    println!(
+        "  {:>10} | {:>7} {:>7} {:>7} | {:>7}",
+        "entity", "mammal", "NOT_m", "aquatic", "result"
+    );
+    println!(
+        "  {:-<10}-+-{:-<7}-{:-<7}-{:-<7}-+-{:-<7}",
+        "", "", "", "", ""
+    );
 
     let tnorm = TNorm::Product; // Use product t-norm
     for (i, &name) in kg.entities.iter().enumerate() {

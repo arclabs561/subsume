@@ -1491,7 +1491,8 @@ mod tests {
 
     #[test]
     fn filtered_triple_index_membership() {
-        let triples = [Triple {
+        let triples = [
+            Triple {
                 head: "h".to_string(),
                 relation: "r".to_string(),
                 tail: "t1".to_string(),
@@ -1505,7 +1506,8 @@ mod tests {
                 head: "h".to_string(),
                 relation: "r2".to_string(),
                 tail: "t3".to_string(),
-            }];
+            },
+        ];
 
         let idx = FilteredTripleIndex::from_triples(triples.iter());
 
@@ -1828,7 +1830,10 @@ mod tests {
 
         // At least one parameter should change (the boxes are disjoint, so
         // the gradient will push them toward each other).
-        assert_ne!(mu_before, mu_after, "train_step should modify box parameters");
+        assert_ne!(
+            mu_before, mu_after,
+            "train_step should modify box parameters"
+        );
     }
 
     #[test]
@@ -1879,13 +1884,10 @@ mod tests {
     #[test]
     #[cfg(feature = "rand")]
     fn sorted_entity_pool_pick_returns_pool_member() {
-        use rand::SeedableRng;
         use rand::rngs::StdRng;
+        use rand::SeedableRng;
 
-        let entities: HashSet<String> = ["a", "b", "c"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
+        let entities: HashSet<String> = ["a", "b", "c"].iter().map(|s| s.to_string()).collect();
         let pool = SortedEntityPool::new(&entities);
         let mut rng = StdRng::seed_from_u64(42);
 
@@ -1913,7 +1915,10 @@ mod tests {
             &NegativeSamplingStrategy::CorruptTail,
             5,
         );
-        assert!(negatives.is_empty(), "empty entity set should yield no negatives");
+        assert!(
+            negatives.is_empty(),
+            "empty entity set should yield no negatives"
+        );
     }
 
     #[test]
@@ -1942,8 +1947,8 @@ mod tests {
     #[test]
     #[cfg(feature = "rand")]
     fn negative_samples_corrupt_head_preserves_tail_and_relation() {
-        use rand::SeedableRng;
         use rand::rngs::StdRng;
+        use rand::SeedableRng;
 
         let entities: HashSet<String> = ["e1", "e2", "e3", "e4"]
             .iter()
@@ -1971,8 +1976,8 @@ mod tests {
     #[test]
     #[cfg(feature = "rand")]
     fn negative_samples_corrupt_both_may_change_head_and_tail() {
-        use rand::SeedableRng;
         use rand::rngs::StdRng;
+        use rand::SeedableRng;
 
         let entities: HashSet<String> = (0..20).map(|i| format!("e{i}")).collect();
         let triple = Triple {
@@ -1990,8 +1995,14 @@ mod tests {
         );
         let any_head_changed = negatives.iter().any(|n| n.head != "e0");
         let any_tail_changed = negatives.iter().any(|n| n.tail != "e1");
-        assert!(any_head_changed, "CorruptBoth should change head at least sometimes");
-        assert!(any_tail_changed, "CorruptBoth should change tail at least sometimes");
+        assert!(
+            any_head_changed,
+            "CorruptBoth should change head at least sometimes"
+        );
+        assert!(
+            any_tail_changed,
+            "CorruptBoth should change tail at least sometimes"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -2025,7 +2036,11 @@ mod tests {
 
         // B is contained in A and should rank highly; C is disjoint.
         // With 3 entities, best rank is 1, so MRR should be > 0.
-        assert!(results.mrr > 0.0, "MRR should be positive, got {}", results.mrr);
+        assert!(
+            results.mrr > 0.0,
+            "MRR should be positive, got {}",
+            results.mrr
+        );
         assert!(results.mean_rank >= 1.0, "mean_rank should be >= 1");
     }
 
@@ -2073,8 +2088,16 @@ mod tests {
         }];
 
         let filter_triples = vec![
-            Triple { head: "A".into(), relation: "r".into(), tail: "C".into() },
-            Triple { head: "A".into(), relation: "r".into(), tail: "B".into() },
+            Triple {
+                head: "A".into(),
+                relation: "r".into(),
+                tail: "C".into(),
+            },
+            Triple {
+                head: "A".into(),
+                relation: "r".into(),
+                tail: "B".into(),
+            },
         ];
         let filter = FilteredTripleIndex::from_triples(filter_triples.iter());
 
@@ -2123,7 +2146,11 @@ mod tests {
 
         let results =
             evaluate_link_prediction_interned(&test_triples, &boxes, &vocab, None).unwrap();
-        assert!(results.mrr > 0.0, "MRR should be positive, got {}", results.mrr);
+        assert!(
+            results.mrr > 0.0,
+            "MRR should be positive, got {}",
+            results.mrr
+        );
         assert!(results.mean_rank >= 1.0);
     }
 
@@ -2146,10 +2173,22 @@ mod tests {
             NdarrayBox::new(array![2.0, 2.0], array![4.0, 4.0], 1.0).unwrap(),
         ];
 
-        let test_triples = vec![TripleIds { head: id_a, relation: id_r, tail: id_b }];
+        let test_triples = vec![TripleIds {
+            head: id_a,
+            relation: id_r,
+            tail: id_b,
+        }];
         let known_triples = vec![
-            TripleIds { head: id_a, relation: id_r, tail: id_c },
-            TripleIds { head: id_a, relation: id_r, tail: id_b },
+            TripleIds {
+                head: id_a,
+                relation: id_r,
+                tail: id_c,
+            },
+            TripleIds {
+                head: id_a,
+                relation: id_r,
+                tail: id_b,
+            },
         ];
         let filter = FilteredTripleIndexIds::from_triples(known_triples.iter());
 
@@ -2181,9 +2220,21 @@ mod tests {
         use crate::dataset::TripleIds;
 
         let triples = vec![
-            TripleIds { head: 0, relation: 0, tail: 1 },
-            TripleIds { head: 0, relation: 0, tail: 2 },
-            TripleIds { head: 0, relation: 1, tail: 3 },
+            TripleIds {
+                head: 0,
+                relation: 0,
+                tail: 1,
+            },
+            TripleIds {
+                head: 0,
+                relation: 0,
+                tail: 2,
+            },
+            TripleIds {
+                head: 0,
+                relation: 1,
+                tail: 3,
+            },
         ];
 
         let idx = FilteredTripleIndexIds::from_triples(triples.iter());
@@ -2200,8 +2251,16 @@ mod tests {
         use crate::dataset::TripleIds;
 
         let triples = vec![
-            TripleIds { head: 0, relation: 0, tail: 10 },
-            TripleIds { head: 0, relation: 0, tail: 20 },
+            TripleIds {
+                head: 0,
+                relation: 0,
+                tail: 10,
+            },
+            TripleIds {
+                head: 0,
+                relation: 0,
+                tail: 20,
+            },
         ];
         let idx = FilteredTripleIndexIds::from_triples(triples.iter());
 
@@ -2321,7 +2380,10 @@ mod tests {
         let cfg = TrainingConfig::default();
         let a = TrainableBox::new(vec![0.0, 0.0], vec![1.0, 1.0]);
         let loss = compute_pair_loss(&a, &a.clone(), true, &cfg);
-        assert!(loss.is_finite(), "loss for identical boxes should be finite, got {loss}");
+        assert!(
+            loss.is_finite(),
+            "loss for identical boxes should be finite, got {loss}"
+        );
     }
 
     #[test]
@@ -2366,7 +2428,10 @@ mod tests {
         let (g_mu_a, g_delta_a, g_mu_b, g_delta_b) =
             compute_analytical_gradients(&a, &b, false, &cfg);
         for v in [&g_mu_a, &g_delta_a, &g_mu_b, &g_delta_b] {
-            assert!(v.iter().all(|&x| x == 0.0), "negative gradients should be zero");
+            assert!(
+                v.iter().all(|&x| x == 0.0),
+                "negative gradients should be zero"
+            );
         }
     }
 
@@ -2425,7 +2490,10 @@ mod tests {
         assert!(content.contains("0.7500"), "should contain MRR");
         assert!(content.contains("0.6000"), "should contain Hits@1");
         assert!(content.contains("42.00"), "should contain training time");
-        assert!(content.contains("Best Epoch: 2"), "should contain best epoch");
+        assert!(
+            content.contains("Best Epoch: 2"),
+            "should contain best epoch"
+        );
 
         let _ = std::fs::remove_file(&path);
     }

@@ -567,7 +567,8 @@ mod tests {
                 assert!(
                     lr.is_finite() && lr >= 0.0,
                     "Scheduler produced invalid LR {} at step {}",
-                    lr, step_num
+                    lr,
+                    step_num
                 );
             }
         }

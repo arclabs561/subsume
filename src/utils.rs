@@ -124,12 +124,7 @@ pub fn bessel_side_length(z: f32, big_z: f32, t_int: f32, t_vol: f32) -> f32 {
 /// over all dimensions. The `eps` prevents `log(0)` for near-empty boxes.
 ///
 /// Returns `(log_volume, volume)`.
-pub fn bessel_log_volume(
-    mins: &[f32],
-    maxs: &[f32],
-    t_int: f32,
-    t_vol: f32,
-) -> (f32, f32) {
+pub fn bessel_log_volume(mins: &[f32], maxs: &[f32], t_int: f32, t_vol: f32) -> (f32, f32) {
     const EPS: f32 = 1e-13;
     let log_vol: f32 = mins
         .iter()
@@ -1126,11 +1121,17 @@ mod tests {
     fn test_bessel_side_length_basic() {
         // For large side length (Z - z >> 2*gamma*T), should be close to Z - z
         let sl = bessel_side_length(0.0, 10.0, 0.01, 0.01);
-        assert!((sl - 10.0).abs() < 0.1, "large box at low T should have sl ~ 10, got {sl}");
+        assert!(
+            (sl - 10.0).abs() < 0.1,
+            "large box at low T should have sl ~ 10, got {sl}"
+        );
 
         // For zero side length, softplus gives non-zero (smooth)
         let sl_zero = bessel_side_length(5.0, 5.0, 1.0, 1.0);
-        assert!(sl_zero > 0.0, "zero hard side should have positive Bessel side, got {sl_zero}");
+        assert!(
+            sl_zero > 0.0,
+            "zero hard side should have positive Bessel side, got {sl_zero}"
+        );
     }
 
     #[test]
@@ -1139,7 +1140,10 @@ mod tests {
         assert!(v > 0.0, "volume should be positive");
         assert!(log_v.is_finite(), "log volume should be finite");
         // At low T, should be close to 5*5 = 25
-        assert!((v - 25.0).abs() < 2.0, "at low T, vol should be ~25, got {v}");
+        assert!(
+            (v - 25.0).abs() < 2.0,
+            "at low T, vol should be ~25, got {v}"
+        );
     }
 
     #[test]

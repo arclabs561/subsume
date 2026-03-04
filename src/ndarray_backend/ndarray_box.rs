@@ -554,7 +554,10 @@ mod tests {
         let b = NdarrayBox::new(array![2.0, 2.0], array![3.0, 3.0], 1.0).unwrap();
         let inter = a.intersection(&b).unwrap();
         let vol = inter.volume(1.0).unwrap();
-        assert_eq!(vol, 0.0, "Disjoint boxes must have zero intersection volume");
+        assert_eq!(
+            vol, 0.0,
+            "Disjoint boxes must have zero intersection volume"
+        );
     }
 
     #[test]
@@ -662,8 +665,8 @@ mod tests {
 
     #[test]
     fn truncation_reduces_dim() {
-        let a = NdarrayBox::new(array![0.0, 0.0, 0.0, 0.0], array![1.0, 1.0, 1.0, 1.0], 1.0)
-            .unwrap();
+        let a =
+            NdarrayBox::new(array![0.0, 0.0, 0.0, 0.0], array![1.0, 1.0, 1.0, 1.0], 1.0).unwrap();
         let t = a.truncate(2).unwrap();
         assert_eq!(t.dim(), 2);
     }
@@ -686,7 +689,10 @@ mod tests {
         // but the call should not panic or produce NaN.
         let p = a.containment_prob(&b, 0.01).unwrap();
         assert!(p.is_finite(), "Containment prob must be finite at low temp");
-        assert!((0.0..=1.0).contains(&p), "Containment prob must be in [0,1]");
+        assert!(
+            (0.0..=1.0).contains(&p),
+            "Containment prob must be in [0,1]"
+        );
     }
 
     #[test]
@@ -694,16 +700,21 @@ mod tests {
         let a = NdarrayBox::new(array![0.0, 0.0], array![4.0, 4.0], 1.0).unwrap();
         let b = NdarrayBox::new(array![1.0, 1.0], array![3.0, 3.0], 1.0).unwrap();
         let p = a.containment_prob(&b, 100.0).unwrap();
-        assert!(p.is_finite(), "Containment prob must be finite at high temp");
-        assert!((0.0..=1.0).contains(&p), "Containment prob must be in [0,1]");
+        assert!(
+            p.is_finite(),
+            "Containment prob must be finite at high temp"
+        );
+        assert!(
+            (0.0..=1.0).contains(&p),
+            "Containment prob must be in [0,1]"
+        );
     }
 
     // ---- Serialization round-trip ----
 
     #[test]
     fn serde_json_round_trip() {
-        let original =
-            NdarrayBox::new(array![0.1, 0.2, 0.3], array![0.4, 0.5, 0.6], 0.75).unwrap();
+        let original = NdarrayBox::new(array![0.1, 0.2, 0.3], array![0.4, 0.5, 0.6], 0.75).unwrap();
         let json = serde_json::to_string(&original).expect("serialize");
         let deserialized: NdarrayBox = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(original.dim(), deserialized.dim());
@@ -859,14 +870,18 @@ mod tests {
             NdarrayBox::new(array![20.0, 20.0], array![30.0, 30.0], 1.0).unwrap(),
         ];
         let mut out = vec![0.0f32; 3];
-        parent.containment_prob_many(&children, 1.0, &mut out).unwrap();
+        parent
+            .containment_prob_many(&children, 1.0, &mut out)
+            .unwrap();
 
         for (i, child) in children.iter().enumerate() {
             let expected = parent.containment_prob(child, 1.0).unwrap();
             assert!(
                 (out[i] - expected).abs() < 1e-6,
                 "Mismatch at index {}: batch={} individual={}",
-                i, out[i], expected
+                i,
+                out[i],
+                expected
             );
         }
     }
@@ -886,9 +901,8 @@ mod tests {
     #[test]
     fn containment_prob_many_dimension_mismatch() {
         let parent = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();
-        let children = vec![
-            NdarrayBox::new(array![0.0, 0.0, 0.0], array![0.5, 0.5, 0.5], 1.0).unwrap(),
-        ];
+        let children =
+            vec![NdarrayBox::new(array![0.0, 0.0, 0.0], array![0.5, 0.5, 0.5], 1.0).unwrap()];
         let mut out = vec![0.0f32; 1];
         let result = parent.containment_prob_many(&children, 1.0, &mut out);
         assert!(result.is_err());
@@ -903,11 +917,7 @@ mod tests {
         let max_vals = Array1::from(vec![2.0; 12]);
         let b = NdarrayBox::new(min_vals, max_vals, 1.0).unwrap();
         let vol = b.volume(1.0).unwrap();
-        assert!(
-            (vol - 4096.0).abs() < 1.0,
-            "Expected ~4096, got {}",
-            vol
-        );
+        assert!((vol - 4096.0).abs() < 1.0, "Expected ~4096, got {}", vol);
     }
 
     #[test]
@@ -917,12 +927,14 @@ mod tests {
             Array1::from(vec![0.0; dim]),
             Array1::from(vec![10.0; dim]),
             1.0,
-        ).unwrap();
+        )
+        .unwrap();
         let child = NdarrayBox::new(
             Array1::from(vec![2.0; dim]),
             Array1::from(vec![8.0; dim]),
             1.0,
-        ).unwrap();
+        )
+        .unwrap();
         let p = parent.containment_prob(&child, 1.0).unwrap();
         assert!(
             (p - 1.0).abs() < 1e-4,
@@ -938,12 +950,14 @@ mod tests {
             Array1::from(vec![0.0; dim]),
             Array1::from(vec![1.0; dim]),
             1.0,
-        ).unwrap();
+        )
+        .unwrap();
         let b = NdarrayBox::new(
             Array1::from(vec![5.0; dim]),
             Array1::from(vec![6.0; dim]),
             1.0,
-        ).unwrap();
+        )
+        .unwrap();
         let p = a.containment_prob(&b, 1.0).unwrap();
         assert_eq!(p, 0.0);
     }
@@ -955,7 +969,8 @@ mod tests {
             Array1::from(vec![0.0; dim]),
             Array1::from(vec![1.0; dim]),
             1.0,
-        ).unwrap();
+        )
+        .unwrap();
         let p = a.overlap_prob(&a, 1.0).unwrap();
         assert!(
             (p - 1.0).abs() < 1e-4,
@@ -971,22 +986,31 @@ mod tests {
             Array1::from(vec![0.0; dim]),
             Array1::from(vec![10.0; dim]),
             1.0,
-        ).unwrap();
+        )
+        .unwrap();
         let children = vec![
             NdarrayBox::new(
                 Array1::from(vec![1.0; dim]),
                 Array1::from(vec![9.0; dim]),
                 1.0,
-            ).unwrap(),
+            )
+            .unwrap(),
             NdarrayBox::new(
                 Array1::from(vec![20.0; dim]),
                 Array1::from(vec![30.0; dim]),
                 1.0,
-            ).unwrap(),
+            )
+            .unwrap(),
         ];
         let mut out = vec![0.0f32; 2];
-        parent.containment_prob_many(&children, 1.0, &mut out).unwrap();
-        assert!(out[0] > 0.99, "Nested child should have ~1.0, got {}", out[0]);
+        parent
+            .containment_prob_many(&children, 1.0, &mut out)
+            .unwrap();
+        assert!(
+            out[0] > 0.99,
+            "Nested child should have ~1.0, got {}",
+            out[0]
+        );
         assert_eq!(out[1], 0.0, "Disjoint child should have 0.0");
     }
 
@@ -1076,8 +1100,12 @@ mod tests {
         let p = a.overlap_prob(&b, 1.0).unwrap();
         // Intersection = [1,1]-[2,2] vol=1, union = [0,0]-[3,3] vol=9
         // But overlap = vol_intersection / vol_union = 1/(4+4-1) = 1/7
-        assert!(p > 0.0 && p < 1.0, "Partial overlap should be in (0,1), got {}", p);
-        assert!((p - 1.0/7.0).abs() < 1e-5);
+        assert!(
+            p > 0.0 && p < 1.0,
+            "Partial overlap should be in (0,1), got {}",
+            p
+        );
+        assert!((p - 1.0 / 7.0).abs() < 1e-5);
     }
 }
 

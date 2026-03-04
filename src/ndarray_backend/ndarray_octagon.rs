@@ -337,11 +337,7 @@ impl Octagon for NdarrayOctagon {
         self.volume_monte_carlo(box_vol)
     }
 
-    fn containment_prob(
-        &self,
-        other: &Self,
-        temperature: f32,
-    ) -> Result<f32, OctagonError> {
+    fn containment_prob(&self, other: &Self, temperature: f32) -> Result<f32, OctagonError> {
         let d = self.dim();
         if other.dim() != d {
             return Err(OctagonError::DimensionMismatch {
@@ -382,11 +378,7 @@ impl Octagon for NdarrayOctagon {
         Ok(product)
     }
 
-    fn overlap_prob(
-        &self,
-        other: &Self,
-        temperature: f32,
-    ) -> Result<f32, OctagonError> {
+    fn overlap_prob(&self, other: &Self, temperature: f32) -> Result<f32, OctagonError> {
         let d = self.dim();
         if other.dim() != d {
             return Err(OctagonError::DimensionMismatch {
@@ -463,12 +455,24 @@ impl Octagon for NdarrayOctagon {
                 let new_yh = yh.min(u_hi + xh).min(v_hi - xl).min((u_hi + v_hi) / 2.0);
 
                 // Tighten u bounds (y - x)
-                let new_u_lo = u_lo.max(new_yl - new_xh).max(v_lo - 2.0 * new_xh).max(2.0 * new_yl - v_hi);
-                let new_u_hi = u_hi.min(new_yh - new_xl).min(v_hi - 2.0 * new_xl).min(2.0 * new_yh - v_lo);
+                let new_u_lo = u_lo
+                    .max(new_yl - new_xh)
+                    .max(v_lo - 2.0 * new_xh)
+                    .max(2.0 * new_yl - v_hi);
+                let new_u_hi = u_hi
+                    .min(new_yh - new_xl)
+                    .min(v_hi - 2.0 * new_xl)
+                    .min(2.0 * new_yh - v_lo);
 
                 // Tighten v bounds (x + y)
-                let new_v_lo = v_lo.max(new_xl + new_yl).max(new_u_lo + 2.0 * new_xl).max(2.0 * new_yl - new_u_hi);
-                let new_v_hi = v_hi.min(new_xh + new_yh).min(new_u_hi + 2.0 * new_xh).min(2.0 * new_yh - new_u_lo);
+                let new_v_lo = v_lo
+                    .max(new_xl + new_yl)
+                    .max(new_u_lo + 2.0 * new_xl)
+                    .max(2.0 * new_yl - new_u_hi);
+                let new_v_hi = v_hi
+                    .min(new_xh + new_yh)
+                    .min(new_u_hi + 2.0 * new_xh)
+                    .min(2.0 * new_yh - new_u_lo);
 
                 let eps = 1e-6;
                 if (new_xl - x_lo[k]).abs() > eps
@@ -502,11 +506,7 @@ impl Octagon for NdarrayOctagon {
             }
         }
 
-        NdarrayOctagon::new(
-            Array1::from_vec(x_lo),
-            Array1::from_vec(x_hi),
-            diag,
-        )
+        NdarrayOctagon::new(Array1::from_vec(x_lo), Array1::from_vec(x_hi), diag)
     }
 
     fn compose(&self, other: &Self) -> Result<Self, OctagonError> {
@@ -594,23 +594,11 @@ impl Octagon for NdarrayOctagon {
             let y3_lo = f32::max(y2_lo, f32::max(u2_lo + y1_lo, v2_lo - y1_hi));
             let y3_hi = f32::min(y2_hi, f32::min(u2_hi + y1_hi, v2_hi - y1_lo));
 
-            let u3_lo = f32::max(
-                y2_lo - x1_hi,
-                f32::max(u2_lo + u1_lo, v2_lo - v1_hi),
-            );
-            let u3_hi = f32::min(
-                y2_hi - x1_lo,
-                f32::min(u2_hi + u1_hi, v2_hi - v1_lo),
-            );
+            let u3_lo = f32::max(y2_lo - x1_hi, f32::max(u2_lo + u1_lo, v2_lo - v1_hi));
+            let u3_hi = f32::min(y2_hi - x1_lo, f32::min(u2_hi + u1_hi, v2_hi - v1_lo));
 
-            let v3_lo = f32::max(
-                x1_lo + y2_lo,
-                f32::max(u2_lo + v1_lo, v2_lo - u1_hi),
-            );
-            let v3_hi = f32::min(
-                x1_hi + y2_hi,
-                f32::min(u2_hi + v1_hi, v2_hi - u1_lo),
-            );
+            let v3_lo = f32::max(x1_lo + y2_lo, f32::max(u2_lo + v1_lo, v2_lo - u1_hi));
+            let v3_hi = f32::min(x1_hi + y2_hi, f32::min(u2_hi + v1_hi, v2_hi - u1_lo));
 
             // Convert back to our convention:
             // diff = x - y = -u, so diff_min = -u3_hi, diff_max = -u3_lo
@@ -822,17 +810,19 @@ mod tests {
                 diff_max: 2.0,
             }],
         );
-        assert!(matches!(result, Err(OctagonError::InvalidAxisBounds { .. })));
+        assert!(matches!(
+            result,
+            Err(OctagonError::InvalidAxisBounds { .. })
+        ));
     }
 
     #[test]
     fn new_rejects_dim_mismatch() {
-        let result = NdarrayOctagon::new(
-            array![0.0, 0.0],
-            array![1.0],
-            vec![],
-        );
-        assert!(matches!(result, Err(OctagonError::DimensionMismatch { .. })));
+        let result = NdarrayOctagon::new(array![0.0, 0.0], array![1.0], vec![]);
+        assert!(matches!(
+            result,
+            Err(OctagonError::DimensionMismatch { .. })
+        ));
     }
 
     #[test]
@@ -842,7 +832,10 @@ mod tests {
             array![1.0, 1.0],
             vec![], // Should have 1 diagonal bounds entry.
         );
-        assert!(matches!(result, Err(OctagonError::DimensionMismatch { .. })));
+        assert!(matches!(
+            result,
+            Err(OctagonError::DimensionMismatch { .. })
+        ));
     }
 
     #[test]
@@ -1013,7 +1006,10 @@ mod tests {
         // Octagon with vacuous diagonal = box volume.
         let oct = NdarrayOctagon::from_box_bounds(array![0.0, 0.0], array![2.0, 3.0]).unwrap();
         let vol = oct.volume().unwrap();
-        assert!((vol - 6.0).abs() < 1e-4, "box-equivalent volume: expected 6, got {vol}");
+        assert!(
+            (vol - 6.0).abs() < 1e-4,
+            "box-equivalent volume: expected 6, got {vol}"
+        );
     }
 
     #[test]
@@ -1031,15 +1027,24 @@ mod tests {
         )
         .unwrap();
         let vol = oct.volume().unwrap();
-        assert!(vol > 0.0, "non-degenerate octagon should have positive volume");
-        assert!(vol < 4.0, "octagon should be smaller than bounding box (area 4), got {vol}");
+        assert!(
+            vol > 0.0,
+            "non-degenerate octagon should have positive volume"
+        );
+        assert!(
+            vol < 4.0,
+            "octagon should be smaller than bounding box (area 4), got {vol}"
+        );
     }
 
     #[test]
     fn volume_1d() {
         let oct = NdarrayOctagon::new(array![1.0], array![5.0], vec![]).unwrap();
         let vol = oct.volume().unwrap();
-        assert!((vol - 4.0).abs() < 1e-6, "1D volume: expected 4.0, got {vol}");
+        assert!(
+            (vol - 4.0).abs() < 1e-6,
+            "1D volume: expected 4.0, got {vol}"
+        );
     }
 
     #[test]
@@ -1110,7 +1115,10 @@ mod tests {
     fn overlap_prob_identical_is_high() {
         let oct = NdarrayOctagon::from_box_bounds(array![0.0, 0.0], array![2.0, 2.0]).unwrap();
         let p = oct.overlap_prob(&oct, 0.1).unwrap();
-        assert!(p > 0.99, "identical octagons should have very high overlap, got {p}");
+        assert!(
+            p > 0.99,
+            "identical octagons should have very high overlap, got {p}"
+        );
     }
 
     #[test]
@@ -1118,7 +1126,10 @@ mod tests {
         let a = NdarrayOctagon::from_box_bounds(array![0.0, 0.0], array![1.0, 1.0]).unwrap();
         let b = NdarrayOctagon::from_box_bounds(array![5.0, 5.0], array![6.0, 6.0]).unwrap();
         let p = a.overlap_prob(&b, 0.1).unwrap();
-        assert!(p < 0.01, "disjoint octagons should have very low overlap, got {p}");
+        assert!(
+            p < 0.01,
+            "disjoint octagons should have very low overlap, got {p}"
+        );
     }
 
     // ---- Bounding box ----
@@ -1542,8 +1553,12 @@ mod tests {
             "compose and intersection should differ for non-trivial inputs.\n\
              Composed: axis=[{:?}, {:?}], diag={:?}\n\
              Intersected: axis=[{:?}, {:?}], diag={:?}",
-            composed.axis_min, composed.axis_max, composed.diag_bounds,
-            intersected.axis_min, intersected.axis_max, intersected.diag_bounds,
+            composed.axis_min,
+            composed.axis_max,
+            composed.diag_bounds,
+            intersected.axis_min,
+            intersected.axis_max,
+            intersected.diag_bounds,
         );
     }
 

@@ -118,11 +118,7 @@ pub trait Cone: Sized {
     /// # Errors
     ///
     /// Returns [`ConeError::DimensionMismatch`] if cones have different dimensions.
-    fn cone_distance(
-        &self,
-        entity: &Self,
-        cen: Self::Scalar,
-    ) -> Result<Self::Scalar, ConeError>;
+    fn cone_distance(&self, entity: &Self, cen: Self::Scalar) -> Result<Self::Scalar, ConeError>;
 
     /// Compute the complement (negation) of this cone.
     ///

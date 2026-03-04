@@ -495,7 +495,10 @@ mod tests {
         let a = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], TEMP).unwrap();
         let b = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], TEMP).unwrap();
         let d = depth_distance(&a, &b, TEMP, VOL_W).unwrap();
-        assert!(d.abs() < EPS, "identical boxes should have distance ~0, got {d}");
+        assert!(
+            d.abs() < EPS,
+            "identical boxes should have distance ~0, got {d}"
+        );
     }
 
     #[test]
@@ -505,11 +508,17 @@ mod tests {
         let d = depth_distance(&outer, &inner, TEMP, VOL_W).unwrap();
         // Box::distance for overlapping boxes returns 0 (min surface distance).
         // Volumes differ: 4.0 vs 1.0, so volume component > 0.
-        assert!(d > 0.0, "nested boxes with different volumes should have positive distance, got {d}");
+        assert!(
+            d > 0.0,
+            "nested boxes with different volumes should have positive distance, got {d}"
+        );
         // The generic implementation uses |vol_a - vol_b| (not log), so volume_diff = 3.0.
         // Expected: 0 + 0.1 * 3.0 = 0.3
         let expected = VOL_W * (4.0 - 1.0);
-        assert!((d - expected).abs() < EPS, "nested: expected {expected}, got {d}");
+        assert!(
+            (d - expected).abs() < EPS,
+            "nested: expected {expected}, got {d}"
+        );
     }
 
     #[test]
@@ -519,7 +528,10 @@ mod tests {
         let d = depth_distance(&a, &b, TEMP, VOL_W).unwrap();
         // Same volume => volume term = 0. Min surface distance = sqrt((5-1)^2 + (5-1)^2) = 4*sqrt(2).
         let gap_dist = ((5.0 - 1.0_f32).powi(2) * 2.0).sqrt();
-        assert!((d - gap_dist).abs() < EPS, "disjoint same-size boxes: distance should be {gap_dist}, got {d}");
+        assert!(
+            (d - gap_dist).abs() < EPS,
+            "disjoint same-size boxes: distance should be {gap_dist}, got {d}"
+        );
     }
 
     #[test]
@@ -528,7 +540,10 @@ mod tests {
         let b = NdarrayBox::new(array![1.0, 1.0], array![3.0, 3.0], TEMP).unwrap();
         let d = depth_distance(&a, &b, TEMP, VOL_W).unwrap();
         // Overlapping => Box::distance = 0. Same volume (4.0 each) => volume term = 0.
-        assert!(d.abs() < EPS, "overlapping same-volume boxes: distance should be ~0, got {d}");
+        assert!(
+            d.abs() < EPS,
+            "overlapping same-volume boxes: distance should be ~0, got {d}"
+        );
     }
 
     #[test]
@@ -537,7 +552,10 @@ mod tests {
         let b = NdarrayBox::new(array![3.0], array![4.0], TEMP).unwrap();
         let d = depth_distance(&a, &b, TEMP, VOL_W).unwrap();
         // Same volume (1.0 each). Surface gap = 3.0 - 1.0 = 2.0.
-        assert!((d - 2.0).abs() < EPS, "1D disjoint same-size: distance should be 2.0, got {d}");
+        assert!(
+            (d - 2.0).abs() < EPS,
+            "1D disjoint same-size: distance should be 2.0, got {d}"
+        );
     }
 
     #[test]
@@ -546,7 +564,10 @@ mod tests {
         let inner = NdarrayBox::new(array![0.5, 0.5], array![1.5, 1.5], TEMP).unwrap();
         let d_low = depth_distance(&outer, &inner, TEMP, 0.01).unwrap();
         let d_high = depth_distance(&outer, &inner, TEMP, 1.0).unwrap();
-        assert!(d_high > d_low, "higher volume_weight should yield larger distance");
+        assert!(
+            d_high > d_low,
+            "higher volume_weight should yield larger distance"
+        );
     }
 
     // ---- boundary_distance ----
@@ -561,8 +582,15 @@ mod tests {
         let b = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], TEMP).unwrap();
         let d = boundary_distance(&a, &b, TEMP).unwrap();
         // Identical boxes: vol_ratio = 1.0, so (1 - 1) * 0.1 = 0.
-        assert!(d.is_some(), "identical boxes should be considered contained");
-        assert!(d.unwrap().abs() < EPS, "identical boxes should have boundary distance ~0, got {:?}", d);
+        assert!(
+            d.is_some(),
+            "identical boxes should be considered contained"
+        );
+        assert!(
+            d.unwrap().abs() < EPS,
+            "identical boxes should have boundary distance ~0, got {:?}",
+            d
+        );
     }
 
     #[test]
@@ -574,7 +602,10 @@ mod tests {
         let val = d.unwrap();
         // inner vol = 4, outer vol = 16, ratio = 0.25, result = (1 - 0.25) * 0.1 = 0.075
         let expected = (1.0 - 4.0 / 16.0) * 0.1;
-        assert!((val - expected).abs() < EPS, "nested: boundary distance should be {expected}, got {val}");
+        assert!(
+            (val - expected).abs() < EPS,
+            "nested: boundary distance should be {expected}, got {val}"
+        );
     }
 
     #[test]
@@ -584,9 +615,16 @@ mod tests {
         let outer = NdarrayBox::new(array![0.0, 0.0], array![4.0, 4.0], TEMP).unwrap();
         let big_inner = NdarrayBox::new(array![0.5, 0.5], array![3.5, 3.5], TEMP).unwrap();
         let small_inner = NdarrayBox::new(array![1.5, 1.5], array![2.5, 2.5], TEMP).unwrap();
-        let d_big = boundary_distance(&outer, &big_inner, TEMP).unwrap().unwrap();
-        let d_small = boundary_distance(&outer, &small_inner, TEMP).unwrap().unwrap();
-        assert!(d_small > d_big, "smaller inner should have larger boundary distance: small={d_small}, big={d_big}");
+        let d_big = boundary_distance(&outer, &big_inner, TEMP)
+            .unwrap()
+            .unwrap();
+        let d_small = boundary_distance(&outer, &small_inner, TEMP)
+            .unwrap()
+            .unwrap();
+        assert!(
+            d_small > d_big,
+            "smaller inner should have larger boundary distance: small={d_small}, big={d_big}"
+        );
     }
 
     #[test]
@@ -602,7 +640,10 @@ mod tests {
         let a = NdarrayBox::new(array![0.0, 0.0], array![2.0, 2.0], TEMP).unwrap();
         let b = NdarrayBox::new(array![1.0, 1.0], array![3.0, 3.0], TEMP).unwrap();
         let d = boundary_distance(&a, &b, TEMP).unwrap();
-        assert!(d.is_none(), "overlapping but not contained should return None");
+        assert!(
+            d.is_none(),
+            "overlapping but not contained should return None"
+        );
     }
 
     #[test]
@@ -615,7 +656,10 @@ mod tests {
         let val = d.unwrap();
         // inner vol = 4*2 = 8, outer vol = 16, ratio = 0.5, result = 0.5 * 0.1 = 0.05
         let expected = (1.0 - 8.0 / 16.0) * 0.1;
-        assert!((val - expected).abs() < EPS, "touching at boundary: distance should be {expected}, got {val}");
+        assert!(
+            (val - expected).abs() < EPS,
+            "touching at boundary: distance should be {expected}, got {val}"
+        );
     }
 
     #[test]
@@ -627,7 +671,10 @@ mod tests {
         let val = d.unwrap();
         // inner vol = 4, outer vol = 10, ratio = 0.4, result = 0.6 * 0.1 = 0.06
         let expected = (1.0 - 4.0 / 10.0) * 0.1;
-        assert!((val - expected).abs() < EPS, "1D nested: boundary distance should be {expected}, got {val}");
+        assert!(
+            (val - expected).abs() < EPS,
+            "1D nested: boundary distance should be {expected}, got {val}"
+        );
     }
 
     // ---- depth_similarity ----
@@ -637,7 +684,10 @@ mod tests {
         let a = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], TEMP).unwrap();
         let b = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], TEMP).unwrap();
         let s = depth_similarity(&a, &b, TEMP, VOL_W).unwrap();
-        assert!((s - 1.0).abs() < EPS, "identical boxes should have similarity ~1.0, got {s}");
+        assert!(
+            (s - 1.0).abs() < EPS,
+            "identical boxes should have similarity ~1.0, got {s}"
+        );
     }
 
     #[test]
@@ -645,7 +695,10 @@ mod tests {
         let a = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], TEMP).unwrap();
         let b = NdarrayBox::new(array![10.0, 10.0], array![20.0, 20.0], TEMP).unwrap();
         let s = depth_similarity(&a, &b, TEMP, VOL_W).unwrap();
-        assert!(s > 0.0 && s <= 1.0, "similarity should be in (0, 1], got {s}");
+        assert!(
+            s > 0.0 && s <= 1.0,
+            "similarity should be in (0, 1], got {s}"
+        );
     }
 
     #[test]
@@ -655,7 +708,10 @@ mod tests {
         let far = NdarrayBox::new(array![10.0, 10.0], array![11.0, 11.0], TEMP).unwrap();
         let s_near = depth_similarity(&a, &near, TEMP, VOL_W).unwrap();
         let s_far = depth_similarity(&a, &far, TEMP, VOL_W).unwrap();
-        assert!(s_near > s_far, "nearby box should be more similar than distant box: near={s_near}, far={s_far}");
+        assert!(
+            s_near > s_far,
+            "nearby box should be more similar than distant box: near={s_near}, far={s_far}"
+        );
     }
 
     #[test]
@@ -664,8 +720,14 @@ mod tests {
         let outer = NdarrayBox::new(array![0.0, 0.0], array![2.0, 2.0], TEMP).unwrap();
         let inner = NdarrayBox::new(array![0.5, 0.5], array![1.5, 1.5], TEMP).unwrap();
         let s = depth_similarity(&outer, &inner, TEMP, VOL_W).unwrap();
-        assert!(s < 1.0, "nested boxes with different volumes should have similarity < 1, got {s}");
-        assert!(s > 0.0, "nested boxes should still have positive similarity, got {s}");
+        assert!(
+            s < 1.0,
+            "nested boxes with different volumes should have similarity < 1, got {s}"
+        );
+        assert!(
+            s > 0.0,
+            "nested boxes should still have positive similarity, got {s}"
+        );
     }
 
     #[test]
@@ -673,7 +735,10 @@ mod tests {
         let a = NdarrayBox::new(array![0.0], array![1.0], TEMP).unwrap();
         let b = NdarrayBox::new(array![0.0], array![1.0], TEMP).unwrap();
         let s = depth_similarity(&a, &b, TEMP, VOL_W).unwrap();
-        assert!((s - 1.0).abs() < EPS, "identical 1D boxes should have similarity ~1.0, got {s}");
+        assert!(
+            (s - 1.0).abs() < EPS,
+            "identical 1D boxes should have similarity ~1.0, got {s}"
+        );
     }
 
     // ---- query2box_distance ----
@@ -682,11 +747,17 @@ mod tests {
     fn query2box_entity_inside_box() {
         // Entity at center => d_out=0, d_in=0 => distance=0.
         let d = query2box_distance(&[1.0, 1.0], &[1.0, 1.0], &[1.0, 1.0], 0.02).unwrap();
-        assert!(d.abs() < EPS, "entity at center: distance should be 0, got {d}");
+        assert!(
+            d.abs() < EPS,
+            "entity at center: distance should be 0, got {d}"
+        );
 
         // Entity inside but not at center: d_out=0, d_in > 0.
         let d2 = query2box_distance(&[1.0, 1.0], &[1.0, 1.0], &[0.5, 0.5], 0.02).unwrap();
-        assert!(d2 > 0.0, "entity inside but off-center should have positive distance");
+        assert!(
+            d2 > 0.0,
+            "entity inside but off-center should have positive distance"
+        );
         // d_in = |0.5-1| + |0.5-1| = 1.0, d_out = 0 => d = 0.02 * 1.0 = 0.02
         assert!((d2 - 0.02).abs() < EPS, "expected 0.02, got {d2}");
     }
@@ -696,7 +767,10 @@ mod tests {
         // Entity at (5, 5), box [0,2]x[0,2].
         let d = query2box_distance(&[1.0, 1.0], &[1.0, 1.0], &[5.0, 5.0], 0.02).unwrap();
         // d_out = (5-2) + (5-2) = 6, d_in = 0
-        assert!((d - 6.0).abs() < EPS, "entity outside: expected 6.0, got {d}");
+        assert!(
+            (d - 6.0).abs() < EPS,
+            "entity outside: expected 6.0, got {d}"
+        );
     }
 
     #[test]
@@ -705,7 +779,10 @@ mod tests {
         let d = query2box_distance(&[1.0, 1.0], &[1.0, 1.0], &[2.0, 2.0], 0.02).unwrap();
         // On boundary: v=2 == hi=2, so it's "inside" (not outside).
         // d_in = |2-1| + |2-1| = 2.0, d_out = 0 => d = 0.02 * 2.0 = 0.04
-        assert!((d - 0.04).abs() < EPS, "on boundary: expected 0.04, got {d}");
+        assert!(
+            (d - 0.04).abs() < EPS,
+            "on boundary: expected 0.04, got {d}"
+        );
     }
 
     #[test]
@@ -713,7 +790,10 @@ mod tests {
         // alpha=1: d = d_out + d_in, which for inside points is just L1 to center.
         let d = query2box_distance(&[1.0, 1.0], &[1.0, 1.0], &[0.5, 0.5], 1.0).unwrap();
         // d_in = |0.5-1| + |0.5-1| = 1.0
-        assert!((d - 1.0).abs() < EPS, "alpha=1, inside: expected L1 to center = 1.0, got {d}");
+        assert!(
+            (d - 1.0).abs() < EPS,
+            "alpha=1, inside: expected L1 to center = 1.0, got {d}"
+        );
     }
 
     #[test]
@@ -723,7 +803,10 @@ mod tests {
         assert!(d.abs() < EPS, "alpha=0, inside: expected 0, got {d}");
 
         let d2 = query2box_distance(&[1.0, 1.0], &[1.0, 1.0], &[5.0, 5.0], 0.0).unwrap();
-        assert!((d2 - 6.0).abs() < EPS, "alpha=0, outside: expected 6.0, got {d2}");
+        assert!(
+            (d2 - 6.0).abs() < EPS,
+            "alpha=0, outside: expected 6.0, got {d2}"
+        );
     }
 
     #[test]

@@ -105,7 +105,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // violations and push coordinates to fix them:
     //   - If head_min[d] > tail_min[d], decrease head_min[d]
     //   - If head_max[d] < tail_max[d], increase head_max[d]
-    println!("Training for {} epochs (dim={}, lr={})...\n", epochs, dim, lr);
+    println!(
+        "Training for {} epochs (dim={}, lr={})...\n",
+        epochs, dim, lr
+    );
 
     for epoch in 0..epochs {
         let mut total_violation = 0.0f32;
@@ -201,7 +204,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!(
         "\nHierarchy accuracy: {}/{} ({:.0}%)",
-        correct, total, 100.0 * correct as f32 / total as f32
+        correct,
+        total,
+        100.0 * correct as f32 / total as f32
     );
 
     println!("\nNotes:");
