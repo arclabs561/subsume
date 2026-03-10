@@ -23,7 +23,6 @@ Geometric region embeddings for subsumption, entailment, and logical query answe
 | `gaussian` | Diagonal Gaussian boxes: KL divergence (asymmetric containment) and Bhattacharyya coefficient (symmetric overlap) |
 | `hyperbolic` | Poincare ball embeddings and hyperbolic box intervals (via `hyperball`) |
 | `sheaf` | Sheaf diffusion primitives: stalks, restriction maps, Laplacian (Hansen & Ghrist 2019; Bodnar et al., ICLR 2022) |
-| `Region` trait | Generic region interface unifying boxes, cones, and balls |
 
 ### Scoring and query answering
 
@@ -54,7 +53,7 @@ Geometric region embeddings for subsumption, entailment, and logical query answe
 
 ```toml
 [dependencies]
-subsume = { version = "0.1.6", features = ["ndarray-backend"] }
+subsume = { version = "0.1.7", features = ["ndarray-backend"] }
 ndarray = "0.16"
 ```
 

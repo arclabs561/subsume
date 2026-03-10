@@ -122,6 +122,7 @@ impl TaxonomyDataset {
     /// any remainder goes to the test set.
     ///
     /// Returns `(train_edges, val_edges, test_edges)` as vectors of `(parent_id, child_id)`.
+    #[allow(clippy::type_complexity)]
     pub fn split(
         &self,
         train_ratio: f64,

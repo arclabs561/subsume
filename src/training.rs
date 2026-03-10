@@ -968,11 +968,11 @@ pub mod diagnostics {
 
             let (min_depth, &min_grad) = means
                 .iter()
-                .min_by(|(_, &a), (_, &b)| a.partial_cmp(&b).unwrap())
+                .min_by(|(_, &a), (_, &b)| a.total_cmp(&b))
                 .unwrap();
             let (max_depth, &max_grad) = means
                 .iter()
-                .max_by(|(_, &a), (_, &b)| a.partial_cmp(&b).unwrap())
+                .max_by(|(_, &a), (_, &b)| a.total_cmp(&b))
                 .unwrap();
 
             if min_grad > 0.0 {
@@ -1321,7 +1321,7 @@ pub mod quality {
                 };
             }
 
-            vols.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            vols.sort_by(|a, b| a.total_cmp(b));
 
             let min = vols[0];
             let max = vols[vols.len() - 1];
@@ -1912,7 +1912,7 @@ pub mod quality {
             }
 
             let mut sorted = self.parent_child_ratios.clone();
-            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            sorted.sort_by(|a, b| a.total_cmp(b));
 
             let min = sorted[0];
             let max = sorted[sorted.len() - 1];
@@ -2304,7 +2304,7 @@ pub mod calibration {
         }
 
         // Sort by predicted probability
-        data.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        data.sort_by(|a, b| a.0.total_cmp(&b.0));
 
         let bin_size = data.len().div_ceil(n_bins);
         let mut ace = 0.0;

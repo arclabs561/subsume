@@ -200,7 +200,12 @@ where
 {
     // Check if inner is contained in outer
     let containment = outer.containment_prob(inner, temperature)?;
-    if containment < B::Scalar::from(0.99) {
+    /// Threshold above which containment is considered "full" for boundary distance.
+    const CONTAINMENT_THRESHOLD: f32 = 0.99;
+    /// Scale factor for the volume-ratio boundary distance approximation.
+    const BOUNDARY_SCALE: f32 = 0.1;
+
+    if containment < B::Scalar::from(CONTAINMENT_THRESHOLD) {
         // Not fully contained
         return Ok(None);
     }
@@ -233,7 +238,7 @@ where
     // Boundary distance approximation: smaller inner relative to outer = larger distance
     // This captures "depth" in inclusion chain
     let one = B::Scalar::from(1.0);
-    let boundary_dist = (one - vol_ratio) * B::Scalar::from(0.1); // Scale factor for approximation
+    let boundary_dist = (one - vol_ratio) * B::Scalar::from(BOUNDARY_SCALE);
 
     Ok(Some(boundary_dist))
 }

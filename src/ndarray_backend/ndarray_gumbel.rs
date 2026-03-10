@@ -1063,8 +1063,6 @@ mod proptest_tests {
             b_pairs in proptest::collection::vec((-3.0f32..3.0f32, 0.5f32..2.0f32), 1..=3),
             margin in 0.5f32..3.0f32,
         ) {
-            let dim = b_pairs.len();
-
             // B is the inner box; A is B expanded by `margin` on each side.
             let b_min: Vec<f32> = b_pairs.iter().map(|(lo, _)| *lo).collect();
             let b_max: Vec<f32> = b_pairs.iter().map(|(lo, w)| lo + w).collect();

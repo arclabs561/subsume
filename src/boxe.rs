@@ -556,6 +556,7 @@ mod tests {
         use proptest::prelude::*;
 
         /// Strategy: generate valid box bounds (lo < hi) and a point in any range.
+        #[allow(dead_code)]
         fn arb_box_and_point(dim: usize) -> impl Strategy<Value = (Vec<f32>, Vec<f32>, Vec<f32>)> {
             proptest::collection::vec((-10.0f32..10.0f32, 0.01f32..5.0f32), dim).prop_flat_map(
                 move |pairs| {
