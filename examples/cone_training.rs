@@ -96,25 +96,40 @@ fn main() {
         (8, 9),   // dog does NOT subsume cat
         (9, 8),   // cat does NOT subsume dog
         (8, 10),  // dog does NOT subsume whale
+        (10, 8),  // whale does NOT subsume dog
+        (10, 9),  // whale does NOT subsume cat
         (11, 12), // eagle does NOT subsume sparrow
         (13, 14), // salmon does NOT subsume tuna
+        (14, 13), // tuna does NOT subsume salmon
         (15, 16), // car does NOT subsume truck
+        (16, 15), // truck does NOT subsume car
+        (17, 15), // helicopter does NOT subsume car
         (3, 1),   // mammal does NOT subsume animal
         (5, 1),   // fish does NOT subsume animal
         (6, 2),   // land_vehicle does NOT subsume vehicle
+        (7, 2),   // aircraft does NOT subsume vehicle
+        (5, 6),   // fish does NOT subsume land_vehicle
+        (6, 5),   // land_vehicle does NOT subsume fish
+        (3, 7),   // mammal does NOT subsume aircraft
+        (4, 6),   // bird does NOT subsume land_vehicle
+        (5, 3),   // fish does NOT subsume mammal
+        (12, 14), // sparrow does NOT subsume tuna
     ];
 
     let n_entities = entity_names.len();
     let dim = 16;
-    let epochs = 300;
+    let warmup_epochs = 50;
+    let joint_epochs = 450;
 
     // --- Initialize trainer ---
+    // Key tuning: low regularization (don't fight wide apertures), moderate margin,
+    // and lower negative_weight so narrowing from negatives doesn't dominate.
     let config = TrainingConfig {
-        learning_rate: 0.01,
+        learning_rate: 0.02,
         temperature: 1.0,
-        margin: 0.3,
-        regularization: 0.001,
-        negative_weight: 2.0,
+        margin: 1.0,
+        regularization: 0.0,
+        negative_weight: 0.5,
         ..Default::default()
     };
 
@@ -125,34 +140,54 @@ fn main() {
         trainer.ensure_entity(id);
     }
 
+    let total_epochs = warmup_epochs + joint_epochs;
+
     // --- Training loop ---
+    // Phase 1 (warmup): positive pairs only -- establish the hierarchy before
+    // negative pairs start narrowing apertures. Without this, negatives collapse
+    // leaf apertures to zero before the hierarchy has time to form.
+    // Phase 2 (joint): both positive and negative pairs.
     println!(
-        "Training for {} epochs (dim={}, {} entities, {} pos + {} neg pairs)...\n",
-        epochs,
+        "Training for {} epochs ({} warmup + {} joint, dim={}, {} entities, {} pos + {} neg pairs)...\n",
+        total_epochs,
+        warmup_epochs,
+        joint_epochs,
         dim,
         n_entities,
         positive_pairs.len(),
         negative_pairs.len()
     );
 
-    for epoch in 0..epochs {
+    for epoch in 0..total_epochs {
         let mut epoch_loss = 0.0;
+        let mut n_pairs = 0;
 
         for &(head, tail) in &positive_pairs {
             let loss = trainer.train_step(head, tail, true);
             epoch_loss += loss;
+            n_pairs += 1;
         }
 
-        for &(head, tail) in &negative_pairs {
-            let loss = trainer.train_step(head, tail, false);
-            epoch_loss += loss;
+        if epoch >= warmup_epochs {
+            for &(head, tail) in &negative_pairs {
+                let loss = trainer.train_step(head, tail, false);
+                epoch_loss += loss;
+                n_pairs += 1;
+            }
         }
 
-        let n_pairs = (positive_pairs.len() + negative_pairs.len()) as f32;
-        let avg_loss = epoch_loss / n_pairs;
+        let avg_loss = epoch_loss / n_pairs as f32;
 
-        if epoch % 75 == 0 || epoch == epochs - 1 {
-            println!("  Epoch {:>4}: avg_loss = {:.4}", epoch, avg_loss);
+        if epoch % 125 == 0 || epoch == total_epochs - 1 {
+            let phase = if epoch < warmup_epochs {
+                "warmup"
+            } else {
+                "joint"
+            };
+            println!(
+                "  Epoch {:>4} [{}]: avg_loss = {:.4}",
+                epoch, phase, avg_loss
+            );
         }
     }
 

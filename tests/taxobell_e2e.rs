@@ -43,10 +43,9 @@ fn build_taxonomy() -> TaxonomyDataset {
     // parent_id  child_id
     write!(taxo_file, "0\t1\n0\t2\n0\t6\n1\t3\n1\t4\n2\t5\n").unwrap();
 
-    // Keep the tempdir alive by leaking it (tests are short-lived).
     let ds = TaxonomyDataset::load(&terms_path, &taxo_path, None).unwrap();
-    // Prevent cleanup until after we've loaded.
-    std::mem::forget(dir);
+    // Keep the tempdir alive until the dataset is loaded (drop order is LIFO).
+    drop(dir);
     ds
 }
 
