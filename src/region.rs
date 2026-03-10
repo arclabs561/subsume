@@ -28,6 +28,7 @@
 //!   add composition closure.
 
 /// Errors from region operations.
+#[non_exhaustive]
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum RegionError {
     /// Dimension mismatch between a point and a region, or two regions.
@@ -150,13 +151,14 @@ pub trait Region {
     ///
     /// ```text
     /// boundary_d(r1, r2) = max(0,
-    ///     boundary_distance(r1, closest_point(r2, center(r1)))
-    ///   - boundary_distance(r2, closest_point(r1, center(r2)))
+    ///     signed_dist(center(r1), boundary(r2)) + vol(r1)^(1/d)
     /// )
     /// ```
     ///
-    /// The default implementation uses the centers directly (a practical approximation
-    /// when closest-point projection is not available for arbitrary region pairs).
+    /// where `signed_dist` is negative when center(r1) is inside r2. The
+    /// `vol^(1/d)` term estimates self's characteristic radius. When self is
+    /// well inside other (large negative signed distance), the extent cannot
+    /// overcome the depth, yielding zero protrusion.
     ///
     /// # Errors
     ///
@@ -170,17 +172,20 @@ pub trait Region {
         }
 
         let c1 = self.center();
-        let c2 = other.center();
+        let d = self.dim() as f32;
 
-        // Default approximation: use the other region's center as the query point.
-        // signed distance of other's center w.r.t. self's boundary.
-        let bd_self_at_c2 = self.boundary_distance(&c2)?;
-        // signed distance of self's center w.r.t. other's boundary.
-        let bd_other_at_c1 = other.boundary_distance(&c1)?;
+        // Signed distance from self's center to other's boundary.
+        // Negative => self's center is inside other. Positive => outside.
+        let center_to_other = other.boundary_distance(&c1)?;
 
-        // Positive bd means point is outside. The asymmetric protrusion is
-        // how much more r1 "sticks out" of r2 than r2 sticks out of r1.
-        Ok((bd_self_at_c2 - bd_other_at_c1).max(0.0))
+        // Characteristic "radius" of self: volume^(1/d) gives a length-scale
+        // proportional to the region's extent in each dimension.
+        let self_extent = self.volume().max(0.0).powf(1.0 / d);
+
+        // Protrusion = how much self extends beyond other's boundary.
+        // If center is deep inside other (large negative distance), the extent
+        // must exceed that depth to protrude. Clamped to zero.
+        Ok((center_to_other + self_extent).max(0.0))
     }
 }
 
@@ -249,16 +254,32 @@ mod tests {
             radius: 1.0,
         };
         let d = a.depth_dissimilarity(&a).unwrap();
-        assert!(d.abs() < 1e-6, "Identical regions should have zero depth dissimilarity, got {}", d);
+        assert!(
+            d.abs() < 1e-6,
+            "Identical regions should have zero depth dissimilarity, got {}",
+            d
+        );
     }
 
     #[test]
     fn depth_dissimilarity_increases_for_smaller_regions() {
         // Two pairs of regions at the same center distance, but one pair is smaller.
-        let big_a = UnitBall { center: vec![0.0, 0.0], radius: 2.0 };
-        let big_b = UnitBall { center: vec![1.0, 0.0], radius: 2.0 };
-        let small_a = UnitBall { center: vec![0.0, 0.0], radius: 0.1 };
-        let small_b = UnitBall { center: vec![1.0, 0.0], radius: 0.1 };
+        let big_a = UnitBall {
+            center: vec![0.0, 0.0],
+            radius: 2.0,
+        };
+        let big_b = UnitBall {
+            center: vec![1.0, 0.0],
+            radius: 2.0,
+        };
+        let small_a = UnitBall {
+            center: vec![0.0, 0.0],
+            radius: 0.1,
+        };
+        let small_b = UnitBall {
+            center: vec![1.0, 0.0],
+            radius: 0.1,
+        };
 
         let d_big = big_a.depth_dissimilarity(&big_b).unwrap();
         let d_small = small_a.depth_dissimilarity(&small_b).unwrap();
@@ -266,25 +287,42 @@ mod tests {
         assert!(
             d_small > d_big,
             "Smaller regions should have larger depth dissimilarity: small={}, big={}",
-            d_small, d_big
+            d_small,
+            d_big
         );
     }
 
     #[test]
     fn boundary_dissimilarity_contained_is_zero() {
         // Small ball inside big ball: the small ball doesn't protrude.
-        let big = UnitBall { center: vec![0.0, 0.0], radius: 5.0 };
-        let small = UnitBall { center: vec![0.0, 0.0], radius: 1.0 };
+        let big = UnitBall {
+            center: vec![0.0, 0.0],
+            radius: 5.0,
+        };
+        let small = UnitBall {
+            center: vec![0.0, 0.0],
+            radius: 1.0,
+        };
 
         let d = small.boundary_dissimilarity(&big).unwrap();
-        assert!(d < 1e-6, "Contained region should have ~zero boundary dissimilarity, got {}", d);
+        assert!(
+            d < 1e-6,
+            "Contained region should have ~zero boundary dissimilarity, got {}",
+            d
+        );
     }
 
     #[test]
     fn boundary_dissimilarity_protruding_is_positive() {
         // Two balls of same size, offset so they partially overlap.
-        let a = UnitBall { center: vec![0.0, 0.0], radius: 1.0 };
-        let b = UnitBall { center: vec![3.0, 0.0], radius: 1.0 };
+        let a = UnitBall {
+            center: vec![0.0, 0.0],
+            radius: 1.0,
+        };
+        let b = UnitBall {
+            center: vec![3.0, 0.0],
+            radius: 1.0,
+        };
 
         // At least one direction should show positive dissimilarity.
         let d_ab = a.boundary_dissimilarity(&b).unwrap();
@@ -297,8 +335,14 @@ mod tests {
 
     #[test]
     fn dimension_mismatch_errors() {
-        let a = UnitBall { center: vec![0.0, 0.0], radius: 1.0 };
-        let b = UnitBall { center: vec![0.0, 0.0, 0.0], radius: 1.0 };
+        let a = UnitBall {
+            center: vec![0.0, 0.0],
+            radius: 1.0,
+        };
+        let b = UnitBall {
+            center: vec![0.0, 0.0, 0.0],
+            radius: 1.0,
+        };
         assert!(a.depth_dissimilarity(&b).is_err());
         assert!(a.boundary_dissimilarity(&b).is_err());
     }
@@ -307,8 +351,14 @@ mod tests {
     /// falls back to raw center distance.
     #[test]
     fn depth_dissimilarity_zero_volume_regions() {
-        let a = UnitBall { center: vec![0.0, 0.0], radius: 0.0 };
-        let b = UnitBall { center: vec![3.0, 4.0], radius: 0.0 };
+        let a = UnitBall {
+            center: vec![0.0, 0.0],
+            radius: 0.0,
+        };
+        let b = UnitBall {
+            center: vec![3.0, 4.0],
+            radius: 0.0,
+        };
         let d = a.depth_dissimilarity(&b).unwrap();
         // Both volumes are 0 => denom < 1e-12 => falls back to center distance = 5.0
         assert!(
@@ -321,23 +371,41 @@ mod tests {
     /// (the big ball "protrudes" beyond the small ball).
     #[test]
     fn boundary_dissimilarity_asymmetric_direction() {
-        let big = UnitBall { center: vec![0.0, 0.0], radius: 5.0 };
-        let small = UnitBall { center: vec![0.0, 0.0], radius: 1.0 };
+        let big = UnitBall {
+            center: vec![0.0, 0.0],
+            radius: 5.0,
+        };
+        let small = UnitBall {
+            center: vec![0.0, 0.0],
+            radius: 1.0,
+        };
 
         let d_small_big = small.boundary_dissimilarity(&big).unwrap();
         let d_big_small = big.boundary_dissimilarity(&small).unwrap();
 
         // small is inside big => small doesn't protrude beyond big => ~0
-        assert!(d_small_big < 1e-6, "small inside big: expected ~0, got {d_small_big}");
+        assert!(
+            d_small_big < 1e-6,
+            "small inside big: expected ~0, got {d_small_big}"
+        );
         // big protrudes beyond small
-        assert!(d_big_small > 0.0, "big should protrude beyond small, got {d_big_small}");
+        assert!(
+            d_big_small > 0.0,
+            "big should protrude beyond small, got {d_big_small}"
+        );
     }
 
     /// depth_dissimilarity is symmetric: d(a,b) == d(b,a).
     #[test]
     fn depth_dissimilarity_is_symmetric() {
-        let a = UnitBall { center: vec![1.0, 2.0], radius: 1.5 };
-        let b = UnitBall { center: vec![4.0, 6.0], radius: 3.0 };
+        let a = UnitBall {
+            center: vec![1.0, 2.0],
+            radius: 1.5,
+        };
+        let b = UnitBall {
+            center: vec![4.0, 6.0],
+            radius: 3.0,
+        };
         let d_ab = a.depth_dissimilarity(&b).unwrap();
         let d_ba = b.depth_dissimilarity(&a).unwrap();
         assert!(
