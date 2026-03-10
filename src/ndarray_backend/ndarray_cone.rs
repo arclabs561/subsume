@@ -1,10 +1,10 @@
-//! Ndarray implementation of the Cone trait.
+//! Ndarray cone embedding.
 //!
 //! Implements the ConE model (Zhang & Wang, NeurIPS 2021) using Cartesian products
 //! of 2D angular sectors. Each dimension has an axis angle in \[-pi, pi\] and an
 //! aperture (half-width) in \[0, pi\].
 
-use crate::cone::{Cone, ConeError};
+use crate::cone::ConeError;
 use ndarray::Array1;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::f32::consts::PI;
@@ -28,7 +28,15 @@ fn clamp_aperture(a: f32) -> f32 {
     a.clamp(0.0, PI)
 }
 
-/// A cone embedding implemented using `ndarray::Array1<f32>`.
+/// A cone embedding as a Cartesian product of `d` independent 2D angular sectors.
+///
+/// Each dimension has an axis angle in \[-pi, pi\] and an aperture (half-width)
+/// in \[0, pi\]. Subsumption is measured by per-dimension angular containment,
+/// and the scores are summed across dimensions.
+///
+/// Cones support negation: the complement of a cone is a cone (per-dimension axis
+/// shift by pi, aperture becomes pi - aperture). This closure under complementation
+/// enables modeling FOL operations including conjunction, disjunction, and negation.
 ///
 /// Each cone is a Cartesian product of `d` independent 2D angular sectors:
 /// - **axes**: per-dimension center angles, each in \[-pi, pi\]
@@ -36,6 +44,9 @@ fn clamp_aperture(a: f32) -> f32 {
 ///
 /// Wider apertures mean more general concepts. An aperture of pi covers the
 /// entire circle in that dimension; an aperture of 0 is a single point.
+///
+/// Reference: Zhang & Wang (2021), "ConE: Cone Embeddings for Multi-Hop Reasoning
+/// over Knowledge Graphs" (NeurIPS 2021).
 #[derive(Debug, Clone)]
 pub struct NdarrayCone {
     /// Per-dimension axis angles \[d\], each in \[-pi, pi\].
@@ -169,25 +180,43 @@ impl NdarrayCone {
             apertures: Array1::zeros(d),
         }
     }
-}
 
-impl Cone for NdarrayCone {
-    type Scalar = f32;
-    type Vector = Array1<f32>;
-
-    fn axes(&self) -> &Self::Vector {
+    /// Get the per-dimension axis angles.
+    /// Each element is in \[-pi, pi\].
+    pub fn axes(&self) -> &Array1<f32> {
         &self.axes
     }
 
-    fn apertures(&self) -> &Self::Vector {
+    /// Get the per-dimension apertures (half-widths).
+    /// Each element is in \[0, pi\].
+    pub fn apertures(&self) -> &Array1<f32> {
         &self.apertures
     }
 
-    fn dim(&self) -> usize {
+    /// Get the number of dimensions.
+    pub fn dim(&self) -> usize {
         self.axes.len()
     }
 
-    fn cone_distance(&self, entity: &Self, cen: Self::Scalar) -> Result<Self::Scalar, ConeError> {
+    /// Compute the ConE distance score between an entity cone and this query cone.
+    ///
+    /// Uses the per-dimension scoring from ConE (Zhang & Wang, 2021):
+    ///
+    /// ```text
+    /// distance_to_axis[i] = |sin((entity_axis[i] - query_axis[i]) / 2)|
+    /// distance_base[i]    = |sin(query_aperture[i] / 2)|
+    /// ```
+    ///
+    /// Points inside the sector contribute `cen * distance_in`; points outside
+    /// contribute `distance_out`. The total is summed across dimensions.
+    ///
+    /// Lower distance = better containment. The `cen` parameter (typically 0.02)
+    /// weights the inside distance relative to outside distance.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConeError::DimensionMismatch`] if cones have different dimensions.
+    pub fn cone_distance(&self, entity: &Self, cen: f32) -> Result<f32, ConeError> {
         if self.dim() != entity.dim() {
             return Err(ConeError::DimensionMismatch {
                 expected: self.dim(),
@@ -226,7 +255,16 @@ impl Cone for NdarrayCone {
         Ok(dist_out_sum + cen * dist_in_sum)
     }
 
-    fn complement(&self) -> Self {
+    /// Compute the complement (negation) of this cone.
+    ///
+    /// Per-dimension:
+    /// - axis\[i\] shifts by pi (positive axes subtract pi, negative axes add pi),
+    ///   keeping the result in \[-pi, pi\].
+    /// - aperture\[i\] becomes pi - aperture\[i\].
+    ///
+    /// This closure under complementation is the key advantage over boxes.
+    #[must_use]
+    pub fn complement(&self) -> Self {
         // Per-dimension negation (ConE paper):
         // - axis[i] shifts by pi (positive -> subtract pi, negative -> add pi)
         // - aperture[i] = pi - aperture[i]
@@ -236,7 +274,16 @@ impl Cone for NdarrayCone {
         NdarrayCone::from_raw(new_axes, new_apertures)
     }
 
-    fn intersection(&self, other: &Self) -> Result<Self, ConeError> {
+    /// Compute the intersection of two cones.
+    ///
+    /// Uses the closed-form circular mean for axes (attention-weighted average in
+    /// Cartesian coordinates, then atan2 back to angle) and per-dimension minimum
+    /// for apertures.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConeError::DimensionMismatch`] if cones have different dimensions.
+    pub fn intersection(&self, other: &Self) -> Result<Self, ConeError> {
         if self.dim() != other.dim() {
             return Err(ConeError::DimensionMismatch {
                 expected: self.dim(),
@@ -267,10 +314,21 @@ impl Cone for NdarrayCone {
         Ok(NdarrayCone::from_raw(new_axes, new_apertures))
     }
 
-    fn project(
+    /// Apply a relation projection to this cone.
+    ///
+    /// Per-dimension:
+    /// - axis\[i\] += relation_axis\[i\] (modular addition, wrapped to \[-pi, pi\])
+    /// - aperture\[i\] = clamp(aperture\[i\] + relation_aperture\[i\], 0, pi)
+    ///
+    /// The relation transforms the cone's position and width in each angular sector.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConeError::DimensionMismatch`] if dimensions don't match.
+    pub fn project(
         &self,
-        relation_axes: &Self::Vector,
-        relation_apertures: &Self::Vector,
+        relation_axes: &Array1<f32>,
+        relation_apertures: &Array1<f32>,
     ) -> Result<Self, ConeError> {
         if self.dim() != relation_axes.len() || self.dim() != relation_apertures.len() {
             return Err(ConeError::DimensionMismatch {
