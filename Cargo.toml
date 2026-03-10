@@ -30,14 +30,12 @@ skel = "0.1.1"
 ndarray = { version = "0.16", features = ["serde-1"], optional = true }
 serde_json = { version = "1.0", optional = true }
 candle-core = { version = "0.9", optional = true }
-plotters = { version = "0.3", optional = true }
 
 [features]
 default = ["ndarray-backend"]
 ndarray-backend = ["dep:ndarray", "dep:serde_json", "rand"]
 candle-backend = ["dep:candle-core"]
 rand = ["dep:rand"]
-plotting = ["dep:plotters"]
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

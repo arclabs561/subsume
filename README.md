@@ -151,7 +151,7 @@ levels where Gaussian boxes fail completely.
 - Charpenay & Schockaert (2024). "Capturing Knowledge Graphs and Rules with Octagon Embeddings"
 - Huang et al. (2023). "Concept2Box: Joint Geometric Embeddings for Learning Two-View Knowledge Graphs"
 - Yang & Chen (2025). "Achieving Hyperbolic-Like Expressiveness with Arbitrary Euclidean Regions"
-- Xiong et al. (2026). "TaxoBell: Taxonomy Expansion via Bell-Curve Gaussian Box Embeddings"
+- Mishra et al. (2026). "TaxoBell: Gaussian Box Embeddings for Self-Supervised Taxonomy Expansion" (WWW '26)
 
 ## See also
 
