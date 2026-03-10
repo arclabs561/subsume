@@ -96,6 +96,7 @@
 //! ```
 
 /// Errors that can occur during octagon operations.
+#[non_exhaustive]
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum OctagonError {
     /// Octagons have different dimensions.
@@ -136,10 +137,6 @@ pub enum OctagonError {
     /// Octagon is empty (infeasible constraints).
     #[error("Octagon is empty (constraints are infeasible)")]
     Empty,
-
-    /// Internal computation error.
-    #[error("Internal error: {0}")]
-    Internal(String),
 }
 
 /// Diagonal bounds for a single adjacent dimension pair (i, i+1).

@@ -62,6 +62,7 @@
 use std::fmt::Debug;
 
 /// Error type for hyperbolic operations.
+#[non_exhaustive]
 #[derive(Debug, Clone, PartialEq)]
 pub enum HyperbolicError {
     /// Point is outside the Poincaré ball (||x|| >= 1).
@@ -76,8 +77,6 @@ pub enum HyperbolicError {
         /// Actual dimension.
         actual: usize,
     },
-    /// Numerical instability (e.g., division by near-zero).
-    NumericalInstability(String),
     /// Invalid curvature (must be negative).
     InvalidCurvature(f64),
 }
@@ -95,7 +94,6 @@ impl std::fmt::Display for HyperbolicError {
                     expected, actual
                 )
             }
-            Self::NumericalInstability(msg) => write!(f, "Numerical instability: {}", msg),
             Self::InvalidCurvature(c) => write!(f, "Invalid curvature: {} (must be negative)", c),
         }
     }

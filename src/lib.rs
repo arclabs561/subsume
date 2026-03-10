@@ -43,16 +43,15 @@
 //! - [`octagon`] -- octagon embeddings: boxes + diagonal constraints (IJCAI 2024)
 //! - [`cone`] -- angular cone embeddings for subsumption with negation
 //! - [`hyperbolic`] -- Poincare ball embeddings for tree-like hierarchies
-//! - [`hyperbolic_box`] -- boxes in hyperbolic space (high-capacity hierarchies)
-//! - [`quasimetric`] -- interval quasimetric embeddings (asymmetric reachability)
 //! - [`sheaf`] -- sheaf neural networks for transitivity/consistency on graphs
 //! - [`gaussian`] -- diagonal Gaussian box embeddings (KL, Bhattacharyya)
+//! - [`region`] -- generic `Region` trait for shape-agnostic RegD dissimilarity metrics
 //!
 //! ## Representations and scoring
 //!
 //! - [`center_offset`] -- center+offset <-> min/max coordinate conversion
 //! - [`boxe`] -- BoxE scoring model (Abboud et al., NeurIPS 2020)
-//! - [`distance`] -- depth-based, boundary, Query2Box, and vector-to-box distance metrics
+//! - [`distance`] -- Query2Box distance scoring
 //! - [`embedding`] -- [`BoxCollection`] and [`BoxEmbedding`] collection traits
 //! - [`fuzzy`] -- t-norms, t-conorms, and negation for fuzzy query answering (FuzzQE)
 //!
@@ -73,7 +72,7 @@
 //!
 //! ## Backends (feature-gated)
 //!
-//! - [`ndarray_backend`] -- `NdarrayBox`, `NdarrayGumbelBox`, optimizer, scheduler
+//! - [`ndarray_backend`] -- `NdarrayBox`, `NdarrayGumbelBox`, distance functions
 //!   (feature = `ndarray-backend`, **on by default**)
 //! - `candle_backend` -- `CandleBox`, `CandleGumbelBox` with GPU support
 //!   (feature = `candle-backend`)
@@ -140,7 +139,7 @@ pub mod octagon;
 /// Knowledge graph dataset loading (WN18RR, FB15k-237, YAGO3-10, and similar formats).
 pub mod dataset;
 
-/// Distance metrics: depth-based (RegD), boundary, and vector-to-box distances.
+/// Distance metrics: Query2Box distance scoring.
 pub mod distance;
 
 /// Collection traits for managing batches of box embeddings.
@@ -150,16 +149,15 @@ pub mod embedding;
 pub mod gumbel;
 
 /// Poincare ball embeddings for tree-like hierarchical structures.
+///
+/// Requires the `ndarray-backend` feature (uses `ndarray::ArrayView1` for
+/// interoperability with the `hyperball` and `skel` crates).
+#[cfg(feature = "ndarray-backend")]
+#[cfg_attr(docsrs, doc(cfg(feature = "ndarray-backend")))]
 pub mod hyperbolic;
-
-/// Box embeddings in hyperbolic space for high-capacity hierarchy modeling.
-pub mod hyperbolic_box;
 
 /// AMSGrad optimizer state and learning rate utilities.
 pub mod optimizer;
-
-/// Interval quasimetric embeddings (IQE) for asymmetric reachability.
-pub mod quasimetric;
 
 /// Sheaf neural networks: algebraic consistency enforcement on graphs.
 pub mod sheaf;
@@ -175,6 +173,10 @@ pub mod training;
 
 /// Numerical stability: log-space volume, stable sigmoid, temperature scheduling.
 pub mod utils;
+
+/// Generic `Region` trait for geometric shapes: point membership, signed boundary
+/// distance, volume, and RegD dissimilarity metrics (Yang & Chen, 2025).
+pub mod region;
 
 /// Diagonal Gaussian box embeddings for taxonomy expansion (TaxoBell).
 pub mod gaussian;
@@ -215,6 +217,7 @@ pub use gumbel::GumbelBox;
 
 // Re-exports: geometry variants
 pub use cone::{Cone, ConeError};
+#[cfg(feature = "ndarray-backend")]
 pub use hyperbolic::{
     hierarchy_preserved, pairwise_distances, Curvature, HyperbolicError, HyperbolicPoint,
     PoincareBallPoint,
@@ -226,9 +229,7 @@ pub use dataset::{Dataset, DatasetError, DatasetStats, Triple};
 // Re-exports: representations and scoring
 pub use boxe::{boxe_loss, boxe_point_score, boxe_score, Bump};
 pub use center_offset::{center_offset_to_min_max, min_max_to_center_offset};
-pub use distance::{
-    boundary_distance, depth_distance, depth_similarity, query2box_distance, vector_to_box_distance,
-};
+pub use distance::query2box_distance;
 pub use embedding::{BoxCollection, BoxEmbedding};
 
 // Re-exports: training
@@ -236,8 +237,8 @@ pub use optimizer::{get_learning_rate, AMSGradState};
 pub use trainable::{TrainableBox, TrainableCone};
 pub use trainer::{
     compute_cone_analytical_gradients, compute_cone_pair_loss, evaluate_link_prediction,
-    log_training_result, ConeEmbeddingTrainer, EvaluationResults, HyperparameterSearch,
-    NegativeSamplingStrategy, TrainingConfig, TrainingResult,
+    log_training_result, ConeEmbeddingTrainer, EvaluationResults, NegativeSamplingStrategy,
+    TrainingConfig, TrainingResult,
 };
 
 /// Negative sampling utilities (requires the `rand` feature).
@@ -249,32 +250,22 @@ pub use trainer::{
     SortedEntityPool,
 };
 
-// Re-exports: evaluation and quality
+// Re-exports: evaluation metrics (access diagnostics/quality via subsume::training::*)
 pub use training::{
     calibration::{
         adaptive_calibration_error, brier_score, expected_calibration_error, reliability_diagram,
         ReliabilityDiagram,
     },
-    diagnostics::{
-        DepthStratifiedGradientFlow, GradientFlowAnalysis, LossComponents, PhaseDetector,
-        RelationStratifiedTrainingStats, TrainingPhase, TrainingStats,
-    },
     metrics::{
         hits_at_k, mean_rank, mean_reciprocal_rank, ndcg, DepthMetrics, FrequencyMetrics,
         RelationMetrics, StratifiedMetrics,
-    },
-    quality::{
-        kl_divergence, AsymmetryMetrics, ContainmentAccuracy, ContainmentHierarchy,
-        DimensionalityUtilization, GeneralizationMetrics, IntersectionTopology,
-        TopologicalStability, VolumeConservation, VolumeDistribution,
     },
 };
 
 // Re-exports: sheaf
 pub use sheaf::{
     consistency_score, diffuse_until_convergence, DenseRestriction, DiffusionConfig, LaplacianType,
-    RestrictionMap, SheafBuilder, SheafEdge, SheafError, SheafGraph, SimpleSheafGraph, Stalk,
-    VecStalk,
+    RestrictionMap, SheafEdge, SheafError, SheafGraph, SimpleSheafGraph, Stalk, VecStalk,
 };
 
 // Re-exports: Gaussian boxes
@@ -318,15 +309,15 @@ pub use fuzzy::{
 // Re-exports: octagon
 pub use octagon::{DiagonalBounds, Octagon, OctagonError};
 
+// Re-exports: region
+pub use region::{Region, RegionError};
+
 // Re-exports: utilities
-pub use utils::validation;
 pub use utils::{
     bessel_log_volume, bessel_side_length, clamp_temperature, clamp_temperature_default,
-    gumbel_lse_max, gumbel_lse_min, gumbel_membership_prob, is_cross_pattern, is_perfectly_nested,
-    log_space_volume, map_gumbel_to_bounds, safe_init_bounds, sample_gumbel, softplus,
-    stable_logsumexp, stable_sigmoid, suggested_min_separation, temperature_scheduler,
-    volume_containment_loss, volume_overlap_loss, volume_regularization, EULER_GAMMA,
-    MAX_TEMPERATURE, MIN_TEMPERATURE,
+    gumbel_lse_max, gumbel_lse_min, gumbel_membership_prob, log_space_volume, map_gumbel_to_bounds,
+    safe_init_bounds, sample_gumbel, softplus, stable_logsumexp, stable_sigmoid,
+    temperature_scheduler, volume_regularization, EULER_GAMMA, MAX_TEMPERATURE, MIN_TEMPERATURE,
 };
 
 // ---------------------------------------------------------------------------

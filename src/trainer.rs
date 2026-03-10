@@ -1025,33 +1025,6 @@ pub struct TrainingResult {
     pub training_time_seconds: Option<f64>,
 }
 
-/// Hyperparameter search configuration.
-#[derive(Debug, Clone)]
-pub struct HyperparameterSearch {
-    /// Learning rates to try
-    pub learning_rates: Vec<f32>,
-    /// Batch sizes to try
-    pub batch_sizes: Vec<usize>,
-    /// Embedding dimensions to try
-    pub dimensions: Vec<usize>,
-    /// Regularization weights to try
-    pub regularization_weights: Vec<f32>,
-    /// Number of trials per combination
-    pub trials_per_config: usize,
-}
-
-impl Default for HyperparameterSearch {
-    fn default() -> Self {
-        Self {
-            learning_rates: vec![1e-3, 5e-4, 1e-4],
-            batch_sizes: vec![512, 1024, 2048],
-            dimensions: vec![50, 100, 200],
-            regularization_weights: vec![1e-5, 1e-4, 1e-3],
-            trials_per_config: 1,
-        }
-    }
-}
-
 /// Log training results to file or stdout.
 pub fn log_training_result(result: &TrainingResult, path: Option<&str>) -> Result<(), BoxError> {
     let output = format!(
@@ -1381,13 +1354,19 @@ pub fn compute_cone_pair_loss(
 ///
 /// Returns (grad_axes_a, grad_apertures_a, grad_axes_b, grad_apertures_b).
 ///
-/// These are approximate gradients. For positive pairs, we push axes together
-/// and widen A / narrow B. For negative pairs, we push axes apart and narrow A.
+/// These are approximate gradients using per-dimension containment signals:
+/// - **Positive**: in dimensions where B is outside A's cone, push axes together
+///   and widen A. Gradient magnitude is proportional to the violation.
+/// - **Negative**: in dimensions where B is inside A's cone, push axes apart
+///   and narrow A. Gradient magnitude is proportional to containment strength.
+///
+/// This avoids the saturation problem of fixed-magnitude aperture gradients,
+/// where heads always widen to pi and tails always narrow to 0.
 pub fn compute_cone_analytical_gradients(
     cone_a: &TrainableCone,
     cone_b: &TrainableCone,
     is_positive: bool,
-    _config: &TrainingConfig,
+    config: &TrainingConfig,
 ) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>) {
     let dim = cone_a.dim;
     let mut grad_axes_a = vec![0.0f32; dim];
@@ -1395,39 +1374,50 @@ pub fn compute_cone_analytical_gradients(
     let mut grad_axes_b = vec![0.0f32; dim];
     let mut grad_aper_b = vec![0.0f32; dim];
 
-    let axes_a = cone_a.axes();
-    let axes_b = cone_b.axes();
+    let dense_a = cone_a.to_cone();
+    let dense_b = cone_b.to_cone();
 
     if is_positive {
-        // Push axes toward each other; widen A, narrow B.
+        // A should contain B. For each dimension, check if B's axis is inside A's cone.
         for i in 0..dim {
-            let diff = axes_b[i] - axes_a[i];
-            grad_axes_a[i] = -0.1 * diff; // push A toward B
-            grad_axes_b[i] = 0.1 * diff; // push B toward A
+            let dist_to_axis = ((dense_b.axes[i] - dense_a.axes[i]) / 2.0).sin().abs();
+            let dist_base = (dense_a.apertures[i] / 2.0).sin().abs();
 
-            // Widen A's aperture (gradient negative = descend = increase raw_aperture).
-            grad_aper_a[i] = -0.1;
-            // Narrow B's aperture.
-            grad_aper_b[i] = 0.1;
+            let diff = dense_b.axes[i] - dense_a.axes[i];
+
+            if dist_to_axis >= dist_base {
+                // B is outside A in this dimension -- push to fix it.
+                let violation = dist_to_axis - dist_base;
+                let strength = 0.2 * violation.min(1.0);
+                grad_axes_a[i] = -strength * diff.signum(); // push A toward B
+                grad_axes_b[i] = strength * diff.signum(); // push B toward A
+                                                           // Widen A (negative gradient = increase raw_aperture on descent).
+                grad_aper_a[i] = -strength;
+                // Narrow B slightly so it fits inside A.
+                grad_aper_b[i] = 0.05 * strength;
+            }
+            // If B is already inside A, no gradient needed for this dimension.
         }
     } else {
-        // Push axes apart; narrow A.
-        let dense_a = cone_a.to_cone();
-        let dense_b = cone_b.to_cone();
+        // A should NOT contain B. For each dimension where B is inside A, push apart.
         let dist = dense_a.cone_distance(&dense_b, 0.02);
-        let score = (-dist).exp().min(1.0); // approximate containment strength
-
-        if score > 0.1 {
-            let strength = 0.1 * score;
+        if dist < config.margin {
+            let urgency = (config.margin - dist) / config.margin; // 0..1
             for i in 0..dim {
-                let diff = axes_b[i] - axes_a[i];
-                grad_axes_a[i] = strength * diff; // push A away from B
-                grad_axes_b[i] = -strength * diff;
+                let dist_to_axis = ((dense_b.axes[i] - dense_a.axes[i]) / 2.0).sin().abs();
+                let dist_base = (dense_a.apertures[i] / 2.0).sin().abs();
 
-                // Narrow A's aperture.
-                grad_aper_a[i] = strength;
-                // Widen B (makes it harder for A to contain B).
-                grad_aper_b[i] = -strength;
+                if dist_to_axis < dist_base {
+                    // B is inside A in this dimension -- push apart.
+                    let diff = dense_b.axes[i] - dense_a.axes[i];
+                    let margin = dist_base - dist_to_axis;
+                    let strength = 0.2 * urgency * margin.min(1.0);
+
+                    grad_axes_a[i] = strength * diff.signum(); // push A away from B
+                    grad_axes_b[i] = -strength * diff.signum();
+                    // Narrow A to exclude B.
+                    grad_aper_a[i] = strength;
+                }
             }
         }
     }
@@ -1738,16 +1728,6 @@ mod tests {
 
         // Cleanup
         let _ = std::fs::remove_file(&temp_file);
-    }
-
-    #[test]
-    fn test_hyperparameter_search_default() {
-        let search = HyperparameterSearch::default();
-        assert!(!search.learning_rates.is_empty());
-        assert!(!search.batch_sizes.is_empty());
-        assert!(!search.dimensions.is_empty());
-        assert!(!search.regularization_weights.is_empty());
-        assert!(search.trials_per_config > 0);
     }
 
     #[test]
