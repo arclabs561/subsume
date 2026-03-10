@@ -17,7 +17,6 @@ include = [
     "/examples/**/*.rs",
     "/docs/katex-header.html",
     "/Cargo.toml",
-    "/Cargo.lock",
     "/LICENSE-*",
     "/README.md",
 ]

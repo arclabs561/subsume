@@ -417,25 +417,25 @@ impl EmbeddingStore {
 
         // Update center
         let center = &mut self.centers[idx];
-        for i in 0..dim {
+        for (i, c) in center.iter_mut().enumerate().take(dim) {
             let m_hat = opt.m[i] / bias_correction;
             let update = opt.lr * m_hat / (opt.v_hat[i].sqrt() + opt.epsilon);
-            center[i] -= update;
-            if !center[i].is_finite() {
-                center[i] = 0.0;
+            *c -= update;
+            if !c.is_finite() {
+                *c = 0.0;
             }
         }
 
         // Update offset (keep positive)
         let offset = &mut self.offsets[idx];
-        for i in 0..dim {
+        for (i, o) in offset.iter_mut().enumerate().take(dim) {
             let idx_o = dim + i;
             let m_hat = opt.m[idx_o] / bias_correction;
             let update = opt.lr * m_hat / (opt.v_hat[idx_o].sqrt() + opt.epsilon);
-            offset[i] -= update;
-            offset[i] = offset[i].max(0.01);
-            if !offset[i].is_finite() {
-                offset[i] = 0.5;
+            *o -= update;
+            *o = o.max(0.01);
+            if !o.is_finite() {
+                *o = 0.5;
             }
         }
     }
@@ -621,6 +621,7 @@ pub fn train_el_embeddings(ontology: &Ontology, config: &ElTrainingConfig) -> El
                         if neg == sub || neg == sup {
                             continue;
                         }
+                        // All embeddings share the same dim, so dimension mismatch is impossible.
                         let neg_loss = el::el_inclusion_loss(
                             &concepts.centers[neg],
                             &concepts.offsets[neg],
@@ -628,7 +629,7 @@ pub fn train_el_embeddings(ontology: &Ontology, config: &ElTrainingConfig) -> El
                             &concepts.offsets[sup],
                             0.0,
                         )
-                        .unwrap();
+                        .expect("all embeddings use the same dim");
                         let neg_penalty = (config.margin - neg_loss).max(0.0);
                         total_loss += config.negative_weight * neg_penalty;
 
@@ -668,6 +669,7 @@ pub fn train_el_embeddings(ontology: &Ontology, config: &ElTrainingConfig) -> El
                     // ∃R.C ⊑ D: existential_box(R, C) should be contained in D
                     let mut ex_center = vec![0.0f32; dim];
                     let mut ex_offset = vec![0.0f32; dim];
+                    // All embeddings share the same dim, so dimension mismatch is impossible.
                     el::existential_box(
                         &roles.centers[role],
                         &roles.offsets[role],
@@ -676,7 +678,7 @@ pub fn train_el_embeddings(ontology: &Ontology, config: &ElTrainingConfig) -> El
                         &mut ex_center,
                         &mut ex_offset,
                     )
-                    .unwrap();
+                    .expect("all embeddings use the same dim");
 
                     // Inclusion loss: ex ⊑ target
                     let (g_ex, g_target, loss) = inclusion_grads(
@@ -724,6 +726,7 @@ pub fn train_el_embeddings(ontology: &Ontology, config: &ElTrainingConfig) -> El
                     // R ∘ S ⊑ T
                     let mut comp_center = vec![0.0f32; dim];
                     let mut comp_offset = vec![0.0f32; dim];
+                    // All embeddings share the same dim, so dimension mismatch is impossible.
                     el::compose_roles(
                         &roles.centers[r],
                         &roles.offsets[r],
@@ -732,7 +735,7 @@ pub fn train_el_embeddings(ontology: &Ontology, config: &ElTrainingConfig) -> El
                         &mut comp_center,
                         &mut comp_offset,
                     )
-                    .unwrap();
+                    .expect("all embeddings use the same dim");
 
                     let (g_comp, g_t, loss) = inclusion_grads(
                         &comp_center,

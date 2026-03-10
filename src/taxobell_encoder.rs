@@ -170,7 +170,7 @@ impl TaxoBellEncoder {
     /// Encode a single embedding into a `GaussianBox` (for evaluation).
     pub fn encode_one(&self, embedding: &[f32]) -> Result<crate::gaussian::GaussianBox, BoxError> {
         let map_err = |e: candle_core::Error| BoxError::Internal(e.to_string());
-        let t = Tensor::new(&embedding[..], &self.device).map_err(map_err)?;
+        let t = Tensor::new(embedding, &self.device).map_err(map_err)?;
         let t = t.unsqueeze(0).map_err(map_err)?; // [1, embed_dim]
         let (mu, sigma) = self.encode(&t).map_err(map_err)?;
         let mu_vec: Vec<f32> = mu.squeeze(0).map_err(map_err)?.to_vec1().map_err(map_err)?;
@@ -641,11 +641,11 @@ pub fn train_taxobell(
         // Anchor/positive indices: repeat each edge's child/parent n_neg times.
         let anchor_indices: Vec<u32> = child_indices
             .iter()
-            .flat_map(|&idx| std::iter::repeat_n(idx, n_neg))
+            .flat_map(|&idx| std::iter::repeat(idx).take(n_neg))
             .collect();
         let pos_indices: Vec<u32> = parent_indices
             .iter()
-            .flat_map(|&idx| std::iter::repeat_n(idx, n_neg))
+            .flat_map(|&idx| std::iter::repeat(idx).take(n_neg))
             .collect();
 
         // --- Forward pass: encode all nodes once ---
