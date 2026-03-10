@@ -23,7 +23,6 @@
 
 use ndarray::array;
 use subsume::ndarray_backend::ndarray_octagon::{NdarrayDiagBounds, NdarrayOctagon};
-use subsume::Octagon;
 
 fn main() -> Result<(), subsume::OctagonError> {
     println!("=== Octagon Embeddings Demo ===\n");

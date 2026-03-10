@@ -9,7 +9,7 @@
 //! - Charpenay & Schockaert (IJCAI 2024, arXiv:2401.16270),
 //!   "Capturing Knowledge Graphs and Rules with Octagon Embeddings"
 
-use crate::octagon::{DiagonalBounds, Octagon, OctagonError};
+use crate::octagon::OctagonError;
 use ndarray::Array1;
 use serde::{Deserialize, Serialize};
 
@@ -28,19 +28,21 @@ pub struct NdarrayDiagBounds {
     pub diff_max: f32,
 }
 
-impl DiagonalBounds for NdarrayDiagBounds {
-    type Scalar = f32;
-
-    fn sum_min(&self) -> f32 {
+impl NdarrayDiagBounds {
+    /// Lower bound on x_i + x_{i+1}.
+    pub fn sum_min(&self) -> f32 {
         self.sum_min
     }
-    fn sum_max(&self) -> f32 {
+    /// Upper bound on x_i + x_{i+1}.
+    pub fn sum_max(&self) -> f32 {
         self.sum_max
     }
-    fn diff_min(&self) -> f32 {
+    /// Lower bound on x_i - x_{i+1}.
+    pub fn diff_min(&self) -> f32 {
         self.diff_min
     }
-    fn diff_max(&self) -> f32 {
+    /// Upper bound on x_i - x_{i+1}.
+    pub fn diff_max(&self) -> f32 {
         self.diff_max
     }
 }
@@ -183,28 +185,41 @@ fn sigmoid(x: f32) -> f32 {
     }
 }
 
-impl Octagon for NdarrayOctagon {
-    type Scalar = f32;
-    type Vector = Array1<f32>;
-    type Diag = NdarrayDiagBounds;
-
-    fn axis_min(&self) -> &Array1<f32> {
+impl NdarrayOctagon {
+    /// Get the minimum axis-aligned bound in each dimension.
+    pub fn axis_min(&self) -> &Array1<f32> {
         &self.axis_min
     }
 
-    fn axis_max(&self) -> &Array1<f32> {
+    /// Get the maximum axis-aligned bound in each dimension.
+    pub fn axis_max(&self) -> &Array1<f32> {
         &self.axis_max
     }
 
-    fn dim(&self) -> usize {
+    /// Get the number of dimensions.
+    pub fn dim(&self) -> usize {
         self.axis_min.len()
     }
 
-    fn diagonal_bounds(&self, pair_index: usize) -> Option<&NdarrayDiagBounds> {
+    /// Get the diagonal bounds for the k-th adjacent pair (k, k+1).
+    ///
+    /// Returns `None` if k >= dim - 1.
+    pub fn diagonal_bounds(&self, pair_index: usize) -> Option<&NdarrayDiagBounds> {
         self.diag_bounds.get(pair_index)
     }
 
-    fn contains(&self, point: &[f32]) -> Result<bool, OctagonError> {
+    /// Number of adjacent dimension pairs = dim - 1.
+    pub fn num_diagonal_pairs(&self) -> usize {
+        let d = self.dim();
+        if d == 0 {
+            0
+        } else {
+            d - 1
+        }
+    }
+
+    /// Check whether a point lies inside this octagon.
+    pub fn contains(&self, point: &[f32]) -> Result<bool, OctagonError> {
         let d = self.dim();
         if point.len() != d {
             return Err(OctagonError::DimensionMismatch {
@@ -232,7 +247,8 @@ impl Octagon for NdarrayOctagon {
         Ok(true)
     }
 
-    fn intersection(&self, other: &Self) -> Result<Self, OctagonError> {
+    /// Compute the intersection of two octagons.
+    pub fn intersection(&self, other: &Self) -> Result<Self, OctagonError> {
         let d = self.dim();
         if other.dim() != d {
             return Err(OctagonError::DimensionMismatch {
@@ -307,7 +323,8 @@ impl Octagon for NdarrayOctagon {
         })
     }
 
-    fn volume(&self) -> Result<f32, OctagonError> {
+    /// Compute the volume of this octagon.
+    pub fn volume(&self) -> Result<f32, OctagonError> {
         let d = self.dim();
         if d == 0 {
             return Ok(0.0);
@@ -337,7 +354,8 @@ impl Octagon for NdarrayOctagon {
         self.volume_monte_carlo(box_vol)
     }
 
-    fn containment_prob(&self, other: &Self, temperature: f32) -> Result<f32, OctagonError> {
+    /// Soft containment probability: P(other inside self), smoothed by temperature.
+    pub fn containment_prob(&self, other: &Self, temperature: f32) -> Result<f32, OctagonError> {
         let d = self.dim();
         if other.dim() != d {
             return Err(OctagonError::DimensionMismatch {
@@ -378,7 +396,8 @@ impl Octagon for NdarrayOctagon {
         Ok(product)
     }
 
-    fn overlap_prob(&self, other: &Self, temperature: f32) -> Result<f32, OctagonError> {
+    /// Soft overlap probability: Vol(self intersection other) / Vol(self union other).
+    pub fn overlap_prob(&self, other: &Self, temperature: f32) -> Result<f32, OctagonError> {
         let d = self.dim();
         if other.dim() != d {
             return Err(OctagonError::DimensionMismatch {
@@ -410,7 +429,8 @@ impl Octagon for NdarrayOctagon {
         Ok(product)
     }
 
-    fn to_bounding_box_bounds(&self) -> (Array1<f32>, Array1<f32>) {
+    /// Convert this octagon to its bounding box (drop diagonal constraints).
+    pub fn to_bounding_box_bounds(&self) -> (Array1<f32>, Array1<f32>) {
         (self.axis_min.clone(), self.axis_max.clone())
     }
 
@@ -420,7 +440,8 @@ impl Octagon for NdarrayOctagon {
     ///
     /// Normalization is a fixed-point operation: tightening one bound may enable
     /// tightening another. We iterate until convergence (bounded by 10 passes).
-    fn normalize(&self) -> Result<Self, OctagonError> {
+    /// Normalize (tighten) the octagon bounds (Proposition 1).
+    pub fn normalize(&self) -> Result<Self, OctagonError> {
         let d = self.dim();
         if d <= 1 {
             return Ok(self.clone());
@@ -509,7 +530,8 @@ impl Octagon for NdarrayOctagon {
         NdarrayOctagon::new(Array1::from_vec(x_lo), Array1::from_vec(x_hi), diag)
     }
 
-    fn compose(&self, other: &Self) -> Result<Self, OctagonError> {
+    /// Relational composition of two octagon relations.
+    pub fn compose(&self, other: &Self) -> Result<Self, OctagonError> {
         let d = self.dim();
         if other.dim() != d {
             return Err(OctagonError::DimensionMismatch {
@@ -644,9 +666,7 @@ impl Octagon for NdarrayOctagon {
         // carry slack that compounds differently depending on grouping.
         raw.normalize()
     }
-}
 
-impl NdarrayOctagon {
     /// Exact 2D octagon area via the Sutherland-Hodgman approach:
     /// intersect the box with each half-plane from diagonal constraints.
     fn volume_2d(&self) -> Result<f32, OctagonError> {
