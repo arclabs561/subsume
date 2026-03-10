@@ -44,6 +44,26 @@ fn main() -> Result<(), subsume::BoxError> {
 
     let vehicle = NdarrayGumbelBox::new(array![2.0, 2.0, 2.0], array![3.0, 3.0, 3.0], temperature)?;
 
+    // Quick orientation: temperature controls whether containment is intuitive.
+    // At low temperature, Gumbel boxes behave like hard boxes.
+    println!("--- Temperature effect on membership probability ---\n");
+    let center_pt = array![0.5, 0.5, 0.5]; // geometric center of animal
+    let low_t = 0.01;
+    let high_t = 1.0;
+    let animal_low = NdarrayGumbelBox::new(array![0.0, 0.0, 0.0], array![1.0, 1.0, 1.0], low_t)?;
+    let animal_high = NdarrayGumbelBox::new(array![0.0, 0.0, 0.0], array![1.0, 1.0, 1.0], high_t)?;
+    println!(
+        "  At low temperature  (t={:.2}, hard boxes):  P(center in animal) = {:.4}",
+        low_t,
+        animal_low.membership_probability(&center_pt)?
+    );
+    println!(
+        "  At high temperature (t={:.2}, soft boxes):  P(center in animal) = {:.4}",
+        high_t,
+        animal_high.membership_probability(&center_pt)?
+    );
+    println!("  (Low temp recovers the intuitive ~1.0; high temp spreads probability mass.)\n");
+
     println!("--- Part 1: Gumbel boxes created ---\n");
     let entities: Vec<(&str, &NdarrayGumbelBox)> = vec![
         ("animal", &animal),

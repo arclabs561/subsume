@@ -33,7 +33,7 @@
 //! - `octagon_demo`: octagon embeddings add diagonal constraints for relational rules
 //! - `fuzzy_query`: fuzzy operators as an alternative to geometric query answering
 
-use ndarray::{array, Array1};
+use ndarray::Array1;
 use subsume::ndarray_backend::distance::query2box_distance;
 use subsume::ndarray_backend::NdarrayBox;
 use subsume::Box as BoxTrait;
@@ -92,48 +92,83 @@ fn main() -> Result<(), subsume::BoxError> {
     // Countries are large boxes; cities and languages are smaller, placed
     // inside the appropriate country box to encode ground-truth relations.
 
-    let france = NdarrayBox::new(
-        array![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        array![1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
-        1.0,
-    )?;
-    let _uk = NdarrayBox::new(
-        array![2.0, 2.0, 0.0, 0.0, 2.0, 2.0, 0.0, 0.0],
-        array![3.0, 3.0, 1.0, 1.0, 3.0, 3.0, 1.0, 1.0],
-        1.0,
-    )?;
+    let dim = 8;
+
+    // Per-dimension variation so coordinates differ across dimensions.
+    let vary = |base: f32, step: f32| -> Array1<f32> {
+        (0..dim).map(|d| base + step * d as f32).collect()
+    };
+
+    let france = NdarrayBox::new(vary(0.0, 0.01), vary(1.0, 0.01), 1.0)?;
+
+    let uk_min: Array1<f32> = (0..dim)
+        .map(|d| {
+            if d < 2 || d >= 4 {
+                2.0 + 0.01 * d as f32
+            } else {
+                0.0 + 0.01 * d as f32
+            }
+        })
+        .collect();
+    let uk_max: Array1<f32> = (0..dim)
+        .map(|d| {
+            if d < 2 || d >= 4 {
+                3.0 + 0.01 * d as f32
+            } else {
+                1.0 + 0.01 * d as f32
+            }
+        })
+        .collect();
+    let _uk = NdarrayBox::new(uk_min, uk_max, 1.0)?;
 
     // Cities -- small boxes inside their country.
-    let paris = NdarrayBox::new(
-        array![0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1],
-        array![0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3],
-        1.0,
-    )?;
-    let lyon = NdarrayBox::new(
-        array![0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
-        array![0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7],
-        1.0,
-    )?;
-    let london = NdarrayBox::new(
-        array![2.2, 2.2, 0.2, 0.2, 2.2, 2.2, 0.2, 0.2],
-        array![2.4, 2.4, 0.4, 0.4, 2.4, 2.4, 0.4, 0.4],
-        1.0,
-    )?;
+    let paris = NdarrayBox::new(vary(0.1, 0.02), vary(0.3, 0.02), 1.0)?;
+    let lyon = NdarrayBox::new(vary(0.5, 0.015), vary(0.7, 0.015), 1.0)?;
+
+    let london_min: Array1<f32> = (0..dim)
+        .map(|d| {
+            if d < 2 || d >= 4 {
+                2.2 + 0.02 * d as f32
+            } else {
+                0.2 + 0.02 * d as f32
+            }
+        })
+        .collect();
+    let london_max: Array1<f32> = (0..dim)
+        .map(|d| {
+            if d < 2 || d >= 4 {
+                2.4 + 0.02 * d as f32
+            } else {
+                0.4 + 0.02 * d as f32
+            }
+        })
+        .collect();
+    let london = NdarrayBox::new(london_min, london_max, 1.0)?;
 
     // Languages -- placed to reflect who speaks them.
     // French: inside France box.
-    let french = NdarrayBox::new(
-        array![0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2],
-        array![0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
-        1.0,
-    )?;
+    let french = NdarrayBox::new(vary(0.2, 0.015), vary(0.5, 0.015), 1.0)?;
     // English: overlaps both France and UK (spoken in both, to different extents).
     // Partially inside France (dims 2-3 overlap), fully inside UK (dims 0-1, 4-5).
-    let english = NdarrayBox::new(
-        array![2.1, 2.1, 0.1, 0.1, 2.1, 2.1, 0.1, 0.1],
-        array![2.8, 2.8, 0.8, 0.8, 2.8, 2.8, 0.8, 0.8],
-        1.0,
-    )?;
+    let english_min: Array1<f32> = (0..dim)
+        .map(|d| {
+            if d < 2 || d >= 4 {
+                2.1 + 0.02 * d as f32
+            } else {
+                0.1 + 0.02 * d as f32
+            }
+        })
+        .collect();
+    let english_max: Array1<f32> = (0..dim)
+        .map(|d| {
+            if d < 2 || d >= 4 {
+                2.8 + 0.02 * d as f32
+            } else {
+                0.8 + 0.02 * d as f32
+            }
+        })
+        .collect();
+    let english = NdarrayBox::new(english_min, english_max, 1.0)?;
 
     let temp = 1.0;
 
