@@ -59,8 +59,6 @@
 //! - Chami et al. (2019): "Hyperbolic Graph Convolutional Neural Networks"
 //! - Gulcehre et al. (2019): "Hyperbolic Attention Networks"
 
-use std::fmt::Debug;
-
 /// Error type for hyperbolic operations.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq)]
@@ -100,57 +98,6 @@ impl std::fmt::Display for HyperbolicError {
 }
 
 impl std::error::Error for HyperbolicError {}
-
-/// A point in hyperbolic space (Poincaré ball model).
-pub trait HyperbolicPoint: Clone + Debug {
-    /// Scalar type.
-    type Scalar: Clone + Debug;
-    /// Vector type for coordinates.
-    type Vector: Clone + Debug;
-
-    /// Dimension of the embedding space.
-    fn dim(&self) -> usize;
-
-    /// Get the coordinates in the Poincaré ball.
-    fn coords(&self) -> &Self::Vector;
-
-    /// Squared norm ||x||².
-    fn norm_squared(&self) -> Self::Scalar;
-
-    /// Check if the point is inside the ball (||x|| < 1).
-    fn is_valid(&self) -> bool;
-
-    /// Conformal factor λ_x = 2 / (1 - ||x||²).
-    fn conformal_factor(&self) -> Result<Self::Scalar, HyperbolicError>;
-
-    /// Hyperbolic distance to another point.
-    ///
-    /// d(x, y) = arcosh(1 + 2||x-y||² / ((1-||x||²)(1-||y||²)))
-    fn distance(&self, other: &Self) -> Result<Self::Scalar, HyperbolicError>;
-
-    /// Möbius addition: x ⊕ y.
-    ///
-    /// The generalized addition operation in hyperbolic space.
-    fn mobius_add(&self, other: &Self) -> Result<Self, HyperbolicError>;
-
-    /// Möbius scalar multiplication: r ⊗ x.
-    fn mobius_scalar_mul(&self, r: Self::Scalar) -> Result<Self, HyperbolicError>;
-
-    /// Exponential map: exp_x(v).
-    ///
-    /// Maps a tangent vector v at point x to a point on the manifold.
-    fn exp_map(&self, tangent: &Self::Vector) -> Result<Self, HyperbolicError>;
-
-    /// Logarithmic map: log_x(y).
-    ///
-    /// Maps a point y to a tangent vector at x.
-    fn log_map(&self, other: &Self) -> Result<Self::Vector, HyperbolicError>;
-
-    /// Project to the Poincaré ball if outside.
-    ///
-    /// Clips the norm to be < 1 - epsilon.
-    fn project(&self, epsilon: Self::Scalar) -> Self;
-}
 
 /// Curvature of hyperbolic space.
 ///
@@ -241,25 +188,24 @@ impl PoincareBallPoint {
         // So c = -K.
         hyperball::PoincareBall::new(-self.curvature.0)
     }
-}
 
-impl HyperbolicPoint for PoincareBallPoint {
-    type Scalar = f64;
-    type Vector = Vec<f64>;
-
-    fn dim(&self) -> usize {
+    /// Dimension of the embedding space.
+    pub fn dim(&self) -> usize {
         self.coords.len()
     }
 
-    fn coords(&self) -> &Self::Vector {
+    /// Get the coordinates in the Poincare ball.
+    pub fn coords(&self) -> &[f64] {
         &self.coords
     }
 
-    fn norm_squared(&self) -> Self::Scalar {
+    /// Squared norm ||x||^2.
+    pub fn norm_squared(&self) -> f64 {
         self.coords.iter().map(|x| x * x).sum()
     }
 
-    fn is_valid(&self) -> bool {
+    /// Check if the point is inside the ball (||x|| < 1).
+    pub fn is_valid(&self) -> bool {
         // hyperball::PoincareBall::is_in_ball checks ||x|| < 1/sqrt(c).
         // Our c = -K.
         // If K = -1, c = 1, limit = 1.
@@ -270,7 +216,8 @@ impl HyperbolicPoint for PoincareBallPoint {
         m.is_in_ball(&v)
     }
 
-    fn conformal_factor(&self) -> Result<Self::Scalar, HyperbolicError> {
+    /// Conformal factor: 2 / (1 - c * ||x||^2).
+    pub fn conformal_factor(&self) -> Result<f64, HyperbolicError> {
         let norm_sq = self.norm_squared();
         // hyp doesn't expose conformal factor directly in public API (it's internal).
         // We calculate it manually to match existing API, or add it to hyp.
@@ -286,7 +233,8 @@ impl HyperbolicPoint for PoincareBallPoint {
         Ok(2.0 / denom)
     }
 
-    fn distance(&self, other: &Self) -> Result<Self::Scalar, HyperbolicError> {
+    /// Hyperbolic distance to another point.
+    pub fn distance(&self, other: &Self) -> Result<f64, HyperbolicError> {
         if self.coords.len() != other.coords.len() {
             return Err(HyperbolicError::DimensionMismatch {
                 expected: self.coords.len(),
@@ -301,7 +249,8 @@ impl HyperbolicPoint for PoincareBallPoint {
         Ok(m.distance(&v1, &v2))
     }
 
-    fn mobius_add(&self, other: &Self) -> Result<Self, HyperbolicError> {
+    /// Mobius addition: x (+) y.
+    pub fn mobius_add(&self, other: &Self) -> Result<Self, HyperbolicError> {
         if self.coords.len() != other.coords.len() {
             return Err(HyperbolicError::DimensionMismatch {
                 expected: self.coords.len(),
@@ -320,7 +269,8 @@ impl HyperbolicPoint for PoincareBallPoint {
         })
     }
 
-    fn mobius_scalar_mul(&self, r: Self::Scalar) -> Result<Self, HyperbolicError> {
+    /// Mobius scalar multiplication: r (x) x.
+    pub fn mobius_scalar_mul(&self, r: f64) -> Result<Self, HyperbolicError> {
         // hyp doesn't have scalar mul yet?
         // Let's keep the local implementation or add it to hyp.
         // Local impl is fine for now as it's just a formula.
@@ -351,7 +301,8 @@ impl HyperbolicPoint for PoincareBallPoint {
         Self::new(result, self.curvature)
     }
 
-    fn exp_map(&self, tangent: &Self::Vector) -> Result<Self, HyperbolicError> {
+    /// Exponential map: exp_x(v). Maps a tangent vector to the manifold.
+    pub fn exp_map(&self, tangent: &[f64]) -> Result<Self, HyperbolicError> {
         if self.coords.len() != tangent.len() {
             return Err(HyperbolicError::DimensionMismatch {
                 expected: self.coords.len(),
@@ -372,7 +323,8 @@ impl HyperbolicPoint for PoincareBallPoint {
         })
     }
 
-    fn log_map(&self, other: &Self) -> Result<Self::Vector, HyperbolicError> {
+    /// Logarithmic map: log_x(y). Maps a point to a tangent vector at x.
+    pub fn log_map(&self, other: &Self) -> Result<Vec<f64>, HyperbolicError> {
         if self.coords.len() != other.coords.len() {
             return Err(HyperbolicError::DimensionMismatch {
                 expected: self.coords.len(),
@@ -390,7 +342,8 @@ impl HyperbolicPoint for PoincareBallPoint {
         Ok(res.to_vec())
     }
 
-    fn project(&self, epsilon: Self::Scalar) -> Self {
+    /// Project to the Poincare ball if outside. Clips norm to < 1 - epsilon.
+    pub fn project(&self, epsilon: f64) -> Self {
         let norm_sq = self.norm_squared();
         let c = -self.curvature.0;
         let max_norm = (1.0 / c).sqrt() - epsilon;
