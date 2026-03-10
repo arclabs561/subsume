@@ -39,7 +39,7 @@ Geometric region embeddings for subsumption, entailment, and logical query answe
 |---|---|
 | `taxonomy` | TaxoBell-format dataset loader: `.terms`/`.taxo` parsing, train/val/test splitting |
 | `taxobell` | TaxoBell combined loss: Bhattacharyya triplet + KL containment + volume regularization + sigma clipping |
-| Training utilities | Negative sampling, temperature scheduling, AMSGrad, cosine annealing LR |
+| Training utilities | Negative sampling, temperature scheduling, AMSGrad optimizer |
 | Evaluation | MRR, Hits@k, NDCG, calibration (ECE, Brier), reliability diagrams |
 
 ### Backends

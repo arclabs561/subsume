@@ -409,6 +409,7 @@ pub trait Box: Sized {
 }
 
 /// Errors that can occur during box operations.
+#[non_exhaustive]
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum BoxError {
     /// Boxes have different dimensions.
@@ -434,15 +435,6 @@ pub enum BoxError {
     /// Box has zero or negative volume.
     #[error("Box has zero or negative volume")]
     ZeroVolume,
-
-    /// Matryoshka dimension violation (requested dim > actual dim).
-    #[error("Matryoshka dimension mismatch: requested {requested}, actual {actual}")]
-    MatryoshkaMismatch {
-        /// Requested truncated dimension.
-        requested: usize,
-        /// Actual full dimension.
-        actual: usize,
-    },
 
     /// Internal error from tensor/array operations.
     #[error("Internal error: {0}")]

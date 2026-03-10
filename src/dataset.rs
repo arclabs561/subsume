@@ -98,6 +98,7 @@ pub struct InternedDataset {
 }
 
 /// Errors that can occur during dataset operations.
+#[non_exhaustive]
 #[derive(Debug, thiserror::Error)]
 pub enum DatasetError {
     /// I/O error during file operations.
@@ -109,9 +110,6 @@ pub enum DatasetError {
     /// A required dataset file is missing.
     #[error("Missing file: {0}")]
     MissingFile(String),
-    /// Network error when downloading datasets.
-    #[error("Network error: {0}")]
-    Network(String),
 }
 
 /// Dataset structure containing train/valid/test splits.
@@ -401,29 +399,6 @@ mod intern_tests {
         assert_eq!(interned.relations.get(t0.relation), Some("r"));
         assert_eq!(interned.entities.get(t0.tail), Some("b"));
     }
-}
-
-/// Download a standard dataset (placeholder - requires actual download implementation).
-///
-/// This is a placeholder function. In a real implementation, this would:
-/// 1. Check if dataset already exists locally
-/// 2. Download from standard URLs (e.g., `https://github.com/...`)
-/// 3. Extract and verify the dataset
-///
-/// # Supported Datasets
-///
-/// - `wn18rr`: WordNet knowledge graph
-/// - `fb15k-237`: Freebase knowledge graph
-/// - `yago3-10`: YAGO knowledge graph
-pub fn download_dataset(_name: &str, _output_dir: &Path) -> Result<(), DatasetError> {
-    // Placeholder - would implement actual download logic
-    Err(DatasetError::Network(
-        "Dataset download not yet implemented. Please download datasets manually from:\n\
-         - WN18RR: https://github.com/kkteru/grail\n\
-         - FB15k-237: https://github.com/TimDettmers/ConvE\n\
-         - YAGO3-10: https://github.com/TimDettmers/ConvE"
-            .to_string(),
-    ))
 }
 
 #[cfg(test)]

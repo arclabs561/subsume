@@ -77,6 +77,7 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 
 /// Error type for sheaf operations.
+#[non_exhaustive]
 #[derive(Debug, Clone, PartialEq)]
 pub enum SheafError {
     /// Node not found in the graph.
@@ -92,8 +93,6 @@ pub enum SheafError {
     },
     /// Invalid restriction map.
     InvalidRestriction(String),
-    /// Computation error.
-    ComputationError(String),
 }
 
 impl std::fmt::Display for SheafError {
@@ -109,7 +108,6 @@ impl std::fmt::Display for SheafError {
                 )
             }
             Self::InvalidRestriction(msg) => write!(f, "Invalid restriction: {}", msg),
-            Self::ComputationError(msg) => write!(f, "Computation error: {}", msg),
         }
     }
 }
@@ -243,39 +241,6 @@ pub trait SheafGraph: Debug {
     ///
     /// This smooths the signal according to sheaf structure.
     fn diffusion_step(&mut self, step_size: Self::Scalar) -> Result<(), SheafError>;
-}
-
-/// Builder for constructing sheaf graphs.
-pub trait SheafBuilder: Default {
-    /// The sheaf graph type being built.
-    type Graph: SheafGraph;
-    /// Scalar type.
-    type Scalar;
-    /// Vector type.
-    type Vector;
-
-    /// Add a node with initial stalk value.
-    fn add_node(&mut self, stalk_value: Self::Vector) -> usize;
-
-    /// Add an edge with restriction maps.
-    ///
-    /// # Arguments
-    /// - `source`: Source node ID
-    /// - `target`: Target node ID
-    /// - `restriction_source`: Map from source stalk to edge space
-    /// - `restriction_target`: Map from target stalk to edge space
-    /// - `weight`: Edge weight (default 1.0)
-    fn add_edge(
-        &mut self,
-        source: usize,
-        target: usize,
-        restriction_source: <Self::Graph as SheafGraph>::Restriction,
-        restriction_target: <Self::Graph as SheafGraph>::Restriction,
-        weight: f32,
-    ) -> Result<(), SheafError>;
-
-    /// Build the sheaf graph.
-    fn build(self) -> Result<Self::Graph, SheafError>;
 }
 
 // =============================================================================
@@ -1245,7 +1210,6 @@ mod tests {
             "Dimension mismatch: expected 3, got 2"
         );
         assert!(format!("{}", SheafError::InvalidRestriction("bad".into())).contains("bad"));
-        assert!(format!("{}", SheafError::ComputationError("oops".into())).contains("oops"));
     }
 
     #[test]

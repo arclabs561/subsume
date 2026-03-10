@@ -162,6 +162,7 @@ pub trait Cone: Sized {
 }
 
 /// Errors that can occur during cone operations.
+#[non_exhaustive]
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum ConeError {
     /// Cones have different dimensions.
@@ -172,15 +173,4 @@ pub enum ConeError {
         /// Actual number of dimensions.
         actual: usize,
     },
-
-    /// Invalid aperture: must be in [0, pi].
-    #[error("Invalid aperture: {value} (must be in [0, pi])")]
-    InvalidAperture {
-        /// The invalid aperture value.
-        value: f64,
-    },
-
-    /// Internal error from array/tensor operations.
-    #[error("Internal error: {0}")]
-    Internal(String),
 }
