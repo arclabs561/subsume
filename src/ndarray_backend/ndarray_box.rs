@@ -1501,3 +1501,119 @@ mod proptest_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod degenerate_tests {
+    use super::*;
+    use crate::Box as BoxTrait;
+    use ndarray::Array1;
+    use proptest::prelude::*;
+
+    fn assert_finite_prob(v: f32, label: &str) {
+        assert!(v.is_finite(), "{label} not finite: {v}");
+        assert!((0.0..=1.0).contains(&v), "{label} out of [0,1]: {v}");
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(64))]
+
+        /// Zero-volume boxes (min == max), partial zero-volume, and single-dim.
+        #[test]
+        fn degenerate_zero_and_partial_volume(
+            val in proptest::collection::vec(-50.0f32..50.0f32, 2..=8),
+            k in 1usize..=4,
+        ) {
+            let d = val.len();
+            // Fully zero-volume: min == max everywhere.
+            let zb = NdarrayBox::new(Array1::from(val.clone()), Array1::from(val.clone()), 1.0).unwrap();
+            let vol = zb.volume(1.0).unwrap();
+            assert!(vol == 0.0, "zero-volume box has vol {vol}");
+            // containment_prob may return Err(ZeroVolume) -- that's valid.
+            let cp = zb.containment_prob(&zb, 1.0);
+            if let Ok(v) = cp { assert!(v.is_finite(), "zero-vol containment not finite: {v}"); }
+
+            // Partial zero-volume: first k dims collapsed, rest have width 1.
+            let k = k.min(d);
+            let mut maxs = val.clone();
+            for m in maxs.iter_mut().skip(k) {
+                *m += 1.0;
+            }
+            let pb = NdarrayBox::new(Array1::from(val), Array1::from(maxs), 1.0).unwrap();
+            let pv = pb.volume(1.0).unwrap();
+            assert!(pv.is_finite() && pv >= 0.0, "partial zero-vol: {pv}");
+        }
+
+        /// Near-zero-volume: min very close to max.
+        #[test]
+        fn degenerate_near_zero_volume(
+            base in proptest::collection::vec(-50.0f32..50.0f32, 2..=8),
+        ) {
+            let eps = 1e-7_f32;
+            let maxs: Vec<f32> = base.iter().map(|v| v + eps).collect();
+            let b = NdarrayBox::new(Array1::from(base), Array1::from(maxs), 1.0).unwrap();
+            let vol = b.volume(1.0).unwrap();
+            assert!(vol.is_finite() && vol >= 0.0, "near-zero vol: {vol}");
+            // May return Err(ZeroVolume) if width underflows to zero.
+            if let Ok(cp) = b.containment_prob(&b, 1.0) {
+                assert!(cp.is_finite(), "near-zero containment: {cp}");
+            }
+        }
+
+        /// Large coordinates: near f32::MAX / 1000, no overflow.
+        #[test]
+        fn degenerate_large_coords(dim in 1usize..=5) {
+            let big = f32::MAX / 1000.0;
+            let b = NdarrayBox::new(
+                Array1::from(vec![big - 1.0; dim]),
+                Array1::from(vec![big; dim]),
+                1.0,
+            ).unwrap();
+            let vol = b.volume(1.0).unwrap();
+            // Volume may overflow to inf in high dims; just must not NaN or panic.
+            assert!(!vol.is_nan(), "large-coord volume is NaN");
+        }
+
+        /// High dimensionality (d up to 200).
+        #[test]
+        fn degenerate_high_dim(dim in prop::sample::select(vec![50, 100, 200])) {
+            let b = NdarrayBox::new(
+                Array1::from(vec![0.0f32; dim]),
+                Array1::from(vec![1.0f32; dim]),
+                1.0,
+            ).unwrap();
+            let vol = b.volume(1.0).unwrap();
+            assert!(!vol.is_nan(), "high-dim volume is NaN (d={dim})");
+            let cp = b.containment_prob(&b, 1.0).unwrap();
+            assert!(cp.is_finite(), "high-dim containment not finite (d={dim})");
+        }
+
+        /// Extreme temperature values.
+        #[test]
+        fn degenerate_extreme_temperature(
+            temp in prop::sample::select(vec![1e-3_f32, 0.01, 0.1, 5.0, 10.0]),
+        ) {
+            let b = NdarrayBox::new(
+                Array1::from(vec![0.0, -1.0, 2.0]),
+                Array1::from(vec![1.0, 0.0, 3.0]),
+                temp,
+            ).unwrap();
+            let vol = b.volume(temp).unwrap();
+            assert!(vol.is_finite() && vol >= 0.0, "temp={temp} vol={vol}");
+            let cp = b.containment_prob(&b, temp).unwrap();
+            assert_finite_prob(cp, &format!("temp={temp} self-containment"));
+        }
+
+        /// Single dimension (d=1).
+        #[test]
+        fn degenerate_single_dim(lo in -100.0f32..100.0f32, width in 0.0f32..50.0f32) {
+            let b = NdarrayBox::new(
+                Array1::from(vec![lo]),
+                Array1::from(vec![lo + width]),
+                1.0,
+            ).unwrap();
+            let vol = b.volume(1.0).unwrap();
+            assert!(vol.is_finite() && vol >= 0.0, "1d vol: {vol}");
+            assert!((vol - width).abs() < 1e-4, "1d vol should equal width: {vol} vs {width}");
+        }
+    }
+}
