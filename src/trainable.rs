@@ -108,7 +108,7 @@ impl TrainableBox {
         Self::new(mu, delta)
     }
 
-    /// Convert to a BoxEmbedding (for inference).
+    /// Convert to a `DenseBox` (for inference).
     #[must_use]
     pub(crate) fn to_box(&self) -> DenseBox {
         let min: Vec<f32> = self

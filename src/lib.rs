@@ -14,7 +14,7 @@
 //! |------|-----------|
 //! | Understand the core abstraction | [`Box`] trait, [`BoxError`] |
 //! | Use probabilistic (Gumbel) boxes | [`GumbelBox`] trait, [`gumbel`] module |
-//! | Use octagon embeddings (box + diagonal constraints) | [`Octagon`] trait, [`octagon`] module |
+//! | Use octagon embeddings (box + diagonal constraints) | [`NdarrayOctagon`](ndarray_backend::ndarray_octagon::NdarrayOctagon), [`octagon`] module |
 //! | Fuzzy query answering (t-norms) | [`TNorm`], [`TConorm`], [`fuzzy`] module |
 //! | Load a knowledge graph dataset | [`Dataset`], [`Triple`] |
 //! | Train box embeddings (ndarray) | [`ndarray_backend`], [`TrainingConfig`] |
@@ -52,7 +52,7 @@
 //! - [`center_offset`] -- center+offset <-> min/max coordinate conversion
 //! - [`boxe`] -- BoxE scoring model (Abboud et al., NeurIPS 2020)
 //! - [`distance`] -- Query2Box distance scoring
-//! - [`embedding`] -- [`BoxCollection`] and [`BoxEmbedding`] collection traits
+//! - [`embedding`] -- [`BoxCollection`] for batch operations over boxes
 //! - [`fuzzy`] -- t-norms, t-conorms, and negation for fuzzy query answering (FuzzQE)
 //!
 //! ## Ontology and taxonomy
@@ -221,8 +221,7 @@ pub use gumbel::GumbelBox;
 pub use cone::ConeError;
 #[cfg(feature = "ndarray-backend")]
 pub use hyperbolic::{
-    hierarchy_preserved, pairwise_distances, Curvature, HyperbolicError, HyperbolicPoint,
-    PoincareBallPoint,
+    hierarchy_preserved, pairwise_distances, Curvature, HyperbolicError, PoincareBallPoint,
 };
 
 // Re-exports: data loading
@@ -232,7 +231,7 @@ pub use dataset::{Dataset, DatasetError, DatasetStats, Triple};
 pub use boxe::{boxe_loss, boxe_point_score, boxe_score, Bump};
 pub use center_offset::{center_offset_to_min_max, min_max_to_center_offset};
 pub use distance::query2box_distance;
-pub use embedding::{BoxCollection, BoxEmbedding};
+pub use embedding::BoxCollection;
 
 // Re-exports: training
 pub use optimizer::{get_learning_rate, AMSGradState};
@@ -309,7 +308,7 @@ pub use fuzzy::{
 };
 
 // Re-exports: octagon
-pub use octagon::{DiagonalBounds, Octagon, OctagonError};
+pub use octagon::OctagonError;
 
 // Re-exports: region
 pub use region::{Region, RegionError};

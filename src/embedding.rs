@@ -2,124 +2,16 @@
 
 use crate::{Box, BoxError};
 
-/// A collection of box embeddings with associated metadata.
-///
-/// This trait allows framework-agnostic operations on collections of boxes,
-/// such as batch containment queries, hierarchical clustering, etc.
-pub trait BoxEmbedding<B: Box> {
-    /// Get the number of boxes in the collection.
-    fn len(&self) -> usize;
-
-    /// Check if the collection is empty.
-    fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    /// Get a box by index.
-    ///
-    /// # Errors
-    ///
-    /// Returns `BoxError::Internal` if index is out of bounds.
-    fn get(&self, index: usize) -> Result<&B, BoxError>;
-
-    /// Compute pairwise containment probabilities.
-    ///
-    /// Returns a matrix where `result\[i\]\[j\] = P(box\[j\] ⊆ box\[i\])`.
-    ///
-    /// # Errors
-    ///
-    /// Returns `BoxError` if any boxes have dimension mismatches.
-    fn containment_matrix(&self, temperature: B::Scalar) -> Result<Vec<Vec<B::Scalar>>, BoxError>;
-
-    /// Find boxes that contain a given box.
-    ///
-    /// Returns indices of boxes where `containment_prob(box\[i\], query) > threshold`.
-    ///
-    /// # Errors
-    ///
-    /// Returns `BoxError` if query has dimension mismatch with any box.
-    fn containing_boxes(
-        &self,
-        query: &B,
-        threshold: B::Scalar,
-        temperature: B::Scalar,
-    ) -> Result<Vec<usize>, BoxError>;
-
-    /// Find boxes contained by a given box.
-    ///
-    /// Returns indices of boxes where `containment_prob(query, box\[i\]) > threshold`.
-    ///
-    /// # Errors
-    ///
-    /// Returns `BoxError` if query has dimension mismatch with any box.
-    fn contained_boxes(
-        &self,
-        query: &B,
-        threshold: B::Scalar,
-        temperature: B::Scalar,
-    ) -> Result<Vec<usize>, BoxError>;
-
-    /// Compute pairwise overlap probabilities.
-    ///
-    /// Returns a matrix where `result\[i\]\[j\] = P(box\[i\] ∩ box\[j\] ≠ ∅)`.
-    ///
-    /// # Errors
-    ///
-    /// Returns `BoxError` if any boxes have dimension mismatches.
-    fn overlap_matrix(&self, temperature: B::Scalar) -> Result<Vec<Vec<B::Scalar>>, BoxError>;
-
-    /// Find boxes that overlap with a given box.
-    ///
-    /// Returns indices of boxes where `overlap_prob(box\[i\], query) > threshold`.
-    ///
-    /// # Errors
-    ///
-    /// Returns `BoxError` if query has dimension mismatch with any box.
-    fn overlapping_boxes(
-        &self,
-        query: &B,
-        threshold: B::Scalar,
-        temperature: B::Scalar,
-    ) -> Result<Vec<usize>, BoxError>;
-
-    /// Find the k nearest boxes to a query box by distance.
-    ///
-    /// Returns indices of the k boxes with smallest `distance(box\[i\], query)`.
-    ///
-    /// # Errors
-    ///
-    /// Returns `BoxError` if query has dimension mismatch with any box.
-    fn nearest_boxes(&self, query: &B, k: usize) -> Result<Vec<usize>, BoxError>;
-
-    /// Compute the bounding box of all boxes in the collection.
-    ///
-    /// Returns the smallest box that contains all boxes in the collection.
-    ///
-    /// # Errors
-    ///
-    /// Returns `BoxError` if collection is empty or boxes have dimension mismatches.
-    ///
-    /// # Note
-    ///
-    /// This method requires that `B: Clone`. For boxes that don't implement `Clone`,
-    /// use `bounding_box_from_iter` with an iterator instead.
-    fn bounding_box(&self) -> Result<B, BoxError>
-    where
-        B: Clone;
-}
-
 /// A simple collection of boxes implemented as a vector.
 ///
-/// This is a basic implementation of `BoxEmbedding` that stores boxes in a `Vec`.
-/// For large-scale use, consider implementing more efficient data structures
-/// (e.g., spatial indexes, hierarchical clustering).
+/// Provides batch operations over boxes: containment/overlap matrices,
+/// spatial queries (containing, contained, overlapping, nearest), and
+/// bounding box computation.
 ///
 /// # Example
 ///
 /// ```rust,ignore
-/// // This example requires a backend implementation (e.g., subsume)
-/// use subsume::{BoxEmbedding, BoxCollection};
-/// use subsume::ndarray_backend::NdarrayBox;
+/// use subsume::BoxCollection;
 /// use ndarray::array;
 ///
 /// let mut collection = BoxCollection::new();
@@ -159,26 +51,29 @@ impl<B: Box> BoxCollection<B> {
     pub fn into_vec(self) -> Vec<B> {
         self.boxes
     }
-}
 
-impl<B: Box> Default for BoxCollection<B> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<B: Box> BoxEmbedding<B> for BoxCollection<B> {
-    fn len(&self) -> usize {
+    /// Get the number of boxes in the collection.
+    pub fn len(&self) -> usize {
         self.boxes.len()
     }
 
-    fn get(&self, index: usize) -> Result<&B, BoxError> {
+    /// Check if the collection is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Get a box by index.
+    pub fn get(&self, index: usize) -> Result<&B, BoxError> {
         self.boxes
             .get(index)
             .ok_or_else(|| BoxError::Internal(format!("Index {index} out of bounds")))
     }
 
-    fn containment_matrix(&self, temperature: B::Scalar) -> Result<Vec<Vec<B::Scalar>>, BoxError> {
+    /// Compute pairwise containment probabilities.
+    pub fn containment_matrix(
+        &self,
+        temperature: B::Scalar,
+    ) -> Result<Vec<Vec<B::Scalar>>, BoxError> {
         let n = self.len();
         let mut matrix = Vec::with_capacity(n);
 
@@ -198,7 +93,8 @@ impl<B: Box> BoxEmbedding<B> for BoxCollection<B> {
         Ok(matrix)
     }
 
-    fn containing_boxes(
+    /// Find boxes that contain a given box.
+    pub fn containing_boxes(
         &self,
         query: &B,
         threshold: B::Scalar,
@@ -216,7 +112,8 @@ impl<B: Box> BoxEmbedding<B> for BoxCollection<B> {
         Ok(results)
     }
 
-    fn contained_boxes(
+    /// Find boxes contained by a given box.
+    pub fn contained_boxes(
         &self,
         query: &B,
         threshold: B::Scalar,
@@ -234,7 +131,8 @@ impl<B: Box> BoxEmbedding<B> for BoxCollection<B> {
         Ok(results)
     }
 
-    fn overlap_matrix(&self, temperature: B::Scalar) -> Result<Vec<Vec<B::Scalar>>, BoxError> {
+    /// Compute pairwise overlap probabilities.
+    pub fn overlap_matrix(&self, temperature: B::Scalar) -> Result<Vec<Vec<B::Scalar>>, BoxError> {
         let n = self.len();
         let mut matrix = Vec::with_capacity(n);
 
@@ -254,7 +152,8 @@ impl<B: Box> BoxEmbedding<B> for BoxCollection<B> {
         Ok(matrix)
     }
 
-    fn overlapping_boxes(
+    /// Find boxes that overlap with a given box.
+    pub fn overlapping_boxes(
         &self,
         query: &B,
         threshold: B::Scalar,
@@ -272,7 +171,8 @@ impl<B: Box> BoxEmbedding<B> for BoxCollection<B> {
         Ok(results)
     }
 
-    fn nearest_boxes(&self, query: &B, k: usize) -> Result<Vec<usize>, BoxError> {
+    /// Find the k nearest boxes by distance.
+    pub fn nearest_boxes(&self, query: &B, k: usize) -> Result<Vec<usize>, BoxError> {
         if k == 0 {
             return Ok(Vec::new());
         }
@@ -290,7 +190,8 @@ impl<B: Box> BoxEmbedding<B> for BoxCollection<B> {
         Ok(distances.into_iter().take(k).map(|(idx, _)| idx).collect())
     }
 
-    fn bounding_box(&self) -> Result<B, BoxError>
+    /// Compute the bounding box of all boxes in the collection.
+    pub fn bounding_box(&self) -> Result<B, BoxError>
     where
         B: Clone,
     {
@@ -309,6 +210,12 @@ impl<B: Box> BoxEmbedding<B> for BoxCollection<B> {
         }
 
         Ok(bbox)
+    }
+}
+
+impl<B: Box> Default for BoxCollection<B> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
