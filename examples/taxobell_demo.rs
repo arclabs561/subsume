@@ -52,7 +52,12 @@ fn main() -> Result<(), subsume::BoxError> {
     println!("{:>10} {:>12} {:>12}", "concept", "log-volume", "sigma[0]");
     println!("{}", "-".repeat(36));
     for (name, g) in &nodes {
-        println!("{:>10} {:>12.4} {:>12.4}", name, g.log_volume(), g.sigma[0],);
+        println!(
+            "{:>10} {:>12.4} {:>12.4}",
+            name,
+            g.log_volume(),
+            g.sigma()[0],
+        );
     }
 
     // --- Part 2: Asymmetric containment via KL divergence ---

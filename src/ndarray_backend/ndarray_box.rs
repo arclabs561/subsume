@@ -113,6 +113,13 @@ impl NdarrayBox {
 
         // Validate bounds
         for (i, (&m, &max_val)) in min.iter().zip(max.iter()).enumerate() {
+            if m.is_nan() || max_val.is_nan() {
+                return Err(BoxError::InvalidBounds {
+                    dim: i,
+                    min: m as f64,
+                    max: max_val as f64,
+                });
+            }
             if m > max_val {
                 return Err(BoxError::InvalidBounds {
                     dim: i,
@@ -120,6 +127,15 @@ impl NdarrayBox {
                     max: max_val as f64,
                 });
             }
+        }
+
+        // Validate temperature: must be finite and positive
+        if !temperature.is_finite() || temperature <= 0.0 {
+            return Err(BoxError::InvalidBounds {
+                dim: 0,
+                min: temperature as f64,
+                max: temperature as f64,
+            });
         }
 
         Ok(Self {
@@ -1106,6 +1122,46 @@ mod tests {
             p
         );
         assert!((p - 1.0 / 7.0).abs() < 1e-5);
+    }
+
+    // ---- NaN rejection ----
+
+    #[test]
+    fn nan_min_returns_err() {
+        let result = NdarrayBox::new(array![f32::NAN], array![1.0], 1.0);
+        assert!(result.is_err(), "NaN min should be rejected");
+    }
+
+    #[test]
+    fn nan_max_returns_err() {
+        let result = NdarrayBox::new(array![0.0], array![f32::NAN], 1.0);
+        assert!(result.is_err(), "NaN max should be rejected");
+    }
+
+    // ---- Temperature validation ----
+
+    #[test]
+    fn temperature_zero_returns_err() {
+        let result = NdarrayBox::new(array![0.0], array![1.0], 0.0);
+        assert!(result.is_err(), "temperature=0 should be rejected");
+    }
+
+    #[test]
+    fn temperature_negative_returns_err() {
+        let result = NdarrayBox::new(array![0.0], array![1.0], -1.0);
+        assert!(result.is_err(), "temperature=-1 should be rejected");
+    }
+
+    #[test]
+    fn temperature_nan_returns_err() {
+        let result = NdarrayBox::new(array![0.0], array![1.0], f32::NAN);
+        assert!(result.is_err(), "temperature=NaN should be rejected");
+    }
+
+    #[test]
+    fn temperature_inf_returns_err() {
+        let result = NdarrayBox::new(array![0.0], array![1.0], f32::INFINITY);
+        assert!(result.is_err(), "temperature=inf should be rejected");
     }
 }
 
