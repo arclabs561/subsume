@@ -104,12 +104,15 @@
 //!
 //! - Vilnis et al. (2018), "Probabilistic Embedding of Knowledge Graphs with Box Lattice Measures"
 //! - Abboud et al. (2020), "BoxE: A Box Embedding Model for Knowledge Base Completion"
+//! - Li et al. (2019), "Smoothing the Geometry of Probabilistic Box Embeddings" (ICLR 2019)
 //! - Dasgupta et al. (2020), "Improving Local Identifiability in Probabilistic Box Embeddings"
 //! - Chen et al. (2021), "Uncertainty-Aware Knowledge Graph Embeddings" (UKGE)
 //! - Lee et al. (2022), "Box Embeddings for Event-Event Relation Extraction" (BERE)
 //! - Cao et al. (2024, ACM Computing Surveys), "KG Embedding: A Survey from the
 //!   Perspective of Representation Spaces" -- positions box/cone/octagon embeddings
 //!   within the broader KGE taxonomy (Euclidean, hyperbolic, complex, geometric)
+//! - Bourgaux et al. (2024, KR), "Knowledge Base Embeddings: Semantics and Theoretical Properties"
+//! - Lacerda et al. (2024, TGDK), "Strong Faithfulness for ELH Ontology Embeddings"
 //! - Yang & Chen (2025), "RegD: Achieving Hyperbolic-Like Expressiveness with Arbitrary
 //!   Euclidean Regions" -- source of the depth/boundary dissimilarity metrics in [`distance`]
 

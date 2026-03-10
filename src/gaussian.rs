@@ -46,7 +46,7 @@
 //! # References
 //!
 //! - TaxoBell (WWW 2026): taxonomy expansion with Gaussian boxes
-//! - Li et al. (2018): "Smoothing the Geometry of Probabilistic Box Embeddings"
+//! - Li et al. (2019): "Smoothing the Geometry of Probabilistic Box Embeddings" (ICLR 2019)
 
 use crate::BoxError;
 use serde::Serialize;
@@ -211,10 +211,12 @@ pub fn kl_divergence(child: &GaussianBox, parent: &GaussianBox) -> Result<f32, B
         });
     }
 
+    const EPS: f32 = 1e-7;
+
     let mut sum = 0.0f32;
     for i in 0..child.dim() {
-        let sc = child.sigma[i];
-        let sp = parent.sigma[i];
+        let sc = child.sigma[i].max(EPS);
+        let sp = parent.sigma[i].max(EPS);
         let dm = parent.mu[i] - child.mu[i];
 
         let ratio_sq = (sc / sp).powi(2);
@@ -249,12 +251,16 @@ pub fn bhattacharyya_distance(a: &GaussianBox, b: &GaussianBox) -> Result<f32, B
         });
     }
 
+    const EPS: f32 = 1e-7;
+
     let mut term1 = 0.0f32;
     let mut term2 = 0.0f32;
 
     for i in 0..a.dim() {
-        let s1_sq = a.sigma[i] * a.sigma[i];
-        let s2_sq = b.sigma[i] * b.sigma[i];
+        let s1 = a.sigma[i].max(EPS);
+        let s2 = b.sigma[i].max(EPS);
+        let s1_sq = s1 * s1;
+        let s2_sq = s2 * s2;
         let sigma_m = (s1_sq + s2_sq) / 2.0;
         let dm = a.mu[i] - b.mu[i];
 

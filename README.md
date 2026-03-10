@@ -137,8 +137,9 @@ levels where Gaussian boxes fail completely.
 
 ## References
 
-- Vilnis et al. (2018). "Probabilistic Embedding of Knowledge Graphs with Box Lattice Measures"
 - Nickel & Kiela (2017). "Poincare Embeddings for Learning Hierarchical Representations"
+- Vilnis et al. (2018). "Probabilistic Embedding of Knowledge Graphs with Box Lattice Measures"
+- Li et al. (2019). "Smoothing the Geometry of Probabilistic Box Embeddings" (ICLR 2019)
 - Abboud et al. (2020). "BoxE: A Box Embedding Model for Knowledge Base Completion"
 - Dasgupta et al. (2020). "Improving Local Identifiability in Probabilistic Box Embeddings"
 - Ren et al. (2020). "Query2Box: Reasoning over Knowledge Graphs using Box Embeddings"
@@ -148,7 +149,9 @@ levels where Gaussian boxes fail completely.
 - Chen et al. (2022). "Fuzzy Logic Based Logical Query Answering on Knowledge Graphs"
 - Jackermeier et al. (2023). "Dual Box Embeddings for the Description Logic EL++"
 - Yang, Chen & Sattler (2024). "TransBox: EL++-closed Ontology Embedding"
+- Bourgaux et al. (2024). "Knowledge Base Embeddings: Semantics and Theoretical Properties" (KR 2024)
 - Charpenay & Schockaert (2024). "Capturing Knowledge Graphs and Rules with Octagon Embeddings"
+- Lacerda et al. (2024). "Strong Faithfulness for ELH Ontology Embeddings" (TGDK 2024)
 - Huang et al. (2023). "Concept2Box: Joint Geometric Embeddings for Learning Two-View Knowledge Graphs"
 - Yang & Chen (2025). "Achieving Hyperbolic-Like Expressiveness with Arbitrary Euclidean Regions"
 - Mishra et al. (2026). "TaxoBell: Gaussian Box Embeddings for Self-Supervised Taxonomy Expansion" (WWW '26)
