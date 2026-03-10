@@ -53,7 +53,7 @@ Geometric region embeddings for subsumption, entailment, and logical query answe
 
 ```toml
 [dependencies]
-subsume = { version = "0.1.7", features = ["ndarray-backend"] }
+subsume = { version = "0.1.8", features = ["ndarray-backend"] }
 ndarray = "0.16"
 ```
 
