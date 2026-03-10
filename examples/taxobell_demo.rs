@@ -194,6 +194,10 @@ fn main() -> Result<(), subsume::BoxError> {
     );
     println!("        = {:.6}", result.total);
 
+    // L_reg = 0: no volume regularization pressure (sigmas are hand-chosen, not learned)
+    // L_clip > 0: N of 7 boxes have sigma below the clipping threshold (sigma_min)
+    // In training, L_clip penalizes collapsed boxes to prevent degenerate solutions.
+
     println!("\nKey takeaways:");
     println!("  - KL divergence is asymmetric: it measures directed containment (child in parent)");
     println!("  - Bhattacharyya coefficient is symmetric: it measures distributional overlap");
