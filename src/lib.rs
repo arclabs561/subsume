@@ -218,7 +218,7 @@ pub use box_trait::{Box, BoxError};
 pub use gumbel::GumbelBox;
 
 // Re-exports: geometry variants
-pub use cone::{Cone, ConeError};
+pub use cone::ConeError;
 #[cfg(feature = "ndarray-backend")]
 pub use hyperbolic::{
     hierarchy_preserved, pairwise_distances, Curvature, HyperbolicError, HyperbolicPoint,
