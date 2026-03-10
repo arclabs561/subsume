@@ -59,18 +59,18 @@ fn main() {
 
     // --- Train ---
     let config = TaxoBellTrainingConfig {
-        learning_rate: 5e-3,
-        epochs: 50,
-        num_negatives: 2,
-        hidden_dim: 16,
+        learning_rate: 1e-3,
+        epochs: 300,
+        num_negatives: 5,
+        hidden_dim: 32,
         box_dim: 8,
         seed: 42,
-        warmup_epochs: 5,
+        warmup_epochs: 15,
         loss_config: TaxoBellConfig {
-            alpha: 0.45,
+            alpha: 0.35,
             beta: 0.45,
-            gamma: 0.05,
-            delta: 0.05,
+            gamma: 0.10,
+            delta: 0.10,
             ..TaxoBellConfig::default()
         },
     };
@@ -93,7 +93,7 @@ fn main() {
         train_taxobell(&embeddings, train_edges, &node_ids, &node_index, &config).unwrap();
 
     for snap in &snapshots {
-        if snap.epoch % 10 == 0 || snap.epoch == config.epochs - 1 {
+        if snap.epoch % 30 == 0 || snap.epoch == config.epochs - 1 {
             println!(
                 "{:>5}  {:>10.4}  {:>10.4}  {:>10.4}  {:>10.4}  {:>10.4}  {:>8.6}",
                 snap.epoch,
@@ -141,8 +141,8 @@ fn main() {
             "{:>10}  {:>12.4}  {:>12.4}  {:>12.4}",
             name,
             gb.log_volume(),
-            gb.sigma[0],
-            gb.mu[0],
+            gb.sigma()[0],
+            gb.mu()[0],
         );
     }
 

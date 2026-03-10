@@ -49,18 +49,18 @@
 //! - Li et al. (2018): "Smoothing the Geometry of Probabilistic Box Embeddings"
 
 use crate::BoxError;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 /// A diagonal Gaussian embedding: `N(mu, diag(sigma^2))`.
 ///
 /// Each dimension is independent, with its own mean and standard deviation.
 /// This is the representation used by TaxoBell for taxonomy expansion.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct GaussianBox {
     /// Mean vector (center of the Gaussian).
-    pub mu: Vec<f32>,
+    mu: Vec<f32>,
     /// Standard deviation vector (must be positive).
-    pub sigma: Vec<f32>,
+    sigma: Vec<f32>,
 }
 
 impl GaussianBox {
@@ -78,11 +78,27 @@ impl GaussianBox {
             });
         }
         for (i, &s) in sigma.iter().enumerate() {
+            if s.is_nan() {
+                return Err(BoxError::InvalidBounds {
+                    dim: i,
+                    min: 0.0,
+                    max: s as f64,
+                });
+            }
             if s <= 0.0 {
                 return Err(BoxError::InvalidBounds {
                     dim: i,
                     min: 0.0,
                     max: s as f64,
+                });
+            }
+        }
+        for (i, &m) in mu.iter().enumerate() {
+            if m.is_nan() {
+                return Err(BoxError::InvalidBounds {
+                    dim: i,
+                    min: m as f64,
+                    max: m as f64,
                 });
             }
         }
@@ -102,6 +118,16 @@ impl GaussianBox {
     #[must_use]
     pub fn dim(&self) -> usize {
         self.mu.len()
+    }
+
+    /// Returns a reference to the mean vector.
+    pub fn mu(&self) -> &[f32] {
+        &self.mu
+    }
+
+    /// Returns a reference to the standard deviation vector.
+    pub fn sigma(&self) -> &[f32] {
+        &self.sigma
     }
 
     /// Log-volume (log-determinant of covariance = sum of log-sigmas).
@@ -139,6 +165,21 @@ impl GaussianBox {
             })
             .collect();
         Ok(Self { mu: center, sigma })
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for GaussianBox {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(serde::Deserialize)]
+        struct Raw {
+            mu: Vec<f32>,
+            sigma: Vec<f32>,
+        }
+        let raw = Raw::deserialize(deserializer)?;
+        GaussianBox::new(raw.mu, raw.sigma).map_err(serde::de::Error::custom)
     }
 }
 
@@ -318,7 +359,7 @@ mod tests {
     fn arb_gaussian(dim: usize) -> impl Strategy<Value = GaussianBox> {
         let mus = prop::collection::vec(-100.0f32..100.0, dim);
         let sigmas = prop::collection::vec(0.01f32..100.0, dim);
-        (mus, sigmas).prop_map(|(mu, sigma)| GaussianBox { mu, sigma })
+        (mus, sigmas).prop_map(|(mu, sigma)| GaussianBox::new(mu, sigma).unwrap())
     }
 
     /// Generate a pair of valid GaussianBoxes with the same dimension.
@@ -402,7 +443,7 @@ mod tests {
             offset in prop::collection::vec(-50.0f32..50.0, 8),
         ) {
             let g = GaussianBox::from_center_offset(center, offset).unwrap();
-            for (i, &s) in g.sigma.iter().enumerate() {
+            for (i, &s) in g.sigma().iter().enumerate() {
                 prop_assert!(s > 0.0, "sigma[{}] should be positive, got {}", i, s);
             }
         }
@@ -671,7 +712,7 @@ mod tests {
     fn test_softplus_floor_not_too_small() {
         let g = GaussianBox::from_center_offset(vec![0.0; 4], vec![-100.0, -50.0, -25.0, -21.0])
             .unwrap();
-        for (i, &s) in g.sigma.iter().enumerate() {
+        for (i, &s) in g.sigma().iter().enumerate() {
             assert!(
                 s >= 1e-7,
                 "sigma[{i}] = {s} is below 1e-7 floor for extreme negative offset"
@@ -810,11 +851,11 @@ mod tests {
     #[test]
     fn test_from_center_offset() {
         let g = GaussianBox::from_center_offset(vec![1.0, -1.0], vec![0.0, 0.5]).unwrap();
-        assert_eq!(g.mu, vec![1.0, -1.0]);
+        assert_eq!(g.mu(), [1.0, -1.0]);
         // softplus(0) = ln(2) ≈ 0.693
-        assert!((g.sigma[0] - 0.6931).abs() < 0.01);
+        assert!((g.sigma()[0] - 0.6931).abs() < 0.01);
         // softplus(0.5) ≈ 0.974
-        assert!((g.sigma[1] - 0.9741).abs() < 0.01);
+        assert!((g.sigma()[1] - 0.9741).abs() < 0.01);
     }
 
     #[test]
@@ -861,5 +902,19 @@ mod tests {
         // result = 3.0 / 2 = 1.5
         let loss = sigma_ceiling_loss(&g, 1.0);
         assert!((loss - 1.5).abs() < 1e-5, "expected 1.5, got {loss}");
+    }
+
+    // ---- NaN rejection ----
+
+    #[test]
+    fn nan_sigma_returns_err() {
+        let result = GaussianBox::new(vec![0.0], vec![f32::NAN]);
+        assert!(result.is_err(), "NaN sigma should be rejected");
+    }
+
+    #[test]
+    fn nan_mu_returns_err() {
+        let result = GaussianBox::new(vec![f32::NAN], vec![1.0]);
+        assert!(result.is_err(), "NaN mu should be rejected");
     }
 }

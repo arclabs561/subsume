@@ -37,6 +37,13 @@ impl CandleBox {
             .to_vec1::<f32>()
             .map_err(|e| BoxError::Internal(e.to_string()))?;
         for (i, (&m, &max_val)) in min_data.iter().zip(max_data.iter()).enumerate() {
+            if m.is_nan() || max_val.is_nan() {
+                return Err(BoxError::InvalidBounds {
+                    dim: i,
+                    min: m as f64,
+                    max: max_val as f64,
+                });
+            }
             if m > max_val {
                 return Err(BoxError::InvalidBounds {
                     dim: i,
@@ -44,6 +51,15 @@ impl CandleBox {
                     max: max_val as f64,
                 });
             }
+        }
+
+        // Validate temperature: must be finite and positive
+        if !temperature.is_finite() || temperature <= 0.0 {
+            return Err(BoxError::InvalidBounds {
+                dim: 0,
+                min: temperature as f64,
+                max: temperature as f64,
+            });
         }
 
         Ok(Self {

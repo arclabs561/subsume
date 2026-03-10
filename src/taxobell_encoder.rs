@@ -766,6 +766,7 @@ pub fn evaluate_taxobell(
         let mut scores: Vec<(usize, f32)> = all_node_ids
             .iter()
             .enumerate()
+            .filter(|(_, &cand_id)| cand_id != child_id)
             .map(|(pos, &cand_id)| {
                 let kl =
                     crate::gaussian::kl_divergence(&child_box, &boxes[pos]).unwrap_or(f32::MAX);
@@ -960,10 +961,10 @@ mod tests {
         // Encode via single path.
         let gb = enc.encode_one(&embed).unwrap();
 
-        for (a, b) in mu_b.iter().zip(gb.mu.iter()) {
+        for (a, b) in mu_b.iter().zip(gb.mu().iter()) {
             assert!((a - b).abs() < 1e-5, "mu mismatch: {a} vs {b}");
         }
-        for (a, b) in sigma_b.iter().zip(gb.sigma.iter()) {
+        for (a, b) in sigma_b.iter().zip(gb.sigma().iter()) {
             assert!((a - b).abs() < 1e-5, "sigma mismatch: {a} vs {b}");
         }
     }

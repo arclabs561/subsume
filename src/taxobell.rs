@@ -833,7 +833,7 @@ mod tests {
                 anchor in arb_gaussian_box(4),
             ) {
                 // Construct a negative that is very far from anchor.
-                let far_mu: Vec<f32> = anchor.mu.iter().map(|&m| m + 100.0).collect();
+                let far_mu: Vec<f32> = anchor.mu().iter().map(|&m| m + 100.0).collect();
                 let negative = GaussianBox::new(far_mu, vec![0.1; 4]).unwrap();
 
                 let config = TaxoBellConfig {
