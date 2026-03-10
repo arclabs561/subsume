@@ -4,6 +4,8 @@
 //! [`TrainableCone`] (Cartesian products of 2D angular sectors, ConE model).
 
 use crate::optimizer::AMSGradState;
+#[cfg(feature = "ndarray-backend")]
+use crate::BoxError;
 use serde::{Deserialize, Serialize};
 
 /// A simple hard box used by the trainer implementation.
@@ -122,6 +124,24 @@ impl TrainableBox {
             .map(|(&m, &d)| m + (d.exp() / 2.0))
             .collect();
         DenseBox::new(min, max)
+    }
+
+    /// Convert to an [`NdarrayBox`] for querying through the [`Box`](crate::Box) trait.
+    ///
+    /// This bridges the training representation (mutable, gradient-compatible)
+    /// to the inference representation (immutable, trait-based). The resulting
+    /// box has temperature 1.0 (hard box).
+    ///
+    /// [`NdarrayBox`]: crate::ndarray_backend::NdarrayBox
+    #[cfg(feature = "ndarray-backend")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "ndarray-backend")))]
+    pub fn to_ndarray_box(&self) -> Result<crate::ndarray_backend::NdarrayBox, BoxError> {
+        let dense = self.to_box();
+        crate::ndarray_backend::NdarrayBox::new(
+            ndarray::Array1::from(dense.min),
+            ndarray::Array1::from(dense.max),
+            1.0,
+        )
     }
 
     /// Update box parameters using AMSGrad optimizer.
@@ -565,5 +585,33 @@ mod tests {
         cone.update_amsgrad(&grad_axes, &grad_apertures, &mut state);
         assert!(cone.raw_axes.iter().all(|x| x.is_finite()));
         assert!(cone.raw_apertures.iter().all(|x| x.is_finite()));
+    }
+
+    // -- TrainableBox bridge tests --
+
+    #[cfg(feature = "ndarray-backend")]
+    #[test]
+    fn trainable_box_to_ndarray_box_roundtrip() {
+        use crate::Box as BoxTrait;
+
+        let tb = TrainableBox::new(vec![1.0, 2.0, 3.0], vec![0.0, 0.5, -0.5]);
+        let nb = tb.to_ndarray_box().unwrap();
+
+        // Verify dimensions match
+        assert_eq!(nb.dim(), 3);
+
+        // Verify coordinates: min = mu - exp(delta)/2, max = mu + exp(delta)/2
+        let dense = tb.to_box();
+        let volume = nb.volume(1.0).unwrap();
+        let expected_vol: f32 = dense
+            .min
+            .iter()
+            .zip(dense.max.iter())
+            .map(|(&a, &b)| b - a)
+            .product();
+        assert!(
+            (volume - expected_vol).abs() < 1e-5,
+            "volume mismatch: got {volume}, expected {expected_vol}"
+        );
     }
 }
