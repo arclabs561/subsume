@@ -4,7 +4,7 @@
 [![Documentation](https://docs.rs/subsume/badge.svg)](https://docs.rs/subsume)
 [![CI](https://github.com/arclabs561/subsume/actions/workflows/ci.yml/badge.svg)](https://github.com/arclabs561/subsume/actions/workflows/ci.yml)
 
-Geometric region embeddings for subsumption, entailment, and logical query answering. Boxes, cones, octagons, Gaussians, hyperbolic intervals, and sheaf networks. Ndarray and Candle backends.
+Geometric region embeddings for subsumption, entailment, and logical query answering. Boxes, cones, octagons, Gaussians, hyperbolic intervals, and sheaf networks. Ndarray and Candle backends. The only published Rust crate for geometric knowledge graph embeddings.
 
 ![Box embedding concepts](docs/box_concepts.png)
 
@@ -48,6 +48,9 @@ Geometric region embeddings for subsumption, entailment, and logical query answe
 |---|---|
 | `NdarrayBox` / `NdarrayGumbelBox` / `NdarrayCone` / `NdarrayOctagon` | CPU backend using `ndarray::Array1<f32>` |
 | `CandleBox` / `CandleGumbelBox` | GPU/Metal backend using `candle_core::Tensor` |
+
+The ndarray backend is the primary workhorse with full geometry support. The candle
+backend provides GPU-accelerated box operations for training workflows.
 
 ## Usage
 

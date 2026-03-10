@@ -121,6 +121,11 @@ pub trait Box: Sized {
 
     /// Compute the volume of the box.
     ///
+    /// The `temperature` parameter is part of the trait signature for backends that
+    /// compute temperature at evaluation time (e.g., `NdarrayBox`). Stored-temperature
+    /// backends (`NdarrayGumbelBox`, `CandleGumbelBox`) use their intrinsic temperature
+    /// from construction and ignore this parameter.
+    ///
     /// ## Mathematical Formulation
     ///
     /// For a box with min coordinates `z_i` and max coordinates `Z_i`:
@@ -174,6 +179,10 @@ pub trait Box: Sized {
     /// Compute the probability that `self` contains `other`.
     ///
     /// This is the core **subsumption** operation: P(other ⊆ self).
+    ///
+    /// The `temperature` parameter is used by evaluation-time backends (e.g., `NdarrayBox`).
+    /// Stored-temperature backends (`NdarrayGumbelBox`, `CandleGumbelBox`) use their
+    /// intrinsic temperature from construction and ignore this parameter.
     ///
     /// ## Paradigm Problem: Modeling Hierarchical Relationships
     ///

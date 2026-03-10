@@ -335,6 +335,9 @@ pub mod ndarray_backend;
 
 /// Candle backend: `CandleBox`, `CandleGumbelBox` with GPU acceleration.
 ///
+/// Provides box and Gumbel box operations. Cone, octagon, and Gaussian
+/// geometries are available through the ndarray backend only.
+///
 /// Enable with `features = ["candle-backend"]`.
 #[cfg_attr(docsrs, doc(cfg(feature = "candle-backend")))]
 #[cfg(feature = "candle-backend")]

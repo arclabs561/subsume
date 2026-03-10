@@ -60,6 +60,8 @@ impl Box for NdarrayGumbelBox {
 
     /// Gumbel box volume using the Bessel/softplus approximation (Dasgupta et al., 2020).
     ///
+    /// Uses the stored temperature from construction; the `temperature` parameter is ignored.
+    ///
     /// Per dimension: `softplus(Z - z - 2*gamma*T, beta=1/T)`
     /// where `gamma` is the Euler-Mascheroni constant and `T` is the temperature.
     ///
@@ -109,6 +111,8 @@ impl Box for NdarrayGumbelBox {
     }
 
     /// Containment probability using Gumbel volume and LSE intersection.
+    ///
+    /// Uses the stored temperature from construction; the `temperature` parameter is ignored.
     ///
     /// `P(other inside self) = Vol(self cap other) / Vol(other)`
     fn containment_prob(
