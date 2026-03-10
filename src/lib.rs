@@ -84,7 +84,6 @@
 //! | `ndarray-backend` | yes | [`ndarray_backend`] module, enables `rand` |
 //! | `candle-backend` | no | `candle_backend` module (GPU via candle) |
 //! | `rand` | no | Negative sampling utilities in [`trainer`] |
-//! | `plotting` | no | Reserved for visualization support |
 //!
 //! # Example
 //!
