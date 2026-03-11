@@ -501,7 +501,7 @@ mod tests {
         for raw_a in [-10.0, 10.0] {
             let cone = TrainableCone::new(vec![0.0], vec![raw_a]);
             let a = cone.apertures()[0];
-            assert!(a >= 0.0 && a <= std::f32::consts::PI);
+            assert!((0.0..=std::f32::consts::PI).contains(&a));
         }
     }
 
@@ -512,7 +512,7 @@ mod tests {
             let axes = cone.axes();
             for (i, &a) in axes.iter().enumerate() {
                 assert!(
-                    a >= -std::f32::consts::PI && a <= std::f32::consts::PI,
+                    (-std::f32::consts::PI..=std::f32::consts::PI).contains(&a),
                     "axes[{i}] must be in [-pi, pi], got {a} for raw_axis={raw_a}",
                 );
             }

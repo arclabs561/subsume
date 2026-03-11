@@ -515,11 +515,11 @@ mod tests {
         ];
         let dists = pairwise_distances(&points).unwrap();
         assert_eq!(dists.len(), 3);
-        for i in 0..3 {
-            assert!(dists[i][i].abs() < 1e-10, "diagonal should be 0");
-            for j in 0..3 {
+        for (i, row) in dists.iter().enumerate() {
+            assert!(row[i].abs() < 1e-10, "diagonal should be 0");
+            for (j, &d_ij) in row.iter().enumerate() {
                 assert!(
-                    (dists[i][j] - dists[j][i]).abs() < 1e-10,
+                    (d_ij - dists[j][i]).abs() < 1e-10,
                     "distance matrix should be symmetric"
                 );
             }

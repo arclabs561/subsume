@@ -531,9 +531,9 @@ mod tests {
             let mut c_out = vec![0.0f32; dim];
             let mut o_out = vec![0.0f32; dim];
             existential_box(&role_c, &role_o, &filler_c, &filler_o, &mut c_out, &mut o_out).unwrap();
-            for i in 0..dim {
-                prop_assert!(o_out[i] >= 0.0,
-                    "existential offset[{i}] must be >= 0, got {}", o_out[i]);
+            for (i, &val) in o_out.iter().enumerate() {
+                prop_assert!(val >= 0.0,
+                    "existential offset[{i}] must be >= 0, got {}", val);
             }
         }
     }
@@ -848,9 +848,9 @@ mod tests {
             let mut c_out = vec![0.0f32; dim];
             let mut o_out = vec![0.0f32; dim];
             existential_box(&role_c, &role_o, &filler_c, &filler_o, &mut c_out, &mut o_out).unwrap();
-            for i in 0..dim {
-                prop_assert!(o_out[i] >= 0.0,
-                    "existential offset must be non-negative, dim {i}: {}", o_out[i]);
+            for (i, &val) in o_out.iter().enumerate() {
+                prop_assert!(val >= 0.0,
+                    "existential offset must be non-negative, dim {i}: {}", val);
             }
         }
 
@@ -887,7 +887,7 @@ mod tests {
             b in vec_f32(4),
         ) {
             prop_assert!(el_inclusion_loss(&a, &a, &b, &b, 0.0).is_err());
-            prop_assert!(translate(&a, &b, &mut vec![0.0; 3]).is_err());
+            prop_assert!(translate(&a, &b, &mut [0.0; 3]).is_err());
             prop_assert!(disjointness_loss(&a, &a, &b, &b, 0.0).is_err());
             prop_assert!(intersection_nonempty_loss(&a, &a, &b, &b).is_err());
         }

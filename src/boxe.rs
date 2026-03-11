@@ -555,19 +555,6 @@ mod tests {
         use super::*;
         use proptest::prelude::*;
 
-        /// Strategy: generate valid box bounds (lo < hi) and a point in any range.
-        #[allow(dead_code)]
-        fn arb_box_and_point(dim: usize) -> impl Strategy<Value = (Vec<f32>, Vec<f32>, Vec<f32>)> {
-            proptest::collection::vec((-10.0f32..10.0f32, 0.01f32..5.0f32), dim).prop_flat_map(
-                move |pairs| {
-                    let lo: Vec<f32> = pairs.iter().map(|(l, _)| *l).collect();
-                    let hi: Vec<f32> = pairs.iter().map(|(l, w)| l + w).collect();
-                    let point_strat = proptest::collection::vec(-15.0f32..15.0f32, dim);
-                    (Just(lo), Just(hi), point_strat)
-                },
-            )
-        }
-
         // ---- boxe_point_score is non-positive for any inputs ----
         proptest! {
             #[test]

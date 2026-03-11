@@ -421,7 +421,7 @@ mod tests {
             (a, b) in arb_gaussian_pair(8)
         ) {
             let bc = bhattacharyya_coefficient(&a, &b).unwrap();
-            prop_assert!(bc >= -1e-6 && bc <= 1.0 + 1e-6,
+            prop_assert!((-1e-6..=1.0 + 1e-6).contains(&bc),
                 "BC should be in [0, 1], got {}", bc);
         }
 
@@ -858,10 +858,11 @@ mod tests {
     fn test_from_center_offset() {
         let g = GaussianBox::from_center_offset(vec![1.0, -1.0], vec![0.0, 0.5]).unwrap();
         assert_eq!(g.mu(), [1.0, -1.0]);
-        // softplus(0) = ln(2) ≈ 0.693
-        assert!((g.sigma()[0] - 0.6931).abs() < 0.01);
+        // softplus(0) = ln(2)
+        assert!((g.sigma()[0] - std::f32::consts::LN_2).abs() < 0.01);
         // softplus(0.5) ≈ 0.974
-        assert!((g.sigma()[1] - 0.9741).abs() < 0.01);
+        let expected_sp_half = (0.5_f32.exp() + 1.0).ln();
+        assert!((g.sigma()[1] - expected_sp_half).abs() < 0.01);
     }
 
     #[test]
