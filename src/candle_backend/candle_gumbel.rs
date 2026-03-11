@@ -8,6 +8,16 @@ use candle_core::Tensor;
 use serde::{Deserialize, Serialize};
 
 /// A Gumbel box embedding implemented using `candle_core::Tensor`.
+///
+/// # Approximation note
+///
+/// The [`GumbelBox`] trait methods ([`membership_probability`](GumbelBox::membership_probability),
+/// [`sample`](GumbelBox::sample)) use proper Gumbel math. However, the [`Box`] trait methods
+/// (`intersection`, `volume`, `containment_prob`, `overlap_prob`) delegate to [`CandleBox`]
+/// (hard-box operations) rather than the Gumbel-specific formulas used by
+/// [`NdarrayGumbelBox`](crate::ndarray_backend::NdarrayGumbelBox) (Bessel volume, LSE intersection).
+///
+/// For training workflows that require exact Gumbel volume and intersection, use the ndarray backend.
 #[derive(Debug, Clone)]
 pub struct CandleGumbelBox {
     inner: CandleBox,
@@ -202,5 +212,53 @@ impl<'de> Deserialize<'de> for CandleGumbelBox {
     {
         let inner = CandleBox::deserialize(deserializer)?;
         Ok(Self { inner })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gumbel_box_membership_uses_gumbel_math() {
+        // CandleGumbelBox.membership_probability uses Gumbel-Softmax, not hard indicator.
+        // A point exactly at min should have probability < 1.0 (Gumbel smoothing).
+        let device = candle_core::Device::Cpu;
+        let min = Tensor::new(&[0.0f32, 0.0], &device).unwrap();
+        let max = Tensor::new(&[1.0f32, 1.0], &device).unwrap();
+        let gb = CandleGumbelBox::new(min, max, 1.0).unwrap();
+
+        let boundary_point = Tensor::new(&[0.0f32, 0.0], &device).unwrap();
+        let prob = gb.membership_probability(&boundary_point).unwrap();
+        // Gumbel smoothing: boundary point has ~0.25 probability, not 1.0
+        assert!(
+            prob > 0.0 && prob < 1.0,
+            "boundary prob should be smooth, got {}",
+            prob
+        );
+
+        let center_point = Tensor::new(&[0.5f32, 0.5], &device).unwrap();
+        let center_prob = gb.membership_probability(&center_point).unwrap();
+        assert!(
+            center_prob > prob,
+            "center should have higher prob than boundary"
+        );
+    }
+
+    #[test]
+    fn gumbel_box_volume_delegates_to_hard_box() {
+        // Documents the approximation: volume uses hard-box math, not Bessel volume.
+        let device = candle_core::Device::Cpu;
+        let min = Tensor::new(&[0.0f32, 0.0], &device).unwrap();
+        let max = Tensor::new(&[2.0f32, 3.0], &device).unwrap();
+        let gb = CandleGumbelBox::new(min.clone(), max.clone(), 1.0).unwrap();
+        let hb = CandleBox::new(min, max, 1.0).unwrap();
+
+        let gumbel_vol = gb.volume(1.0).unwrap();
+        let hard_vol = hb.volume(1.0).unwrap();
+        assert!(
+            (gumbel_vol - hard_vol).abs() < 1e-6,
+            "CandleGumbelBox.volume delegates to CandleBox (hard-box approximation)"
+        );
     }
 }

@@ -4,7 +4,6 @@
 //! [`TrainableCone`] (Cartesian products of 2D angular sectors, ConE model).
 
 use crate::optimizer::AMSGradState;
-#[cfg(feature = "ndarray-backend")]
 use crate::BoxError;
 use serde::{Deserialize, Serialize};
 
@@ -87,25 +86,31 @@ impl TrainableBox {
     /// The box will have:
     /// - min = mu - exp(delta) / 2
     /// - max = mu + exp(delta) / 2
-    #[must_use]
-    pub fn new(mu: Vec<f32>, delta: Vec<f32>) -> Self {
-        assert_eq!(
-            mu.len(),
-            delta.len(),
-            "mu and delta must have same dimension"
-        );
+    /// # Errors
+    ///
+    /// Returns [`BoxError::DimensionMismatch`] if `mu` and `delta` differ in length.
+    pub fn new(mu: Vec<f32>, delta: Vec<f32>) -> Result<Self, BoxError> {
+        if mu.len() != delta.len() {
+            return Err(BoxError::DimensionMismatch {
+                expected: mu.len(),
+                actual: delta.len(),
+            });
+        }
         let dim = mu.len();
-        Self { mu, delta, dim }
+        Ok(Self { mu, delta, dim })
     }
 
     /// Initialize from a vector embedding.
     ///
     /// Creates a small box around the vector with initial width `init_width`.
+    /// # Panics
+    ///
+    /// Cannot fail because `mu` and `delta` are derived from the same source length.
     #[must_use]
     pub fn from_vector(vector: &[f32], init_width: f32) -> Self {
         let mu = vector.to_vec();
         let delta: Vec<f32> = vec![init_width.ln(); mu.len()];
-        Self::new(mu, delta)
+        Self::new(mu, delta).expect("from_vector: mu and delta have same length by construction")
     }
 
     /// Convert to a `DenseBox` (for inference).
@@ -309,19 +314,23 @@ pub struct TrainableCone {
 
 impl TrainableCone {
     /// Create a new trainable cone from raw (unconstrained) parameters.
-    #[must_use]
-    pub fn new(raw_axes: Vec<f32>, raw_apertures: Vec<f32>) -> Self {
-        assert_eq!(
-            raw_axes.len(),
-            raw_apertures.len(),
-            "raw_axes and raw_apertures must have same dimension"
-        );
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BoxError::DimensionMismatch`] if `raw_axes` and `raw_apertures` differ in length.
+    pub fn new(raw_axes: Vec<f32>, raw_apertures: Vec<f32>) -> Result<Self, BoxError> {
+        if raw_axes.len() != raw_apertures.len() {
+            return Err(BoxError::DimensionMismatch {
+                expected: raw_axes.len(),
+                actual: raw_apertures.len(),
+            });
+        }
         let dim = raw_axes.len();
-        Self {
+        Ok(Self {
             raw_axes,
             raw_apertures,
             dim,
-        }
+        })
     }
 
     /// Initialize from a vector embedding with a given initial aperture.
@@ -329,6 +338,9 @@ impl TrainableCone {
     /// Each dimension's axis is initialized from the vector components (mapped
     /// through atanh to get the raw parameter), and all apertures are set to
     /// `init_aperture`.
+    /// # Panics
+    ///
+    /// Cannot fail because `raw_axes` and `raw_apertures` are derived from the same source length.
     #[must_use]
     pub fn from_vector(vector: &[f32], init_aperture: f32) -> Self {
         let pi = std::f32::consts::PI;
@@ -347,6 +359,7 @@ impl TrainableCone {
         let raw_aper = ratio.atanh() / 2.0;
         let raw_apertures = vec![raw_aper; vector.len()];
         Self::new(raw_axes, raw_apertures)
+            .expect("from_vector: raw_axes and raw_apertures have same length by construction")
     }
 
     /// Compute the actual per-dimension axis angles, each in \(-pi, pi\).
@@ -485,7 +498,7 @@ mod tests {
         // Within [-3, 3] (well within trainable range), apertures are strictly in (0, pi).
         // Beyond ~|4|, tanh(2*x) saturates to +/-1.0 at f32 precision, hitting exact 0 or pi.
         for raw_a in [-3.0, -1.0, 0.0, 1.0, 3.0] {
-            let cone = TrainableCone::new(vec![0.0, 0.0], vec![raw_a, raw_a]);
+            let cone = TrainableCone::new(vec![0.0, 0.0], vec![raw_a, raw_a]).unwrap();
             let aps = cone.apertures();
             for (i, &a) in aps.iter().enumerate() {
                 assert!(
@@ -497,7 +510,7 @@ mod tests {
         // At f32 saturation, apertures land on exact boundaries [0, pi].
         // This is fine -- training clamps raw_apertures to [-6, 6].
         for raw_a in [-10.0, 10.0] {
-            let cone = TrainableCone::new(vec![0.0], vec![raw_a]);
+            let cone = TrainableCone::new(vec![0.0], vec![raw_a]).unwrap();
             let a = cone.apertures()[0];
             assert!((0.0..=std::f32::consts::PI).contains(&a));
         }
@@ -506,7 +519,7 @@ mod tests {
     #[test]
     fn trainable_cone_axes_in_valid_range() {
         for raw_a in [-10.0, -1.0, 0.0, 1.0, 10.0] {
-            let cone = TrainableCone::new(vec![raw_a, raw_a], vec![0.0, 0.0]);
+            let cone = TrainableCone::new(vec![raw_a, raw_a], vec![0.0, 0.0]).unwrap();
             let axes = cone.axes();
             for (i, &a) in axes.iter().enumerate() {
                 assert!(
@@ -534,7 +547,7 @@ mod tests {
     fn trainable_cone_to_dense_cone() {
         // raw_axes = [0, 0] -> axes = [tanh(0)*pi, tanh(0)*pi] = [0, 0]
         // raw_apertures = [0, 0] -> apertures = [tanh(0)*pi/2 + pi/2, ...] = [pi/2, pi/2]
-        let cone = TrainableCone::new(vec![0.0, 0.0], vec![0.0, 0.0]);
+        let cone = TrainableCone::new(vec![0.0, 0.0], vec![0.0, 0.0]).unwrap();
         let dense = cone.to_cone();
         for &a in &dense.axes {
             assert!(a.abs() < 1e-6, "axis should be 0, got {a}");
@@ -576,7 +589,7 @@ mod tests {
 
     #[test]
     fn trainable_cone_update_amsgrad_does_not_panic() {
-        let mut cone = TrainableCone::new(vec![0.0, 0.0], vec![0.0, 0.0]);
+        let mut cone = TrainableCone::new(vec![0.0, 0.0], vec![0.0, 0.0]).unwrap();
         let mut state = AMSGradState::new(cone.num_parameters(), 0.01);
         let grad_axes = vec![0.1, -0.1];
         let grad_apertures = vec![0.05, 0.05];
@@ -590,7 +603,7 @@ mod tests {
     #[cfg(feature = "ndarray-backend")]
     #[test]
     fn trainable_cone_to_ndarray_cone_roundtrip() {
-        let tc = TrainableCone::new(vec![0.5, -0.3, 1.0], vec![0.0, 1.0, -1.0]);
+        let tc = TrainableCone::new(vec![0.5, -0.3, 1.0], vec![0.0, 1.0, -1.0]).unwrap();
         let nc = tc.to_ndarray_cone().unwrap();
 
         assert_eq!(nc.dim(), 3);
@@ -619,7 +632,7 @@ mod tests {
     fn trainable_box_to_ndarray_box_roundtrip() {
         use crate::Box as BoxTrait;
 
-        let tb = TrainableBox::new(vec![1.0, 2.0, 3.0], vec![0.0, 0.5, -0.5]);
+        let tb = TrainableBox::new(vec![1.0, 2.0, 3.0], vec![0.0, 0.5, -0.5]).unwrap();
         let nb = tb.to_ndarray_box().unwrap();
 
         // Verify dimensions match
@@ -637,6 +650,36 @@ mod tests {
         assert!(
             (volume - expected_vol).abs() < 1e-5,
             "volume mismatch: got {volume}, expected {expected_vol}"
+        );
+    }
+
+    #[test]
+    fn trainable_box_dimension_mismatch_returns_err() {
+        let result = TrainableBox::new(vec![1.0, 2.0], vec![0.5]);
+        assert!(
+            matches!(
+                result,
+                Err(BoxError::DimensionMismatch {
+                    expected: 2,
+                    actual: 1
+                })
+            ),
+            "expected DimensionMismatch, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn trainable_cone_dimension_mismatch_returns_err() {
+        let result = TrainableCone::new(vec![0.0, 0.0, 0.0], vec![1.0]);
+        assert!(
+            matches!(
+                result,
+                Err(BoxError::DimensionMismatch {
+                    expected: 3,
+                    actual: 1
+                })
+            ),
+            "expected DimensionMismatch, got {result:?}"
         );
     }
 }

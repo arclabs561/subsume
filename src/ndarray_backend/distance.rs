@@ -162,32 +162,19 @@ pub fn query2box_distance(
     entity_point: &Array1<f32>,
     alpha: f32,
 ) -> Result<f32, BoxError> {
-    if entity_point.len() != query_box.dim() {
-        return Err(BoxError::DimensionMismatch {
-            expected: query_box.dim(),
-            actual: entity_point.len(),
-        });
-    }
-
-    let mut d_out = 0.0f32;
-    let mut d_in = 0.0f32;
-
-    for i in 0..query_box.dim() {
-        let lo = query_box.min()[i];
-        let hi = query_box.max()[i];
-        let center = (lo + hi) * 0.5;
-        let v = entity_point[i];
-
-        if v < lo {
-            d_out += lo - v;
-        } else if v > hi {
-            d_out += v - hi;
-        } else {
-            d_in += (v - center).abs();
-        }
-    }
-
-    Ok(d_out + alpha * d_in)
+    let center: Vec<f32> = query_box
+        .min()
+        .iter()
+        .zip(query_box.max().iter())
+        .map(|(lo, hi)| (lo + hi) * 0.5)
+        .collect();
+    let offset: Vec<f32> = query_box
+        .min()
+        .iter()
+        .zip(query_box.max().iter())
+        .map(|(lo, hi)| (hi - lo) * 0.5)
+        .collect();
+    crate::distance::query2box_distance(&center, &offset, entity_point.as_slice().unwrap(), alpha)
 }
 
 #[cfg(test)]

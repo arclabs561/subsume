@@ -55,19 +55,15 @@
 //!
 //! - [`box_trait`] -- the [`Box`] trait: containment, overlap, volume
 //! - [`gumbel`] -- the [`GumbelBox`] trait: probabilistic box operations
-//! - [`octagon`] -- octagon embeddings: boxes + diagonal constraints (IJCAI 2024)
-//! - [`cone`] -- angular cone embeddings for subsumption with negation
+//! - [`octagon`] -- octagon error types (implementations in [`ndarray_backend`])
+//! - [`cone`] -- cone error types (implementations in [`ndarray_backend`])
 //! - [`hyperbolic`] -- Poincare ball embeddings for tree-like hierarchies
 //! - [`sheaf`] -- sheaf neural networks for transitivity/consistency on graphs
 //! - [`gaussian`] -- diagonal Gaussian box embeddings (KL, Bhattacharyya)
-//! - [`region`] -- generic `Region` trait for shape-agnostic RegD dissimilarity metrics
 //!
 //! ## Representations and scoring
 //!
-//! - [`center_offset`] -- center+offset <-> min/max coordinate conversion
-//! - [`boxe`] -- BoxE scoring model (Abboud et al., NeurIPS 2020)
 //! - [`distance`] -- Query2Box distance scoring
-//! - [`embedding`] -- [`BoxCollection`] for batch operations over boxes
 //! - [`fuzzy`] -- t-norms, t-conorms, and negation for fuzzy query answering (FuzzQE)
 //!
 //! ## Ontology and taxonomy
@@ -81,9 +77,9 @@
 //! - [`dataset`] -- load WN18RR, FB15k-237, YAGO3-10, and similar KG datasets
 //! - [`trainable`] -- [`TrainableBox`] and [`TrainableCone`] with learnable parameters
 //! - [`trainer`] -- negative sampling, loss computation, link prediction evaluation
-//! - [`training`] -- metrics (MRR, Hits@k), calibration, diagnostics, quality analysis
+//! - [`training`] -- rank-based metrics (MRR, Hits@k, Mean Rank, nDCG)
 //! - [`optimizer`] -- AMSGrad state management
-//! - [`utils`] -- numerical stability (log-space volume, stable sigmoid, temperature)
+//! - [`utils`] -- numerical stability (log-space volume, stable sigmoid, Gumbel operations)
 //!
 //! ## Backends (feature-gated)
 //!
@@ -141,12 +137,6 @@
 /// Core [`Box`] trait: containment probability, overlap, volume, and intersection.
 pub mod box_trait;
 
-/// BoxE scoring model for knowledge base completion (Abboud et al., NeurIPS 2020).
-pub mod boxe;
-
-/// Center-offset <-> min/max coordinate conversion for box parameterization.
-pub mod center_offset;
-
 /// Cone embeddings: angular containment on the unit sphere, with negation support.
 pub mod cone;
 
@@ -158,9 +148,6 @@ pub mod dataset;
 
 /// Distance metrics: Query2Box distance scoring.
 pub mod distance;
-
-/// Collection traits for managing batches of box embeddings.
-pub mod embedding;
 
 /// [`GumbelBox`] trait: probabilistic boxes with Gumbel-distributed coordinates.
 pub mod gumbel;
@@ -188,12 +175,8 @@ pub mod trainer;
 /// Evaluation and diagnostics: rank metrics, calibration, gradient flow, quality analysis.
 pub mod training;
 
-/// Numerical stability: log-space volume, stable sigmoid, temperature scheduling.
+/// Numerical stability: log-space volume, stable sigmoid, Gumbel operations.
 pub mod utils;
-
-/// Generic `Region` trait for geometric shapes: point membership, signed boundary
-/// distance, volume, and RegD dissimilarity metrics (Yang & Chen, 2025).
-pub mod region;
 
 /// Diagonal Gaussian box embeddings for taxonomy expansion (TaxoBell).
 pub mod gaussian;
@@ -243,10 +226,7 @@ pub use hyperbolic::{
 pub use dataset::{Dataset, DatasetError, DatasetStats, Triple};
 
 // Re-exports: representations and scoring
-pub use boxe::{boxe_loss, boxe_point_score, boxe_score, Bump};
-pub use center_offset::{center_offset_to_min_max, min_max_to_center_offset};
 pub use distance::query2box_distance;
-pub use embedding::BoxCollection;
 
 // Re-exports: training
 pub use optimizer::{get_learning_rate, AMSGradState};
@@ -267,16 +247,7 @@ pub use trainer::{
 };
 
 // Re-exports: evaluation metrics (access diagnostics/quality via subsume::training::*)
-pub use training::{
-    calibration::{
-        adaptive_calibration_error, brier_score, expected_calibration_error, reliability_diagram,
-        ReliabilityDiagram,
-    },
-    metrics::{
-        hits_at_k, mean_rank, mean_reciprocal_rank, ndcg, DepthMetrics, FrequencyMetrics,
-        RelationMetrics, StratifiedMetrics,
-    },
-};
+pub use training::metrics::{hits_at_k, mean_rank, mean_reciprocal_rank, ndcg};
 
 // Re-exports: sheaf
 pub use sheaf::{
@@ -325,15 +296,11 @@ pub use fuzzy::{
 // Re-exports: octagon
 pub use octagon::OctagonError;
 
-// Re-exports: region
-pub use region::{Region, RegionError};
-
-// Re-exports: utilities
+// Re-exports: utilities (only items with internal or external callers)
 pub use utils::{
-    bessel_log_volume, bessel_side_length, clamp_temperature, clamp_temperature_default,
-    gumbel_lse_max, gumbel_lse_min, gumbel_membership_prob, log_space_volume, map_gumbel_to_bounds,
-    safe_init_bounds, sample_gumbel, softplus, stable_logsumexp, stable_sigmoid,
-    temperature_scheduler, volume_regularization, EULER_GAMMA, MAX_TEMPERATURE, MIN_TEMPERATURE,
+    bessel_log_volume, bessel_side_length, gumbel_lse_max, gumbel_lse_min, gumbel_membership_prob,
+    log_space_volume, map_gumbel_to_bounds, sample_gumbel, softplus, stable_logsumexp,
+    stable_sigmoid, EULER_GAMMA, MAX_TEMPERATURE, MIN_TEMPERATURE,
 };
 
 // ---------------------------------------------------------------------------

@@ -151,6 +151,26 @@ impl GaussianBox {
                 actual: offset.len(),
             });
         }
+        // Reject NaN in center (mu).
+        for (i, &c) in center.iter().enumerate() {
+            if c.is_nan() {
+                return Err(BoxError::InvalidBounds {
+                    dim: i,
+                    min: c as f64,
+                    max: c as f64,
+                });
+            }
+        }
+        // Reject NaN in offset (before softplus, since softplus(NaN) = NaN).
+        for (i, &o) in offset.iter().enumerate() {
+            if o.is_nan() {
+                return Err(BoxError::InvalidBounds {
+                    dim: i,
+                    min: o as f64,
+                    max: o as f64,
+                });
+            }
+        }
         let sigma: Vec<f32> = offset
             .iter()
             .map(|&o| {
@@ -923,5 +943,17 @@ mod tests {
     fn nan_mu_returns_err() {
         let result = GaussianBox::new(vec![f32::NAN], vec![1.0]);
         assert!(result.is_err(), "NaN mu should be rejected");
+    }
+
+    #[test]
+    fn from_center_offset_nan_center_returns_err() {
+        let result = GaussianBox::from_center_offset(vec![f32::NAN, 0.0], vec![1.0, 1.0]);
+        assert!(result.is_err(), "NaN center should be rejected");
+    }
+
+    #[test]
+    fn from_center_offset_nan_offset_returns_err() {
+        let result = GaussianBox::from_center_offset(vec![0.0, 0.0], vec![1.0, f32::NAN]);
+        assert!(result.is_err(), "NaN offset should be rejected");
     }
 }

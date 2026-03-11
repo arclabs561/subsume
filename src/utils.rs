@@ -135,20 +135,7 @@ pub fn bessel_log_volume(mins: &[f32], maxs: &[f32], t_int: f32, t_vol: f32) -> 
 }
 
 /// Clamp temperature to a safe range to avoid numerical instability.
-///
-/// Very low temperatures can cause vanishing gradients and exponential underflow,
-/// while very high temperatures lose correspondence to discrete distributions.
-///
-/// # Parameters
-///
-/// - `temp`: Raw temperature value
-/// - `min`: Minimum safe temperature (default: 1e-3)
-/// - `max`: Maximum safe temperature (default: 10.0)
-///
-/// # Returns
-///
-/// Clamped temperature value
-pub fn clamp_temperature(temp: f32, min: f32, max: f32) -> f32 {
+pub(crate) fn clamp_temperature(temp: f32, min: f32, max: f32) -> f32 {
     temp.clamp(min, max)
 }
 
@@ -159,7 +146,7 @@ pub const MIN_TEMPERATURE: f32 = 1e-3;
 pub const MAX_TEMPERATURE: f32 = 10.0;
 
 /// Clamp temperature using default safe bounds.
-pub fn clamp_temperature_default(temp: f32) -> f32 {
+pub(crate) fn clamp_temperature_default(temp: f32) -> f32 {
     clamp_temperature(temp, MIN_TEMPERATURE, MAX_TEMPERATURE)
 }
 
@@ -432,176 +419,6 @@ where
     }
 }
 
-/// Compute volume regularization penalty.
-///
-/// Prevents boxes from becoming arbitrarily large or small during training.
-/// Returns a penalty term: λ * max(0, vol - threshold) for large boxes,
-/// or λ * max(0, threshold_min - vol) for small boxes.
-///
-/// # Parameters
-///
-/// - `volume`: Current box volume
-/// - `threshold_max`: Maximum allowed volume (penalty if exceeded)
-/// - `threshold_min`: Minimum allowed volume (penalty if below)
-/// - `lambda`: Regularization strength
-///
-/// # Returns
-///
-/// Regularization penalty (0.0 if volume is within [threshold_min, threshold_max])
-///
-/// # Example
-///
-/// ```rust
-/// use subsume::utils::volume_regularization;
-///
-/// // Penalize boxes larger than 10.0
-/// let penalty = volume_regularization(15.0, 10.0, 0.01, 0.1);
-/// assert!(penalty > 0.0);
-/// ```
-pub fn volume_regularization(
-    volume: f32,
-    threshold_max: f32,
-    threshold_min: f32,
-    lambda: f32,
-) -> f32 {
-    let penalty_large = (volume - threshold_max).max(0.0);
-    let penalty_small = (threshold_min - volume).max(0.0);
-    lambda * (penalty_large + penalty_small)
-}
-
-/// Temperature scheduler for annealing during training.
-///
-/// Implements exponential decay: T(t) = T₀ * decay^t
-/// This allows starting with high temperature (exploration) and decreasing
-/// to low temperature (exploitation) over training steps.
-///
-/// # Parameters
-///
-/// - `initial_temp`: Starting temperature T₀
-/// - `decay_rate`: Decay factor per step (typically 0.95-0.99)
-/// - `step`: Current training step (0-indexed)
-/// - `min_temp`: Minimum temperature to clamp to (default: MIN_TEMPERATURE)
-///
-/// # Returns
-///
-/// Annealed temperature value
-///
-/// # Example
-///
-/// ```rust
-/// use subsume::utils::{temperature_scheduler, MIN_TEMPERATURE};
-///
-/// let temp_0 = temperature_scheduler(10.0, 0.95, 0, MIN_TEMPERATURE);
-/// assert_eq!(temp_0, 10.0);
-///
-/// let temp_100 = temperature_scheduler(10.0, 0.95, 100, MIN_TEMPERATURE);
-/// assert!(temp_100 < temp_0); // Temperature decreased
-/// ```
-pub fn temperature_scheduler(
-    initial_temp: f32,
-    decay_rate: f32,
-    step: usize,
-    min_temp: f32,
-) -> f32 {
-    let decayed = initial_temp * decay_rate.powi(step as i32);
-    decayed.max(min_temp)
-}
-
-/// Volume-based containment loss for training.
-///
-/// # Paradigm Problem: Training on Containment Relationships
-///
-/// **The problem**: Given positive pairs (A should contain B) and negative pairs (A should NOT
-/// contain B), design a loss function that encourages correct containment while discouraging
-/// incorrect containment.
-///
-/// **Step-by-step reasoning**:
-///
-/// 1. **For positive pairs**: We want high containment probability P(B|A) → 1.0
-///    - Use negative log-likelihood: `-log(P(B|A))`
-///    - When P(B|A) = 1.0, loss = 0 (perfect)
-///    - When P(B|A) = 0.5, loss = log(2) ≈ 0.69 (penalty)
-///    - This provides strong gradient signal when containment is not perfect
-///
-/// 2. **For negative pairs**: We want low containment probability P(B|A) → 0.0
-///    - Use margin-based loss: `max(0, margin - (-log(P(B|A))))`
-///    - When P(B|A) is very small, loss = 0 (good enough)
-///    - When P(B|A) exceeds threshold, loss > 0 (penalty)
-///    - This creates a "safety zone"—as long as containment is below threshold, no penalty
-///
-/// 3. **Why different losses?**: Positive pairs need to be maximized (log-likelihood provides
-///    strong gradient), while negative pairs just need to stay below a threshold (margin loss
-///    is sufficient and computationally cheaper).
-///
-/// # Research Background
-///
-/// This loss function combines negative log-likelihood (for positive pairs) with margin-based
-/// loss (for negative pairs), following practices from knowledge graph embedding literature.
-///
-/// **Research foundation**:
-/// - **Vilnis et al. (2018)**: "Probabilistic Embedding of Knowledge Graphs with Box Lattice Measures"
-///   - Establishes volume as probability measure, uses log-likelihood for positive pairs
-/// - **Abboud et al. (2020)**: "BoxE: A Box Embedding Model for Knowledge Base Completion" (NeurIPS)
-///   - Uses margin-based ranking loss for both positive and negative pairs
-/// - **Bordes et al. (2013)**: "Translating Embeddings for Modeling Multi-relational Data"
-///   - Introduces margin-based ranking loss for knowledge graphs, establishes standard training protocol
-///
-/// Compute safe initialization bounds for box embeddings.
-///
-/// Returns suggested min and max bounds for initializing boxes to avoid
-/// local identifiability problems. Boxes initialized with these bounds will
-/// be well-separated and avoid problematic geometric configurations.
-///
-/// # Parameters
-///
-/// - `dimension`: Dimension index (0-indexed)
-/// - `num_boxes`: Total number of boxes being initialized
-/// - `box_index`: Index of the current box (0-indexed)
-/// - `center_range`: Range for box centers (default: [-2.0, 2.0])
-/// - `size_range`: Range for box sizes (default: [0.1, 1.0])
-///
-/// # Returns
-///
-/// `(min_bound, max_bound)` for the specified dimension
-///
-/// # Example
-///
-/// ```rust
-/// use subsume::utils::safe_init_bounds;
-///
-/// // Initialize 10 boxes in 3D space
-/// for box_idx in 0..10 {
-///     for dim in 0..3 {
-///         let (min, max) = safe_init_bounds(dim, 10, box_idx, (-2.0, 2.0), (0.1, 1.0));
-///         // Use min and max to create box bounds
-///     }
-/// }
-/// ```
-pub fn safe_init_bounds(
-    dimension: usize,
-    num_boxes: usize,
-    box_index: usize,
-    center_range: (f32, f32),
-    size_range: (f32, f32),
-) -> (f32, f32) {
-    let (center_min, center_max) = center_range;
-    let (size_min, size_max) = size_range;
-
-    // Use different strategies per dimension to avoid cross patterns
-    let dim_offset = dimension as f32 * 0.5;
-    let box_offset = (box_index as f32) / (num_boxes as f32);
-
-    // Create well-separated centers using a combination of dimension and box index
-    let center = center_min + (center_max - center_min) * ((box_offset + dim_offset * 0.3) % 1.0);
-
-    // Vary box sizes to avoid perfect nesting
-    let size = size_min + (size_max - size_min) * (0.5 + 0.3 * (box_index as f32 * 1.618).sin()); // Golden ratio for variety
-
-    let half_size = size / 2.0;
-    (center - half_size, center + half_size)
-}
-
-/// Check if two boxes form a problematic cross pattern.
 ///
 #[cfg(test)]
 mod tests {
@@ -677,57 +494,6 @@ mod tests {
         let (log_vol_zero, vol_zero) = log_space_volume(with_zero.iter().copied());
         assert_eq!(log_vol_zero, f32::NEG_INFINITY);
         assert_eq!(vol_zero, 0.0);
-    }
-
-    #[test]
-    fn test_volume_regularization() {
-        // Volume within bounds
-        let penalty = volume_regularization(5.0, 10.0, 0.01, 0.1);
-        assert_eq!(penalty, 0.0);
-
-        // Volume too large
-        let penalty_large = volume_regularization(15.0, 10.0, 0.01, 0.1);
-        assert!((penalty_large - 0.5).abs() < 1e-6); // 0.1 * (15.0 - 10.0) = 0.5
-
-        // Volume too small
-        let penalty_small = volume_regularization(0.001, 10.0, 0.01, 0.1);
-        assert!((penalty_small - 0.0009).abs() < 1e-6); // 0.1 * (0.01 - 0.001) = 0.0009
-    }
-
-    #[test]
-    fn test_temperature_scheduler() {
-        // Initial step
-        let temp_0 = temperature_scheduler(10.0, 0.95, 0, MIN_TEMPERATURE);
-        assert_eq!(temp_0, 10.0);
-
-        // After decay
-        let temp_10 = temperature_scheduler(10.0, 0.95, 10, MIN_TEMPERATURE);
-        assert!(temp_10 < temp_0);
-        assert!(temp_10 >= MIN_TEMPERATURE);
-
-        // Clamped to minimum
-        let temp_1000 = temperature_scheduler(10.0, 0.95, 1000, MIN_TEMPERATURE);
-        assert_eq!(temp_1000, MIN_TEMPERATURE);
-    }
-
-    #[test]
-    fn test_safe_init_bounds() {
-        // Test that bounds are valid (min < max)
-        let (min, max) = safe_init_bounds(0, 10, 0, (-2.0, 2.0), (0.1, 1.0));
-        assert!(min < max);
-        assert!(max - min >= 0.1); // At least minimum size
-
-        // Test that different boxes get different bounds
-        let (min1, max1) = safe_init_bounds(0, 10, 0, (-2.0, 2.0), (0.1, 1.0));
-        let (min2, max2) = safe_init_bounds(0, 10, 1, (-2.0, 2.0), (0.1, 1.0));
-        // They should be different (not identical)
-        assert!(min1 != min2 || max1 != max2);
-
-        // Test that different dimensions get different bounds
-        let (min_dim0, max_dim0) = safe_init_bounds(0, 10, 5, (-2.0, 2.0), (0.1, 1.0));
-        let (min_dim1, max_dim1) = safe_init_bounds(1, 10, 5, (-2.0, 2.0), (0.1, 1.0));
-        // They should be different
-        assert!(min_dim0 != min_dim1 || max_dim0 != max_dim1);
     }
 
     // ---- softplus ----

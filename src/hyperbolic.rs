@@ -61,14 +61,16 @@
 
 /// Error type for hyperbolic operations.
 #[non_exhaustive]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum HyperbolicError {
     /// Point is outside the Poincaré ball (||x|| >= 1).
+    #[error("Point outside Poincaré ball: ||x|| = {norm} >= 1")]
     OutsideBall {
         /// The norm of the point.
         norm: f64,
     },
     /// Dimension mismatch between points.
+    #[error("Dimension mismatch: expected {expected}, got {actual}")]
     DimensionMismatch {
         /// Expected dimension.
         expected: usize,
@@ -76,46 +78,32 @@ pub enum HyperbolicError {
         actual: usize,
     },
     /// Invalid curvature (must be negative).
+    #[error("Invalid curvature: {0} (must be negative)")]
     InvalidCurvature(f64),
 }
-
-impl std::fmt::Display for HyperbolicError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::OutsideBall { norm } => {
-                write!(f, "Point outside Poincaré ball: ||x|| = {} >= 1", norm)
-            }
-            Self::DimensionMismatch { expected, actual } => {
-                write!(
-                    f,
-                    "Dimension mismatch: expected {}, got {}",
-                    expected, actual
-                )
-            }
-            Self::InvalidCurvature(c) => write!(f, "Invalid curvature: {} (must be negative)", c),
-        }
-    }
-}
-
-impl std::error::Error for HyperbolicError {}
 
 /// Curvature of hyperbolic space.
 ///
 /// Standard Poincaré ball has curvature -1.
 /// Lower curvature (more negative) = more hyperbolic = more "space" near boundary.
 #[derive(Debug, Clone, Copy)]
-pub struct Curvature(pub f64);
+pub struct Curvature(f64);
 
 impl Curvature {
     /// Standard hyperbolic curvature.
     pub const STANDARD: Self = Self(-1.0);
 
-    /// Create new curvature (must be negative).
+    /// Create new curvature (must be negative and finite).
     pub fn new(c: f64) -> Result<Self, HyperbolicError> {
-        if c >= 0.0 {
+        if c.is_nan() || c >= 0.0 {
             return Err(HyperbolicError::InvalidCurvature(c));
         }
         Ok(Self(c))
+    }
+
+    /// Get the raw curvature value (negative).
+    pub fn value(&self) -> f64 {
+        self.0
     }
 
     /// Get the absolute value |c|.
@@ -162,10 +150,15 @@ impl PoincareBallPoint {
     }
 
     /// Create a new point, projecting if necessary.
-    pub fn new_projected(coords: Vec<f64>, curvature: Curvature) -> Self {
+    ///
+    /// Returns error if any coordinate is NaN.
+    pub fn new_projected(coords: Vec<f64>, curvature: Curvature) -> Result<Self, HyperbolicError> {
+        if coords.iter().any(|c| c.is_nan()) {
+            return Err(HyperbolicError::OutsideBall { norm: f64::NAN });
+        }
         let mut point = Self { coords, curvature };
         point = point.project(1e-5);
-        point
+        Ok(point)
     }
 
     /// Create the origin point.
@@ -186,7 +179,7 @@ impl PoincareBallPoint {
         // hyp uses c > 0 where curvature K = -c.
         // subsume uses K < 0.
         // So c = -K.
-        hyperball::PoincareBall::new(-self.curvature.0)
+        hyperball::PoincareBall::new(-self.curvature.value())
     }
 
     /// Dimension of the embedding space.
@@ -223,7 +216,7 @@ impl PoincareBallPoint {
         // We calculate it manually to match existing API, or add it to hyp.
         // Formula: 2 / (1 - c * ||x||^2)
         // c = -K.
-        let c = -self.curvature.0;
+        let c = -self.curvature.value();
         let denom = 1.0 - c * norm_sq;
         if denom <= 1e-15 {
             return Err(HyperbolicError::OutsideBall {
@@ -283,7 +276,7 @@ impl PoincareBallPoint {
         // tanh(r * arctanh(sqrt(c) * ||x||)) / sqrt(c) * x / ||x||
         // For c=1: tanh(r * arctanh(||x||)) * x / ||x||
 
-        let c = -self.curvature.0;
+        let c = -self.curvature.value();
         let c_sqrt = c.sqrt();
 
         let arg = c_sqrt * norm;
@@ -345,7 +338,7 @@ impl PoincareBallPoint {
     /// Project to the Poincare ball if outside. Clips norm to < 1 - epsilon.
     pub fn project(&self, epsilon: f64) -> Self {
         let norm_sq = self.norm_squared();
-        let c = -self.curvature.0;
+        let c = -self.curvature.value();
         let max_norm = (1.0 / c).sqrt() - epsilon;
 
         if norm_sq < max_norm * max_norm {
@@ -458,7 +451,7 @@ mod tests {
     fn test_project() {
         // Point outside the ball
         let coords = vec![0.9, 0.9]; // norm ≈ 1.27
-        let point = PoincareBallPoint::new_projected(coords, Curvature::STANDARD);
+        let point = PoincareBallPoint::new_projected(coords, Curvature::STANDARD).unwrap();
 
         assert!(point.is_valid());
         assert!(point.norm_squared() < 1.0);
@@ -545,5 +538,35 @@ mod tests {
             accuracy_rev.abs() < 1e-10,
             "reversed hierarchy should have accuracy 0, got {accuracy_rev}"
         );
+    }
+
+    // ---- NaN rejection ----
+
+    #[test]
+    fn curvature_nan_returns_err() {
+        assert!(
+            Curvature::new(f64::NAN).is_err(),
+            "NaN curvature should be rejected"
+        );
+    }
+
+    #[test]
+    fn curvature_field_is_private() {
+        // Curvature can only be constructed via new() or STANDARD.
+        let c = Curvature::STANDARD;
+        assert!((c.value() - (-1.0)).abs() < 1e-10);
+    }
+
+    #[test]
+    fn new_projected_nan_coords_returns_err() {
+        let result = PoincareBallPoint::new_projected(vec![f64::NAN, 0.0], Curvature::STANDARD);
+        assert!(result.is_err(), "NaN coords should be rejected");
+    }
+
+    #[test]
+    fn new_projected_all_nan_returns_err() {
+        let result =
+            PoincareBallPoint::new_projected(vec![f64::NAN, f64::NAN], Curvature::STANDARD);
+        assert!(result.is_err(), "All-NaN coords should be rejected");
     }
 }

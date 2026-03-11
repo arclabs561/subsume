@@ -441,6 +441,15 @@ pub enum BoxError {
         max: f64,
     },
 
+    /// Invalid temperature parameter.
+    #[error("Invalid temperature {value}: {reason}")]
+    InvalidTemperature {
+        /// The invalid temperature value.
+        value: f64,
+        /// Why the value is invalid.
+        reason: &'static str,
+    },
+
     /// Box has zero or negative volume.
     #[error("Box has zero or negative volume")]
     ZeroVolume,

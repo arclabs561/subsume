@@ -78,13 +78,16 @@ use std::fmt::Debug;
 
 /// Error type for sheaf operations.
 #[non_exhaustive]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum SheafError {
     /// Node not found in the graph.
+    #[error("Node {0} not found")]
     NodeNotFound(usize),
     /// Edge not found in the graph.
+    #[error("Edge ({0}, {1}) not found")]
     EdgeNotFound(usize, usize),
     /// Dimension mismatch in linear map.
+    #[error("Dimension mismatch: expected {expected}, got {actual}")]
     DimensionMismatch {
         /// Expected dimension.
         expected: usize,
@@ -92,27 +95,9 @@ pub enum SheafError {
         actual: usize,
     },
     /// Invalid restriction map.
+    #[error("Invalid restriction: {0}")]
     InvalidRestriction(String),
 }
-
-impl std::fmt::Display for SheafError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::NodeNotFound(id) => write!(f, "Node {} not found", id),
-            Self::EdgeNotFound(u, v) => write!(f, "Edge ({}, {}) not found", u, v),
-            Self::DimensionMismatch { expected, actual } => {
-                write!(
-                    f,
-                    "Dimension mismatch: expected {}, got {}",
-                    expected, actual
-                )
-            }
-            Self::InvalidRestriction(msg) => write!(f, "Invalid restriction: {}", msg),
-        }
-    }
-}
-
-impl std::error::Error for SheafError {}
 
 /// A restriction map (linear transformation) on an edge.
 ///
