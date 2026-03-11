@@ -131,10 +131,9 @@ impl NdarrayBox {
 
         // Validate temperature: must be finite and positive
         if !temperature.is_finite() || temperature <= 0.0 {
-            return Err(BoxError::InvalidBounds {
-                dim: 0,
-                min: temperature as f64,
-                max: temperature as f64,
+            return Err(BoxError::InvalidTemperature {
+                value: temperature as f64,
+                reason: "temperature must be finite and positive",
             });
         }
 
@@ -1162,6 +1161,23 @@ mod tests {
     fn temperature_inf_returns_err() {
         let result = NdarrayBox::new(array![0.0], array![1.0], f32::INFINITY);
         assert!(result.is_err(), "temperature=inf should be rejected");
+    }
+
+    #[test]
+    fn invalid_temperature_variant_and_display() {
+        let err = NdarrayBox::new(array![0.0], array![1.0], -2.0).unwrap_err();
+        match &err {
+            BoxError::InvalidTemperature { value, reason } => {
+                assert!((*value - (-2.0)).abs() < f64::EPSILON);
+                assert!(reason.contains("finite and positive"));
+            }
+            other => panic!("expected InvalidTemperature, got {other:?}"),
+        }
+        let display = err.to_string();
+        assert!(
+            display.contains("Invalid temperature") && display.contains("-2"),
+            "unexpected Display output: {display}"
+        );
     }
 }
 

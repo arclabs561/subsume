@@ -55,10 +55,9 @@ impl CandleBox {
 
         // Validate temperature: must be finite and positive
         if !temperature.is_finite() || temperature <= 0.0 {
-            return Err(BoxError::InvalidBounds {
-                dim: 0,
-                min: temperature as f64,
-                max: temperature as f64,
+            return Err(BoxError::InvalidTemperature {
+                value: temperature as f64,
+                reason: "temperature must be finite and positive",
             });
         }
 

@@ -111,8 +111,21 @@ impl NdarrayOctagon {
             });
         }
 
-        // Validate diagonal bounds.
+        // Validate diagonal bounds (including NaN rejection).
         for (k, db) in diag_bounds.iter().enumerate() {
+            if db.sum_min.is_nan()
+                || db.sum_max.is_nan()
+                || db.diff_min.is_nan()
+                || db.diff_max.is_nan()
+            {
+                return Err(OctagonError::InvalidDiagonalBounds {
+                    dim_i: k,
+                    dim_j: k + 1,
+                    kind: "NaN".to_string(),
+                    lo: f64::NAN,
+                    hi: f64::NAN,
+                });
+            }
             if db.sum_min > db.sum_max {
                 return Err(OctagonError::InvalidDiagonalBounds {
                     dim_i: k,
@@ -153,6 +166,14 @@ impl NdarrayOctagon {
             return Err(OctagonError::DimensionMismatch {
                 expected: d,
                 actual: axis_max.len(),
+            });
+        }
+        // Reject NaN in axis bounds.
+        if axis_min.iter().any(|v| v.is_nan()) || axis_max.iter().any(|v| v.is_nan()) {
+            return Err(OctagonError::InvalidAxisBounds {
+                dim: 0,
+                min: f64::NAN,
+                max: f64::NAN,
             });
         }
         for i in 0..d {
@@ -1640,5 +1661,51 @@ mod tests {
         assert!(composed.axis_max[0] >= 2.0 - 0.1);
         assert!(composed.axis_min[1] <= 1.0 + 0.1);
         assert!(composed.axis_max[1] >= 3.0 - 0.1);
+    }
+
+    // ---- NaN rejection: diagonal bounds ----
+
+    #[test]
+    fn new_rejects_nan_diag_sum_min() {
+        let result = NdarrayOctagon::new(
+            array![0.0, 0.0],
+            array![1.0, 1.0],
+            vec![NdarrayDiagBounds {
+                sum_min: f32::NAN,
+                sum_max: 2.0,
+                diff_min: -1.0,
+                diff_max: 1.0,
+            }],
+        );
+        assert!(result.is_err(), "NaN diagonal sum_min should be rejected");
+    }
+
+    #[test]
+    fn new_rejects_nan_diag_diff_max() {
+        let result = NdarrayOctagon::new(
+            array![0.0, 0.0],
+            array![1.0, 1.0],
+            vec![NdarrayDiagBounds {
+                sum_min: 0.0,
+                sum_max: 2.0,
+                diff_min: -1.0,
+                diff_max: f32::NAN,
+            }],
+        );
+        assert!(result.is_err(), "NaN diagonal diff_max should be rejected");
+    }
+
+    // ---- NaN rejection: from_box_bounds ----
+
+    #[test]
+    fn from_box_bounds_rejects_nan_axis_min() {
+        let result = NdarrayOctagon::from_box_bounds(array![f32::NAN, 0.0], array![1.0, 1.0]);
+        assert!(result.is_err(), "NaN axis_min should be rejected");
+    }
+
+    #[test]
+    fn from_box_bounds_rejects_nan_axis_max() {
+        let result = NdarrayOctagon::from_box_bounds(array![0.0, 0.0], array![1.0, f32::NAN]);
+        assert!(result.is_err(), "NaN axis_max should be rejected");
     }
 }

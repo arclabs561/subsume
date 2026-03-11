@@ -1055,74 +1055,6 @@ pub fn log_training_result(result: &TrainingResult, path: Option<&str>) -> Resul
     Ok(())
 }
 
-/// Trainer for box embeddings.
-pub struct BoxEmbeddingTrainer {
-    /// Training configuration
-    pub config: TrainingConfig,
-    /// Entity ID → TrainableBox mapping
-    pub boxes: HashMap<usize, TrainableBox>,
-    /// Entity ID → AMSGradState mapping
-    pub optimizer_states: HashMap<usize, AMSGradState>,
-    /// Embedding dimension
-    pub dim: usize,
-}
-
-impl BoxEmbeddingTrainer {
-    /// Create a new trainer.
-    pub fn new(
-        config: TrainingConfig,
-        dim: usize,
-        initial_embeddings: Option<HashMap<usize, Vec<f32>>>,
-    ) -> Self {
-        let mut boxes = HashMap::new();
-        let mut optimizer_states = HashMap::new();
-
-        if let Some(embeddings) = initial_embeddings {
-            for (entity_id, vector) in embeddings {
-                assert_eq!(vector.len(), dim);
-                let box_embedding = TrainableBox::from_vector(&vector, 0.1);
-                boxes.insert(entity_id, box_embedding.clone());
-                optimizer_states.insert(entity_id, AMSGradState::new(2 * dim, config.learning_rate));
-            }
-        }
-
-        Self {
-            config,
-            boxes,
-            optimizer_states,
-            dim,
-        }
-    }
-
-    /// Update boxes using analytical gradients.
-    pub fn train_step(&mut self, id_a: usize, id_b: usize, is_positive: bool) -> f32 {
-        let box_a = self.boxes.get(&id_a).cloned();
-        let box_b = self.boxes.get(&id_b).cloned();
-
-        if let (Some(box_a_ref), Some(box_b_ref)) = (box_a.as_ref(), box_b.as_ref()) {
-            let loss = compute_pair_loss(box_a_ref, box_b_ref, is_positive, &self.config);
-            let (grad_mu_a, grad_delta_a, grad_mu_b, grad_delta_b) =
-                compute_analytical_gradients(box_a_ref, box_b_ref, is_positive, &self.config);
-
-            if let (Some(box_a_mut), Some(state_a)) = (
-                self.boxes.get_mut(&id_a),
-                self.optimizer_states.get_mut(&id_a),
-            ) {
-                box_a_mut.update_amsgrad(&grad_mu_a, &grad_delta_a, state_a);
-            }
-            if let (Some(box_b_mut), Some(state_b)) = (
-                self.boxes.get_mut(&id_b),
-                self.optimizer_states.get_mut(&id_b),
-            ) {
-                box_b_mut.update_amsgrad(&grad_mu_b, &grad_delta_b, state_b);
-            }
-            loss
-        } else {
-            0.0
-        }
-    }
-}
-
 /// Compute loss for a pair of boxes.
 ///
 /// Design choice (important):
@@ -1211,7 +1143,6 @@ use crate::trainable::TrainableCone;
 
 /// Trainer for cone embeddings using the ConE model (Zhang & Wang, NeurIPS 2021).
 ///
-/// Analogous to [`BoxEmbeddingTrainer`] but for angular cone embeddings.
 /// Each entity is represented as a [`TrainableCone`] with per-dimension axis
 /// angles and apertures, optimized via AMSGrad.
 pub struct ConeEmbeddingTrainer {
@@ -1440,11 +1371,12 @@ mod tests {
         let cfg = TrainingConfig::default();
 
         // A: large box around origin
-        let a = TrainableBox::new(vec![0.0, 0.0], vec![2.0_f32.ln(), 2.0_f32.ln()]);
+        let a = TrainableBox::new(vec![0.0, 0.0], vec![2.0_f32.ln(), 2.0_f32.ln()]).unwrap();
         // B_in: small box centered at origin (contained)
-        let b_in = TrainableBox::new(vec![0.0, 0.0], vec![0.2_f32.ln(), 0.2_f32.ln()]);
+        let b_in = TrainableBox::new(vec![0.0, 0.0], vec![0.2_f32.ln(), 0.2_f32.ln()]).unwrap();
         // B_out: same size but far away (disjoint-ish)
-        let b_out = TrainableBox::new(vec![100.0, 100.0], vec![0.2_f32.ln(), 0.2_f32.ln()]);
+        let b_out =
+            TrainableBox::new(vec![100.0, 100.0], vec![0.2_f32.ln(), 0.2_f32.ln()]).unwrap();
 
         let l_in = compute_pair_loss(&a, &b_in, true, &cfg);
         let l_out = compute_pair_loss(&a, &b_out, true, &cfg);
@@ -1465,9 +1397,11 @@ mod tests {
         };
 
         // A fixed box; compare B disjoint vs B overlapping.
-        let a = TrainableBox::new(vec![0.0, 0.0], vec![1.0_f32.ln(), 1.0_f32.ln()]);
-        let b_disjoint = TrainableBox::new(vec![100.0, 100.0], vec![1.0_f32.ln(), 1.0_f32.ln()]);
-        let b_overlap = TrainableBox::new(vec![0.0, 0.0], vec![1.0_f32.ln(), 1.0_f32.ln()]);
+        let a = TrainableBox::new(vec![0.0, 0.0], vec![1.0_f32.ln(), 1.0_f32.ln()]).unwrap();
+        let b_disjoint =
+            TrainableBox::new(vec![100.0, 100.0], vec![1.0_f32.ln(), 1.0_f32.ln()]).unwrap();
+        let b_overlap =
+            TrainableBox::new(vec![0.0, 0.0], vec![1.0_f32.ln(), 1.0_f32.ln()]).unwrap();
 
         let l_disjoint = compute_pair_loss(&a, &b_disjoint, false, &cfg);
         let l_overlap = compute_pair_loss(&a, &b_overlap, false, &cfg);
@@ -1742,104 +1676,6 @@ mod tests {
         // Can't actually call evaluate_link_prediction without a Box implementation
         // This test documents the need for integration tests in backend modules
         // Full integration tests are in subsume/src/trainer_integration_tests.rs
-    }
-
-    // -----------------------------------------------------------------------
-    // BoxEmbeddingTrainer tests
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn box_trainer_new_empty() {
-        let cfg = TrainingConfig::default();
-        let trainer = BoxEmbeddingTrainer::new(cfg, 4, None);
-        assert_eq!(trainer.dim, 4);
-        assert!(trainer.boxes.is_empty());
-        assert!(trainer.optimizer_states.is_empty());
-    }
-
-    #[test]
-    fn box_trainer_new_with_initial_embeddings() {
-        let cfg = TrainingConfig::default();
-        let mut init = HashMap::new();
-        init.insert(0, vec![1.0, 2.0, 3.0]);
-        init.insert(1, vec![4.0, 5.0, 6.0]);
-        let trainer = BoxEmbeddingTrainer::new(cfg, 3, Some(init));
-        assert_eq!(trainer.boxes.len(), 2);
-        assert_eq!(trainer.optimizer_states.len(), 2);
-        assert!(trainer.boxes.contains_key(&0));
-        assert!(trainer.boxes.contains_key(&1));
-    }
-
-    #[test]
-    fn box_trainer_train_step_returns_zero_for_missing_entities() {
-        let cfg = TrainingConfig::default();
-        let mut trainer = BoxEmbeddingTrainer::new(cfg, 4, None);
-        // No entities registered, should return 0.0 without panicking.
-        let loss = trainer.train_step(0, 1, true);
-        assert_eq!(loss, 0.0);
-    }
-
-    #[test]
-    fn box_trainer_train_step_with_entities() {
-        let cfg = TrainingConfig::default();
-        let mut init = HashMap::new();
-        init.insert(0, vec![0.0, 0.0]);
-        init.insert(1, vec![1.0, 1.0]);
-        let mut trainer = BoxEmbeddingTrainer::new(cfg, 2, Some(init));
-
-        let loss = trainer.train_step(0, 1, true);
-        assert!(loss.is_finite(), "loss must be finite, got {loss}");
-        assert!(loss >= 0.0, "loss must be non-negative, got {loss}");
-    }
-
-    #[test]
-    fn box_trainer_train_step_modifies_boxes() {
-        let cfg = TrainingConfig {
-            learning_rate: 0.01,
-            regularization: 0.0,
-            ..Default::default()
-        };
-        let mut init = HashMap::new();
-        init.insert(0, vec![0.0, 0.0, 0.0, 0.0]);
-        init.insert(1, vec![5.0, 5.0, 5.0, 5.0]);
-        let mut trainer = BoxEmbeddingTrainer::new(cfg, 4, Some(init));
-
-        let mu_before: Vec<f32> = trainer.boxes[&0].mu.clone();
-        trainer.train_step(0, 1, true);
-        let mu_after: Vec<f32> = trainer.boxes[&0].mu.clone();
-
-        // At least one parameter should change (the boxes are disjoint, so
-        // the gradient will push them toward each other).
-        assert_ne!(
-            mu_before, mu_after,
-            "train_step should modify box parameters"
-        );
-    }
-
-    #[test]
-    fn box_trainer_reduces_loss_over_steps() {
-        let cfg = TrainingConfig {
-            learning_rate: 0.01,
-            regularization: 0.0,
-            ..Default::default()
-        };
-        let mut init = HashMap::new();
-        init.insert(0, vec![0.0, 0.0]);
-        init.insert(1, vec![0.5, 0.5]);
-        let mut trainer = BoxEmbeddingTrainer::new(cfg, 2, Some(init));
-
-        let mut losses = Vec::new();
-        for _ in 0..50 {
-            let loss = trainer.train_step(0, 1, true);
-            losses.push(loss);
-        }
-
-        let early_avg: f32 = losses[..10].iter().sum::<f32>() / 10.0;
-        let late_avg: f32 = losses[40..].iter().sum::<f32>() / 10.0;
-        assert!(
-            late_avg <= early_avg + 0.5,
-            "loss should generally decrease: early_avg={early_avg}, late_avg={late_avg}"
-        );
     }
 
     // -----------------------------------------------------------------------
@@ -2274,7 +2110,7 @@ mod tests {
     #[test]
     #[cfg(feature = "ndarray-backend")]
     fn trainable_box_serde_roundtrip() {
-        let original = TrainableBox::new(vec![1.0, 2.0, 3.0], vec![0.5, -0.5, 1.0]);
+        let original = TrainableBox::new(vec![1.0, 2.0, 3.0], vec![0.5, -0.5, 1.0]).unwrap();
         let json = serde_json::to_string(&original).unwrap();
         let restored: TrainableBox = serde_json::from_str(&json).unwrap();
 
@@ -2286,7 +2122,7 @@ mod tests {
     #[test]
     #[cfg(feature = "ndarray-backend")]
     fn trainable_box_serde_roundtrip_via_tempfile() {
-        let original = TrainableBox::new(vec![0.1, -0.2], vec![0.3, 0.4]);
+        let original = TrainableBox::new(vec![0.1, -0.2], vec![0.3, 0.4]).unwrap();
 
         let dir = std::env::temp_dir();
         let path = dir.join("subsume_test_trainable_box.json");
@@ -2327,38 +2163,13 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // BoxEmbeddingTrainer full serde roundtrip
-    // -----------------------------------------------------------------------
-
-    #[test]
-    #[cfg(feature = "ndarray-backend")]
-    fn box_trainer_boxes_serde_roundtrip() {
-        let cfg = TrainingConfig::default();
-        let mut init = HashMap::new();
-        init.insert(0, vec![1.0, 2.0]);
-        init.insert(1, vec![3.0, 4.0]);
-        let trainer = BoxEmbeddingTrainer::new(cfg, 2, Some(init));
-
-        // Serialize the boxes map.
-        let json = serde_json::to_string(&trainer.boxes).unwrap();
-        let restored: HashMap<usize, TrainableBox> = serde_json::from_str(&json).unwrap();
-
-        assert_eq!(restored.len(), 2);
-        for (id, original_box) in &trainer.boxes {
-            let r = &restored[id];
-            assert_eq!(original_box.mu, r.mu);
-            assert_eq!(original_box.delta, r.delta);
-        }
-    }
-
-    // -----------------------------------------------------------------------
     // compute_pair_loss edge cases
     // -----------------------------------------------------------------------
 
     #[test]
     fn compute_pair_loss_identical_boxes_positive_is_finite() {
         let cfg = TrainingConfig::default();
-        let a = TrainableBox::new(vec![0.0, 0.0], vec![1.0, 1.0]);
+        let a = TrainableBox::new(vec![0.0, 0.0], vec![1.0, 1.0]).unwrap();
         let loss = compute_pair_loss(&a, &a.clone(), true, &cfg);
         assert!(
             loss.is_finite(),
@@ -2379,8 +2190,8 @@ mod tests {
             ..Default::default()
         };
         // Two overlapping boxes.
-        let a = TrainableBox::new(vec![0.0, 0.0], vec![1.0, 1.0]);
-        let b = TrainableBox::new(vec![0.0, 0.0], vec![1.0, 1.0]);
+        let a = TrainableBox::new(vec![0.0, 0.0], vec![1.0, 1.0]).unwrap();
+        let b = TrainableBox::new(vec![0.0, 0.0], vec![1.0, 1.0]).unwrap();
 
         let l1 = compute_pair_loss(&a, &b, false, &cfg_w1);
         let l2 = compute_pair_loss(&a, &b, false, &cfg_w2);
@@ -2403,8 +2214,8 @@ mod tests {
         // For negative pairs, the current gradient implementation returns zeros
         // (only positive pairs produce non-zero gradients).
         let cfg = TrainingConfig::default();
-        let a = TrainableBox::new(vec![0.0, 0.0], vec![1.0, 1.0]);
-        let b = TrainableBox::new(vec![5.0, 5.0], vec![1.0, 1.0]);
+        let a = TrainableBox::new(vec![0.0, 0.0], vec![1.0, 1.0]).unwrap();
+        let b = TrainableBox::new(vec![5.0, 5.0], vec![1.0, 1.0]).unwrap();
         let (g_mu_a, g_delta_a, g_mu_b, g_delta_b) =
             compute_analytical_gradients(&a, &b, false, &cfg);
         for v in [&g_mu_a, &g_delta_a, &g_mu_b, &g_delta_b] {
@@ -2419,8 +2230,8 @@ mod tests {
     fn analytical_gradients_positive_disjoint_pushes_centers() {
         let cfg = TrainingConfig::default();
         // Two disjoint boxes: centers far apart.
-        let a = TrainableBox::new(vec![0.0], vec![0.1_f32.ln()]);
-        let b = TrainableBox::new(vec![10.0], vec![0.1_f32.ln()]);
+        let a = TrainableBox::new(vec![0.0], vec![0.1_f32.ln()]).unwrap();
+        let b = TrainableBox::new(vec![10.0], vec![0.1_f32.ln()]).unwrap();
         let (g_mu_a, _, g_mu_b, _) = compute_analytical_gradients(&a, &b, true, &cfg);
 
         // For disjoint positive pairs, the gradient pushes centers toward each other:
@@ -2487,7 +2298,7 @@ mod proptests {
     fn arb_box(dim: usize) -> impl Strategy<Value = TrainableBox> {
         let mu_strat = prop::collection::vec(-10.0f32..10.0, dim);
         let delta_strat = prop::collection::vec(-5.0f32..2.0, dim);
-        (mu_strat, delta_strat).prop_map(move |(mu, delta)| TrainableBox::new(mu, delta))
+        (mu_strat, delta_strat).prop_map(move |(mu, delta)| TrainableBox::new(mu, delta).unwrap())
     }
 
     proptest! {
@@ -2547,11 +2358,11 @@ mod proptests {
         let cfg = TrainingConfig::default();
 
         // A: wide cone, B_in: narrow cone with same axes (contained)
-        let a = TrainableCone::new(vec![0.0, 0.0], vec![2.0, 2.0]); // wide aperture
-        let b_in = TrainableCone::new(vec![0.0, 0.0], vec![-2.0, -2.0]); // narrow aperture
+        let a = TrainableCone::new(vec![0.0, 0.0], vec![2.0, 2.0]).unwrap(); // wide aperture
+        let b_in = TrainableCone::new(vec![0.0, 0.0], vec![-2.0, -2.0]).unwrap(); // narrow aperture
 
         // B_out: narrow cone with very different axes
-        let b_out = TrainableCone::new(vec![3.0, 3.0], vec![-2.0, -2.0]);
+        let b_out = TrainableCone::new(vec![3.0, 3.0], vec![-2.0, -2.0]).unwrap();
 
         let l_in = compute_cone_pair_loss(&a, &b_in, true, &cfg);
         let l_out = compute_cone_pair_loss(&a, &b_out, true, &cfg);
