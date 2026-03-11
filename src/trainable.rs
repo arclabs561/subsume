@@ -276,7 +276,7 @@ impl DenseCone {
     #[inline]
     pub fn containment_score(&self, entity: &Self, cen: f32, gamma: f32, modulus: f32) -> f32 {
         let dist = self.cone_distance(entity, cen);
-        sigmoid_f32(gamma - dist * modulus)
+        crate::utils::stable_sigmoid(gamma - dist * modulus)
     }
 }
 
@@ -381,6 +381,24 @@ impl TrainableCone {
         DenseCone::new(self.axes(), self.apertures())
     }
 
+    /// Convert to an [`NdarrayCone`] for querying through inherent methods.
+    ///
+    /// Bridges the training representation (mutable, gradient-compatible)
+    /// to the inference representation (immutable). Axes are normalized
+    /// and apertures are clamped during construction.
+    ///
+    /// [`NdarrayCone`]: crate::ndarray_backend::NdarrayCone
+    #[cfg(feature = "ndarray-backend")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "ndarray-backend")))]
+    pub fn to_ndarray_cone(
+        &self,
+    ) -> Result<crate::ndarray_backend::NdarrayCone, crate::cone::ConeError> {
+        crate::ndarray_backend::NdarrayCone::new(
+            ndarray::Array1::from(self.axes()),
+            ndarray::Array1::from(self.apertures()),
+        )
+    }
+
     /// Number of learnable scalar parameters: dim (axes) + dim (apertures) = 2 * dim.
     #[must_use]
     pub fn num_parameters(&self) -> usize {
@@ -453,18 +471,6 @@ impl TrainableCone {
                 self.raw_apertures[i] = 0.0;
             }
         }
-    }
-}
-
-/// Stable sigmoid for f32.
-#[inline]
-fn sigmoid_f32(x: f32) -> f32 {
-    if x >= 0.0 {
-        let e = (-x).exp();
-        1.0 / (1.0 + e)
-    } else {
-        let e = x.exp();
-        e / (1.0 + e)
     }
 }
 
@@ -580,6 +586,33 @@ mod tests {
     }
 
     // -- TrainableBox bridge tests --
+
+    #[cfg(feature = "ndarray-backend")]
+    #[test]
+    fn trainable_cone_to_ndarray_cone_roundtrip() {
+        let tc = TrainableCone::new(vec![0.5, -0.3, 1.0], vec![0.0, 1.0, -1.0]);
+        let nc = tc.to_ndarray_cone().unwrap();
+
+        assert_eq!(nc.dim(), 3);
+
+        let tc_axes = tc.axes();
+        let nc_axes: Vec<f32> = nc.axes().to_vec();
+        for (i, (&a, &b)) in tc_axes.iter().zip(nc_axes.iter()).enumerate() {
+            assert!(
+                (a - b).abs() < 1e-6,
+                "axis[{i}] mismatch: trainable={a}, ndarray={b}"
+            );
+        }
+
+        let tc_aps = tc.apertures();
+        let nc_aps: Vec<f32> = nc.apertures().to_vec();
+        for (i, (&a, &b)) in tc_aps.iter().zip(nc_aps.iter()).enumerate() {
+            assert!(
+                (a - b).abs() < 1e-6,
+                "aperture[{i}] mismatch: trainable={a}, ndarray={b}"
+            );
+        }
+    }
 
     #[cfg(feature = "ndarray-backend")]
     #[test]

@@ -82,4 +82,11 @@ pub enum ConeError {
         /// Actual number of dimensions.
         actual: usize,
     },
+
+    /// Invalid bounds (e.g., NaN values).
+    #[error("Invalid bounds: {reason}")]
+    InvalidBounds {
+        /// Description of the invalid bounds.
+        reason: String,
+    },
 }
