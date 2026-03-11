@@ -82,6 +82,15 @@ impl NdarrayOctagon {
             });
         }
 
+        // Reject NaN values.
+        if axis_min.iter().any(|v| v.is_nan()) || axis_max.iter().any(|v| v.is_nan()) {
+            return Err(OctagonError::InvalidAxisBounds {
+                dim: 0,
+                min: f64::NAN,
+                max: f64::NAN,
+            });
+        }
+
         // Validate axis bounds.
         for i in 0..d {
             if axis_min[i] > axis_max[i] {
@@ -174,16 +183,7 @@ impl NdarrayOctagon {
     }
 }
 
-/// Numerically stable sigmoid.
-fn sigmoid(x: f32) -> f32 {
-    if x >= 0.0 {
-        let e = (-x).exp();
-        1.0 / (1.0 + e)
-    } else {
-        let e = x.exp();
-        e / (1.0 + e)
-    }
-}
+use crate::utils::stable_sigmoid as sigmoid;
 
 impl NdarrayOctagon {
     /// Get the minimum axis-aligned bound in each dimension.
@@ -842,6 +842,42 @@ mod tests {
         assert!(matches!(
             result,
             Err(OctagonError::DimensionMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn new_rejects_nan_axis_min() {
+        let result = NdarrayOctagon::new(
+            array![f32::NAN, 0.0],
+            array![1.0, 1.0],
+            vec![NdarrayDiagBounds {
+                sum_min: 0.0,
+                sum_max: 2.0,
+                diff_min: -1.0,
+                diff_max: 1.0,
+            }],
+        );
+        assert!(matches!(
+            result,
+            Err(OctagonError::InvalidAxisBounds { .. })
+        ));
+    }
+
+    #[test]
+    fn new_rejects_nan_axis_max() {
+        let result = NdarrayOctagon::new(
+            array![0.0, 0.0],
+            array![1.0, f32::NAN],
+            vec![NdarrayDiagBounds {
+                sum_min: 0.0,
+                sum_max: 2.0,
+                diff_min: -1.0,
+                diff_max: 1.0,
+            }],
+        );
+        assert!(matches!(
+            result,
+            Err(OctagonError::InvalidAxisBounds { .. })
         ));
     }
 

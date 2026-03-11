@@ -134,11 +134,18 @@ impl NdarrayCone {
     /// # Errors
     ///
     /// - [`ConeError::DimensionMismatch`] if axes and apertures have different lengths.
+    /// - [`ConeError::InvalidBounds`] if any value is NaN.
     pub fn new(axes: Array1<f32>, apertures: Array1<f32>) -> Result<Self, ConeError> {
         if axes.len() != apertures.len() {
             return Err(ConeError::DimensionMismatch {
                 expected: axes.len(),
                 actual: apertures.len(),
+            });
+        }
+
+        if axes.iter().any(|v| v.is_nan()) || apertures.iter().any(|v| v.is_nan()) {
+            return Err(ConeError::InvalidBounds {
+                reason: "NaN values are not allowed in axes or apertures".into(),
             });
         }
 
@@ -379,6 +386,18 @@ mod tests {
     fn new_rejects_dimension_mismatch() {
         let result = NdarrayCone::new(array![0.0, 0.0], array![0.5]);
         assert!(matches!(result, Err(ConeError::DimensionMismatch { .. })));
+    }
+
+    #[test]
+    fn new_rejects_nan_axes() {
+        let result = NdarrayCone::new(array![f32::NAN, 0.0], array![0.5, 0.5]);
+        assert!(matches!(result, Err(ConeError::InvalidBounds { .. })));
+    }
+
+    #[test]
+    fn new_rejects_nan_apertures() {
+        let result = NdarrayCone::new(array![0.0, 0.0], array![0.5, f32::NAN]);
+        assert!(matches!(result, Err(ConeError::InvalidBounds { .. })));
     }
 
     // ---- Containment / Distance ----
