@@ -362,11 +362,14 @@ mod tests {
         .unwrap();
 
         for &a in cone.axes().iter() {
-            assert!(a >= -PI && a <= PI, "axis should be in [-pi, pi], got {a}");
+            assert!(
+                (-PI..=PI).contains(&a),
+                "axis should be in [-pi, pi], got {a}"
+            );
         }
         for &a in cone.apertures().iter() {
             assert!(
-                a >= 0.0 && a <= PI,
+                (0.0..=PI).contains(&a),
                 "aperture should be in [0, pi], got {a}"
             );
         }
@@ -752,13 +755,13 @@ mod tests {
 
             for (i, &a) in projected.axes().iter().enumerate() {
                 prop_assert!(
-                    a >= -PI - 1e-6 && a <= PI + 1e-6,
+                    (-PI - 1e-6..=PI + 1e-6).contains(&a),
                     "Projected axes[{i}] should be in [-pi, pi], got {a}"
                 );
             }
             for (i, &a) in projected.apertures().iter().enumerate() {
                 prop_assert!(
-                    a >= -1e-6 && a <= PI + 1e-6,
+                    (-1e-6..=PI + 1e-6).contains(&a),
                     "Projected apertures[{i}] should be in [0, pi], got {a}"
                 );
             }

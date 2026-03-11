@@ -1082,7 +1082,7 @@ impl BoxEmbeddingTrainer {
                 assert_eq!(vector.len(), dim);
                 let box_embedding = TrainableBox::from_vector(&vector, 0.1);
                 boxes.insert(entity_id, box_embedding.clone());
-                optimizer_states.insert(entity_id, AMSGradState::new(dim, config.learning_rate));
+                optimizer_states.insert(entity_id, AMSGradState::new(2 * dim, config.learning_rate));
             }
         }
 
@@ -2067,7 +2067,7 @@ mod tests {
             tail: "B".to_string(),
         }];
 
-        let filter_triples = vec![
+        let filter_triples = [
             Triple {
                 head: "A".into(),
                 relation: "r".into(),
@@ -2158,7 +2158,7 @@ mod tests {
             relation: id_r,
             tail: id_b,
         }];
-        let known_triples = vec![
+        let known_triples = [
             TripleIds {
                 head: id_a,
                 relation: id_r,
@@ -2199,7 +2199,7 @@ mod tests {
     fn filtered_triple_index_ids_membership() {
         use crate::dataset::TripleIds;
 
-        let triples = vec![
+        let triples = [
             TripleIds {
                 head: 0,
                 relation: 0,
@@ -2230,7 +2230,7 @@ mod tests {
     fn filtered_triple_index_ids_known_tails() {
         use crate::dataset::TripleIds;
 
-        let triples = vec![
+        let triples = [
             TripleIds {
                 head: 0,
                 relation: 0,
@@ -2525,7 +2525,7 @@ mod proptests {
             grad_mu in prop::collection::vec(-1.0f32..1.0, 8),
             grad_delta in prop::collection::vec(-1.0f32..1.0, 8)
         ) {
-            let mut state = AMSGradState::new(8, 0.001);
+            let mut state = AMSGradState::new(box_a.num_parameters(), 0.001);
             box_a.update_amsgrad(&grad_mu, &grad_delta, &mut state);
 
             for &m in &box_a.mu {

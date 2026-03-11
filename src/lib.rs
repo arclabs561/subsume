@@ -20,6 +20,21 @@
 //! | Train box embeddings (ndarray) | [`ndarray_backend`], [`TrainingConfig`] |
 //! | Evaluate with link prediction | [`evaluate_link_prediction`], [`training::metrics`] |
 //!
+//! # Why regions instead of points?
+//!
+//! Point embeddings (TransE, RotatE) work for link prediction but cannot encode
+//! containment, volume, or set operations. Regions become necessary when the task
+//! requires:
+//!
+//! - **Subsumption**: box A inside box B means A is-a B
+//! - **Generality**: large volume = broad concept, small volume = specific
+//! - **Intersection**: combining two concepts (A ∧ B) yields a valid region
+//! - **Negation**: cone complement is another cone (FOL queries with ¬)
+//!
+//! For standard triple scoring, points are simpler and equally accurate. For
+//! ontology completion (EL++), taxonomy expansion, and logical query answering,
+//! regions are structurally required.
+//!
 //! # Key Concepts
 //!
 //! **Box embeddings** represent concepts as hyperrectangles. Unlike point vectors,

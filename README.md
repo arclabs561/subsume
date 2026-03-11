@@ -18,8 +18,8 @@ Geometric region embeddings for subsumption, entailment, and logical query answe
 |---|---|
 | `Box` trait | Axis-aligned hyperrectangle: volume, containment, overlap, distance |
 | `GumbelBox` trait | Probabilistic boxes via Gumbel random variables (dense gradients, no flat regions; Dasgupta et al., 2020) |
-| `Cone` trait | Angular cones in d-dimensional space: containment via aperture, closed under negation (inspired by Zhang & Wang, NeurIPS 2021) |
-| `Octagon` trait | Axis-aligned polytopes with diagonal constraints; tighter volume bounds than boxes (Charpenay & Schockaert, IJCAI 2024) |
+| `NdarrayCone` | Angular cones in d-dimensional space: containment via aperture, closed under negation (Zhang & Wang, NeurIPS 2021) |
+| `NdarrayOctagon` | Axis-aligned polytopes with diagonal constraints; tighter volume bounds than boxes (Charpenay & Schockaert, IJCAI 2024) |
 | `gaussian` | Diagonal Gaussian boxes: KL divergence (asymmetric containment) and Bhattacharyya coefficient (symmetric overlap) |
 | `hyperbolic` | Poincare ball embeddings and hyperbolic box intervals (via `hyperball`) |
 | `sheaf` | Sheaf diffusion primitives: stalks, restriction maps, Laplacian (Hansen & Ghrist 2019; Bodnar et al., ICLR 2022) |
@@ -106,18 +106,53 @@ Unit, property, and doc tests covering:
 - Cones: angular containment, negation closure, aperture bounds
 - Octagon: intersection closure, containment, Sutherland-Hodgman volume
 - Fuzzy: t-norm/t-conorm commutativity, associativity, De Morgan duality
-- Gaussian boxes, EL++ ontology losses, sheaf networks, hyperbolic geometry, quasimetrics
+- Gaussian boxes, EL++ ontology losses, sheaf networks, hyperbolic geometry
 - Training: MRR, Hits@k, NDCG, calibration, negative sampling, AMSGrad
 
 ## Choosing a geometry
 
-| Geometry | When to use it | Negation? | Key tradeoff |
+| Geometry | When to use it | ¬? | Key tradeoff |
 |---|---|---|---|
-| Box / GumbelBox | Axis-aligned containment hierarchies, each dimension independent | No | Simple, fast; Gumbel variant adds dense gradients |
-| Cone | Multi-hop reasoning with NOT; FOL queries requiring negation | Yes | Closed under complement, but angular parameterization is harder to initialize |
-| Octagon | Rule-aware KG completion; need tighter volume than boxes | No | Tighter bounds via diagonal constraints; more parameters per entity |
-| Gaussian | Taxonomy expansion with uncertainty; TaxoBell-style training | No | KL gives asymmetric containment for free; Bhattacharyya gives symmetric overlap |
-| Hyperbolic | Tree-like hierarchies with low distortion | No | Exponential capacity in limited dimensions; numerical care near boundary |
+| Box / GumbelBox | Containment hierarchies, each dimension independent | No | Simple, fast; Gumbel adds dense gradients where hard boxes have zero gradient |
+| Cone | Multi-hop queries requiring negation (FOL with ¬) | Yes | Closed under complement; angular parameterization harder to initialize |
+| Octagon | Rule-aware KG completion; tighter containment than boxes | No | Diagonal constraints cut box corners; more parameters per entity |
+| Gaussian | Taxonomy expansion with uncertainty (TaxoBell) | No | KL = asymmetric containment; Bhattacharyya = symmetric overlap |
+| Hyperbolic | Tree-like hierarchies with exponential branching | No | Low-dim capacity; numerical care near Poincare ball boundary |
+
+## Why regions instead of points?
+
+Point embeddings (TransE, RotatE, ComplEx) represent entities as vectors. They work
+well for link prediction -- RotatE hits 0.476 MRR on WN18RR, BoxE hits 0.451.
+For standard triple scoring, points are simpler and equally accurate.
+
+Regions become necessary when the task requires structure that points cannot encode:
+
+| What you need | Points | Regions |
+|---|---|---|
+| Containment (A ⊆ B) | No -- points have no interior | Box nesting = subsumption |
+| Volume = generality | No -- points have no size | Large box = broad concept |
+| Intersection (A ∧ B) | No set operations | Box ∩ Box = another box |
+| Negation (¬A) | No complement | Cone complement = another cone |
+| Uncertainty per dimension | No | Gaussian sigma |
+
+Three tasks where point embeddings structurally fail:
+
+1. **Ontology completion (EL++)**: "Dog is-a Animal" requires representing one concept's
+   extension as a subset of another's. Points have no containment. Box2EL, TransBox, and
+   DELE use boxes for this and outperform point baselines on Gene Ontology, GALEN, and
+   Anatomy by wide margins.
+
+2. **Logical query answering (∧, ∨, ¬)**: multi-hop KG queries with conjunction,
+   disjunction, and negation need set operations. ConE handles all three (MRR 52.9 on
+   FB15k EPFO+negation queries vs Query2Box's 41.0 and BetaE's 44.6). Points cannot
+   attempt negation queries at all.
+
+3. **Taxonomy expansion**: inserting a new concept at the right depth requires knowing
+   both what it is (similarity) and how general it is (volume). TaxoBell uses Gaussian
+   boxes where KL divergence gives asymmetric parent-child containment for free.
+
+If your task is link prediction or entity similarity, use RotatE. If you need
+containment, set operations, or volume, you need regions.
 
 ## Why Gumbel boxes?
 
@@ -156,6 +191,7 @@ levels where Gaussian boxes fail completely.
 - Charpenay & Schockaert (2024). "Capturing Knowledge Graphs and Rules with Octagon Embeddings"
 - Lacerda et al. (2024). "Strong Faithfulness for ELH Ontology Embeddings" (TGDK 2024)
 - Huang et al. (2023). "Concept2Box: Joint Geometric Embeddings for Learning Two-View Knowledge Graphs"
+- Mashkova et al. (2024). "DELE: Deductive EL++ Embeddings for Knowledge Base Completion"
 - Yang & Chen (2025). "Achieving Hyperbolic-Like Expressiveness with Arbitrary Euclidean Regions"
 - Mishra et al. (2026). "TaxoBell: Gaussian Box Embeddings for Self-Supervised Taxonomy Expansion" (WWW '26)
 
