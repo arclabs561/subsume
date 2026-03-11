@@ -77,8 +77,8 @@ fn main() -> Result<(), subsume::BoxError> {
     ];
 
     println!(
-        "{:>10} {:>10} {:>12}  {}",
-        "child", "parent", "D_KL", "interpretation"
+        "{:>10} {:>10} {:>12}  interpretation",
+        "child", "parent", "D_KL"
     );
     println!("{}", "-".repeat(55));
     for (cname, child, pname, parent) in &parent_child_pairs {
@@ -125,8 +125,8 @@ fn main() -> Result<(), subsume::BoxError> {
     ];
 
     println!(
-        "{:>10} {:>10} {:>10}  {}",
-        "concept_a", "concept_b", "BC", "relationship"
+        "{:>10} {:>10} {:>10}  relationship",
+        "concept_a", "concept_b", "BC"
     );
     println!("{}", "-".repeat(50));
     for (aname, a, bname, b) in &sibling_pairs {

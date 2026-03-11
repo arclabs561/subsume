@@ -103,7 +103,7 @@ fn main() -> Result<(), subsume::BoxError> {
 
     let uk_min: Array1<f32> = (0..dim)
         .map(|d| {
-            if d < 2 || d >= 4 {
+            if !(2..4).contains(&d) {
                 2.0 + 0.01 * d as f32
             } else {
                 0.0 + 0.01 * d as f32
@@ -112,7 +112,7 @@ fn main() -> Result<(), subsume::BoxError> {
         .collect();
     let uk_max: Array1<f32> = (0..dim)
         .map(|d| {
-            if d < 2 || d >= 4 {
+            if !(2..4).contains(&d) {
                 3.0 + 0.01 * d as f32
             } else {
                 1.0 + 0.01 * d as f32
@@ -127,7 +127,7 @@ fn main() -> Result<(), subsume::BoxError> {
 
     let london_min: Array1<f32> = (0..dim)
         .map(|d| {
-            if d < 2 || d >= 4 {
+            if !(2..4).contains(&d) {
                 2.2 + 0.02 * d as f32
             } else {
                 0.2 + 0.02 * d as f32
@@ -136,7 +136,7 @@ fn main() -> Result<(), subsume::BoxError> {
         .collect();
     let london_max: Array1<f32> = (0..dim)
         .map(|d| {
-            if d < 2 || d >= 4 {
+            if !(2..4).contains(&d) {
                 2.4 + 0.02 * d as f32
             } else {
                 0.4 + 0.02 * d as f32
@@ -152,7 +152,7 @@ fn main() -> Result<(), subsume::BoxError> {
     // Partially inside France (dims 2-3 overlap), fully inside UK (dims 0-1, 4-5).
     let english_min: Array1<f32> = (0..dim)
         .map(|d| {
-            if d < 2 || d >= 4 {
+            if !(2..4).contains(&d) {
                 2.1 + 0.02 * d as f32
             } else {
                 0.1 + 0.02 * d as f32
@@ -161,7 +161,7 @@ fn main() -> Result<(), subsume::BoxError> {
         .collect();
     let english_max: Array1<f32> = (0..dim)
         .map(|d| {
-            if d < 2 || d >= 4 {
+            if !(2..4).contains(&d) {
                 2.8 + 0.02 * d as f32
             } else {
                 0.8 + 0.02 * d as f32

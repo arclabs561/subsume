@@ -1406,64 +1406,59 @@ mod tests {
             let rs = r.compose(&s);
             let st = s.compose(&t);
 
-            match (rs, st) {
-                (Ok(rs), Ok(st)) => {
-                    let rst_left = rs.compose(&t);
-                    let rst_right = r.compose(&st);
-                    match (rst_left, rst_right) {
-                        (Ok(l), Ok(r_)) => {
-                            let eps = 1.0;
-                            for i in 0..l.dim() {
-                                prop_assert!(
-                                    (l.axis_min[i] - r_.axis_min[i]).abs() < eps,
-                                    "associativity violation: axis_min[{i}] left={} right={}",
-                                    l.axis_min[i], r_.axis_min[i]
-                                );
-                                prop_assert!(
-                                    (l.axis_max[i] - r_.axis_max[i]).abs() < eps,
-                                    "associativity violation: axis_max[{i}] left={} right={}",
-                                    l.axis_max[i], r_.axis_max[i]
-                                );
-                            }
-                            for (k, (ld, rd)) in l.diag_bounds.iter().zip(r_.diag_bounds.iter()).enumerate() {
-                                prop_assert!(
-                                    (ld.sum_min - rd.sum_min).abs() < eps,
-                                    "associativity violation: pair {k} sum_min left={} right={}",
-                                    ld.sum_min, rd.sum_min
-                                );
-                                prop_assert!(
-                                    (ld.sum_max - rd.sum_max).abs() < eps,
-                                    "associativity violation: pair {k} sum_max left={} right={}",
-                                    ld.sum_max, rd.sum_max
-                                );
-                                prop_assert!(
-                                    (ld.diff_min - rd.diff_min).abs() < eps,
-                                    "associativity violation: pair {k} diff_min left={} right={}",
-                                    ld.diff_min, rd.diff_min
-                                );
-                                prop_assert!(
-                                    (ld.diff_max - rd.diff_max).abs() < eps,
-                                    "associativity violation: pair {k} diff_max left={} right={}",
-                                    ld.diff_max, rd.diff_max
-                                );
-                            }
+            if let (Ok(rs), Ok(st)) = (rs, st) {
+                let rst_left = rs.compose(&t);
+                let rst_right = r.compose(&st);
+                match (rst_left, rst_right) {
+                    (Ok(l), Ok(r_)) => {
+                        let eps = 1.0;
+                        for i in 0..l.dim() {
+                            prop_assert!(
+                                (l.axis_min[i] - r_.axis_min[i]).abs() < eps,
+                                "associativity violation: axis_min[{i}] left={} right={}",
+                                l.axis_min[i], r_.axis_min[i]
+                            );
+                            prop_assert!(
+                                (l.axis_max[i] - r_.axis_max[i]).abs() < eps,
+                                "associativity violation: axis_max[{i}] left={} right={}",
+                                l.axis_max[i], r_.axis_max[i]
+                            );
                         }
-                        (Err(OctagonError::Empty), Err(OctagonError::Empty)) => {
-                            // Both empty: consistent.
-                        }
-                        (Err(OctagonError::Empty), Ok(_)) | (Ok(_), Err(OctagonError::Empty)) => {
-                            // One empty, other not: could be floating-point edge case
-                            // at the boundary of feasibility. Skip.
-                        }
-                        (Err(e), _) | (_, Err(e)) => {
-                            prop_assert!(false, "unexpected error: {e}");
+                        for (k, (ld, rd)) in l.diag_bounds.iter().zip(r_.diag_bounds.iter()).enumerate() {
+                            prop_assert!(
+                                (ld.sum_min - rd.sum_min).abs() < eps,
+                                "associativity violation: pair {k} sum_min left={} right={}",
+                                ld.sum_min, rd.sum_min
+                            );
+                            prop_assert!(
+                                (ld.sum_max - rd.sum_max).abs() < eps,
+                                "associativity violation: pair {k} sum_max left={} right={}",
+                                ld.sum_max, rd.sum_max
+                            );
+                            prop_assert!(
+                                (ld.diff_min - rd.diff_min).abs() < eps,
+                                "associativity violation: pair {k} diff_min left={} right={}",
+                                ld.diff_min, rd.diff_min
+                            );
+                            prop_assert!(
+                                (ld.diff_max - rd.diff_max).abs() < eps,
+                                "associativity violation: pair {k} diff_max left={} right={}",
+                                ld.diff_max, rd.diff_max
+                            );
                         }
                     }
+                    (Err(OctagonError::Empty), Err(OctagonError::Empty)) => {
+                        // Both empty: consistent.
+                    }
+                    (Err(OctagonError::Empty), Ok(_)) | (Ok(_), Err(OctagonError::Empty)) => {
+                        // One empty, other not: floating-point edge case. Skip.
+                    }
+                    (Err(e), _) | (_, Err(e)) => {
+                        prop_assert!(false, "unexpected error: {e}");
+                    }
                 }
-                // If either R∘S or S∘T is empty, the triple composition is also empty
-                // (or at least we cannot check associativity). Skip.
-                _ => {}
             }
+            // If either R compose S or S compose T is empty, skip associativity check.
         }
     }
 
