@@ -353,7 +353,7 @@ mod tests {
         fn prop_tnorm_output_in_unit(a in arb_unit(), b in arb_unit()) {
             for t in [TNorm::Min, TNorm::Product, TNorm::Lukasiewicz] {
                 let v = t.apply(a, b);
-                prop_assert!(v >= -1e-7 && v <= 1.0 + 1e-7,
+                prop_assert!((-1e-7..=1.0 + 1e-7).contains(&v),
                     "t-norm {:?} output {v} out of [0,1]", t);
             }
         }
@@ -362,7 +362,7 @@ mod tests {
         fn prop_tconorm_output_in_unit(a in arb_unit(), b in arb_unit()) {
             for s in [TConorm::Max, TConorm::Probabilistic, TConorm::Lukasiewicz] {
                 let v = s.apply(a, b);
-                prop_assert!(v >= -1e-7 && v <= 1.0 + 1e-7,
+                prop_assert!((-1e-7..=1.0 + 1e-7).contains(&v),
                     "t-conorm {:?} output {v} out of [0,1]", s);
             }
         }

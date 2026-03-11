@@ -144,72 +144,64 @@ impl TrainableBox {
         )
     }
 
+    /// Total number of learnable parameters (mu + delta = 2 * dim).
+    ///
+    /// Use this when creating an [`AMSGradState`] for this box:
+    /// `AMSGradState::new(box.num_parameters(), lr)`.
+    #[must_use]
+    pub fn num_parameters(&self) -> usize {
+        2 * self.dim
+    }
+
     /// Update box parameters using AMSGrad optimizer.
+    ///
+    /// The `state` must have been created with `num_parameters()` (2 * dim)
+    /// elements so that both mu and delta get persistent momentum tracking.
     pub fn update_amsgrad(
         &mut self,
         grad_mu: &[f32],
         grad_delta: &[f32],
         state: &mut AMSGradState,
     ) {
+        let n = self.num_parameters();
+        let mut grads = Vec::with_capacity(n);
+        grads.extend_from_slice(&grad_mu[..self.dim]);
+        grads.extend_from_slice(&grad_delta[..self.dim]);
+
         state.t += 1;
         let t = state.t as f32;
 
-        // Update first moment (m)
-        for (i, &grad) in grad_mu.iter().enumerate().take(self.dim) {
-            state.m[i] = state.beta1 * state.m[i] + (1.0 - state.beta1) * grad;
-        }
-
-        // Update second moment (v) and max (v_hat)
-        for (i, &grad) in grad_mu.iter().enumerate().take(self.dim) {
-            let v_new = state.beta2 * state.v[i] + (1.0 - state.beta2) * grad * grad;
+        // Update moments for all parameters (mu then delta).
+        for (i, &g) in grads.iter().enumerate().take(n) {
+            state.m[i] = state.beta1 * state.m[i] + (1.0 - state.beta1) * g;
+            let v_new = state.beta2 * state.v[i] + (1.0 - state.beta2) * g * g;
             state.v[i] = v_new;
             state.v_hat[i] = state.v_hat[i].max(v_new);
         }
 
-        // Bias correction for first moment
-        let m_hat: Vec<f32> = state
-            .m
-            .iter()
-            .map(|&m| m / (1.0 - state.beta1.powf(t)))
-            .collect();
+        let bias_correction = 1.0 - state.beta1.powf(t);
 
-        // Update mu
-        for (i, &m_hat_val) in m_hat.iter().enumerate().take(self.dim) {
-            let update = state.lr * m_hat_val / (state.v_hat[i].sqrt() + state.epsilon);
+        // Update mu (indices 0..dim).
+        for i in 0..self.dim {
+            let m_hat = state.m[i] / bias_correction;
+            let update = state.lr * m_hat / (state.v_hat[i].sqrt() + state.epsilon);
             self.mu[i] -= update;
 
-            // Ensure finite
             if !self.mu[i].is_finite() {
                 self.mu[i] = 0.0;
             }
         }
 
-        // Similar for delta
-        let mut m_delta = vec![0.0_f32; self.dim];
-        let mut v_delta = vec![0.0_f32; self.dim];
-        let mut v_hat_delta = vec![0.0_f32; self.dim];
-
+        // Update delta (indices dim..2*dim).
         for i in 0..self.dim {
-            m_delta[i] = state.beta1 * m_delta[i] + (1.0 - state.beta1) * grad_delta[i];
-            let v_new: f32 =
-                state.beta2 * v_delta[i] + (1.0 - state.beta2) * grad_delta[i] * grad_delta[i];
-            v_delta[i] = v_new;
-            v_hat_delta[i] = v_hat_delta[i].max(v_new);
-        }
-
-        let m_hat_delta: Vec<f32> = m_delta
-            .iter()
-            .map(|&m| m / (1.0 - state.beta1.powf(t)))
-            .collect();
-
-        for i in 0..self.dim {
-            let update = state.lr * m_hat_delta[i] / (v_hat_delta[i].sqrt() + state.epsilon);
+            let idx = self.dim + i;
+            let m_hat = state.m[idx] / bias_correction;
+            let update = state.lr * m_hat / (state.v_hat[idx].sqrt() + state.epsilon);
             self.delta[i] -= update;
 
             // Clamp delta to reasonable range (width between 0.01 and 10.0)
             self.delta[i] = self.delta[i].clamp(0.01_f32.ln(), 10.0_f32.ln());
 
-            // Ensure finite
             if !self.delta[i].is_finite() {
                 self.delta[i] = 0.5_f32.ln();
             }

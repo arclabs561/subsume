@@ -400,7 +400,7 @@ mod tests {
             "train len = {}",
             train.len()
         );
-        assert!(val.len() >= 1 && val.len() <= 3, "val len = {}", val.len());
+        assert!(!val.is_empty() && val.len() <= 3, "val len = {}", val.len());
     }
 
     #[test]
