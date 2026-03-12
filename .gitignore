@@ -30,3 +30,8 @@ Cargo.lock
 *.test
 *.tmp
 
+# Hygiene (added by guardian audit)
+.env
+.env.*
+*.log
+
