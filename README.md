@@ -56,7 +56,7 @@ backend provides GPU-accelerated box operations for training workflows.
 
 ```toml
 [dependencies]
-subsume = { version = "0.2.1", features = ["ndarray-backend"] }
+subsume = { version = "0.3.0", features = ["ndarray-backend"] }
 ndarray = "0.16"
 ```
 
