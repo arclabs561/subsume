@@ -1443,6 +1443,69 @@ mod tests {
             );
         }
 
+        /// Octagon volume <= bounding box volume (diagonal constraints cut corners).
+        #[test]
+        fn prop_volume_less_than_bounding_box(oct in arb_octagon_2d()) {
+            let vol = oct.volume().unwrap();
+            let (bb_min, bb_max) = oct.to_bounding_box_bounds();
+            let box_vol: f32 = bb_min.iter().zip(bb_max.iter())
+                .map(|(lo, hi)| (hi - lo).max(0.0))
+                .product();
+            prop_assert!(
+                vol <= box_vol + 1e-3,
+                "octagon volume ({vol}) should be <= bounding box volume ({box_vol})"
+            );
+        }
+
+        /// Intersection of two overlapping octagons produces a valid octagon.
+        #[test]
+        fn prop_intersection_closure(
+            (a, b) in (arb_octagon_2d(), arb_octagon_2d()),
+        ) {
+            match a.intersection(&b) {
+                Ok(inter) => {
+                    let d = inter.dim();
+                    for i in 0..d {
+                        prop_assert!(
+                            inter.axis_min[i] <= inter.axis_max[i],
+                            "intersection has invalid axis bounds at dim {i}: {} > {}",
+                            inter.axis_min[i], inter.axis_max[i]
+                        );
+                    }
+                    for db in &inter.diag_bounds {
+                        prop_assert!(
+                            db.sum_min <= db.sum_max,
+                            "intersection has invalid sum bounds: {} > {}",
+                            db.sum_min, db.sum_max
+                        );
+                        prop_assert!(
+                            db.diff_min <= db.diff_max,
+                            "intersection has invalid diff bounds: {} > {}",
+                            db.diff_min, db.diff_max
+                        );
+                    }
+                    // Volume of intersection should be <= volume of either input.
+                    let vol_inter = inter.volume().unwrap();
+                    let vol_a = a.volume().unwrap();
+                    let vol_b = b.volume().unwrap();
+                    prop_assert!(
+                        vol_inter <= vol_a + 1e-2,
+                        "intersection volume ({vol_inter}) should be <= a volume ({vol_a})"
+                    );
+                    prop_assert!(
+                        vol_inter <= vol_b + 1e-2,
+                        "intersection volume ({vol_inter}) should be <= b volume ({vol_b})"
+                    );
+                }
+                Err(OctagonError::Empty) | Err(OctagonError::InvalidDiagonalBounds { .. }) | Err(OctagonError::InvalidAxisBounds { .. }) => {
+                    // Valid outcome: non-overlapping or infeasible intersection.
+                }
+                Err(e) => {
+                    prop_assert!(false, "unexpected error: {e}");
+                }
+            }
+        }
+
         // ---- Composition property tests ----
 
         #[test]
