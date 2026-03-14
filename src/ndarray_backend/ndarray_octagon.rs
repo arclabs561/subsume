@@ -82,8 +82,8 @@ impl NdarrayOctagon {
             });
         }
 
-        // Reject NaN values.
-        if axis_min.iter().any(|v| v.is_nan()) || axis_max.iter().any(|v| v.is_nan()) {
+        // Reject non-finite values.
+        if axis_min.iter().any(|v| !v.is_finite()) || axis_max.iter().any(|v| !v.is_finite()) {
             return Err(OctagonError::InvalidAxisBounds {
                 dim: 0,
                 min: f64::NAN,
@@ -111,17 +111,17 @@ impl NdarrayOctagon {
             });
         }
 
-        // Validate diagonal bounds (including NaN rejection).
+        // Validate diagonal bounds (including non-finite rejection).
         for (k, db) in diag_bounds.iter().enumerate() {
-            if db.sum_min.is_nan()
-                || db.sum_max.is_nan()
-                || db.diff_min.is_nan()
-                || db.diff_max.is_nan()
+            if !db.sum_min.is_finite()
+                || !db.sum_max.is_finite()
+                || !db.diff_min.is_finite()
+                || !db.diff_max.is_finite()
             {
                 return Err(OctagonError::InvalidDiagonalBounds {
                     dim_i: k,
                     dim_j: k + 1,
-                    kind: "NaN".to_string(),
+                    kind: "non-finite".to_string(),
                     lo: f64::NAN,
                     hi: f64::NAN,
                 });
@@ -168,8 +168,8 @@ impl NdarrayOctagon {
                 actual: axis_max.len(),
             });
         }
-        // Reject NaN in axis bounds.
-        if axis_min.iter().any(|v| v.is_nan()) || axis_max.iter().any(|v| v.is_nan()) {
+        // Reject non-finite in axis bounds.
+        if axis_min.iter().any(|v| !v.is_finite()) || axis_max.iter().any(|v| !v.is_finite()) {
             return Err(OctagonError::InvalidAxisBounds {
                 dim: 0,
                 min: f64::NAN,

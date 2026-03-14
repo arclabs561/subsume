@@ -143,9 +143,9 @@ impl NdarrayCone {
             });
         }
 
-        if axes.iter().any(|v| v.is_nan()) || apertures.iter().any(|v| v.is_nan()) {
+        if axes.iter().any(|v| !v.is_finite()) || apertures.iter().any(|v| !v.is_finite()) {
             return Err(ConeError::InvalidBounds {
-                reason: "NaN values are not allowed in axes or apertures".into(),
+                reason: "non-finite values (NaN/Inf) are not allowed in axes or apertures".into(),
             });
         }
 
