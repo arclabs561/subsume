@@ -33,7 +33,7 @@ fn main() -> Result<(), subsume::BoxError> {
     let mammal = NdarrayBox::new(array![0.05, 0.05, 0.05], array![0.95, 0.95, 0.95], 1.0)?;
     let dog = NdarrayBox::new(array![0.1, 0.1, 0.1], array![0.4, 0.4, 0.4], 1.0)?;
     let cat = NdarrayBox::new(array![0.5, 0.5, 0.1], array![0.9, 0.9, 0.4], 1.0)?;
-    let fish = NdarrayBox::new(array![0.1, 0.1, 0.6], array![0.5, 0.5, 0.95], 1.0)?;
+    let fish = NdarrayBox::new(array![0.1, 0.1, 0.96], array![0.5, 0.5, 0.99], 1.0)?;
 
     let temp = 1.0;
 
@@ -116,7 +116,7 @@ fn main() -> Result<(), subsume::BoxError> {
         "\n  P(fish in mammal) = {:.4}, P(fish in animal) = {:.4}",
         p_fish_mammal, p_fish_animal
     );
-    println!("  -> Fish is geometrically inside mammal's box (placed in a subregion)");
+    println!("  -> Fish is inside animal but outside mammal (different sub-hierarchy)");
 
     // For hard boxes (NdarrayBox), containment is binary: 1.0 if fully inside, 0.0 otherwise.
     // Temperature smoothing only affects Gumbel boxes (see gumbel_box_exploration example).

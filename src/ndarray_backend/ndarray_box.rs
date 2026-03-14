@@ -1179,6 +1179,70 @@ mod tests {
             "unexpected Display output: {display}"
         );
     }
+
+    // ---- High-dimensional stability ----
+
+    #[test]
+    fn high_dim_100_volume_containment_intersection() {
+        let dim = 100;
+        let min = Array1::from(vec![0.0f32; dim]);
+        let max = Array1::from(vec![1.0f32; dim]);
+        let a = NdarrayBox::new(min, max, 1.0).unwrap();
+
+        let vol = a.volume(1.0).unwrap();
+        assert!(!vol.is_nan(), "dim=100 volume is NaN");
+        assert!(vol >= 0.0, "dim=100 volume is negative: {vol}");
+
+        let cp = a.containment_prob(&a, 1.0).unwrap();
+        assert!(cp.is_finite(), "dim=100 self-containment not finite: {cp}");
+        assert!(
+            (cp - 1.0).abs() < 1e-4,
+            "dim=100 self-containment should be ~1.0, got {cp}"
+        );
+
+        // Intersection with a contained sub-box.
+        let inner_min = Array1::from(vec![0.25f32; dim]);
+        let inner_max = Array1::from(vec![0.75f32; dim]);
+        let inner = NdarrayBox::new(inner_min, inner_max, 1.0).unwrap();
+        let isect = a.intersection(&inner).unwrap();
+        let isect_vol = isect.volume(1.0).unwrap();
+        assert!(!isect_vol.is_nan(), "dim=100 intersection volume is NaN");
+    }
+
+    // ---- Point box (zero volume, min == max) ----
+
+    #[test]
+    fn point_box_volume_zero() {
+        let coords = array![1.0, 2.0, 3.0];
+        let b = NdarrayBox::new(coords.clone(), coords, 1.0).unwrap();
+        let vol = b.volume(1.0).unwrap();
+        assert_eq!(vol, 0.0, "point box should have zero volume, got {vol}");
+    }
+
+    #[test]
+    fn point_box_containment_prob_returns_result() {
+        let coords = array![1.0, 2.0, 3.0];
+        let point = NdarrayBox::new(coords.clone(), coords, 1.0).unwrap();
+        // containment_prob may return Err(ZeroVolume) or Ok -- both are valid.
+        let result = point.containment_prob(&point, 1.0);
+        if let Ok(v) = result {
+            assert!(v.is_finite(), "point box containment not finite: {v}");
+        }
+    }
+
+    #[test]
+    fn point_box_intersection_with_containing_box() {
+        let coords = array![1.0, 2.0, 3.0];
+        let point = NdarrayBox::new(coords.clone(), coords, 1.0).unwrap();
+        let container = NdarrayBox::new(array![0.0, 0.0, 0.0], array![5.0, 5.0, 5.0], 1.0).unwrap();
+
+        let isect = container.intersection(&point).unwrap();
+        let vol = isect.volume(1.0).unwrap();
+        assert_eq!(
+            vol, 0.0,
+            "intersection with point box should have zero volume, got {vol}"
+        );
+    }
 }
 
 #[cfg(test)]

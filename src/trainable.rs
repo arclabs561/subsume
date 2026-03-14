@@ -676,6 +676,26 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "ndarray-backend")]
+    fn trainable_box_serde_roundtrip() {
+        let tb = TrainableBox::new(vec![1.0, -2.5, 3.0], vec![0.5, -0.3, 1.2]).unwrap();
+        let json = serde_json::to_string(&tb).unwrap();
+        let tb2: TrainableBox = serde_json::from_str(&json).unwrap();
+        assert_eq!(tb.mu, tb2.mu);
+        assert_eq!(tb.delta, tb2.delta);
+    }
+
+    #[test]
+    #[cfg(feature = "ndarray-backend")]
+    fn trainable_cone_serde_roundtrip() {
+        let tc = TrainableCone::new(vec![0.5, -0.3, 1.0], vec![0.0, 1.0, -1.0]).unwrap();
+        let json = serde_json::to_string(&tc).unwrap();
+        let tc2: TrainableCone = serde_json::from_str(&json).unwrap();
+        assert_eq!(tc.raw_axes, tc2.raw_axes);
+        assert_eq!(tc.raw_apertures, tc2.raw_apertures);
+    }
+
+    #[test]
     fn trainable_cone_dimension_mismatch_returns_err() {
         let result = TrainableCone::new(vec![0.0, 0.0, 0.0], vec![1.0]);
         assert!(
