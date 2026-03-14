@@ -2,13 +2,24 @@
 
 use crate::ndarray_backend::ndarray_box::NdarrayBox;
 use crate::utils::{bessel_log_volume, gumbel_lse_max, gumbel_lse_min};
-use crate::{
-    gumbel_membership_prob, map_gumbel_to_bounds, sample_gumbel, Box, BoxError, GumbelBox,
-};
+use crate::utils::{gumbel_membership_prob, map_gumbel_to_bounds, sample_gumbel};
+use crate::{Box, BoxError, GumbelBox};
 use ndarray::Array1;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// A Gumbel box embedding implemented using `ndarray::Array1<f32>`.
+///
+/// # Temperature semantics
+///
+/// This type stores a single temperature used for all operations (intersection,
+/// volume, containment). When two GumbelBoxes with different temperatures are
+/// intersected, `self`'s temperature is used. This makes intersection
+/// argument-order-dependent when temperatures differ.
+///
+/// The reference Python implementation (Boratko et al., EMNLP 2021) passes
+/// temperature as a function argument instead. Per-relation temperatures
+/// (Chen et al., ACL 2021 / BEUrRE) make the asymmetry semantically
+/// motivated: P(B|A) naturally uses A's uncertainty scale.
 #[derive(Debug, Clone)]
 pub struct NdarrayGumbelBox {
     inner: NdarrayBox,
@@ -1091,6 +1102,38 @@ mod proptest_tests {
                 containment > 0.9,
                 "hard containment=1.0 but Gumbel containment at T={t_low} is only {containment}"
             );
+        }
+    }
+
+    // ---- Property 10: Volume non-negative for arbitrary temperature ----
+    // NdarrayGumbelBox volume must be >= 0 for any finite positive temperature,
+    // including values well above the box's stored temperature.
+
+    proptest! {
+        #[test]
+        fn proptest_volume_non_negative_any_temperature(
+            box_pairs in proptest::collection::vec((-10.0f32..10.0f32, 0.1f32..10.0f32), 1..=8),
+            stored_temp in 0.1f32..10.0f32,
+            query_temp in 0.1f32..10.0f32,
+        ) {
+            let dim = box_pairs.len();
+            let mut mins = Vec::with_capacity(dim);
+            let mut maxs = Vec::with_capacity(dim);
+            for (lo, width) in &box_pairs {
+                mins.push(*lo);
+                maxs.push(*lo + *width);
+            }
+            let gb = NdarrayGumbelBox::new(
+                Array1::from(mins),
+                Array1::from(maxs),
+                stored_temp,
+            ).unwrap();
+
+            let vol = gb.volume(query_temp).unwrap();
+            prop_assert!(vol >= 0.0,
+                "Gumbel volume must be >= 0 for any temp, got {vol} (stored_t={stored_temp}, query_t={query_temp})");
+            prop_assert!(vol.is_finite(),
+                "Gumbel volume must be finite, got {vol}");
         }
     }
 }

@@ -269,14 +269,13 @@ pub struct EvaluationResults {
 /// Vector of negative triples (corrupted versions of the positive triple)
 #[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
 #[cfg(feature = "rand")]
-#[allow(deprecated)]
 pub fn generate_negative_samples(
     triple: &Triple,
     entities: &HashSet<String>,
     strategy: &NegativeSamplingStrategy,
     n: usize,
 ) -> Vec<Triple> {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     generate_negative_samples_with_rng(triple, entities, strategy, n, &mut rng)
 }
 
@@ -337,9 +336,8 @@ impl<'a> SortedEntityPool<'a> {
 
     #[inline]
     /// Pick a uniformly random entity ID (by index) from the pool.
-    #[allow(deprecated)]
     fn pick<R: Rng>(&self, rng: &mut R) -> &'a str {
-        let idx = rng.gen_range(0..self.entities.len());
+        let idx = rng.random_range(0..self.entities.len());
         self.entities[idx]
     }
 }
@@ -347,7 +345,6 @@ impl<'a> SortedEntityPool<'a> {
 /// Generate negative samples from a precomputed, sorted pool.
 #[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
 #[cfg(feature = "rand")]
-#[allow(deprecated)]
 pub fn generate_negative_samples_from_sorted_pool_with_rng<R: Rng>(
     triple: &Triple,
     entity_pool: &SortedEntityPool<'_>,
@@ -364,7 +361,7 @@ pub fn generate_negative_samples_from_sorted_pool_with_rng<R: Rng>(
     for _ in 0..n {
         let negative = match strategy {
             NegativeSamplingStrategy::Uniform => {
-                if rng.gen::<bool>() {
+                if rng.random::<bool>() {
                     Triple {
                         head: entity_pool.pick(rng).to_string(),
                         relation: triple.relation.clone(),
@@ -409,7 +406,6 @@ pub fn generate_negative_samples_from_sorted_pool_with_rng<R: Rng>(
 /// (e.g., graph neighborhood candidates), while `subsume` stays dependency-free.
 #[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
 #[cfg(feature = "rand")]
-#[allow(deprecated)]
 pub fn generate_negative_samples_from_pool_with_rng<R: Rng>(
     triple: &Triple,
     entity_pool: &[String],
@@ -426,15 +422,15 @@ pub fn generate_negative_samples_from_pool_with_rng<R: Rng>(
     for _ in 0..n {
         let negative = match strategy {
             NegativeSamplingStrategy::Uniform => {
-                if rng.gen::<bool>() {
-                    let head = entity_pool[rng.gen_range(0..entity_pool.len())].clone();
+                if rng.random::<bool>() {
+                    let head = entity_pool[rng.random_range(0..entity_pool.len())].clone();
                     Triple {
                         head,
                         relation: triple.relation.clone(),
                         tail: triple.tail.clone(),
                     }
                 } else {
-                    let tail = entity_pool[rng.gen_range(0..entity_pool.len())].clone();
+                    let tail = entity_pool[rng.random_range(0..entity_pool.len())].clone();
                     Triple {
                         head: triple.head.clone(),
                         relation: triple.relation.clone(),
@@ -443,7 +439,7 @@ pub fn generate_negative_samples_from_pool_with_rng<R: Rng>(
                 }
             }
             NegativeSamplingStrategy::CorruptHead => {
-                let head = entity_pool[rng.gen_range(0..entity_pool.len())].clone();
+                let head = entity_pool[rng.random_range(0..entity_pool.len())].clone();
                 Triple {
                     head,
                     relation: triple.relation.clone(),
@@ -451,7 +447,7 @@ pub fn generate_negative_samples_from_pool_with_rng<R: Rng>(
                 }
             }
             NegativeSamplingStrategy::CorruptTail => {
-                let tail = entity_pool[rng.gen_range(0..entity_pool.len())].clone();
+                let tail = entity_pool[rng.random_range(0..entity_pool.len())].clone();
                 Triple {
                     head: triple.head.clone(),
                     relation: triple.relation.clone(),
@@ -459,8 +455,8 @@ pub fn generate_negative_samples_from_pool_with_rng<R: Rng>(
                 }
             }
             NegativeSamplingStrategy::CorruptBoth => {
-                let head = entity_pool[rng.gen_range(0..entity_pool.len())].clone();
-                let tail = entity_pool[rng.gen_range(0..entity_pool.len())].clone();
+                let head = entity_pool[rng.random_range(0..entity_pool.len())].clone();
+                let tail = entity_pool[rng.random_range(0..entity_pool.len())].clone();
                 Triple {
                     head,
                     relation: triple.relation.clone(),
@@ -1107,7 +1103,7 @@ pub fn compute_analytical_gradients(
 ) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>) {
     let box_a_embed = box_a.to_box();
     let box_b_embed = box_b.to_box();
-    let dim = box_a.dim;
+    let dim = box_a.dim();
 
     let mut grad_mu_a = vec![0.0; dim];
     let mut grad_delta_a = vec![0.0; dim];
@@ -1299,7 +1295,7 @@ pub fn compute_cone_analytical_gradients(
     is_positive: bool,
     config: &TrainingConfig,
 ) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>) {
-    let dim = cone_a.dim;
+    let dim = cone_a.dim();
     let mut grad_axes_a = vec![0.0f32; dim];
     let mut grad_aper_a = vec![0.0f32; dim];
     let mut grad_axes_b = vec![0.0f32; dim];
@@ -2116,7 +2112,7 @@ mod tests {
 
         assert_eq!(original.mu, restored.mu);
         assert_eq!(original.delta, restored.delta);
-        assert_eq!(original.dim, restored.dim);
+        assert_eq!(original.dim(), restored.dim());
     }
 
     #[test]

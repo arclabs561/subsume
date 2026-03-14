@@ -71,8 +71,6 @@ pub struct TrainableBox {
     pub mu: Vec<f32>,
     /// Log-width in each dimension (width = exp(delta)).
     pub delta: Vec<f32>,
-    /// Dimension
-    pub dim: usize,
 }
 
 impl TrainableBox {
@@ -96,8 +94,7 @@ impl TrainableBox {
                 actual: delta.len(),
             });
         }
-        let dim = mu.len();
-        Ok(Self { mu, delta, dim })
+        Ok(Self { mu, delta })
     }
 
     /// Initialize from a vector embedding.
@@ -111,6 +108,12 @@ impl TrainableBox {
         let mu = vector.to_vec();
         let delta: Vec<f32> = vec![init_width.ln(); mu.len()];
         Self::new(mu, delta).expect("from_vector: mu and delta have same length by construction")
+    }
+
+    /// Embedding dimension.
+    #[must_use]
+    pub fn dim(&self) -> usize {
+        self.mu.len()
     }
 
     /// Convert to a `DenseBox` (for inference).
@@ -155,7 +158,7 @@ impl TrainableBox {
     /// `AMSGradState::new(box.num_parameters(), lr)`.
     #[must_use]
     pub fn num_parameters(&self) -> usize {
-        2 * self.dim
+        2 * self.dim()
     }
 
     /// Update box parameters using AMSGrad optimizer.
@@ -168,10 +171,11 @@ impl TrainableBox {
         grad_delta: &[f32],
         state: &mut AMSGradState,
     ) {
+        let dim = self.dim();
         let n = self.num_parameters();
         let mut grads = Vec::with_capacity(n);
-        grads.extend_from_slice(&grad_mu[..self.dim]);
-        grads.extend_from_slice(&grad_delta[..self.dim]);
+        grads.extend_from_slice(&grad_mu[..dim]);
+        grads.extend_from_slice(&grad_delta[..dim]);
 
         state.t += 1;
         let t = state.t as f32;
@@ -187,7 +191,7 @@ impl TrainableBox {
         let bias_correction = 1.0 - state.beta1.powf(t);
 
         // Update mu (indices 0..dim).
-        for i in 0..self.dim {
+        for i in 0..dim {
             let m_hat = state.m[i] / bias_correction;
             let update = state.lr * m_hat / (state.v_hat[i].sqrt() + state.epsilon);
             self.mu[i] -= update;
@@ -198,8 +202,8 @@ impl TrainableBox {
         }
 
         // Update delta (indices dim..2*dim).
-        for i in 0..self.dim {
-            let idx = self.dim + i;
+        for i in 0..dim {
+            let idx = dim + i;
             let m_hat = state.m[idx] / bias_correction;
             let update = state.lr * m_hat / (state.v_hat[idx].sqrt() + state.epsilon);
             self.delta[i] -= update;
@@ -308,8 +312,6 @@ pub struct TrainableCone {
     /// Raw (unconstrained) per-dimension apertures.
     /// Actual apertures = tanh(2 * raw_apertures) * pi/2 + pi/2.
     pub raw_apertures: Vec<f32>,
-    /// Dimension.
-    pub dim: usize,
 }
 
 impl TrainableCone {
@@ -325,11 +327,9 @@ impl TrainableCone {
                 actual: raw_apertures.len(),
             });
         }
-        let dim = raw_axes.len();
         Ok(Self {
             raw_axes,
             raw_apertures,
-            dim,
         })
     }
 
@@ -360,6 +360,12 @@ impl TrainableCone {
         let raw_apertures = vec![raw_aper; vector.len()];
         Self::new(raw_axes, raw_apertures)
             .expect("from_vector: raw_axes and raw_apertures have same length by construction")
+    }
+
+    /// Embedding dimension (number of angular sectors).
+    #[must_use]
+    pub fn dim(&self) -> usize {
+        self.raw_axes.len()
     }
 
     /// Compute the actual per-dimension axis angles, each in \(-pi, pi\).
@@ -415,7 +421,7 @@ impl TrainableCone {
     /// Number of learnable scalar parameters: dim (axes) + dim (apertures) = 2 * dim.
     #[must_use]
     pub fn num_parameters(&self) -> usize {
-        2 * self.dim
+        2 * self.dim()
     }
 
     /// Compute the ConE distance score between this (as query) and another (as entity).
@@ -444,10 +450,11 @@ impl TrainableCone {
         grad_apertures: &[f32],
         state: &mut AMSGradState,
     ) {
+        let dim = self.dim();
         let n = self.num_parameters();
         let mut grads = Vec::with_capacity(n);
-        grads.extend_from_slice(&grad_axes[..self.dim]);
-        grads.extend_from_slice(&grad_apertures[..self.dim]);
+        grads.extend_from_slice(&grad_axes[..dim]);
+        grads.extend_from_slice(&grad_apertures[..dim]);
 
         state.t += 1;
         let t = state.t as f32;
@@ -463,7 +470,7 @@ impl TrainableCone {
         let bias_correction = 1.0 - state.beta1.powf(t);
 
         // Update raw_axes.
-        for i in 0..self.dim {
+        for i in 0..dim {
             let m_hat = state.m[i] / bias_correction;
             let update = state.lr * m_hat / (state.v_hat[i].sqrt() + state.epsilon);
             self.raw_axes[i] -= update;
@@ -474,8 +481,8 @@ impl TrainableCone {
         }
 
         // Update raw_apertures.
-        for i in 0..self.dim {
-            let idx = self.dim + i;
+        for i in 0..dim {
+            let idx = dim + i;
             let m_hat = state.m[idx] / bias_correction;
             let update = state.lr * m_hat / (state.v_hat[idx].sqrt() + state.epsilon);
             self.raw_apertures[i] -= update;

@@ -50,7 +50,7 @@
 //! - Export trained embeddings to Rust for inference
 //!
 //! This module provides inference-time operations and the trait definitions.
-//! Training implementations may be added to subsume-candle with autograd support.
+//! Training implementations may be added to the `candle_backend` module with autograd support.
 //!
 //! # References
 //!
@@ -95,7 +95,7 @@ impl Curvature {
 
     /// Create new curvature (must be negative and finite).
     pub fn new(c: f64) -> Result<Self, HyperbolicError> {
-        if c.is_nan() || c >= 0.0 {
+        if c.is_nan() || c >= 0.0 || c.is_infinite() {
             return Err(HyperbolicError::InvalidCurvature(c));
         }
         Ok(Self(c))
@@ -568,5 +568,21 @@ mod tests {
         let result =
             PoincareBallPoint::new_projected(vec![f64::NAN, f64::NAN], Curvature::STANDARD);
         assert!(result.is_err(), "All-NaN coords should be rejected");
+    }
+
+    #[test]
+    fn curvature_neg_infinity_returns_err() {
+        assert!(
+            Curvature::new(-f64::INFINITY).is_err(),
+            "-Inf curvature should be rejected"
+        );
+    }
+
+    #[test]
+    fn curvature_pos_infinity_returns_err() {
+        assert!(
+            Curvature::new(f64::INFINITY).is_err(),
+            "+Inf curvature should be rejected (positive and infinite)"
+        );
     }
 }

@@ -55,9 +55,8 @@
 //!
 //! # Implementation
 //!
-//! This module provides framework-agnostic traits. Implementations live in:
-//! - `subsume`: CPU-based with ndarray
-//! - `subsume-candle`: GPU-accelerated with candle
+//! This module provides framework-agnostic traits with a concrete CPU implementation.
+//! GPU-accelerated sheaf operations may be added to the `candle_backend` module.
 //!
 //! # References
 //!
@@ -234,20 +233,6 @@ pub trait SheafGraph: Debug {
 
 /// Describes the structure of a sheaf Laplacian.
 ///
-/// The Laplacian can be:
-/// - **Connection Laplacian**: Uses orthogonal restriction maps (preserves norms)
-/// - **General Laplacian**: Arbitrary linear maps
-/// - **Diagonal Laplacian**: Scalar weights only (reduces to graph Laplacian)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LaplacianType {
-    /// Orthogonal restriction maps (O(d) valued).
-    Connection,
-    /// General linear maps (GL(d) valued).
-    General,
-    /// Scalar weights (diagonal, equivalent to weighted graph Laplacian).
-    Diagonal,
-}
-
 /// Configuration for sheaf diffusion.
 #[derive(Debug, Clone)]
 pub struct DiffusionConfig {
@@ -255,10 +240,6 @@ pub struct DiffusionConfig {
     pub num_steps: usize,
     /// Step size (learning rate for diffusion).
     pub step_size: f32,
-    /// Whether to normalize the Laplacian (D^{-1/2} L D^{-1/2}).
-    pub normalize: bool,
-    /// Type of Laplacian to use (Connection, General, or Diagonal).
-    pub laplacian_type: LaplacianType,
 }
 
 impl Default for DiffusionConfig {
@@ -266,8 +247,6 @@ impl Default for DiffusionConfig {
         Self {
             num_steps: 5,
             step_size: 0.1,
-            normalize: true,
-            laplacian_type: LaplacianType::General,
         }
     }
 }
@@ -318,13 +297,14 @@ impl DenseRestriction {
     /// Useful for connection Laplacians.
     #[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
     #[cfg(feature = "rand")]
-    #[allow(deprecated)]
     pub fn random_orthogonal(dim: usize) -> Self {
         use rand::Rng;
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         // Generate random matrix
-        let mut data: Vec<f32> = (0..dim * dim).map(|_| rng.gen_range(-0.5..0.5)).collect();
+        let mut data: Vec<f32> = (0..dim * dim)
+            .map(|_| rng.random_range(-0.5..0.5))
+            .collect();
 
         // Simple Gram-Schmidt orthogonalization
         for i in 0..dim {
@@ -1110,7 +1090,6 @@ mod tests {
         let config = DiffusionConfig {
             num_steps: 100,
             step_size: 0.1,
-            ..Default::default()
         };
 
         // Already converged: should return 1 (converges on first step)
@@ -1132,7 +1111,6 @@ mod tests {
         let config = DiffusionConfig {
             num_steps: 3,
             step_size: 0.01, // Very small step: won't converge in 3 steps
-            ..Default::default()
         };
 
         let steps = diffuse_until_convergence(&mut graph, &config, 1e-12).unwrap();
@@ -1170,8 +1148,6 @@ mod tests {
         let config = DiffusionConfig::default();
         assert_eq!(config.num_steps, 5);
         assert!((config.step_size - 0.1).abs() < 1e-6);
-        assert!(config.normalize);
-        assert_eq!(config.laplacian_type, LaplacianType::General);
     }
 
     #[test]
