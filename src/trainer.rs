@@ -2505,6 +2505,25 @@ mod proptests {
                 prop_assert!(d <= 10.0_f32.ln() + 1e-5);
             }
         }
+        /// compute_pair_loss returns finite f32 for random box pairs and configs.
+        #[test]
+        fn prop_compute_pair_loss_finite(
+            box_a in arb_box(4),
+            box_b in arb_box(4),
+            is_positive in any::<bool>(),
+            regularization in 0.0f32..1.0,
+            margin in 0.0f32..2.0,
+            negative_weight in 0.1f32..5.0,
+        ) {
+            let config = TrainingConfig {
+                regularization,
+                margin,
+                negative_weight,
+                ..Default::default()
+            };
+            let loss = compute_pair_loss(&box_a, &box_b, is_positive, &config);
+            prop_assert!(loss.is_finite(), "compute_pair_loss returned non-finite: {loss}");
+        }
     }
 
     // -- Cone trainer tests --

@@ -788,6 +788,17 @@ mod tests {
             );
         }
 
+        /// cone_distance(a, b) >= 0 for any two cones.
+        #[test]
+        fn prop_containment_distance_non_negative(
+            a in arb_cone(3),
+            b in arb_cone(3),
+            cen in 0.0f32..1.0,
+        ) {
+            let d = a.cone_distance(&b, cen).unwrap();
+            prop_assert!(d >= -1e-6, "cone_distance should be non-negative, got {d}");
+        }
+
         /// After projection, result is still a valid cone (apertures in [0, pi], axes in [-pi, pi]).
         #[test]
         fn prop_projection_preserves_cone_structure(

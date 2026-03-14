@@ -540,6 +540,51 @@ mod tests {
         );
     }
 
+    // ---- Property tests ----
+
+    use proptest::prelude::*;
+
+    /// Generate a valid Poincare ball point with norm < 0.95.
+    fn arb_poincare_point(dim: usize) -> impl Strategy<Value = PoincareBallPoint> {
+        prop::collection::vec(-1.0f64..1.0, dim).prop_filter_map(
+            "point must be inside Poincare ball",
+            move |coords| {
+                let norm_sq: f64 = coords.iter().map(|x| x * x).sum();
+                if norm_sq >= 0.95 * 0.95 {
+                    None
+                } else {
+                    PoincareBallPoint::new(coords, Curvature::STANDARD).ok()
+                }
+            },
+        )
+    }
+
+    proptest! {
+        /// d(a, b) == d(b, a) for any two valid Poincare points.
+        #[test]
+        fn prop_poincare_distance_symmetric(
+            a in arb_poincare_point(3),
+            b in arb_poincare_point(3),
+        ) {
+            let d_ab = a.distance(&b).unwrap();
+            let d_ba = b.distance(&a).unwrap();
+            prop_assert!(
+                (d_ab - d_ba).abs() < 1e-10,
+                "distance should be symmetric: d(a,b)={d_ab}, d(b,a)={d_ba}"
+            );
+        }
+
+        /// d(a, b) >= 0 for any two valid Poincare points.
+        #[test]
+        fn prop_poincare_distance_non_negative(
+            a in arb_poincare_point(4),
+            b in arb_poincare_point(4),
+        ) {
+            let d = a.distance(&b).unwrap();
+            prop_assert!(d >= -1e-10, "distance should be non-negative, got {d}");
+        }
+    }
+
     // ---- NaN rejection ----
 
     #[test]
