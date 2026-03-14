@@ -32,13 +32,13 @@
 //!
 //! This pattern appears in Gumbel intersections and other operations.
 //!
-//! See [`docs/MATHEMATICAL_FOUNDATIONS.md`](../../docs/MATHEMATICAL_FOUNDATIONS.md)
-//! for complete mathematical derivations and [`docs/MATH_TO_CODE_CONNECTIONS.md`](../../docs/MATH_TO_CODE_CONNECTIONS.md)
+//! See [`docs/MATHEMATICAL_FOUNDATIONS.md`](https://github.com/arclabs561/subsume/blob/main/docs/MATHEMATICAL_FOUNDATIONS.md)
+//! for complete mathematical derivations and [`docs/MATH_TO_CODE_CONNECTIONS.md`](https://github.com/arclabs561/subsume/blob/main/docs/MATH_TO_CODE_CONNECTIONS.md)
 //! for how these patterns are used in the codebase.
 //!
 //! **For detailed study:** PDF versions with professional typesetting are available:
-//! - [`docs/typst-output/pdf/log-sum-exp-intersection.pdf`](../../docs/typst-output/pdf/log-sum-exp-intersection.pdf) - Log-sum-exp function and numerical stability
-//! - [`docs/typst-output/pdf/gumbel-box-volume.pdf`](../../docs/typst-output/pdf/gumbel-box-volume.pdf) - Volume calculations and numerical considerations
+//! - [`docs/typst-output/pdf/log-sum-exp-intersection.pdf`](https://github.com/arclabs561/subsume/blob/main/docs/typst-output/pdf/log-sum-exp-intersection.pdf) - Log-sum-exp function and numerical stability
+//! - [`docs/typst-output/pdf/gumbel-box-volume.pdf`](https://github.com/arclabs561/subsume/blob/main/docs/typst-output/pdf/gumbel-box-volume.pdf) - Volume calculations and numerical considerations
 
 /// Euler-Mascheroni constant (gamma ~ 0.5772).
 ///
@@ -200,7 +200,7 @@ pub fn stable_sigmoid(x: f32) -> f32 {
 /// Uses [`stable_sigmoid`] to avoid overflow when
 /// \(|x - min|/\tau\) or \(|max - x|/\tau\) is large.
 ///
-/// See [`docs/MATHEMATICAL_FOUNDATIONS.md`](../../docs/MATHEMATICAL_FOUNDATIONS.md)
+/// See [`docs/MATHEMATICAL_FOUNDATIONS.md`](https://github.com/arclabs561/subsume/blob/main/docs/MATHEMATICAL_FOUNDATIONS.md)
 /// section "Gumbel-Softmax Framework" for more details.
 ///
 /// # Parameters
@@ -266,7 +266,7 @@ pub fn gumbel_membership_prob(x: f32, min: f32, max: f32, temp: f32) -> f32 {
 /// intersection operations preserve the Gumbel distribution family, enabling analytical
 /// volume calculations.
 ///
-/// See [`docs/MATHEMATICAL_FOUNDATIONS.md`](../../docs/MATHEMATICAL_FOUNDATIONS.md)
+/// See [`docs/MATHEMATICAL_FOUNDATIONS.md`](https://github.com/arclabs561/subsume/blob/main/docs/MATHEMATICAL_FOUNDATIONS.md)
 /// section "Min-Max Stability" for the complete proof.
 ///
 /// # Numerical Stability
@@ -291,7 +291,7 @@ pub fn gumbel_membership_prob(x: f32, min: f32, max: f32, temp: f32) -> f32 {
 /// fundamental to Gumbel distributions and enables max-stability: the maximum of
 /// independent Gumbel random variables is itself Gumbel-distributed.
 ///
-/// See [`docs/typst-output/pdf/gumbel-max-stability.pdf`](../../docs/typst-output/pdf/gumbel-max-stability.pdf)
+/// See [`docs/typst-output/pdf/gumbel-max-stability.pdf`](https://github.com/arclabs561/subsume/blob/main/docs/typst-output/pdf/gumbel-max-stability.pdf)
 /// for the complete derivation of max-stability and why it's crucial for box embeddings.
 pub fn sample_gumbel(u: f32, epsilon: f32) -> f32 {
     let u_clamped = u.clamp(epsilon, 1.0 - epsilon);
@@ -651,6 +651,26 @@ mod tests {
                     lse >= m - 1e-6,
                     "stable_logsumexp({a}, {b})={lse} < max={m}"
                 );
+            }
+        }
+
+        // ---- gumbel_membership_prob always in [0, 1] for finite inputs ----
+        proptest! {
+            #[test]
+            fn prop_gumbel_membership_prob_bounds(
+                x in -10.0f32..10.0f32,
+                min_val in -10.0f32..10.0f32,
+                width in 0.01f32..20.0f32,
+                temp in 0.1f32..10.0f32,
+            ) {
+                let max_val = min_val + width;
+                let p = gumbel_membership_prob(x, min_val, max_val, temp);
+                prop_assert!(
+                    (0.0..=1.0).contains(&p),
+                    "gumbel_membership_prob({x}, {min_val}, {max_val}, {temp}) = {p} not in [0, 1]"
+                );
+                prop_assert!(p.is_finite(),
+                    "gumbel_membership_prob must be finite, got {p}");
             }
         }
     }

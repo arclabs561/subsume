@@ -46,9 +46,9 @@
 //!
 //! where $K_0$ is the modified Bessel function of the second kind. The derivation from
 //! Gumbel distributions to Bessel functions, asymptotic behavior, and numerical approximations
-//! are explained in detail in the [mathematical foundations](../../docs/MATHEMATICAL_FOUNDATIONS.md).
+//! are explained in detail in the [mathematical foundations](https://github.com/arclabs561/subsume/blob/main/docs/MATHEMATICAL_FOUNDATIONS.md).
 //!
-//! See [`docs/MATHEMATICAL_FOUNDATIONS.md`](../../docs/MATHEMATICAL_FOUNDATIONS.md) for:
+//! See [`docs/MATHEMATICAL_FOUNDATIONS.md`](https://github.com/arclabs561/subsume/blob/main/docs/MATHEMATICAL_FOUNDATIONS.md) for:
 //! - Complete derivation from Gumbel PDFs to Bessel functions
 //! - Gumbel max-stability and algebraic closure properties
 //! - Log-sum-exp function and numerical stability
@@ -56,7 +56,7 @@
 //! - Measure-theoretic foundations
 //!
 //! **For detailed study:** PDF versions with professional typesetting are available in
-//! [`docs/typst-output/pdf/`](../../docs/typst-output/pdf/), including complete step-by-step
+//! [`docs/typst-output/pdf/`](https://github.com/arclabs561/subsume/tree/main/docs/typst-output/pdf/), including complete step-by-step
 //! derivations, proofs, and examples following textbook-style exposition.
 
 /// A geometric box (axis-aligned hyperrectangle) in d-dimensional space.
@@ -137,7 +137,7 @@ pub trait Box: Sized {
     /// where `d` is the number of dimensions.
     ///
     /// For Gumbel boxes, this computes the expected volume using the Bessel approximation.
-    /// See the [mathematical foundations](../../docs/MATHEMATICAL_FOUNDATIONS.md) for details.
+    /// See the [mathematical foundations](https://github.com/arclabs561/subsume/blob/main/docs/MATHEMATICAL_FOUNDATIONS.md) for details.
     ///
     ///
     /// # Errors
@@ -168,7 +168,7 @@ pub trait Box: Sized {
     /// where `lse_β(x, y) = max(x, y) + β log(1 + exp(-|x-y|/β))` is the
     /// numerically stable log-sum-exp function.
     ///
-    /// See the [mathematical foundations](../../docs/MATHEMATICAL_FOUNDATIONS.md)
+    /// See the [mathematical foundations](https://github.com/arclabs561/subsume/blob/main/docs/MATHEMATICAL_FOUNDATIONS.md)
     /// for details on Gumbel intersections and max-stability.
     ///
     /// # Errors
@@ -231,7 +231,7 @@ pub trait Box: Sized {
     /// This directly models logical subsumption: if the probability is 1.0, then
     /// `self` completely subsumes `other` (entailment relationship).
     ///
-    /// See the [mathematical foundations](../../docs/MATHEMATICAL_FOUNDATIONS.md)
+    /// See the [mathematical foundations](https://github.com/arclabs561/subsume/blob/main/docs/MATHEMATICAL_FOUNDATIONS.md)
     /// section "Containment Probability" for the complete derivation of the Taylor approximation.
     ///
     /// # Errors

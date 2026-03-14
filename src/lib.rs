@@ -251,7 +251,7 @@ pub use training::metrics::{hits_at_k, mean_rank, mean_reciprocal_rank, ndcg};
 
 // Re-exports: sheaf
 pub use sheaf::{
-    consistency_score, diffuse_until_convergence, DenseRestriction, DiffusionConfig, LaplacianType,
+    consistency_score, diffuse_until_convergence, DenseRestriction, DiffusionConfig,
     RestrictionMap, SheafEdge, SheafError, SheafGraph, SimpleSheafGraph, Stalk, VecStalk,
 };
 
