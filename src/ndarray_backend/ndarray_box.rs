@@ -113,7 +113,7 @@ impl NdarrayBox {
 
         // Validate bounds
         for (i, (&m, &max_val)) in min.iter().zip(max.iter()).enumerate() {
-            if m.is_nan() || max_val.is_nan() {
+            if !m.is_finite() || !max_val.is_finite() {
                 return Err(BoxError::InvalidBounds {
                     dim: i,
                     min: m as f64,

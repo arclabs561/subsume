@@ -78,14 +78,7 @@ impl GaussianBox {
             });
         }
         for (i, &s) in sigma.iter().enumerate() {
-            if s.is_nan() {
-                return Err(BoxError::InvalidBounds {
-                    dim: i,
-                    min: 0.0,
-                    max: s as f64,
-                });
-            }
-            if s <= 0.0 {
+            if !s.is_finite() || s <= 0.0 {
                 return Err(BoxError::InvalidBounds {
                     dim: i,
                     min: 0.0,
@@ -94,7 +87,7 @@ impl GaussianBox {
             }
         }
         for (i, &m) in mu.iter().enumerate() {
-            if m.is_nan() {
+            if !m.is_finite() {
                 return Err(BoxError::InvalidBounds {
                     dim: i,
                     min: m as f64,
@@ -151,9 +144,9 @@ impl GaussianBox {
                 actual: offset.len(),
             });
         }
-        // Reject NaN in center (mu).
+        // Reject non-finite in center (mu).
         for (i, &c) in center.iter().enumerate() {
-            if c.is_nan() {
+            if !c.is_finite() {
                 return Err(BoxError::InvalidBounds {
                     dim: i,
                     min: c as f64,
@@ -161,9 +154,9 @@ impl GaussianBox {
                 });
             }
         }
-        // Reject NaN in offset (before softplus, since softplus(NaN) = NaN).
+        // Reject non-finite in offset (before softplus, since softplus(NaN) = NaN).
         for (i, &o) in offset.iter().enumerate() {
-            if o.is_nan() {
+            if !o.is_finite() {
                 return Err(BoxError::InvalidBounds {
                     dim: i,
                     min: o as f64,
