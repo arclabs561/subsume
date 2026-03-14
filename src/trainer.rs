@@ -2285,6 +2285,131 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
+    // gradient correctness via loss reduction
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn analytical_gradients_reduce_loss_on_positive_pair() {
+        // Two overlapping boxes where parent doesn't fully contain child.
+        // Box A: center=0, width=exp(0.5)~1.65 -> [-0.82, 0.82]
+        // Box B: center=1, width=exp(0.5)~1.65 -> [0.18, 1.82]
+        // They overlap but A doesn't fully contain B.
+        let mut a = TrainableBox::new(vec![0.0, 0.0], vec![0.5, 0.5]).unwrap();
+        let mut b = TrainableBox::new(vec![1.0, 1.0], vec![0.5, 0.5]).unwrap();
+        let cfg = TrainingConfig {
+            regularization: 0.0,
+            ..Default::default()
+        };
+
+        let loss_before = compute_pair_loss(&a, &b, true, &cfg);
+
+        let (g_mu_a, g_delta_a, g_mu_b, g_delta_b) =
+            compute_analytical_gradients(&a, &b, true, &cfg);
+
+        // Apply one gradient step manually (gradient descent: param -= lr * grad).
+        let lr = 0.1;
+        for i in 0..a.dim() {
+            a.mu[i] -= lr * g_mu_a[i];
+            a.delta[i] -= lr * g_delta_a[i];
+            b.mu[i] -= lr * g_mu_b[i];
+            b.delta[i] -= lr * g_delta_b[i];
+        }
+
+        let loss_after = compute_pair_loss(&a, &b, true, &cfg);
+        assert!(
+            loss_after < loss_before,
+            "gradient step should reduce positive-pair loss: before={loss_before}, after={loss_after}"
+        );
+    }
+
+    #[test]
+    fn analytical_gradient_finite_difference_sign_agreement() {
+        // Verify that the analytical gradient for mu_a[0] agrees in sign with
+        // a finite-difference approximation.
+        let a = TrainableBox::new(vec![0.0, 0.0], vec![0.5, 0.5]).unwrap();
+        let b = TrainableBox::new(vec![1.0, 1.0], vec![0.5, 0.5]).unwrap();
+        let cfg = TrainingConfig {
+            regularization: 0.0,
+            ..Default::default()
+        };
+
+        let (g_mu_a, _, _, _) = compute_analytical_gradients(&a, &b, true, &cfg);
+        let grad_analytical = g_mu_a[0];
+
+        // Finite-difference: (loss(mu+eps) - loss(mu-eps)) / (2*eps)
+        let eps = 1e-3;
+        let mut a_plus = a.clone();
+        a_plus.mu[0] += eps;
+        let mut a_minus = a.clone();
+        a_minus.mu[0] -= eps;
+
+        let loss_plus = compute_pair_loss(&a_plus, &b, true, &cfg);
+        let loss_minus = compute_pair_loss(&a_minus, &b, true, &cfg);
+        let grad_numerical = (loss_plus - loss_minus) / (2.0 * eps);
+
+        // The analytical gradient is a heuristic (not a true derivative), so we only
+        // check directional agreement (same sign), not magnitude.
+        assert!(
+            grad_analytical.signum() == grad_numerical.signum()
+                || grad_analytical.abs() < 1e-6
+                || grad_numerical.abs() < 1e-6,
+            "gradient sign mismatch: analytical={grad_analytical}, numerical={grad_numerical}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // negative sampling statistical uniformity
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[cfg(feature = "rand")]
+    fn negative_sampling_uniformity() {
+        use rand::SeedableRng;
+
+        // Generate 1000 negatives from a pool of 5 entities using CorruptTail.
+        // The triple's tail is "e0", so valid replacement tails are e1..e4 (4 entities).
+        // Each should appear at least 100 times out of 1000 (loose bound).
+        let triple = Triple {
+            head: "e0".to_string(),
+            relation: "r".to_string(),
+            tail: "e0".to_string(),
+        };
+        let entities: HashSet<String> = (0..5).map(|i| format!("e{i}")).collect();
+        let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+
+        let negatives = generate_negative_samples_with_rng(
+            &triple,
+            &entities,
+            &NegativeSamplingStrategy::CorruptTail,
+            1000,
+            &mut rng,
+        );
+
+        // Count how many times each tail entity appears.
+        let mut counts: HashMap<String, usize> = HashMap::new();
+        for neg in &negatives {
+            *counts.entry(neg.tail.clone()).or_insert(0) += 1;
+        }
+
+        // The positive tail "e0" should never appear (filtered out).
+        assert!(
+            !counts.contains_key("e0"),
+            "positive tail should be filtered: counts={counts:?}"
+        );
+
+        // Each of the 4 replacement entities should appear at least 100 times.
+        for i in 1..5 {
+            let key = format!("e{i}");
+            let c = counts.get(&key).copied().unwrap_or(0);
+            assert!(
+                c >= 100,
+                "entity {key} appeared only {c} times out of {} negatives (expected >= 100)",
+                negatives.len()
+            );
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // log_training_result with tempfile
     // -----------------------------------------------------------------------
 

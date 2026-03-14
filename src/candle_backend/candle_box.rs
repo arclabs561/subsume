@@ -396,3 +396,39 @@ impl<'de> Deserialize<'de> for CandleBox {
         deserializer.deserialize_struct("CandleBox", FIELDS, CandleBoxVisitor)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Box as BoxTrait;
+    use candle_core::Device;
+
+    #[test]
+    fn serde_json_roundtrip() {
+        let min = Tensor::new(&[1.0f32, 2.0, 3.0], &Device::Cpu).unwrap();
+        let max = Tensor::new(&[4.0f32, 5.0, 6.0], &Device::Cpu).unwrap();
+        let original = CandleBox::new(min, max, 0.7).unwrap();
+
+        let json = serde_json::to_string(&original).unwrap();
+        let restored: CandleBox = serde_json::from_str(&json).unwrap();
+
+        // Verify dimensions match.
+        assert_eq!(original.dim(), restored.dim());
+
+        // Verify min/max coordinates match.
+        let orig_min: Vec<f32> = original.min().to_vec1().unwrap();
+        let rest_min: Vec<f32> = restored.min().to_vec1().unwrap();
+        let orig_max: Vec<f32> = original.max().to_vec1().unwrap();
+        let rest_max: Vec<f32> = restored.max().to_vec1().unwrap();
+        assert_eq!(orig_min, rest_min);
+        assert_eq!(orig_max, rest_max);
+
+        // Verify temperature survives roundtrip.
+        assert!((original.temperature - restored.temperature).abs() < 1e-7);
+
+        // Verify volume is preserved.
+        let vol_orig = original.volume(1.0).unwrap();
+        let vol_rest = restored.volume(1.0).unwrap();
+        assert!((vol_orig - vol_rest).abs() < 1e-6);
+    }
+}

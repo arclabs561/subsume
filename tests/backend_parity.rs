@@ -202,6 +202,94 @@ fn gumbel_parity_membership_probability() {
     }
 }
 
+// -- Extended parity: union, center, distance, truncate --
+
+fn check_extended_parity(dim: usize, temperature: f32) {
+    let tag = format!("dim={} temp={}", dim, temperature);
+
+    let min_a: Vec<f32> = vec![0.0; dim];
+    let max_a: Vec<f32> = vec![2.0; dim];
+    let min_c: Vec<f32> = vec![1.0; dim];
+    let max_c: Vec<f32> = vec![3.0; dim];
+    let min_d: Vec<f32> = vec![5.0; dim];
+    let max_d: Vec<f32> = vec![6.0; dim];
+
+    let (na, ca) = make_pair(&min_a, &max_a, temperature);
+    let (nc, cc) = make_pair(&min_c, &max_c, temperature);
+    let (nd, cd) = make_pair(&min_d, &max_d, temperature);
+
+    // -- union --
+    let nu = na.union(&nc).unwrap();
+    let cu = ca.union(&cc).unwrap();
+    let nu_min: Vec<f32> = nu.min().iter().copied().collect();
+    let nu_max: Vec<f32> = nu.max().iter().copied().collect();
+    let cu_min: Vec<f32> = cu.min().to_vec1::<f32>().unwrap();
+    let cu_max: Vec<f32> = cu.max().to_vec1::<f32>().unwrap();
+    for i in 0..dim {
+        assert_close(&format!("{tag} union_min[{i}]"), nu_min[i], cu_min[i]);
+        assert_close(&format!("{tag} union_max[{i}]"), nu_max[i], cu_max[i]);
+    }
+    // Union volume parity.
+    assert_close(
+        &format!("{tag} union_vol"),
+        nu.volume(temperature).unwrap(),
+        cu.volume(temperature).unwrap(),
+    );
+
+    // -- center --
+    let nc_center: Vec<f32> = na.center().unwrap().iter().copied().collect();
+    let cc_center: Vec<f32> = ca.center().unwrap().to_vec1::<f32>().unwrap();
+    for i in 0..dim {
+        assert_close(&format!("{tag} center[{i}]"), nc_center[i], cc_center[i]);
+    }
+
+    // -- distance: overlapping, disjoint --
+    assert_close(
+        &format!("{tag} dist(A,C)"),
+        na.distance(&nc).unwrap(),
+        ca.distance(&cc).unwrap(),
+    );
+    assert_close(
+        &format!("{tag} dist(A,D)"),
+        na.distance(&nd).unwrap(),
+        ca.distance(&cd).unwrap(),
+    );
+
+    // -- truncate --
+    if dim >= 2 {
+        let k = dim / 2;
+        let nt = na.truncate(k).unwrap();
+        let ct = ca.truncate(k).unwrap();
+        assert_eq!(nt.dim(), ct.dim(), "{tag} truncate dim mismatch");
+        assert_close(
+            &format!("{tag} truncate_vol"),
+            nt.volume(temperature).unwrap(),
+            ct.volume(temperature).unwrap(),
+        );
+    }
+}
+
+#[test]
+fn extended_parity_2d() {
+    for &temp in &[0.1, 1.0, 5.0] {
+        check_extended_parity(2, temp);
+    }
+}
+
+#[test]
+fn extended_parity_5d() {
+    for &temp in &[0.1, 1.0, 5.0] {
+        check_extended_parity(5, temp);
+    }
+}
+
+#[test]
+fn extended_parity_10d() {
+    for &temp in &[0.1, 1.0, 5.0] {
+        check_extended_parity(10, temp);
+    }
+}
+
 #[test]
 fn gumbel_parity_temperature() {
     for &temp in &[0.1, 1.0, 5.0] {
