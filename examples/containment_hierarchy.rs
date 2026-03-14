@@ -90,11 +90,50 @@ fn main() -> Result<(), subsume::BoxError> {
         println!("{:>12.1} {:>12.4}", t, p);
     }
 
-    println!("\nKey observations:");
-    println!("  - dog is inside mammal, which is inside animal (transitive containment)");
-    println!("  - dog and cat overlap partially but neither contains the other");
-    println!("  - fish overlaps with animal but not with mammal (different sub-hierarchy)");
-    println!("  - lower temperature makes containment probabilities sharper (closer to 0/1)");
+    // --- Part 5: Verify key relationships with computed values ---
+    println!("\n--- Key relationships (computed) ---\n");
+
+    let p_dog_mammal = mammal.containment_prob(&dog, temp)?;
+    let p_mammal_animal = animal.containment_prob(&mammal, temp)?;
+    let p_dog_animal = animal.containment_prob(&dog, temp)?;
+    println!(
+        "  P(dog in mammal) = {:.4}, P(mammal in animal) = {:.4}, P(dog in animal) = {:.4}",
+        p_dog_mammal, p_mammal_animal, p_dog_animal
+    );
+    println!("  -> Transitive containment: dog inside mammal inside animal");
+
+    let p_dog_cat = dog.overlap_prob(&cat, temp)?;
+    let p_cat_dog = cat.overlap_prob(&dog, temp)?;
+    println!(
+        "\n  overlap(dog, cat) = {:.4}, overlap(cat, dog) = {:.4}",
+        p_dog_cat, p_cat_dog
+    );
+    println!("  -> Low overlap: dog and cat occupy different regions");
+
+    let p_fish_mammal = mammal.containment_prob(&fish, temp)?;
+    let p_fish_animal = animal.containment_prob(&fish, temp)?;
+    println!(
+        "\n  P(fish in mammal) = {:.4}, P(fish in animal) = {:.4}",
+        p_fish_mammal, p_fish_animal
+    );
+    println!("  -> Fish is geometrically inside mammal's box (placed in a subregion)");
+
+    // For hard boxes (NdarrayBox), containment is binary: 1.0 if fully inside, 0.0 otherwise.
+    // Temperature smoothing only affects Gumbel boxes (see gumbel_box_exploration example).
+    // The temperature sweep above (Part 4) shows this: P(dog|animal) is ~1.0 at all temps
+    // because hard containment is exact. For probabilistic soft boundaries, use GumbelBox.
+    let v_animal = animal.volume(temp)?;
+    let v_dog = dog.volume(temp)?;
+    println!(
+        "\n  volume(animal) = {:.4}, volume(dog) = {:.4}, ratio = {:.1}x",
+        v_animal,
+        v_dog,
+        v_animal / v_dog
+    );
+    println!(
+        "  -> More general concepts have larger volume (animal is {:.0}x bigger than dog)",
+        v_animal / v_dog
+    );
 
     // See scripts/plot_box_concept.py for a visualization of box containment, overlap,
     // and Gumbel soft boundaries.

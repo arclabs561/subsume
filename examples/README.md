@@ -12,6 +12,9 @@
 | `octagon_demo` | Octagon embeddings: diagonal constraints, point containment, intersection (closure), volume comparison, soft containment/overlap |
 | `fuzzy_query` | Fuzzy query answering with t-norms (Min/Product/Lukasiewicz), t-conorms, negation, and De Morgan duality on a small KG |
 | `taxobell_demo` | TaxoBell Gaussian box losses on a mini taxonomy (no training, loss inspection only) |
+| `dataset_training` | Full pipeline: load WN18RR-format dataset, train box embeddings, evaluate with MRR/Hits@k |
+| `imagenet_hierarchy` | Real-scale training on 252 Tiny ImageNet WordNet synsets; volume-depth correlation (Spearman) |
+| `hyperbolic_demo` | Poincare ball embeddings: norm-depth correlation, hierarchy preservation, exponential capacity |
 | `el_training` | End-to-end EL++ box embedding training on a biomedical-style ontology |
 | `taxobell_training` | TaxoBell MLP encoder training with Candle autograd (requires `--features candle-backend`) |
 
@@ -32,7 +35,12 @@
 - **Want to explore fuzzy logic operators for query answering?**
   Start with `fuzzy_query`.
 
+- **Want to embed a tree-like hierarchy in hyperbolic space?**
+  Start with `hyperbolic_demo`.
+
 - **Want to train embeddings on a hierarchy?**
+  - Real-scale (252 entities, Tiny ImageNet synsets): `imagenet_hierarchy`
+  - Dataset pipeline (load, train, evaluate with metrics): `dataset_training`
   - Cone model (angular containment, supports negation): `cone_training`
   - Box model (axis-aligned hyperrectangles, volume-based): `box_training`
   - EL++ ontology (subsumption + roles): `el_training`
@@ -46,14 +54,17 @@
 ```bash
 cargo run -p subsume --example containment_hierarchy
 cargo run -p subsume --example gumbel_box_exploration
-cargo run -p subsume --example cone_training
-cargo run -p subsume --example box_training
+cargo run -p subsume --example cone_training --release
+cargo run -p subsume --example box_training --release
 cargo run -p subsume --example query2box
 cargo run -p subsume --example octagon_demo
 cargo run -p subsume --example fuzzy_query
 cargo run -p subsume --example taxobell_demo
-cargo run -p subsume --example el_training
-cargo run -p subsume --features candle-backend --example taxobell_training
+cargo run -p subsume --example dataset_training --release
+cargo run -p subsume --example imagenet_hierarchy --release
+cargo run -p subsume --example hyperbolic_demo
+cargo run -p subsume --example el_training --release
+cargo run -p subsume --features candle-backend --example taxobell_training --release
 ```
 
 ## Visualization scripts

@@ -87,6 +87,9 @@ cargo run -p subsume --example taxobell_demo            # TaxoBell Gaussian box 
 cargo run -p subsume --example query2box                # Query2Box: multi-hop queries, box intersection, distance scoring
 cargo run -p subsume --example octagon_demo             # octagon embeddings: diagonal constraints, containment, volume
 cargo run -p subsume --example fuzzy_query              # fuzzy query answering: t-norms, De Morgan duality, rankings
+cargo run -p subsume --example dataset_training --release # full pipeline: WN18RR-format data, train, evaluate
+cargo run -p subsume --example imagenet_hierarchy --release # 252 Tiny ImageNet synsets, volume-depth correlation
+cargo run -p subsume --example hyperbolic_demo           # Poincare ball: hierarchy preservation, exponential capacity
 cargo run -p subsume --example el_training              # EL++ box embeddings on a biomedical-style ontology
 cargo run -p subsume --features candle-backend --example taxobell_training  # TaxoBell MLP encoder training (Candle)
 ```
@@ -183,6 +186,9 @@ levels where Gaussian boxes fail completely.
 - Ren et al. (2020). "Query2Box: Reasoning over Knowledge Graphs using Box Embeddings"
 - Hansen & Ghrist (2019). "Toward a Spectral Theory of Cellular Sheaves"
 - Bodnar et al. (2022). "Neural Sheaf Diffusion: A Topological Perspective on Heterophily and Oversmoothing in GNNs"
+- Boratko et al. (2021). "Box Embeddings: An open-source library for representation learning using geometric structures" (EMNLP Demo)
+- Chen et al. (2021). "Probabilistic Box Embeddings for Uncertain Knowledge Graph Reasoning" (BEUrRE, ACL 2021)
+- Gebhart, Hansen & Schrater (2021). "Knowledge Sheaves: A Sheaf-Theoretic Framework for Knowledge Graph Embedding"
 - Zhang & Wang (2021). "ConE: Cone Embeddings for Multi-Hop Reasoning over Knowledge Graphs"
 - Chen et al. (2022). "Fuzzy Logic Based Logical Query Answering on Knowledge Graphs"
 - Jackermeier et al. (2023). "Dual Box Embeddings for the Description Logic EL++"
