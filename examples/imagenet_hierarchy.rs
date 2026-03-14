@@ -528,12 +528,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // Pass 4: leaf shrinkage -- contract leaves toward center
+        // Scale shrinkage by 1/(1+depth) so deeper leaves shrink less aggressively,
+        // preventing collapse to zero width at max depth.
         for &leaf in &leaves {
+            let d_depth = depth[leaf];
+            let effective_lr = shrink_lr / (1.0 + d_depth as f32);
             let (lmin, lmax) = boxes.get_mut(leaf).unwrap();
             for d in 0..dim {
                 let center = (lmin[d] + lmax[d]) * 0.5;
-                lmin[d] += shrink_lr * (center - lmin[d]);
-                lmax[d] -= shrink_lr * (lmax[d] - center);
+                lmin[d] += effective_lr * (center - lmin[d]);
+                lmax[d] -= effective_lr * (lmax[d] - center);
             }
         }
 

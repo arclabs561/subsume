@@ -146,3 +146,70 @@ fn parity_10d() {
         check_parity(10, temp);
     }
 }
+
+// -- GumbelBox parity --
+//
+// CandleGumbelBox delegates Box trait methods (volume, intersection, containment_prob)
+// to hard-box CandleBox, while NdarrayGumbelBox uses Bessel volume and LSE intersection.
+// These are documented to differ (see CandleGumbelBox doc comment). We therefore test
+// only the GumbelBox-specific method: membership_probability, which uses identical
+// scalar math (gumbel_membership_prob) in both backends.
+
+use subsume::candle_backend::CandleGumbelBox;
+use subsume::ndarray_backend::NdarrayGumbelBox;
+use subsume::GumbelBox;
+
+fn make_gumbel_pair(
+    min: &[f32],
+    max: &[f32],
+    temperature: f32,
+) -> (NdarrayGumbelBox, CandleGumbelBox) {
+    let ng = NdarrayGumbelBox::new(
+        Array1::from(min.to_vec()),
+        Array1::from(max.to_vec()),
+        temperature,
+    )
+    .expect("NdarrayGumbelBox::new");
+    let cg = CandleGumbelBox::new(
+        Tensor::new(min, &Device::Cpu).unwrap(),
+        Tensor::new(max, &Device::Cpu).unwrap(),
+        temperature,
+    )
+    .expect("CandleGumbelBox::new");
+    (ng, cg)
+}
+
+#[test]
+fn gumbel_parity_membership_probability() {
+    for &temp in &[0.5, 1.0, 2.0] {
+        let (ng, cg) = make_gumbel_pair(&[0.0, 0.0, 0.0], &[2.0, 3.0, 1.0], temp);
+
+        let points: Vec<Vec<f32>> = vec![
+            vec![1.0, 1.5, 0.5],  // interior
+            vec![0.0, 0.0, 0.0],  // boundary (min)
+            vec![2.0, 3.0, 1.0],  // boundary (max)
+            vec![-1.0, 1.0, 0.5], // outside
+        ];
+
+        for pt in &points {
+            let nd_pt = Array1::from(pt.clone());
+            let cd_pt = Tensor::new(pt.as_slice(), &Device::Cpu).unwrap();
+
+            let np = ng.membership_probability(&nd_pt).unwrap();
+            let cp = cg.membership_probability(&cd_pt).unwrap();
+            assert_close(&format!("gumbel_membership temp={temp} pt={pt:?}"), np, cp);
+        }
+    }
+}
+
+#[test]
+fn gumbel_parity_temperature() {
+    for &temp in &[0.1, 1.0, 5.0] {
+        let (ng, cg) = make_gumbel_pair(&[0.0, 0.0], &[1.0, 1.0], temp);
+        assert_close(
+            &format!("gumbel_temperature temp={temp}"),
+            ng.temperature(),
+            cg.temperature(),
+        );
+    }
+}
