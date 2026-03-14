@@ -11,7 +11,7 @@
 
 use crate::octagon::OctagonError;
 use ndarray::Array1;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Diagonal bounds for a single adjacent dimension pair (i, i+1).
 ///
@@ -59,6 +59,89 @@ pub struct NdarrayOctagon {
     axis_max: Array1<f32>,
     /// Diagonal bounds for adjacent pairs (i, i+1). Length = dim - 1.
     diag_bounds: Vec<NdarrayDiagBounds>,
+}
+
+impl Serialize for NdarrayOctagon {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("NdarrayOctagon", 3)?;
+        state.serialize_field("axis_min", &self.axis_min.to_vec())?;
+        state.serialize_field("axis_max", &self.axis_max.to_vec())?;
+        state.serialize_field("diag_bounds", &self.diag_bounds)?;
+        state.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for NdarrayOctagon {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        use serde::de::{self, MapAccess, Visitor};
+        use std::fmt;
+
+        #[derive(Deserialize)]
+        #[serde(field_identifier, rename_all = "snake_case")]
+        enum Field {
+            AxisMin,
+            AxisMax,
+            DiagBounds,
+        }
+
+        struct OctagonVisitor;
+
+        impl<'de> Visitor<'de> for OctagonVisitor {
+            type Value = NdarrayOctagon;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter
+                    .write_str("struct NdarrayOctagon with fields axis_min, axis_max, diag_bounds")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<NdarrayOctagon, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                let mut axis_min = None;
+                let mut axis_max = None;
+                let mut diag_bounds = None;
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::AxisMin => {
+                            if axis_min.is_some() {
+                                return Err(de::Error::duplicate_field("axis_min"));
+                            }
+                            axis_min = Some(map.next_value::<Vec<f32>>()?);
+                        }
+                        Field::AxisMax => {
+                            if axis_max.is_some() {
+                                return Err(de::Error::duplicate_field("axis_max"));
+                            }
+                            axis_max = Some(map.next_value::<Vec<f32>>()?);
+                        }
+                        Field::DiagBounds => {
+                            if diag_bounds.is_some() {
+                                return Err(de::Error::duplicate_field("diag_bounds"));
+                            }
+                            diag_bounds = Some(map.next_value::<Vec<NdarrayDiagBounds>>()?);
+                        }
+                    }
+                }
+                let axis_min = axis_min.ok_or_else(|| de::Error::missing_field("axis_min"))?;
+                let axis_max = axis_max.ok_or_else(|| de::Error::missing_field("axis_max"))?;
+                let diag_bounds =
+                    diag_bounds.ok_or_else(|| de::Error::missing_field("diag_bounds"))?;
+                NdarrayOctagon::new(Array1::from(axis_min), Array1::from(axis_max), diag_bounds)
+                    .map_err(|e| de::Error::custom(format!("Invalid octagon: {e}")))
+            }
+        }
+
+        const FIELDS: &[&str] = &["axis_min", "axis_max", "diag_bounds"];
+        deserializer.deserialize_struct("NdarrayOctagon", FIELDS, OctagonVisitor)
+    }
 }
 
 impl NdarrayOctagon {
@@ -943,6 +1026,44 @@ mod tests {
         // diff_min = 0-1=-1, diff_max = 1-0=1
         assert!((oct.diag_bounds[0].diff_min - (-1.0)).abs() < 1e-6);
         assert!((oct.diag_bounds[0].diff_max - 1.0).abs() < 1e-6);
+    }
+
+    // ---- Serde roundtrip ----
+
+    #[test]
+    fn serde_json_roundtrip() {
+        let original = NdarrayOctagon::new(
+            array![0.0, 0.0],
+            array![2.0, 2.0],
+            vec![NdarrayDiagBounds {
+                sum_min: 0.5,
+                sum_max: 3.5,
+                diff_min: -1.5,
+                diff_max: 1.5,
+            }],
+        )
+        .unwrap();
+
+        let json = serde_json::to_string(&original).expect("serialize");
+        let restored: NdarrayOctagon = serde_json::from_str(&json).expect("deserialize");
+
+        assert_eq!(original.dim(), restored.dim());
+        for i in 0..original.dim() {
+            assert!(
+                (original.axis_min()[i] - restored.axis_min()[i]).abs() < 1e-6,
+                "axis_min[{i}] mismatch"
+            );
+            assert!(
+                (original.axis_max()[i] - restored.axis_max()[i]).abs() < 1e-6,
+                "axis_max[{i}] mismatch"
+            );
+        }
+        let orig_diag = &original.diag_bounds[0];
+        let rest_diag = &restored.diag_bounds[0];
+        assert!((orig_diag.sum_min - rest_diag.sum_min).abs() < 1e-6);
+        assert!((orig_diag.sum_max - rest_diag.sum_max).abs() < 1e-6);
+        assert!((orig_diag.diff_min - rest_diag.diff_min).abs() < 1e-6);
+        assert!((orig_diag.diff_max - rest_diag.diff_max).abs() < 1e-6);
     }
 
     // ---- Contains ----
