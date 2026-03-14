@@ -618,6 +618,31 @@ mod tests {
         assert_eq!(proj.dim(), d);
     }
 
+    // ---- Serde roundtrip ----
+
+    #[test]
+    fn serde_json_roundtrip() {
+        let original = NdarrayCone::new(array![0.5, -1.2, 2.0], array![0.8, 1.5, 0.3]).unwrap();
+        let json = serde_json::to_string(&original).expect("serialize");
+        let restored: NdarrayCone = serde_json::from_str(&json).expect("deserialize");
+
+        assert_eq!(original.dim(), restored.dim());
+        for i in 0..original.dim() {
+            assert!(
+                (original.axes()[i] - restored.axes()[i]).abs() < 1e-6,
+                "axes[{i}] mismatch: {} vs {}",
+                original.axes()[i],
+                restored.axes()[i]
+            );
+            assert!(
+                (original.apertures()[i] - restored.apertures()[i]).abs() < 1e-6,
+                "apertures[{i}] mismatch: {} vs {}",
+                original.apertures()[i],
+                restored.apertures()[i]
+            );
+        }
+    }
+
     // ---- Numerical stability ----
 
     #[test]

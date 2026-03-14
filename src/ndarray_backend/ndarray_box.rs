@@ -863,6 +863,49 @@ mod tests {
         assert!((vol - 5.0).abs() < 1e-6);
     }
 
+    // ---- Dim=1 box operations ----
+
+    #[test]
+    fn dim_1_volume_containment_intersection_union() {
+        let a = NdarrayBox::new(array![0.0], array![10.0], 1.0).unwrap();
+        let b = NdarrayBox::new(array![3.0], array![7.0], 1.0).unwrap();
+
+        // Volume: line segment lengths.
+        let vol_a = a.volume(1.0).unwrap();
+        assert!(
+            (vol_a - 10.0).abs() < 1e-6,
+            "vol(a) should be 10, got {vol_a}"
+        );
+        let vol_b = b.volume(1.0).unwrap();
+        assert!(
+            (vol_b - 4.0).abs() < 1e-6,
+            "vol(b) should be 4, got {vol_b}"
+        );
+
+        // Containment: b is inside a.
+        let cp = a.containment_prob(&b, 1.0).unwrap();
+        assert!(
+            (cp - 1.0).abs() < 1e-4,
+            "b inside a => containment ~1.0, got {cp}"
+        );
+
+        // Intersection: [3, 7].
+        let inter = a.intersection(&b).unwrap();
+        let vol_inter = inter.volume(1.0).unwrap();
+        assert!(
+            (vol_inter - 4.0).abs() < 1e-6,
+            "intersection volume should be 4, got {vol_inter}"
+        );
+
+        // Union: [0, 10].
+        let u = a.union(&b).unwrap();
+        let vol_u = u.volume(1.0).unwrap();
+        assert!(
+            (vol_u - 10.0).abs() < 1e-6,
+            "union volume should be 10, got {vol_u}"
+        );
+    }
+
     // ---- Center ----
 
     #[test]

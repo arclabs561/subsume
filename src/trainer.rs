@@ -2100,6 +2100,41 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
+    // Evaluation determinism
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[cfg(feature = "ndarray-backend")]
+    fn evaluate_link_prediction_deterministic() {
+        use crate::ndarray_backend::NdarrayBox;
+        use ndarray::array;
+
+        let a = NdarrayBox::new(array![0.0, 0.0], array![10.0, 10.0], 1.0).unwrap();
+        let b = NdarrayBox::new(array![1.0, 1.0], array![3.0, 3.0], 1.0).unwrap();
+        let c = NdarrayBox::new(array![50.0, 50.0], array![51.0, 51.0], 1.0).unwrap();
+
+        let mut entity_boxes = HashMap::new();
+        entity_boxes.insert("A".to_string(), a);
+        entity_boxes.insert("B".to_string(), b);
+        entity_boxes.insert("C".to_string(), c);
+
+        let test_triples = vec![Triple {
+            head: "A".to_string(),
+            relation: "r".to_string(),
+            tail: "B".to_string(),
+        }];
+
+        let r1 = evaluate_link_prediction(&test_triples, &entity_boxes, None).unwrap();
+        let r2 = evaluate_link_prediction(&test_triples, &entity_boxes, None).unwrap();
+
+        assert_eq!(r1.mrr, r2.mrr, "MRR differs across runs");
+        assert_eq!(r1.hits_at_1, r2.hits_at_1, "Hits@1 differs across runs");
+        assert_eq!(r1.hits_at_3, r2.hits_at_3, "Hits@3 differs across runs");
+        assert_eq!(r1.hits_at_10, r2.hits_at_10, "Hits@10 differs across runs");
+        assert_eq!(r1.mean_rank, r2.mean_rank, "mean_rank differs across runs");
+    }
+
+    // -----------------------------------------------------------------------
     // Save/load roundtrip for TrainableBox (serde)
     // -----------------------------------------------------------------------
 
