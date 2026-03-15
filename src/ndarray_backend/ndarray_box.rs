@@ -176,7 +176,7 @@ impl Box for NdarrayBox {
     }
 
     fn volume(&self, _temperature: Self::Scalar) -> Result<Self::Scalar, BoxError> {
-        use crate::log_space_volume;
+        use crate::utils::log_space_volume;
 
         // Hard box volume: product of side lengths (Vilnis et al., 2018).
         // NdarrayGumbelBox overrides this with the Bessel/softplus volume
@@ -256,7 +256,7 @@ impl Box for NdarrayBox {
             });
         }
 
-        use crate::log_space_volume;
+        use crate::utils::log_space_volume;
 
         let dim = self.dim();
 
@@ -324,7 +324,7 @@ impl Box for NdarrayBox {
             )));
         }
 
-        use crate::log_space_volume;
+        use crate::utils::log_space_volume;
 
         let dim = self.dim();
 
@@ -399,7 +399,7 @@ impl Box for NdarrayBox {
         // Overlap probability: Vol(self ∩ other) / Vol(self ∪ other).
         //
         // Same optimization as `containment_prob`: avoid allocating an intersection box.
-        use crate::log_space_volume;
+        use crate::utils::log_space_volume;
 
         if self.dim() != other.dim() {
             return Err(BoxError::DimensionMismatch {

@@ -1,6 +1,7 @@
 //! Backend-specific distance implementations for candle.
 
 use crate::candle_backend::CandleBox;
+use crate::utils::{BOUNDARY_CONTAINMENT_THRESHOLD, LOG_VOLUME_FLOOR};
 use crate::{Box, BoxError};
 use candle_core::Tensor;
 
@@ -84,10 +85,14 @@ pub fn depth_distance(
     let log_vol_a = if vol_a > 1e-10 {
         vol_a.ln()
     } else {
-        -23.0 // ln(1e-10) ≈ -23
+        LOG_VOLUME_FLOOR
     };
 
-    let log_vol_b = if vol_b > 1e-10 { vol_b.ln() } else { -23.0 };
+    let log_vol_b = if vol_b > 1e-10 {
+        vol_b.ln()
+    } else {
+        LOG_VOLUME_FLOOR
+    };
 
     // Volume difference term
     let volume_diff = (log_vol_a - log_vol_b).abs();
@@ -106,7 +111,7 @@ pub fn boundary_distance(
 ) -> Result<Option<f32>, BoxError> {
     // Check if inner is contained in outer
     let containment = outer.containment_prob(inner, temperature)?;
-    if containment < 0.99 {
+    if containment < BOUNDARY_CONTAINMENT_THRESHOLD {
         // Not fully contained
         return Ok(None);
     }

@@ -28,8 +28,7 @@ Geometric region embeddings for subsumption, entailment, and logical query answe
 
 | Component | What it does |
 |---|---|
-| BoxE scoring | Point-entity BoxE model (Abboud et al., 2020) + box-to-box variant |
-| `distance` | Depth-based (RegD), boundary, and vector-to-box distance metrics |
+| `distance` | Query2Box alpha-weighted point-to-box distance (Ren et al., 2020); depth-based (RegD) and boundary distances in backend modules |
 | `fuzzy` | Fuzzy t-norms/t-conorms for logical query answering (FuzzQE, Chen et al., AAAI 2022) |
 | `el` | EL++ ontology embedding: inclusion loss, role translation/composition, existential boxes, disjointness (Box2EL/TransBox) |
 
@@ -39,8 +38,8 @@ Geometric region embeddings for subsumption, entailment, and logical query answe
 |---|---|
 | `taxonomy` | TaxoBell-format dataset loader: `.terms`/`.taxo` parsing, train/val/test splitting |
 | `taxobell` | TaxoBell combined loss: Bhattacharyya triplet + KL containment + volume regularization + sigma clipping |
-| Training utilities | Negative sampling, temperature scheduling, AMSGrad optimizer |
-| Evaluation | MRR, Hits@k, NDCG, calibration (ECE, Brier), reliability diagrams |
+| Training utilities | Negative sampling, AMSGrad optimizer |
+| Evaluation | MRR, Hits@k, Mean Rank, nDCG |
 
 ### Backends
 
@@ -56,7 +55,7 @@ backend provides GPU-accelerated box operations for training workflows.
 
 ```toml
 [dependencies]
-subsume = { version = "0.3.0", features = ["ndarray-backend"] }
+subsume = { version = "0.4.0", features = ["ndarray-backend"] }
 ndarray = "0.16"
 ```
 
@@ -110,7 +109,7 @@ Unit, property, and doc tests covering:
 - Octagon: intersection closure, containment, Sutherland-Hodgman volume
 - Fuzzy: t-norm/t-conorm commutativity, associativity, De Morgan duality
 - Gaussian boxes, EL++ ontology losses, sheaf networks, hyperbolic geometry
-- Training: MRR, Hits@k, NDCG, calibration, negative sampling, AMSGrad
+- Training: MRR, Hits@k, Mean Rank, nDCG, negative sampling, AMSGrad
 
 ## Choosing a geometry
 

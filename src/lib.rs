@@ -217,6 +217,7 @@ pub use gumbel::GumbelBox;
 
 // Re-exports: geometry variants
 pub use cone::ConeError;
+#[cfg_attr(docsrs, doc(cfg(feature = "ndarray-backend")))]
 #[cfg(feature = "ndarray-backend")]
 pub use hyperbolic::{
     hierarchy_preserved, pairwise_distances, Curvature, HyperbolicError, PoincareBallPoint,
@@ -233,15 +234,16 @@ pub use optimizer::{get_learning_rate, AMSGradState};
 pub use trainable::{TrainableBox, TrainableCone};
 pub use trainer::{
     compute_cone_analytical_gradients, compute_cone_pair_loss, evaluate_link_prediction,
-    log_training_result, ConeEmbeddingTrainer, EvaluationResults, NegativeSamplingStrategy,
-    TrainingConfig, TrainingResult,
+    log_training_result, BoxEmbeddingTrainer, ConeEmbeddingTrainer, EvaluationResults,
+    NegativeSamplingStrategy, PerRelationResults, TrainingConfig, TrainingResult,
 };
 
 /// Negative sampling utilities (requires the `rand` feature).
 #[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
 #[cfg(feature = "rand")]
 pub use trainer::{
-    generate_negative_samples, generate_negative_samples_from_pool_with_rng,
+    generate_degree_weighted_negatives, generate_negative_samples,
+    generate_negative_samples_from_pool_with_rng,
     generate_negative_samples_from_sorted_pool_with_rng, generate_negative_samples_with_rng,
     SortedEntityPool,
 };
@@ -269,6 +271,7 @@ pub use taxonomy::{TaxonomyDataset, TaxonomyNode};
 pub use taxobell::{CombinedLossResult, TaxoBellConfig, TaxoBellLoss};
 
 // Re-exports: TaxoBell encoder and training (candle-backend)
+#[cfg_attr(docsrs, doc(cfg(feature = "candle-backend")))]
 #[cfg(feature = "candle-backend")]
 pub use taxobell_encoder::{
     evaluate_taxobell, train_taxobell, Mlp, TaxoBellEncoder, TaxoBellEvalResult,
@@ -282,6 +285,7 @@ pub use el::{
 };
 
 // Re-exports: EL++ training
+#[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
 #[cfg(feature = "rand")]
 pub use el_training::{
     evaluate_subsumption, train_el_embeddings, Axiom, ElTrainingConfig, ElTrainingResult, Ontology,
@@ -295,13 +299,6 @@ pub use fuzzy::{
 
 // Re-exports: octagon
 pub use octagon::OctagonError;
-
-// Re-exports: utilities (only items with internal or external callers)
-pub use utils::{
-    bessel_log_volume, bessel_side_length, gumbel_lse_max, gumbel_lse_min, gumbel_membership_prob,
-    log_space_volume, map_gumbel_to_bounds, sample_gumbel, softplus, stable_logsumexp,
-    stable_sigmoid, EULER_GAMMA, MAX_TEMPERATURE, MIN_TEMPERATURE,
-};
 
 // ---------------------------------------------------------------------------
 // Feature-gated backends

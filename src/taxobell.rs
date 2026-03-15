@@ -37,6 +37,27 @@ use crate::gaussian::{
 use crate::BoxError;
 use serde::{Deserialize, Serialize};
 
+/// Default weight for symmetric (Bhattacharyya triplet) loss.
+const DEFAULT_ALPHA: f32 = 0.45;
+/// Default weight for asymmetric (KL containment) loss.
+const DEFAULT_BETA: f32 = 0.45;
+/// Default weight for volume regularization loss.
+const DEFAULT_GAMMA: f32 = 0.10;
+/// Default weight for sigma clipping loss.
+const DEFAULT_DELTA: f32 = 0.10;
+/// Default margin for symmetric triplet loss.
+const DEFAULT_SYMMETRIC_MARGIN: f32 = 0.1;
+/// Default margin for asymmetric KL loss.
+const DEFAULT_ASYMMETRIC_MARGIN: f32 = 0.5;
+/// Default divergence ceiling for asymmetric loss.
+const DEFAULT_ASYMMETRIC_DIVERGE_C: f32 = 1.5;
+/// Default lambda for divergence contribution.
+const DEFAULT_DIVERGE_LAMBDA: f32 = 0.3;
+/// Default minimum variance (sigma floor).
+const DEFAULT_MIN_VAR: f32 = 0.25;
+/// Default maximum variance (sigma ceiling).
+const DEFAULT_MAX_VAR: f32 = 10.0;
+
 /// Configuration for TaxoBell combined loss.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaxoBellConfig {
@@ -75,16 +96,16 @@ pub struct TaxoBellConfig {
 impl Default for TaxoBellConfig {
     fn default() -> Self {
         Self {
-            alpha: 0.45,
-            beta: 0.45,
-            gamma: 0.10,
-            delta: 0.10,
-            symmetric_margin: 0.1,
-            asymmetric_margin: 0.5,
-            asymmetric_diverge_c: 1.5,
-            diverge_lambda: 0.3,
-            min_var: 0.25,
-            max_var: 10.0,
+            alpha: DEFAULT_ALPHA,
+            beta: DEFAULT_BETA,
+            gamma: DEFAULT_GAMMA,
+            delta: DEFAULT_DELTA,
+            symmetric_margin: DEFAULT_SYMMETRIC_MARGIN,
+            asymmetric_margin: DEFAULT_ASYMMETRIC_MARGIN,
+            asymmetric_diverge_c: DEFAULT_ASYMMETRIC_DIVERGE_C,
+            diverge_lambda: DEFAULT_DIVERGE_LAMBDA,
+            min_var: DEFAULT_MIN_VAR,
+            max_var: DEFAULT_MAX_VAR,
         }
     }
 }
