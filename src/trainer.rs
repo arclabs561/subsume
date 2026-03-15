@@ -115,12 +115,6 @@ pub enum NegativeSamplingStrategy {
 ///
 /// ## Regularization Parameters
 ///
-/// - **`regularization_weight`**: Penalty for boxes being too large
-///   - Prevents boxes from growing unbounded (which would make everything contain everything)
-///   - Higher: Tighter, more specific boxes
-///   - Lower: Larger, more general boxes
-///   - Common: 0.01-0.1
-///
 /// - **`weight_decay`**: L2 regularization on box parameters
 ///   - Prevents overfitting by keeping box coordinates small
 ///   - Higher: Stronger regularization (simpler model)
@@ -157,7 +151,6 @@ pub enum NegativeSamplingStrategy {
 /// - \(L_{\text{ranking}}\) is the margin-based ranking loss
 /// - \(L_{\text{volume}}\) is volume regularization (penalizes large boxes)
 /// - \(||\theta||^2\) is L2 regularization on parameters
-/// - \(\lambda_{\text{reg}}\) is `regularization_weight`
 /// - \(\lambda_{\text{wd}}\) is `weight_decay`
 #[derive(Debug, Clone)]
 pub struct TrainingConfig {
@@ -171,8 +164,6 @@ pub struct TrainingConfig {
     pub negative_samples: usize,
     /// Negative sampling strategy (default: CorruptTail)
     pub negative_strategy: NegativeSamplingStrategy,
-    /// Regularization weight (default: 0.01)
-    pub regularization_weight: f32,
     /// Temperature for Gumbel boxes (default: 1.0)
     pub temperature: f32,
     /// Weight decay for AdamW (default: 1e-5, paper range: 1e-5 to 1e-3)
@@ -183,12 +174,6 @@ pub struct TrainingConfig {
     pub early_stopping_patience: Option<usize>,
     /// Minimum improvement for early stopping (relative)
     pub early_stopping_min_delta: f32,
-    /// Use self-adversarial negative sampling
-    pub use_self_adversarial: bool,
-    /// Temperature for self-adversarial sampling
-    pub adversarial_temperature: f32,
-    /// Multi-stage training: focus on positives first (epochs), then negatives
-    pub positive_focus_epochs: Option<usize>,
     /// L2 regularization weight
     pub regularization: f32,
     /// Warmup epochs
@@ -209,15 +194,11 @@ impl Default for TrainingConfig {
             batch_size: 512, // Paper range: 512-4096
             negative_samples: 1,
             negative_strategy: NegativeSamplingStrategy::CorruptTail,
-            regularization_weight: 0.01,
             temperature: 1.0,
             weight_decay: 1e-5,                // Paper range: 1e-5 to 1e-3
             margin: 1.0,                       // Margin for ranking loss
             early_stopping_patience: Some(10), // Early stopping after 10 epochs without improvement
             early_stopping_min_delta: 0.001,
-            use_self_adversarial: true,
-            adversarial_temperature: 1.0,
-            positive_focus_epochs: None,
             regularization: 0.0001,
             warmup_epochs: 10,
             negative_weight: 1.0,
@@ -228,8 +209,12 @@ impl Default for TrainingConfig {
 /// Evaluation results for link prediction.
 #[derive(Debug, Clone)]
 pub struct EvaluationResults {
-    /// Mean Reciprocal Rank
+    /// Mean Reciprocal Rank (average of head and tail MRR).
     pub mrr: f32,
+    /// MRR for head prediction only.
+    pub head_mrr: f32,
+    /// MRR for tail prediction only.
+    pub tail_mrr: f32,
     /// Hits@1
     pub hits_at_1: f32,
     /// Hits@3
@@ -238,6 +223,21 @@ pub struct EvaluationResults {
     pub hits_at_10: f32,
     /// Mean Rank
     pub mean_rank: f32,
+    /// Per-relation evaluation breakdown.
+    pub per_relation: Vec<PerRelationResults>,
+}
+
+/// Per-relation evaluation breakdown.
+#[derive(Debug, Clone)]
+pub struct PerRelationResults {
+    /// Relation name or ID.
+    pub relation: String,
+    /// MRR for this relation's triples.
+    pub mrr: f32,
+    /// Hits@10 for this relation's triples.
+    pub hits_at_10: f32,
+    /// Number of test triples for this relation.
+    pub count: usize,
 }
 
 /// Generate negative samples for a triple.
@@ -473,6 +473,85 @@ pub fn generate_negative_samples_from_pool_with_rng<R: Rng>(
     negatives
 }
 
+/// Generate negative samples weighted by entity degree.
+///
+/// Entities with higher degree (more training triples) are more likely to
+/// be selected as corruptions. Uses the `degree^0.75` distribution from
+/// Mikolov et al. (word2vec), adapted for KG negative sampling.
+///
+/// # Parameters
+/// - `positive_triples` - training triples to corrupt
+/// - `entity_degrees` - degree (number of triples) per entity ID
+/// - `num_negatives` - number of negatives per positive
+/// - `rng` - random number generator
+///
+/// # Returns
+///
+/// One corrupted triple per positive per `num_negatives`. Corruptions that
+/// equal the positive are skipped, so the output can be shorter than
+/// `positive_triples.len() * num_negatives`.
+///
+/// # Reference
+///
+/// Yang et al. (KDD 2020), "Understanding Negative Sampling in Graph
+/// Representation Learning" -- recommends the degree^0.75 smoothing for
+/// knowledge graph negative sampling.
+#[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
+#[cfg(feature = "rand")]
+pub fn generate_degree_weighted_negatives(
+    positive_triples: &[(usize, usize, usize)],
+    entity_degrees: &HashMap<usize, usize>,
+    num_negatives: usize,
+    rng: &mut impl rand::Rng,
+) -> Vec<(usize, usize, usize)> {
+    use rand::distr::weighted::WeightedIndex;
+    use rand::distr::Distribution;
+
+    if entity_degrees.is_empty() || positive_triples.is_empty() || num_negatives == 0 {
+        return Vec::new();
+    }
+
+    // Build sorted entity list for deterministic ordering.
+    let mut entities: Vec<usize> = entity_degrees.keys().copied().collect();
+    entities.sort_unstable();
+
+    // Compute degree^0.75 weights.
+    let weights: Vec<f64> = entities
+        .iter()
+        .map(|id| {
+            let deg = *entity_degrees.get(id).unwrap_or(&1) as f64;
+            deg.powf(0.75)
+        })
+        .collect();
+
+    let dist = match WeightedIndex::new(&weights) {
+        Ok(d) => d,
+        Err(_) => return Vec::new(), // all-zero weights
+    };
+
+    let mut negatives = Vec::with_capacity(positive_triples.len() * num_negatives);
+
+    for &(h, r, t) in positive_triples {
+        for _ in 0..num_negatives {
+            // Corrupt head or tail with equal probability.
+            let corrupt_head = rng.random::<bool>();
+            let sampled = entities[dist.sample(rng)];
+
+            let neg = if corrupt_head {
+                (sampled, r, t)
+            } else {
+                (h, r, sampled)
+            };
+
+            if neg != (h, r, t) {
+                negatives.push(neg);
+            }
+        }
+    }
+
+    negatives
+}
+
 /// An index of “known true” triples for filtered link prediction evaluation.
 ///
 /// In standard KGE evaluation (e.g. FB15k-237, WN18RR), **filtered ranking** removes any
@@ -490,6 +569,7 @@ pub fn generate_negative_samples_from_pool_with_rng<R: Rng>(
 #[derive(Debug, Default, Clone)]
 pub struct FilteredTripleIndex {
     tails_by_head_rel: HashMap<String, HashMap<String, HashSet<String>>>,
+    heads_by_tail_rel: HashMap<String, HashMap<String, HashSet<String>>>,
 }
 
 impl FilteredTripleIndex {
@@ -529,6 +609,12 @@ impl FilteredTripleIndex {
                 .entry(t.relation.clone())
                 .or_default()
                 .insert(t.tail.clone());
+            self.heads_by_tail_rel
+                .entry(t.tail.clone())
+                .or_default()
+                .entry(t.relation.clone())
+                .or_default()
+                .insert(t.head.clone());
         }
     }
 
@@ -539,11 +625,17 @@ impl FilteredTripleIndex {
     {
         for t in triples {
             self.tails_by_head_rel
-                .entry(t.head)
+                .entry(t.head.clone())
+                .or_default()
+                .entry(t.relation.clone())
+                .or_default()
+                .insert(t.tail.clone());
+            self.heads_by_tail_rel
+                .entry(t.tail)
                 .or_default()
                 .entry(t.relation)
                 .or_default()
-                .insert(t.tail);
+                .insert(t.head);
         }
     }
 
@@ -563,6 +655,23 @@ impl FilteredTripleIndex {
             .get(head)
             .and_then(|by_rel| by_rel.get(relation))
     }
+
+    /// True iff `(head, relation, tail)` is a known true triple (head lookup).
+    #[inline]
+    pub fn is_known_head(&self, tail: &str, relation: &str, head: &str) -> bool {
+        self.heads_by_tail_rel
+            .get(tail)
+            .and_then(|by_rel| by_rel.get(relation))
+            .is_some_and(|heads| heads.contains(head))
+    }
+
+    /// Return all known-true heads for the query \((?, relation, tail)\).
+    #[inline]
+    pub fn known_heads(&self, tail: &str, relation: &str) -> Option<&HashSet<String>> {
+        self.heads_by_tail_rel
+            .get(tail)
+            .and_then(|by_rel| by_rel.get(relation))
+    }
 }
 
 /// Like [`FilteredTripleIndex`], but for interned integer IDs.
@@ -575,6 +684,8 @@ pub struct FilteredTripleIndexIds {
     //
     // Using a flat key avoids a nested HashMap allocation per distinct (head, relation).
     tails_by_head_rel: HashMap<(usize, usize), HashSet<usize>>,
+    // Keyed by (tail_id, relation_id).
+    heads_by_tail_rel: HashMap<(usize, usize), HashSet<usize>>,
 }
 
 impl FilteredTripleIndexIds {
@@ -598,6 +709,10 @@ impl FilteredTripleIndexIds {
                 .entry((t.head, t.relation))
                 .or_default()
                 .insert(t.tail);
+            self.heads_by_tail_rel
+                .entry((t.tail, t.relation))
+                .or_default()
+                .insert(t.head);
         }
     }
 
@@ -614,276 +729,457 @@ impl FilteredTripleIndexIds {
     pub fn known_tails(&self, head: usize, relation: usize) -> Option<&HashSet<usize>> {
         self.tails_by_head_rel.get(&(head, relation))
     }
+
+    /// True iff `(head, relation, tail)` is a known true triple (head lookup).
+    #[inline]
+    pub fn is_known_head(&self, tail: usize, relation: usize, head: usize) -> bool {
+        self.heads_by_tail_rel
+            .get(&(tail, relation))
+            .is_some_and(|heads| heads.contains(&head))
+    }
+
+    /// Return all known-true heads for the query \((?, relation, tail)\).
+    #[inline]
+    pub fn known_heads(&self, tail: usize, relation: usize) -> Option<&HashSet<usize>> {
+        self.heads_by_tail_rel.get(&(tail, relation))
+    }
 }
 
-fn evaluate_link_prediction_inner<B>(
-    test_triples: &[Triple],
+/// Compute the rank of `target` among all entities, scoring each candidate via `score_fn`.
+///
+/// `score_fn(candidate_box) -> f32` returns a score (higher = more likely).
+/// Deterministic tie-break: among equal scores, lexicographically smaller entity id ranks first.
+fn rank_among_entities<B, F>(
     entity_boxes: &HashMap<String, B>,
-    _relation_boxes: Option<&HashMap<String, B>>,
-    filter: Option<&FilteredTripleIndex>,
-) -> Result<EvaluationResults, crate::BoxError>
+    target: &str,
+    score_fn: F,
+    filter_known: Option<&HashSet<String>>,
+) -> Result<usize, crate::BoxError>
 where
     B: crate::Box<Scalar = f32>,
+    F: Fn(&B) -> Result<f32, crate::BoxError>,
 {
-    let mut ranks = Vec::new();
+    let target_box = match entity_boxes.get(target) {
+        Some(b) => b,
+        None => return Ok(usize::MAX),
+    };
+    let target_score = score_fn(target_box)?;
+    if target_score.is_nan() {
+        return Err(crate::BoxError::Internal(
+            "NaN containment score encountered (target)".to_string(),
+        ));
+    }
 
-    for triple in test_triples {
-        // Get head and relation boxes
-        let head_box = entity_boxes
-            .get(&triple.head)
-            .ok_or_else(|| crate::BoxError::Internal(format!("Missing entity: {}", triple.head)))?;
-
-        // For simplicity, use head box directly (can be extended for relation-specific boxes)
-        let query_box = head_box;
-
-        // Optimization: compute the rank in O(|E|) without sorting the full candidate list.
-        //
-        // We compute:
-        // - `tail_score` (if the tail exists in the candidate set)
-        // - count how many candidates have strictly greater score
-        // - deterministic tie-break: among equal scores, rank by lexicographic entity id
-        //
-        // This avoids O(|E| log |E|) sorting work and avoids cloning entity IDs.
-        let tail_score = match entity_boxes.get(&triple.tail) {
-            Some(tail_box) => {
-                let s = query_box.containment_prob_fast(tail_box, 1.0)?;
-                if s.is_nan() {
-                    return Err(crate::BoxError::Internal(
-                        "NaN containment score encountered (tail)".to_string(),
-                    ));
-                }
-                Some(s)
-            }
-            None => None,
-        };
-
-        // If the target tail isn't in the candidate set, the rank is undefined for this query.
-        // (We preserve the old behavior: use usize::MAX, which drives MRR → 0 and MR → large.)
-        let Some(tail_score) = tail_score else {
-            ranks.push(usize::MAX);
+    let mut better = 0usize;
+    let mut tie_before = 0usize;
+    for (entity, box_) in entity_boxes {
+        if entity == target {
             continue;
-        };
+        }
+        let score = score_fn(box_)?;
+        if score.is_nan() {
+            return Err(crate::BoxError::Internal(
+                "NaN containment score encountered".to_string(),
+            ));
+        }
+        if score > target_score {
+            better += 1;
+        } else if score == target_score && entity.as_str() < target {
+            tie_before += 1;
+        }
+    }
 
-        let mut better = 0usize;
-        let mut tie_before = 0usize;
-        for (entity, box_) in entity_boxes {
-            if entity == &triple.tail {
+    // Filtered ranking: subtract contributions from known-true entities.
+    if let Some(known) = filter_known {
+        let mut filtered_better = 0usize;
+        let mut filtered_tie_before = 0usize;
+        for known_entity in known {
+            if known_entity == target {
                 continue;
             }
-
-            let score = query_box.containment_prob_fast(box_, 1.0)?;
+            let Some(box_) = entity_boxes.get(known_entity) else {
+                continue;
+            };
+            let score = score_fn(box_)?;
             if score.is_nan() {
                 return Err(crate::BoxError::Internal(
                     "NaN containment score encountered".to_string(),
                 ));
             }
-
-            if score > tail_score {
-                better += 1;
-            } else if score == tail_score && entity.as_str() < triple.tail.as_str() {
-                tie_before += 1;
+            if score > target_score {
+                filtered_better += 1;
+            } else if score == target_score && known_entity.as_str() < target {
+                filtered_tie_before += 1;
             }
         }
+        better = better.saturating_sub(filtered_better);
+        tie_before = tie_before.saturating_sub(filtered_tie_before);
+    }
 
-        // Filtered ranking optimization:
-        //
-        // Naively, filtered ranking would do a `HashSet::contains` check per candidate, which
-        // is often the dominant cost. Instead:
-        // 1) compute the unfiltered counts (better/tie_before) in one linear pass
-        // 2) subtract the contribution of the (usually small) set of filtered candidates
-        //
-        // This keeps the hot loop branch-free w.r.t. filtering.
-        if let Some(filter) = filter {
-            if let Some(known_tails) = filter.known_tails(&triple.head, &triple.relation) {
-                let mut filtered_better = 0usize;
-                let mut filtered_tie_before = 0usize;
+    Ok(better + tie_before + 1)
+}
 
-                for known_tail in known_tails {
-                    if known_tail == &triple.tail {
+fn evaluate_link_prediction_inner<B>(
+    test_triples: &[Triple],
+    entity_boxes: &HashMap<String, B>,
+    filter: Option<&FilteredTripleIndex>,
+) -> Result<EvaluationResults, crate::BoxError>
+where
+    B: crate::Box<Scalar = f32>,
+{
+    let mut tail_ranks = Vec::with_capacity(test_triples.len());
+    let mut head_ranks = Vec::with_capacity(test_triples.len());
+    // (relation, tail_rank, head_rank) per triple for per-relation aggregation.
+    let mut per_triple: Vec<(&str, usize, usize)> = Vec::with_capacity(test_triples.len());
+
+    for triple in test_triples {
+        let head_box = entity_boxes
+            .get(&triple.head)
+            .ok_or_else(|| crate::BoxError::Internal(format!("Missing entity: {}", triple.head)))?;
+
+        // -- Tail prediction: (h, r, ?) --
+        let filter_tails = filter.and_then(|f| f.known_tails(&triple.head, &triple.relation));
+        let t_rank = rank_among_entities(
+            entity_boxes,
+            &triple.tail,
+            |candidate| head_box.containment_prob_fast(candidate, 1.0),
+            filter_tails,
+        )?;
+
+        // -- Head prediction: (?, r, t) --
+        let tail_box = entity_boxes
+            .get(&triple.tail)
+            .ok_or_else(|| crate::BoxError::Internal(format!("Missing entity: {}", triple.tail)))?;
+        let filter_heads = filter.and_then(|f| f.known_heads(&triple.tail, &triple.relation));
+        let h_rank = rank_among_entities(
+            entity_boxes,
+            &triple.head,
+            |candidate| candidate.containment_prob_fast(tail_box, 1.0),
+            filter_heads,
+        )?;
+
+        tail_ranks.push(t_rank);
+        head_ranks.push(h_rank);
+        per_triple.push((triple.relation.as_str(), t_rank, h_rank));
+    }
+
+    // Combined ranks: both head and tail ranks contribute equally (Bordes 2013 protocol).
+    let all_ranks: Vec<usize> = tail_ranks
+        .iter()
+        .chain(head_ranks.iter())
+        .copied()
+        .collect();
+
+    let mrr = mean_reciprocal_rank(all_ranks.iter().copied());
+    let tail_mrr = mean_reciprocal_rank(tail_ranks.iter().copied());
+    let head_mrr = mean_reciprocal_rank(head_ranks.iter().copied());
+    let hits_at_1 = hits_at_k(all_ranks.iter().copied(), 1);
+    let hits_at_3 = hits_at_k(all_ranks.iter().copied(), 3);
+    let hits_at_10 = hits_at_k(all_ranks.iter().copied(), 10);
+    let mean_rank_val = mean_rank(all_ranks.iter().copied());
+
+    // Per-relation aggregation.
+    let per_relation = aggregate_per_relation(&per_triple);
+
+    Ok(EvaluationResults {
+        mrr,
+        head_mrr,
+        tail_mrr,
+        hits_at_1,
+        hits_at_3,
+        hits_at_10,
+        mean_rank: mean_rank_val,
+        per_relation,
+    })
+}
+
+/// Aggregate per-relation metrics from per-triple (relation, tail_rank, head_rank) tuples.
+fn aggregate_per_relation(per_triple: &[(&str, usize, usize)]) -> Vec<PerRelationResults> {
+    let mut by_rel: HashMap<&str, Vec<usize>> = HashMap::new();
+    for &(rel, t_rank, h_rank) in per_triple {
+        let ranks = by_rel.entry(rel).or_default();
+        ranks.push(t_rank);
+        ranks.push(h_rank);
+    }
+    let mut results: Vec<PerRelationResults> = by_rel
+        .into_iter()
+        .map(|(rel, ranks)| {
+            let count = ranks.len() / 2; // number of triples (each contributes 2 ranks)
+            let mrr = mean_reciprocal_rank(ranks.iter().copied());
+            let h10 = hits_at_k(ranks.iter().copied(), 10);
+            PerRelationResults {
+                relation: rel.to_string(),
+                mrr,
+                hits_at_10: h10,
+                count,
+            }
+        })
+        .collect();
+    results.sort_by(|a, b| a.relation.cmp(&b.relation));
+    results
+}
+
+/// Scoring direction for interned rank computation.
+enum ScoreDirection {
+    /// Tail prediction: score = query.containment_prob(candidate).
+    /// Can use batch `containment_prob_many`.
+    Forward,
+    /// Head prediction: score = candidate.containment_prob(query).
+    /// Falls back to per-entity `containment_prob_fast`.
+    Reverse,
+}
+
+/// Compute the rank of `target_id` among all entity boxes in the interned setting.
+///
+/// - `Forward`: score = query_box.containment_prob(candidate) (tail prediction).
+/// - `Reverse`: score = candidate.containment_prob(query_box) (head prediction).
+fn rank_among_entities_interned<B>(
+    entity_boxes: &[B],
+    entities: &crate::dataset::Vocab,
+    target_id: usize,
+    query_box: &B,
+    direction: &ScoreDirection,
+    filter_known: Option<&HashSet<usize>>,
+    scores_buf: &mut Vec<f32>,
+) -> Result<usize, crate::BoxError>
+where
+    B: crate::Box<Scalar = f32>,
+{
+    const CHUNK: usize = 4096;
+
+    let target_box = match entity_boxes.get(target_id) {
+        Some(b) => b,
+        None => return Ok(usize::MAX),
+    };
+    let target_name = entities.get(target_id).ok_or_else(|| {
+        crate::BoxError::Internal(format!("Missing entity label (target): {}", target_id))
+    })?;
+    let target_score = match direction {
+        ScoreDirection::Forward => query_box.containment_prob_fast(target_box, 1.0)?,
+        ScoreDirection::Reverse => target_box.containment_prob_fast(query_box, 1.0)?,
+    };
+    if target_score.is_nan() {
+        return Err(crate::BoxError::Internal(
+            "NaN containment score encountered (target)".to_string(),
+        ));
+    }
+
+    if scores_buf.len() < CHUNK {
+        scores_buf.resize(CHUNK, 0.0);
+    }
+
+    let mut better = 0usize;
+    let mut tie_before = 0usize;
+
+    match direction {
+        ScoreDirection::Forward => {
+            // Batch scoring: query_box.containment_prob_many(candidates).
+            for start in (0..entity_boxes.len()).step_by(CHUNK) {
+                let end = (start + CHUNK).min(entity_boxes.len());
+                let slice = &entity_boxes[start..end];
+                let len = end - start;
+
+                query_box.containment_prob_many(slice, 1.0, &mut scores_buf[..len])?;
+
+                for (i, &score) in scores_buf[..len].iter().enumerate() {
+                    let entity_id = start + i;
+                    if entity_id == target_id {
                         continue;
                     }
-
-                    // Only subtract candidates that are actually in the candidate set.
-                    let Some(box_) = entity_boxes.get(known_tail) else {
-                        continue;
-                    };
-
-                    let score = query_box.containment_prob_fast(box_, 1.0)?;
                     if score.is_nan() {
                         return Err(crate::BoxError::Internal(
                             "NaN containment score encountered".to_string(),
                         ));
                     }
-
-                    if score > tail_score {
-                        filtered_better += 1;
-                    } else if score == tail_score && known_tail.as_str() < triple.tail.as_str() {
-                        filtered_tie_before += 1;
+                    if score > target_score {
+                        better += 1;
+                    } else if score == target_score {
+                        let name = entities.get(entity_id).ok_or_else(|| {
+                            crate::BoxError::Internal(format!(
+                                "Missing entity label (candidate): {}",
+                                entity_id
+                            ))
+                        })?;
+                        if name < target_name {
+                            tie_before += 1;
+                        }
                     }
                 }
-
-                better = better.saturating_sub(filtered_better);
-                tie_before = tie_before.saturating_sub(filtered_tie_before);
             }
         }
-
-        let rank = better + tie_before + 1;
-
-        ranks.push(rank);
-    }
-
-    let mrr = mean_reciprocal_rank(ranks.iter().copied());
-    let hits_at_1 = hits_at_k(ranks.iter().copied(), 1);
-    let hits_at_3 = hits_at_k(ranks.iter().copied(), 3);
-    let hits_at_10 = hits_at_k(ranks.iter().copied(), 10);
-    let mean_rank = mean_rank(ranks.iter().copied());
-
-    Ok(EvaluationResults {
-        mrr,
-        hits_at_1,
-        hits_at_3,
-        hits_at_10,
-        mean_rank,
-    })
-}
-
-fn evaluate_link_prediction_interned_inner<B>(
-    test_triples: &[crate::dataset::TripleIds],
-    entity_boxes: &[B],
-    entities: &crate::dataset::Vocab,
-    _relation_boxes: Option<&[B]>,
-    filter: Option<&FilteredTripleIndexIds>,
-) -> Result<EvaluationResults, crate::BoxError>
-where
-    B: crate::Box<Scalar = f32>,
-{
-    let mut ranks = Vec::new();
-    // Batch scoring scratch buffer (reused across triples).
-    const CHUNK: usize = 4096;
-    let mut scores = vec![0.0f32; CHUNK];
-
-    for triple in test_triples {
-        let head_box = entity_boxes.get(triple.head).ok_or_else(|| {
-            crate::BoxError::Internal(format!("Missing entity id (head): {}", triple.head))
-        })?;
-        let query_box = head_box;
-
-        let tail_box = match entity_boxes.get(triple.tail) {
-            Some(t) => t,
-            None => {
-                ranks.push(usize::MAX);
-                continue;
-            }
-        };
-
-        let tail_name = entities.get(triple.tail).ok_or_else(|| {
-            crate::BoxError::Internal(format!("Missing entity label (tail): {}", triple.tail))
-        })?;
-
-        let tail_score = query_box.containment_prob_fast(tail_box, 1.0)?;
-        if tail_score.is_nan() {
-            return Err(crate::BoxError::Internal(
-                "NaN containment score encountered (tail)".to_string(),
-            ));
-        }
-
-        let mut better = 0usize;
-        let mut tie_before = 0usize;
-        // Batch scoring seam:
-        //
-        // - We keep memory bounded by scoring in chunks.
-        // - Backends can override `containment_prob_many` to SIMD/vectorize scoring.
-        for start in (0..entity_boxes.len()).step_by(CHUNK) {
-            let end = (start + CHUNK).min(entity_boxes.len());
-            let slice = &entity_boxes[start..end];
-            let len = end - start;
-
-            query_box.containment_prob_many(slice, 1.0, &mut scores[..len])?;
-
-            for (i, &score) in scores[..len].iter().enumerate() {
-                let entity_id = start + i;
-                if entity_id == triple.tail {
+        ScoreDirection::Reverse => {
+            // Per-entity scoring: candidate.containment_prob_fast(query_box).
+            for (entity_id, candidate) in entity_boxes.iter().enumerate() {
+                if entity_id == target_id {
                     continue;
                 }
-
+                let score = candidate.containment_prob_fast(query_box, 1.0)?;
                 if score.is_nan() {
                     return Err(crate::BoxError::Internal(
                         "NaN containment score encountered".to_string(),
                     ));
                 }
-
-                if score > tail_score {
+                if score > target_score {
                     better += 1;
-                } else if score == tail_score {
+                } else if score == target_score {
                     let name = entities.get(entity_id).ok_or_else(|| {
                         crate::BoxError::Internal(format!(
                             "Missing entity label (candidate): {}",
                             entity_id
                         ))
                     })?;
-                    if name < tail_name {
+                    if name < target_name {
                         tie_before += 1;
                     }
                 }
             }
         }
-
-        if let Some(filter) = filter {
-            if let Some(known_tails) = filter.known_tails(triple.head, triple.relation) {
-                let mut filtered_better = 0usize;
-                let mut filtered_tie_before = 0usize;
-
-                for &known_tail in known_tails {
-                    if known_tail == triple.tail {
-                        continue;
-                    }
-                    let Some(box_) = entity_boxes.get(known_tail) else {
-                        continue;
-                    };
-
-                    let score = query_box.containment_prob_fast(box_, 1.0)?;
-                    if score.is_nan() {
-                        return Err(crate::BoxError::Internal(
-                            "NaN containment score encountered".to_string(),
-                        ));
-                    }
-
-                    if score > tail_score {
-                        filtered_better += 1;
-                    } else if score == tail_score {
-                        let name = entities.get(known_tail).ok_or_else(|| {
-                            crate::BoxError::Internal(format!(
-                                "Missing entity label (filtered): {}",
-                                known_tail
-                            ))
-                        })?;
-                        if name < tail_name {
-                            filtered_tie_before += 1;
-                        }
-                    }
-                }
-
-                better = better.saturating_sub(filtered_better);
-                tie_before = tie_before.saturating_sub(filtered_tie_before);
-            }
-        }
-
-        ranks.push(better + tie_before + 1);
     }
 
-    let mrr = mean_reciprocal_rank(ranks.iter().copied());
-    let hits_at_1 = hits_at_k(ranks.iter().copied(), 1);
-    let hits_at_3 = hits_at_k(ranks.iter().copied(), 3);
-    let hits_at_10 = hits_at_k(ranks.iter().copied(), 10);
-    let mean_rank = mean_rank(ranks.iter().copied());
+    if let Some(known) = filter_known {
+        let mut filtered_better = 0usize;
+        let mut filtered_tie_before = 0usize;
+        for &known_id in known {
+            if known_id == target_id {
+                continue;
+            }
+            let Some(box_) = entity_boxes.get(known_id) else {
+                continue;
+            };
+            let score = match direction {
+                ScoreDirection::Forward => query_box.containment_prob_fast(box_, 1.0)?,
+                ScoreDirection::Reverse => box_.containment_prob_fast(query_box, 1.0)?,
+            };
+            if score.is_nan() {
+                return Err(crate::BoxError::Internal(
+                    "NaN containment score encountered".to_string(),
+                ));
+            }
+            if score > target_score {
+                filtered_better += 1;
+            } else if score == target_score {
+                let name = entities.get(known_id).ok_or_else(|| {
+                    crate::BoxError::Internal(format!(
+                        "Missing entity label (filtered): {}",
+                        known_id
+                    ))
+                })?;
+                if name < target_name {
+                    filtered_tie_before += 1;
+                }
+            }
+        }
+        better = better.saturating_sub(filtered_better);
+        tie_before = tie_before.saturating_sub(filtered_tie_before);
+    }
+
+    Ok(better + tie_before + 1)
+}
+
+fn evaluate_link_prediction_interned_inner<B>(
+    test_triples: &[crate::dataset::TripleIds],
+    entity_boxes: &[B],
+    entities: &crate::dataset::Vocab,
+    filter: Option<&FilteredTripleIndexIds>,
+) -> Result<EvaluationResults, crate::BoxError>
+where
+    B: crate::Box<Scalar = f32>,
+{
+    let mut tail_ranks = Vec::with_capacity(test_triples.len());
+    let mut head_ranks = Vec::with_capacity(test_triples.len());
+    let mut per_triple: Vec<(usize, usize, usize)> = Vec::with_capacity(test_triples.len());
+    let mut scores_buf = vec![0.0f32; 4096];
+
+    for triple in test_triples {
+        let head_box = entity_boxes.get(triple.head).ok_or_else(|| {
+            crate::BoxError::Internal(format!("Missing entity id (head): {}", triple.head))
+        })?;
+        let tail_box = entity_boxes.get(triple.tail).ok_or_else(|| {
+            crate::BoxError::Internal(format!("Missing entity id (tail): {}", triple.tail))
+        })?;
+
+        // -- Tail prediction: (h, r, ?) -- score = head.containment_prob(candidate)
+        let filter_tails = filter.and_then(|f| f.known_tails(triple.head, triple.relation));
+        let t_rank = rank_among_entities_interned(
+            entity_boxes,
+            entities,
+            triple.tail,
+            head_box,
+            &ScoreDirection::Forward,
+            filter_tails,
+            &mut scores_buf,
+        )?;
+
+        // -- Head prediction: (?, r, t) -- score = candidate.containment_prob(tail)
+        let filter_heads = filter.and_then(|f| f.known_heads(triple.tail, triple.relation));
+        let h_rank = rank_among_entities_interned(
+            entity_boxes,
+            entities,
+            triple.head,
+            tail_box,
+            &ScoreDirection::Reverse,
+            filter_heads,
+            &mut scores_buf,
+        )?;
+
+        tail_ranks.push(t_rank);
+        head_ranks.push(h_rank);
+        per_triple.push((triple.relation, t_rank, h_rank));
+    }
+
+    let all_ranks: Vec<usize> = tail_ranks
+        .iter()
+        .chain(head_ranks.iter())
+        .copied()
+        .collect();
+
+    let mrr = mean_reciprocal_rank(all_ranks.iter().copied());
+    let tail_mrr = mean_reciprocal_rank(tail_ranks.iter().copied());
+    let head_mrr = mean_reciprocal_rank(head_ranks.iter().copied());
+    let hits_at_1 = hits_at_k(all_ranks.iter().copied(), 1);
+    let hits_at_3 = hits_at_k(all_ranks.iter().copied(), 3);
+    let hits_at_10 = hits_at_k(all_ranks.iter().copied(), 10);
+    let mean_rank_val = mean_rank(all_ranks.iter().copied());
+
+    // Per-relation aggregation (uses relation ID as string name).
+    let per_relation = aggregate_per_relation_ids(&per_triple);
 
     Ok(EvaluationResults {
         mrr,
+        head_mrr,
+        tail_mrr,
         hits_at_1,
         hits_at_3,
         hits_at_10,
-        mean_rank,
+        mean_rank: mean_rank_val,
+        per_relation,
     })
+}
+
+/// Aggregate per-relation metrics from per-triple (relation_id, tail_rank, head_rank) tuples.
+fn aggregate_per_relation_ids(per_triple: &[(usize, usize, usize)]) -> Vec<PerRelationResults> {
+    let mut by_rel: HashMap<usize, Vec<usize>> = HashMap::new();
+    for &(rel, t_rank, h_rank) in per_triple {
+        let ranks = by_rel.entry(rel).or_default();
+        ranks.push(t_rank);
+        ranks.push(h_rank);
+    }
+    let mut results: Vec<PerRelationResults> = by_rel
+        .into_iter()
+        .map(|(rel, ranks)| {
+            let count = ranks.len() / 2;
+            let mrr = mean_reciprocal_rank(ranks.iter().copied());
+            let h10 = hits_at_k(ranks.iter().copied(), 10);
+            PerRelationResults {
+                relation: rel.to_string(),
+                mrr,
+                hits_at_10: h10,
+                count,
+            }
+        })
+        .collect();
+    results.sort_by(|a, b| a.relation.cmp(&b.relation));
+    results
 }
 
 /// Evaluate link prediction performance.
@@ -898,14 +1194,15 @@ where
 ///
 /// # Intuitive Explanation
 ///
-/// Link prediction is the core task: given (head, relation, ?), predict which tail entity
-/// completes the triple. This function evaluates how well the model does this.
+/// Link prediction evaluates both directions for each test triple (Bordes 2013 protocol):
+/// - **Tail prediction**: given (head, relation, ?), rank all entities as candidate tails
+/// - **Head prediction**: given (?, relation, tail), rank all entities as candidate heads
 ///
 /// **The process**:
-/// 1. For each test triple (e.g., (Paris, located_in, ?))
-/// 2. Score all possible tail entities using containment probability
-/// 3. Rank them by score (highest = most likely)
-/// 4. Check where the correct answer (France) appears in the ranking
+/// 1. For each test triple (e.g., (Paris, located_in, France))
+/// 2. Tail prediction: score all entities as candidates for (Paris, located_in, ?)
+/// 3. Head prediction: score all entities as candidates for (?, located_in, France)
+/// 4. Average both directions into aggregate metrics
 ///
 /// **Metrics computed**:
 /// - **MRR (Mean Reciprocal Rank)**: Average of 1/rank for correct answers
@@ -928,11 +1225,10 @@ where
 ///
 /// * `test_triples` - Test set triples (held-out true facts)
 /// * `entity_boxes` - Map from entity ID to box embedding
-/// * `relation_boxes` - Map from relation ID to box embedding (optional, for relation-specific boxes)
-///
 /// # Returns
 ///
-/// Evaluation results with MRR, Hits@K, Mean Rank
+/// Evaluation results with bidirectional MRR (head/tail breakdown), Hits@K, Mean Rank,
+/// and per-relation metrics.
 ///
 /// # Note
 ///
@@ -940,28 +1236,27 @@ where
 pub fn evaluate_link_prediction<B>(
     test_triples: &[Triple],
     entity_boxes: &HashMap<String, B>,
-    _relation_boxes: Option<&HashMap<String, B>>,
 ) -> Result<EvaluationResults, crate::BoxError>
 where
     B: crate::Box<Scalar = f32>,
 {
-    evaluate_link_prediction_inner(test_triples, entity_boxes, _relation_boxes, None)
+    evaluate_link_prediction_inner(test_triples, entity_boxes, None)
 }
 
 /// Evaluate link prediction in the **filtered** setting.
 ///
-/// Filtered ranking excludes any candidate tail \(t'\) such that \((h, r, t')\) is known true
-/// (in train/valid/test), except for the test triple’s own tail.
+/// Filtered ranking excludes known-true candidates: for tail prediction, excludes
+/// \(t’\) where \((h, r, t’)\) is known; for head prediction, excludes \(h’\)
+/// where \((h’, r, t)\) is known. The test triple’s own entity is never filtered.
 pub fn evaluate_link_prediction_filtered<B>(
     test_triples: &[Triple],
     entity_boxes: &HashMap<String, B>,
-    _relation_boxes: Option<&HashMap<String, B>>,
     filter: &FilteredTripleIndex,
 ) -> Result<EvaluationResults, crate::BoxError>
 where
     B: crate::Box<Scalar = f32>,
 {
-    evaluate_link_prediction_inner(test_triples, entity_boxes, _relation_boxes, Some(filter))
+    evaluate_link_prediction_inner(test_triples, entity_boxes, Some(filter))
 }
 
 /// Evaluate link prediction using interned IDs (`usize`) for entities/relations.
@@ -972,18 +1267,11 @@ pub fn evaluate_link_prediction_interned<B>(
     test_triples: &[crate::dataset::TripleIds],
     entity_boxes: &[B],
     entities: &crate::dataset::Vocab,
-    _relation_boxes: Option<&[B]>,
 ) -> Result<EvaluationResults, crate::BoxError>
 where
     B: crate::Box<Scalar = f32>,
 {
-    evaluate_link_prediction_interned_inner(
-        test_triples,
-        entity_boxes,
-        entities,
-        _relation_boxes,
-        None,
-    )
+    evaluate_link_prediction_interned_inner(test_triples, entity_boxes, entities, None)
 }
 
 /// Evaluate link prediction in the **filtered** setting, using interned IDs.
@@ -991,19 +1279,12 @@ pub fn evaluate_link_prediction_interned_filtered<B>(
     test_triples: &[crate::dataset::TripleIds],
     entity_boxes: &[B],
     entities: &crate::dataset::Vocab,
-    _relation_boxes: Option<&[B]>,
     filter: &FilteredTripleIndexIds,
 ) -> Result<EvaluationResults, crate::BoxError>
 where
     B: crate::Box<Scalar = f32>,
 {
-    evaluate_link_prediction_interned_inner(
-        test_triples,
-        entity_boxes,
-        entities,
-        _relation_boxes,
-        Some(filter),
-    )
+    evaluate_link_prediction_interned_inner(test_triples, entity_boxes, entities, Some(filter))
 }
 
 /// Training result with metrics and history.
@@ -1026,7 +1307,7 @@ pub fn log_training_result(result: &TrainingResult, path: Option<&str>) -> Resul
     let output = format!(
         "Training Results\n\
          ===============\n\
-         Final MRR: {:.4}\n\
+         Final MRR: {:.4} (head: {:.4}, tail: {:.4})\n\
          Final Hits@1: {:.4}\n\
          Final Hits@3: {:.4}\n\
          Final Hits@10: {:.4}\n\
@@ -1034,6 +1315,8 @@ pub fn log_training_result(result: &TrainingResult, path: Option<&str>) -> Resul
          Best Epoch: {}\n\
          Training Time: {:.2}s\n",
         result.final_results.mrr,
+        result.final_results.head_mrr,
+        result.final_results.tail_mrr,
         result.final_results.hits_at_1,
         result.final_results.hits_at_3,
         result.final_results.hits_at_10,
@@ -1131,6 +1414,191 @@ pub fn compute_analytical_gradients(
     (grad_mu_a, grad_delta_a, grad_mu_b, grad_delta_b)
 }
 
+// ---------------------------------------------------------------------------
+// Box training
+// ---------------------------------------------------------------------------
+
+/// End-to-end trainer for box embeddings on knowledge graph datasets.
+///
+/// Manages entity box embeddings, optimizer state, and provides a `train_step()`
+/// method that handles negative sampling, loss computation, gradient updates,
+/// and optional evaluation.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use subsume::{BoxEmbeddingTrainer, TrainingConfig, Dataset};
+///
+/// let config = TrainingConfig { learning_rate: 0.01, ..Default::default() };
+/// let mut trainer = BoxEmbeddingTrainer::new(config, 16); // dim=16
+/// // Add training triples...
+/// for epoch in 0..100 {
+///     let loss = trainer.train_step(&train_triples)?;
+/// }
+/// ```
+pub struct BoxEmbeddingTrainer {
+    /// Training configuration.
+    pub config: TrainingConfig,
+    /// Learned box embeddings per entity.
+    pub boxes: HashMap<usize, TrainableBox>,
+    /// AMSGrad optimizer state per entity.
+    pub optimizer_states: HashMap<usize, AMSGradState>,
+    /// Embedding dimension.
+    pub dim: usize,
+}
+
+impl BoxEmbeddingTrainer {
+    /// Create a new box embedding trainer.
+    pub fn new(config: TrainingConfig, dim: usize) -> Self {
+        Self {
+            config,
+            boxes: HashMap::new(),
+            optimizer_states: HashMap::new(),
+            dim,
+        }
+    }
+
+    /// Ensure an entity exists in the trainer; initialize with defaults if missing.
+    ///
+    /// Creates a small box centered at a dimension-offset position so that
+    /// different entities start with slightly different embeddings.
+    pub fn ensure_entity(&mut self, id: usize) {
+        if !self.boxes.contains_key(&id) {
+            let mut init_vec = vec![0.0f32; self.dim];
+            if self.dim > 0 {
+                // Give each entity a slightly different initial position.
+                init_vec[id % self.dim] = 1.0;
+            }
+            let b = TrainableBox::from_vector(&init_vec, 0.5);
+            let n_params = b.num_parameters();
+            self.boxes.insert(id, b);
+            self.optimizer_states
+                .insert(id, AMSGradState::new(n_params, self.config.learning_rate));
+        }
+    }
+
+    /// Run one training epoch over the given triples.
+    ///
+    /// For each `(head, relation, tail)` triple:
+    /// 1. Ensure head and tail entities exist.
+    /// 2. Generate one negative sample by corrupting the tail.
+    /// 3. Compute containment loss for the positive pair and the negative pair.
+    /// 4. Compute analytical gradients and apply AMSGrad updates.
+    ///
+    /// Returns the average loss across all triples.
+    pub fn train_step(&mut self, triples: &[(usize, usize, usize)]) -> Result<f32, BoxError> {
+        if triples.is_empty() {
+            return Err(BoxError::Internal("empty triple set".to_string()));
+        }
+
+        let mut total_loss = 0.0f32;
+        let num_entities = triples
+            .iter()
+            .flat_map(|&(h, _, t)| [h, t])
+            .collect::<HashSet<_>>()
+            .len();
+
+        for &(h, _r, t) in triples {
+            self.ensure_entity(h);
+            self.ensure_entity(t);
+
+            // Snapshot current boxes (immutable copy for gradient computation).
+            let box_h = self
+                .boxes
+                .get(&h)
+                .cloned()
+                .expect("ensure_entity guarantees key exists");
+            let box_t = self
+                .boxes
+                .get(&t)
+                .cloned()
+                .expect("ensure_entity guarantees key exists");
+
+            // Positive loss: head should contain tail.
+            let pos_loss = compute_pair_loss(&box_h, &box_t, true, &self.config);
+            total_loss += pos_loss;
+
+            // Positive gradients.
+            let (grad_mu_h, grad_delta_h, grad_mu_t, grad_delta_t) =
+                compute_analytical_gradients(&box_h, &box_t, true, &self.config);
+
+            // Apply positive gradients.
+            if let (Some(b), Some(s)) = (self.boxes.get_mut(&h), self.optimizer_states.get_mut(&h))
+            {
+                b.update_amsgrad(&grad_mu_h, &grad_delta_h, s);
+            }
+            if let (Some(b), Some(s)) = (self.boxes.get_mut(&t), self.optimizer_states.get_mut(&t))
+            {
+                b.update_amsgrad(&grad_mu_t, &grad_delta_t, s);
+            }
+
+            // Negative sample: corrupt the tail with a simple deterministic pick.
+            let neg_t = if num_entities > 1 {
+                let candidate = (t + 1) % (num_entities + 1);
+                if candidate == t {
+                    (t + 2) % (num_entities + 1)
+                } else {
+                    candidate
+                }
+            } else {
+                continue; // cannot generate a negative with a single entity
+            };
+
+            self.ensure_entity(neg_t);
+
+            let box_h2 = self
+                .boxes
+                .get(&h)
+                .cloned()
+                .expect("ensure_entity guarantees key exists");
+            let box_neg = self
+                .boxes
+                .get(&neg_t)
+                .cloned()
+                .expect("ensure_entity guarantees key exists");
+
+            // Negative loss.
+            let neg_loss = compute_pair_loss(&box_h2, &box_neg, false, &self.config);
+            total_loss += neg_loss;
+
+            // Negative gradients.
+            let (grad_mu_h2, grad_delta_h2, grad_mu_neg, grad_delta_neg) =
+                compute_analytical_gradients(&box_h2, &box_neg, false, &self.config);
+
+            if let (Some(b), Some(s)) = (self.boxes.get_mut(&h), self.optimizer_states.get_mut(&h))
+            {
+                b.update_amsgrad(&grad_mu_h2, &grad_delta_h2, s);
+            }
+            if let (Some(b), Some(s)) = (
+                self.boxes.get_mut(&neg_t),
+                self.optimizer_states.get_mut(&neg_t),
+            ) {
+                b.update_amsgrad(&grad_mu_neg, &grad_delta_neg, s);
+            }
+        }
+
+        Ok(total_loss / triples.len() as f32)
+    }
+
+    /// Convert a single entity's [`TrainableBox`] to an [`NdarrayBox`](crate::ndarray_backend::NdarrayBox) for evaluation.
+    #[cfg(feature = "ndarray-backend")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "ndarray-backend")))]
+    pub fn get_box(&self, entity_id: usize) -> Option<crate::ndarray_backend::NdarrayBox> {
+        self.boxes
+            .get(&entity_id)
+            .and_then(|b| b.to_ndarray_box().ok())
+    }
+
+    /// Convert all entity boxes to [`NdarrayBox`](crate::ndarray_backend::NdarrayBox) for evaluation.
+    #[cfg(feature = "ndarray-backend")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "ndarray-backend")))]
+    pub fn get_all_boxes(&self) -> HashMap<usize, crate::ndarray_backend::NdarrayBox> {
+        self.boxes
+            .iter()
+            .filter_map(|(&id, b)| b.to_ndarray_box().ok().map(|nb| (id, nb)))
+            .collect()
+    }
+}
 // ---------------------------------------------------------------------------
 // Cone training
 // ---------------------------------------------------------------------------
@@ -1240,6 +1708,15 @@ impl ConeEmbeddingTrainer {
     }
 }
 
+/// Inside-distance weight for cone containment scoring (ConE default).
+const CONE_CENTER_WEIGHT: f32 = 0.02;
+/// Gradient strength multiplier for cone axis corrections.
+const CONE_GRADIENT_STRENGTH: f32 = 0.2;
+/// Aperture gradient coefficient for narrowing/widening corrections.
+const CONE_APERTURE_GRADIENT: f32 = 0.05;
+/// Clamp ceiling for per-dimension violation/margin signals.
+const CONE_VIOLATION_CLAMP: f32 = 1.0;
+
 /// Compute loss for a pair of cones using the ConE distance scoring.
 ///
 /// - **Positive**: minimize distance (encourage A to contain B).
@@ -1252,7 +1729,7 @@ pub fn compute_cone_pair_loss(
 ) -> f32 {
     let dense_a = cone_a.to_cone();
     let dense_b = cone_b.to_cone();
-    let cen = 0.02; // Inside-distance weight (ConE default).
+    let cen = CONE_CENTER_WEIGHT;
 
     if is_positive {
         // Positive: minimize distance (A should contain B).
@@ -1315,19 +1792,19 @@ pub fn compute_cone_analytical_gradients(
             if dist_to_axis >= dist_base {
                 // B is outside A in this dimension -- push to fix it.
                 let violation = dist_to_axis - dist_base;
-                let strength = 0.2 * violation.min(1.0);
+                let strength = CONE_GRADIENT_STRENGTH * violation.min(CONE_VIOLATION_CLAMP);
                 grad_axes_a[i] = -strength * diff.signum(); // push A toward B
                 grad_axes_b[i] = strength * diff.signum(); // push B toward A
                                                            // Widen A (negative gradient = increase raw_aperture on descent).
                 grad_aper_a[i] = -strength;
                 // Narrow B slightly so it fits inside A.
-                grad_aper_b[i] = 0.05 * strength;
+                grad_aper_b[i] = CONE_APERTURE_GRADIENT * strength;
             }
             // If B is already inside A, no gradient needed for this dimension.
         }
     } else {
         // A should NOT contain B. For each dimension where B is inside A, push apart.
-        let dist = dense_a.cone_distance(&dense_b, 0.02);
+        let dist = dense_a.cone_distance(&dense_b, CONE_CENTER_WEIGHT);
         if dist < config.margin {
             let urgency = (config.margin - dist) / config.margin; // 0..1
             for i in 0..dim {
@@ -1338,7 +1815,8 @@ pub fn compute_cone_analytical_gradients(
                     // B is inside A in this dimension -- push apart.
                     let diff = dense_b.axes[i] - dense_a.axes[i];
                     let margin = dist_base - dist_to_axis;
-                    let strength = 0.2 * urgency * margin.min(1.0);
+                    let strength =
+                        CONE_GRADIENT_STRENGTH * urgency * margin.min(CONE_VIOLATION_CLAMP);
 
                     grad_axes_a[i] = strength * diff.signum(); // push A away from B
                     grad_axes_b[i] = -strength * diff.signum();
@@ -1632,10 +2110,13 @@ mod tests {
         let result = TrainingResult {
             final_results: EvaluationResults {
                 mrr: 0.5,
+                head_mrr: 0.45,
+                tail_mrr: 0.55,
                 hits_at_1: 0.3,
                 hits_at_3: 0.4,
                 hits_at_10: 0.6,
                 mean_rank: 5.5,
+                per_relation: vec![],
             },
             loss_history: vec![1.0, 0.8, 0.6],
             validation_mrr_history: vec![0.3, 0.4, 0.5],
@@ -1844,7 +2325,7 @@ mod tests {
             tail: "B".to_string(),
         }];
 
-        let results = evaluate_link_prediction(&test_triples, &entity_boxes, None).unwrap();
+        let results = evaluate_link_prediction(&test_triples, &entity_boxes).unwrap();
 
         // B is contained in A and should rank highly; C is disjoint.
         // With 3 entities, best rank is 1, so MRR should be > 0.
@@ -1866,7 +2347,7 @@ mod tests {
         let mut entity_boxes = HashMap::new();
         entity_boxes.insert("A".to_string(), a);
 
-        let results = evaluate_link_prediction::<NdarrayBox>(&[], &entity_boxes, None).unwrap();
+        let results = evaluate_link_prediction::<NdarrayBox>(&[], &entity_boxes).unwrap();
         // No triples to evaluate: metrics should be NaN or 0 depending on implementation.
         // mean_reciprocal_rank([]) and hits_at_k([]) return NaN per standard behavior.
         // Just check it does not panic.
@@ -1913,9 +2394,9 @@ mod tests {
         ];
         let filter = FilteredTripleIndex::from_triples(filter_triples.iter());
 
-        let unfiltered = evaluate_link_prediction(&test_triples, &entity_boxes, None).unwrap();
+        let unfiltered = evaluate_link_prediction(&test_triples, &entity_boxes).unwrap();
         let filtered =
-            evaluate_link_prediction_filtered(&test_triples, &entity_boxes, None, &filter).unwrap();
+            evaluate_link_prediction_filtered(&test_triples, &entity_boxes, &filter).unwrap();
 
         // Filtered rank should be <= unfiltered rank (fewer competitors).
         assert!(
@@ -1956,8 +2437,7 @@ mod tests {
             tail: id_b,
         }];
 
-        let results =
-            evaluate_link_prediction_interned(&test_triples, &boxes, &vocab, None).unwrap();
+        let results = evaluate_link_prediction_interned(&test_triples, &boxes, &vocab).unwrap();
         assert!(
             results.mrr > 0.0,
             "MRR should be positive, got {}",
@@ -2004,16 +2484,10 @@ mod tests {
         ];
         let filter = FilteredTripleIndexIds::from_triples(known_triples.iter());
 
-        let unfiltered =
-            evaluate_link_prediction_interned(&test_triples, &boxes, &vocab, None).unwrap();
-        let filtered = evaluate_link_prediction_interned_filtered(
-            &test_triples,
-            &boxes,
-            &vocab,
-            None,
-            &filter,
-        )
-        .unwrap();
+        let unfiltered = evaluate_link_prediction_interned(&test_triples, &boxes, &vocab).unwrap();
+        let filtered =
+            evaluate_link_prediction_interned_filtered(&test_triples, &boxes, &vocab, &filter)
+                .unwrap();
 
         assert!(
             filtered.mean_rank <= unfiltered.mean_rank,
@@ -2124,8 +2598,8 @@ mod tests {
             tail: "B".to_string(),
         }];
 
-        let r1 = evaluate_link_prediction(&test_triples, &entity_boxes, None).unwrap();
-        let r2 = evaluate_link_prediction(&test_triples, &entity_boxes, None).unwrap();
+        let r1 = evaluate_link_prediction(&test_triples, &entity_boxes).unwrap();
+        let r2 = evaluate_link_prediction(&test_triples, &entity_boxes).unwrap();
 
         assert_eq!(r1.mrr, r2.mrr, "MRR differs across runs");
         assert_eq!(r1.hits_at_1, r2.hits_at_1, "Hits@1 differs across runs");
@@ -2418,10 +2892,13 @@ mod tests {
         let result = TrainingResult {
             final_results: EvaluationResults {
                 mrr: 0.75,
+                head_mrr: 0.70,
+                tail_mrr: 0.80,
                 hits_at_1: 0.6,
                 hits_at_3: 0.7,
                 hits_at_10: 0.9,
                 mean_rank: 2.5,
+                per_relation: vec![],
             },
             loss_history: vec![2.0, 1.0, 0.5],
             validation_mrr_history: vec![0.5, 0.65, 0.75],

@@ -47,6 +47,14 @@
 /// the mean of the Gumbel distribution.
 pub const EULER_GAMMA: f32 = 0.577_215_7;
 
+/// Floor for log-volume when volume is near zero (ln(1e-10) ≈ -23.0).
+/// Used in depth and boundary distance to avoid -inf from log(0).
+pub(crate) const LOG_VOLUME_FLOOR: f32 = -23.0;
+
+/// Minimum containment probability to consider entities "fully contained"
+/// in boundary distance computation.
+pub(crate) const BOUNDARY_CONTAINMENT_THRESHOLD: f32 = 0.99;
+
 /// Numerically stable softplus: `(1/beta) * log(1 + exp(beta * x))`.
 ///
 /// For large `beta * x`, returns `x` directly to avoid overflow.
