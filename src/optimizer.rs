@@ -1,7 +1,7 @@
 //! Optimizer implementations for box embeddings.
 
 /// AMSGrad optimizer state for a single box.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AMSGradState {
     /// First moment estimate (m)
     pub(crate) m: Vec<f32>,

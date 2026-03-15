@@ -25,6 +25,21 @@ pub struct Triple {
     pub tail: String,
 }
 
+impl Triple {
+    /// Create a new triple from head, relation, and tail.
+    pub fn new(
+        head: impl Into<String>,
+        relation: impl Into<String>,
+        tail: impl Into<String>,
+    ) -> Self {
+        Self {
+            head: head.into(),
+            relation: relation.into(),
+            tail: tail.into(),
+        }
+    }
+}
+
 /// A compact ID vocabulary for interning strings to integers.
 ///
 /// Motivation: training/evaluation hot paths frequently do lookups and comparisons over
@@ -137,6 +152,14 @@ impl Dataset {
             entity_map: None,
             relation_map: None,
         }
+    }
+
+    /// Create a dataset from pre-built triple vectors (no file I/O).
+    ///
+    /// Equivalent to [`Dataset::new`] but named for discoverability alongside
+    /// [`load_dataset`].
+    pub fn from_triples(train: Vec<Triple>, valid: Vec<Triple>, test: Vec<Triple>) -> Self {
+        Self::new(train, valid, test)
     }
 
     /// Get all unique entities from the dataset.

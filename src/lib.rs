@@ -99,10 +99,12 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use subsume::{Box, GumbelBox};
+//! // Rename to avoid shadowing std::boxed::Box
+//! use subsume::Box as BoxRegion;
+//! use subsume::GumbelBox;
 //!
 //! // Framework-agnostic: works with NdarrayBox, CandleBox, or your own impl
-//! fn compute_entailment<B: Box>(
+//! fn compute_entailment<B: BoxRegion>(
 //!     premise: &B,
 //!     hypothesis: &B,
 //!     temp: B::Scalar,
@@ -210,7 +212,16 @@ pub mod taxobell_encoder;
 // ---------------------------------------------------------------------------
 
 /// The core box embedding trait. Start here.
+///
+/// This trait shares its name with [`std::boxed::Box`]. To avoid shadowing, use one of:
+/// - `use subsume::Box as BoxRegion;` (recommended)
+/// - Qualify calls as `subsume::Box` or `<T as subsume::Box>::method()`
 pub use box_trait::{Box, BoxError};
+
+/// Convenience alias for the [`Box`] trait that avoids shadowing [`std::boxed::Box`].
+///
+/// `use subsume::BoxRegion;` is equivalent to `use subsume::Box as BoxRegion;`.
+pub use box_trait::Box as BoxRegion;
 
 /// The probabilistic box trait (Gumbel-distributed coordinates).
 pub use gumbel::GumbelBox;
@@ -232,10 +243,14 @@ pub use distance::query2box_distance;
 // Re-exports: training
 pub use optimizer::{get_learning_rate, AMSGradState};
 pub use trainable::{TrainableBox, TrainableCone};
+#[cfg(feature = "ndarray-backend")]
+#[cfg_attr(docsrs, doc(cfg(feature = "ndarray-backend")))]
+pub use trainer::evaluate_link_prediction_interned_with_transforms;
 pub use trainer::{
     compute_cone_analytical_gradients, compute_cone_pair_loss, evaluate_link_prediction,
-    log_training_result, BoxEmbeddingTrainer, ConeEmbeddingTrainer, EvaluationResults,
-    NegativeSamplingStrategy, PerRelationResults, TrainingConfig, TrainingResult,
+    evaluate_link_prediction_with_transforms, log_training_result, BoxEmbeddingTrainer,
+    ConeEmbeddingTrainer, EvaluationResults, NegativeSamplingStrategy, PerRelationResults,
+    RelationTransform, TrainingConfig, TrainingResult,
 };
 
 /// Negative sampling utilities (requires the `rand` feature).
