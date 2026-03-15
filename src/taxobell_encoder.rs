@@ -19,6 +19,14 @@ use crate::taxobell::{CombinedLossResult, TaxoBellConfig};
 use crate::BoxError;
 use candle_core::{DType, Device, Result as CResult, Tensor, Var, D};
 
+/// Xavier uniform initialization scale: `sqrt(6 / (fan_in + fan_out))`.
+///
+/// Glorot & Bengio (2010), "Understanding the difficulty of training deep
+/// feedforward neural networks". Keeps variance stable across layers.
+fn xavier_uniform_scale(fan_in: usize, fan_out: usize) -> f32 {
+    (6.0 / (fan_in + fan_out) as f64).sqrt() as f32
+}
+
 // ---------------------------------------------------------------------------
 // Numerically stable softplus
 // ---------------------------------------------------------------------------
@@ -67,11 +75,11 @@ impl Mlp {
     ) -> Result<Self, BoxError> {
         let map_err = |e: candle_core::Error| BoxError::Internal(e.to_string());
 
-        let scale1 = (6.0 / (input_dim + hidden_dim) as f64).sqrt() as f32;
+        let scale1 = xavier_uniform_scale(input_dim, hidden_dim);
         let w1 = Var::rand(-scale1, scale1, (hidden_dim, input_dim), device).map_err(map_err)?;
         let b1 = Var::zeros(hidden_dim, DType::F32, device).map_err(map_err)?;
 
-        let scale2 = (6.0 / (hidden_dim + output_dim) as f64).sqrt() as f32;
+        let scale2 = xavier_uniform_scale(hidden_dim, output_dim);
         let w2 = Var::rand(-scale2, scale2, (output_dim, hidden_dim), device).map_err(map_err)?;
         let b2 = Var::zeros(output_dim, DType::F32, device).map_err(map_err)?;
 

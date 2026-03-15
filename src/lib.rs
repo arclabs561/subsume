@@ -260,7 +260,7 @@ pub use trainer::{
     generate_degree_weighted_negatives, generate_negative_samples,
     generate_negative_samples_from_pool_with_rng,
     generate_negative_samples_from_sorted_pool_with_rng, generate_negative_samples_with_rng,
-    SortedEntityPool,
+    generate_self_adversarial_negatives, SortedEntityPool,
 };
 
 // Re-exports: evaluation metrics (access diagnostics/quality via subsume::training::*)
