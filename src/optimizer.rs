@@ -1,5 +1,16 @@
 //! Optimizer implementations for box embeddings.
 
+/// Default momentum coefficient (beta1) for AMSGrad (Reddi et al., 2018).
+const DEFAULT_BETA1: f32 = 0.9;
+/// Default RMSProp coefficient (beta2) for AMSGrad (Reddi et al., 2018).
+const DEFAULT_BETA2: f32 = 0.999;
+/// Default numerical stability epsilon for AMSGrad.
+const DEFAULT_EPSILON: f32 = 1e-8;
+/// Warmup start multiplier: LR begins at this fraction of base LR.
+const WARMUP_LR_FRACTION: f32 = 0.1;
+/// Cosine decay floor: LR decays to this fraction of base LR.
+const COSINE_MIN_LR_FRACTION: f32 = 0.1;
+
 /// AMSGrad optimizer state for a single box.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AMSGradState {
@@ -30,9 +41,9 @@ impl AMSGradState {
             v_hat: vec![0.0; dim],
             t: 0,
             lr: learning_rate,
-            beta1: 0.9,
-            beta2: 0.999,
-            epsilon: 1e-8,
+            beta1: DEFAULT_BETA1,
+            beta2: DEFAULT_BETA2,
+            epsilon: DEFAULT_EPSILON,
         }
     }
 
@@ -74,14 +85,12 @@ pub fn get_learning_rate(
     warmup_epochs: usize,
 ) -> f32 {
     if epoch < warmup_epochs {
-        // Linear warmup: 0.1 * lr → lr
-        let warmup_lr = base_lr * 0.1;
+        let warmup_lr = base_lr * WARMUP_LR_FRACTION;
         warmup_lr + (base_lr - warmup_lr) * (epoch as f32 / warmup_epochs as f32)
     } else {
-        // Cosine decay: lr → 0.1 * lr
         let progress =
             (epoch - warmup_epochs) as f32 / (total_epochs - warmup_epochs).max(1) as f32;
-        let min_lr = base_lr * 0.1;
+        let min_lr = base_lr * COSINE_MIN_LR_FRACTION;
         min_lr + (base_lr - min_lr) * (1.0 + (std::f32::consts::PI * progress).cos()) / 2.0
     }
 }

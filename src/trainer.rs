@@ -8,7 +8,7 @@
 //!
 //! ## Implementation invariants (why certain choices exist)
 //!
-//! - **Negative sampling prevents the trivial solution**: without negatives, “everything contains everything”
+//! - **Negative sampling prevents the trivial solution**: without negatives, "everything contains everything"
 //!   can score well on positives. Negatives force discrimination.
 //! - **Evaluation is deterministic**: ranking metrics are sensitive to tie-handling; we use a deterministic
 //!   tie-break so \( \text{same model + same data} \Rightarrow \text{same metrics} \).
@@ -451,7 +451,7 @@ pub fn generate_negative_samples_from_sorted_pool_with_rng<R: Rng>(
 
 /// Generate negative samples from an explicit candidate entity pool.
 ///
-/// This is the “integration seam”: callers can restrict the pool to hard negatives
+/// This is the "integration seam": callers can restrict the pool to hard negatives
 /// (e.g., graph neighborhood candidates), while `subsume` stays dependency-free.
 #[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
 #[cfg(feature = "rand")]
@@ -569,7 +569,7 @@ pub fn generate_degree_weighted_negatives(
         .iter()
         .map(|id| {
             let deg = *entity_degrees.get(id).unwrap_or(&1) as f64;
-            deg.powf(0.75)
+            deg.powf(DEGREE_SMOOTHING_EXPONENT)
         })
         .collect();
 
@@ -601,7 +601,92 @@ pub fn generate_degree_weighted_negatives(
     negatives
 }
 
-/// An index of “known true” triples for filtered link prediction evaluation.
+/// Generate self-adversarial negative samples weighted by model scores.
+///
+/// For each positive triple `(h, r, t)`, generates `num_negatives` corruptions
+/// where harder negatives (those the model currently scores highly) are sampled
+/// with higher probability. The sampling weight for a candidate negative
+/// `(h, r, t')` is `exp(score(h, r, t') / temperature)`.
+///
+/// This implements the self-adversarial negative sampling from:
+/// Sun et al. (2019), "RotatE: Knowledge Graph Embedding by Relational
+/// Rotation in Complex Space" (ICLR 2019), Section 3.2.
+///
+/// # Parameters
+/// - `positive_triples` - training triples to corrupt
+/// - `scores_fn` - function mapping `(head_id, tail_id) -> f32` score
+///   (higher = model thinks this pair is more likely to be true)
+/// - `entity_ids` - all candidate entity IDs for corruption
+/// - `temperature` - controls sharpness of adversarial distribution
+///   (lower = more focused on hard negatives, higher = more uniform)
+/// - `num_negatives` - number of negatives per positive
+/// - `rng` - random number generator
+#[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
+#[cfg(feature = "rand")]
+pub fn generate_self_adversarial_negatives<F>(
+    positive_triples: &[(usize, usize, usize)],
+    scores_fn: F,
+    entity_ids: &[usize],
+    temperature: f32,
+    num_negatives: usize,
+    rng: &mut impl rand::Rng,
+) -> Vec<(usize, usize, usize)>
+where
+    F: Fn(usize, usize) -> f32,
+{
+    use rand::distr::weighted::WeightedIndex;
+    use rand::distr::Distribution;
+
+    if entity_ids.is_empty() || positive_triples.is_empty() || num_negatives == 0 {
+        return Vec::new();
+    }
+
+    let mut negatives = Vec::with_capacity(positive_triples.len() * num_negatives);
+
+    for &(h, r, t) in positive_triples {
+        // Compute adversarial weights for tail corruption candidates.
+        let weights: Vec<f64> = entity_ids
+            .iter()
+            .map(|&candidate| {
+                if candidate == t {
+                    0.0 // don't sample the true tail
+                } else {
+                    let score = scores_fn(h, candidate);
+                    (score as f64 / temperature as f64).exp()
+                }
+            })
+            .collect();
+
+        let total: f64 = weights.iter().sum();
+        if total <= 0.0 {
+            // Fallback: uniform sampling if all weights are zero.
+            for _ in 0..num_negatives {
+                let idx = rng.random_range(0..entity_ids.len());
+                let candidate = entity_ids[idx];
+                if candidate != t {
+                    negatives.push((h, r, candidate));
+                }
+            }
+            continue;
+        }
+
+        let dist = match WeightedIndex::new(&weights) {
+            Ok(d) => d,
+            Err(_) => continue,
+        };
+
+        for _ in 0..num_negatives {
+            let candidate = entity_ids[dist.sample(rng)];
+            if candidate != t {
+                negatives.push((h, r, candidate));
+            }
+        }
+    }
+
+    negatives
+}
+
+/// An index of "known true" triples for filtered link prediction evaluation.
 ///
 /// In standard KGE evaluation (e.g. FB15k-237, WN18RR), **filtered ranking** removes any
 /// candidate that is already a true triple in train/valid/test, except for the test triple
@@ -1763,7 +1848,7 @@ pub fn log_training_result(result: &TrainingResult, path: Option<&str>) -> Resul
 ///
 /// Design choice (important):
 /// - For **positive** examples this loss uses a *symmetric* score by taking
-///   \(\min(P(B \subseteq A),\; P(A \subseteq B))\). This encourages “near-equivalence”
+///   \(\min(P(B \subseteq A),\; P(A \subseteq B))\). This encourages "near-equivalence"
 ///   more than directed entailment.
 /// - For hierarchy-like relations, a more typical objective is *directed* containment,
 ///   e.g. minimize \(-\ln P(B \subseteq A)\) only.
@@ -2064,6 +2149,33 @@ impl BoxEmbeddingTrainer {
             .collect()
     }
 
+    /// Export all entity embeddings as flat `f32` vectors.
+    ///
+    /// Returns `(entity_ids, min_bounds, max_bounds)` where:
+    /// - `entity_ids[i]` is the entity ID for the i-th embedding
+    /// - `min_bounds` is a flat `Vec<f32>` of length `n_entities * dim` (row-major)
+    /// - `max_bounds` is a flat `Vec<f32>` of the same length
+    ///
+    /// This format is compatible with safetensors, numpy (via reshape), and
+    /// vector databases that accept flat float arrays.
+    pub fn export_embeddings(&self) -> (Vec<usize>, Vec<f32>, Vec<f32>) {
+        let mut ids: Vec<usize> = self.boxes.keys().copied().collect();
+        ids.sort_unstable();
+
+        let n = ids.len();
+        let mut mins = Vec::with_capacity(n * self.dim);
+        let mut maxs = Vec::with_capacity(n * self.dim);
+
+        for &id in &ids {
+            let b = &self.boxes[&id];
+            let dense = b.to_box();
+            mins.extend_from_slice(&dense.min);
+            maxs.extend_from_slice(&dense.max);
+        }
+
+        (ids, mins, maxs)
+    }
+
     /// Evaluate the trained model on test triples using interned link prediction.
     ///
     /// Converts learned [`TrainableBox`] embeddings to [`NdarrayBox`](crate::ndarray_backend::NdarrayBox)
@@ -2318,6 +2430,14 @@ impl ConeEmbeddingTrainer {
         loss
     }
 }
+
+/// Degree smoothing exponent for negative sampling (Mikolov et al., 2013).
+///
+/// Used in [`generate_degree_weighted_negatives`]: each entity's sampling
+/// probability is proportional to `degree^0.75`, which down-weights
+/// high-degree hub entities relative to pure frequency-based sampling.
+#[cfg(feature = "rand")]
+const DEGREE_SMOOTHING_EXPONENT: f64 = 0.75;
 
 /// Inside-distance weight for cone containment scoring (ConE default).
 const CONE_CENTER_WEIGHT: f32 = 0.02;
