@@ -176,6 +176,57 @@ levels where Gaussian boxes fail completely.
 
 *25-entity taxonomy learned over 200 epochs. Left: total violation drops 3 orders of magnitude. Right: containment probabilities converge to 1.0 at different rates depending on hierarchy depth. Reproduce: `cargo run --example box_training` or `uv run scripts/plot_training.py`.*
 
+## WASM
+
+The core compiles to `wasm32-unknown-unknown` with no default features:
+
+```bash
+cargo check --target wasm32-unknown-unknown --no-default-features
+```
+
+This enables browser-side box intersection, containment checking, and volume
+computation. No Python KG embedding library supports WASM.
+
+## Embedding export
+
+`BoxEmbeddingTrainer::export_embeddings()` returns flat f32 vectors suitable for
+safetensors, numpy (via reshape), and vector databases:
+
+```rust,ignore
+let (ids, mins, maxs) = trainer.export_embeddings();
+// mins/maxs are flat Vec<f32> of length n_entities * dim
+// Reshape to (n_entities, dim) for numpy/safetensors
+```
+
+Checkpoint save/load via serde:
+
+```rust,ignore
+let json = serde_json::to_string(&trainer)?;
+let restored: BoxEmbeddingTrainer = serde_json::from_str(&json)?;
+```
+
+## Integration patterns
+
+Convert from petgraph (when `petgraph` feature is enabled):
+
+```rust,ignore
+use subsume::petgraph_adapter::from_graph;
+let dataset = from_graph(&my_digraph);
+```
+
+Convert from polars (no dependency needed, user-side code):
+
+```rust,ignore
+use subsume::dataset::Triple;
+let triples: Vec<Triple> = df.column("head")?.str()?
+    .into_iter()
+    .zip(df.column("relation")?.str()?)
+    .zip(df.column("tail")?.str()?)
+    .filter_map(|((h, r), t)| Some(Triple::new(h?, r?, t?)))
+    .collect();
+let dataset = Dataset::new(triples, vec![], vec![]);
+```
+
 ## References
 
 - Nickel & Kiela (2017). "Poincare Embeddings for Learning Hierarchical Representations"
