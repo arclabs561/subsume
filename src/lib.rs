@@ -335,3 +335,10 @@ pub mod ndarray_backend;
 #[cfg_attr(docsrs, doc(cfg(feature = "candle-backend")))]
 #[cfg(feature = "candle-backend")]
 pub mod candle_backend;
+
+/// Adapter for constructing datasets from [`petgraph`] graphs.
+///
+/// Requires the `petgraph` feature.
+#[cfg(feature = "petgraph")]
+#[cfg_attr(docsrs, doc(cfg(feature = "petgraph")))]
+pub mod petgraph_adapter;

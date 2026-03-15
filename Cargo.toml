@@ -30,12 +30,14 @@ skel = { version = "0.1.1", optional = true }
 ndarray = { version = "0.16", features = ["serde-1"], optional = true }
 serde_json = { version = "1.0", optional = true }
 candle-core = { version = "0.9", optional = true }
+petgraph = { version = "0.7", optional = true }
 
 [features]
 default = ["ndarray-backend"]
 ndarray-backend = ["dep:ndarray", "dep:serde_json", "rand", "dep:hyperball", "dep:skel"]
 candle-backend = ["dep:candle-core"]
 rand = ["dep:rand"]
+petgraph = ["dep:petgraph"]
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
