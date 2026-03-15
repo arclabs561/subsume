@@ -1823,15 +1823,32 @@ pub fn compute_analytical_gradients(
     let vol_intersection = box_a_embed.intersection_volume(&box_b_embed);
 
     if is_positive {
+        // Positive: push boxes to overlap (attract centers, expand to contain).
         for i in 0..dim {
             if vol_intersection > 1e-10 {
-                grad_delta_a[i] -= 0.1;
-                grad_delta_b[i] -= 0.1;
+                // Already overlapping: gently tighten both boxes.
+                grad_delta_a[i] -= CONE_CENTER_WEIGHT;
+                grad_delta_b[i] -= CONE_CENTER_WEIGHT;
             } else {
+                // Disjoint: move centers toward each other.
                 let diff = box_b_embed.min[i] + box_b_embed.max[i]
                     - (box_a_embed.min[i] + box_a_embed.max[i]);
                 grad_mu_a[i] -= 0.5 * diff;
                 grad_mu_b[i] += 0.5 * diff;
+            }
+        }
+    } else {
+        // Negative: push overlapping boxes apart (repel centers, shrink overlap).
+        if vol_intersection > 1e-10 {
+            for i in 0..dim {
+                let diff = box_b_embed.min[i] + box_b_embed.max[i]
+                    - (box_a_embed.min[i] + box_a_embed.max[i]);
+                // Move centers apart.
+                grad_mu_a[i] += CONE_GRADIENT_STRENGTH * diff;
+                grad_mu_b[i] -= CONE_GRADIENT_STRENGTH * diff;
+                // Shrink both boxes to reduce overlap.
+                grad_delta_a[i] += CONE_APERTURE_GRADIENT;
+                grad_delta_b[i] += CONE_APERTURE_GRADIENT;
             }
         }
     }
@@ -1930,11 +1947,13 @@ impl BoxEmbeddingTrainer {
         }
 
         let mut total_loss = 0.0f32;
-        let num_entities = triples
+        // Collect all entity IDs present in this batch for negative sampling.
+        let entity_ids: Vec<usize> = triples
             .iter()
             .flat_map(|&(h, _, t)| [h, t])
             .collect::<HashSet<_>>()
-            .len();
+            .into_iter()
+            .collect();
 
         for &(h, r, t) in triples {
             // Get the relation transform (default to Identity).
@@ -1985,19 +2004,20 @@ impl BoxEmbeddingTrainer {
                 b.update_amsgrad(&grad_mu_t, &grad_delta_t, s);
             }
 
-            // Negative sample: corrupt the tail with a simple deterministic pick.
-            let neg_t = if num_entities > 1 {
-                let candidate = (t + 1) % (num_entities + 1);
+            // Negative sample: corrupt the tail with a different entity from the batch.
+            // Deterministic: pick an entity that is not the true tail.
+            let neg_t = if entity_ids.len() > 1 {
+                // Hash-based deterministic selection: use (h + t + epoch-proxy) to vary.
+                let idx = (h.wrapping_mul(31).wrapping_add(t).wrapping_add(7)) % entity_ids.len();
+                let candidate = entity_ids[idx];
                 if candidate == t {
-                    (t + 2) % (num_entities + 1)
+                    entity_ids[(idx + 1) % entity_ids.len()]
                 } else {
                     candidate
                 }
             } else {
                 continue; // cannot generate a negative with a single entity
             };
-
-            self.ensure_entity(neg_t);
 
             let box_h2 = self.snapshot_box(h);
             let box_neg = self.snapshot_box(neg_t);
@@ -2103,6 +2123,90 @@ impl BoxEmbeddingTrainer {
         } else {
             evaluate_link_prediction_interned_inner(test_triples, &entity_vec, entities, filter)
         }
+    }
+    /// Train for multiple epochs with optional validation and early stopping.
+    ///
+    /// Uses `config.epochs` as the epoch count, `config.early_stopping_patience`
+    /// for early stopping, and `config.warmup_epochs` for learning rate warmup.
+    /// If `validation` is provided, evaluates after each epoch and tracks best MRR.
+    ///
+    /// Returns a [`TrainingResult`] with loss history, validation MRR history,
+    /// and the final evaluation results.
+    #[cfg(feature = "ndarray-backend")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "ndarray-backend")))]
+    pub fn fit(
+        &mut self,
+        train_triples: &[(usize, usize, usize)],
+        validation: Option<(&[crate::dataset::TripleIds], &crate::dataset::Vocab)>,
+        filter: Option<&FilteredTripleIndexIds>,
+    ) -> Result<TrainingResult, BoxError> {
+        let epochs = self.config.epochs;
+        let warmup = self.config.warmup_epochs;
+        let base_lr = self.config.learning_rate;
+        let patience = self.config.early_stopping_patience;
+        let min_delta = self.config.early_stopping_min_delta;
+
+        let mut loss_history = Vec::with_capacity(epochs);
+        let mut mrr_history = Vec::new();
+        let mut best_mrr = 0.0f32;
+        let mut best_epoch = 0;
+        let mut epochs_without_improvement = 0usize;
+
+        for epoch in 0..epochs {
+            // Learning rate scheduling.
+            let lr = crate::optimizer::get_learning_rate(epoch, epochs, base_lr, warmup);
+            for state in self.optimizer_states.values_mut() {
+                state.set_lr(lr);
+            }
+
+            let loss = self.train_step(train_triples)?;
+            loss_history.push(loss);
+
+            // Validation.
+            if let Some((val_triples, entities)) = validation {
+                let results = self.evaluate(val_triples, entities, filter)?;
+                mrr_history.push(results.mrr);
+
+                if results.mrr > best_mrr + min_delta {
+                    best_mrr = results.mrr;
+                    best_epoch = epoch;
+                    epochs_without_improvement = 0;
+                } else {
+                    epochs_without_improvement += 1;
+                }
+
+                // Early stopping.
+                if let Some(p) = patience {
+                    if epochs_without_improvement >= p {
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Final evaluation on the validation set (or return zeros).
+        let final_results = if let Some((val_triples, entities)) = validation {
+            self.evaluate(val_triples, entities, filter)?
+        } else {
+            EvaluationResults {
+                mrr: 0.0,
+                head_mrr: 0.0,
+                tail_mrr: 0.0,
+                hits_at_1: 0.0,
+                hits_at_3: 0.0,
+                hits_at_10: 0.0,
+                mean_rank: 0.0,
+                per_relation: Vec::new(),
+            }
+        };
+
+        Ok(TrainingResult {
+            final_results,
+            loss_history,
+            validation_mrr_history: mrr_history,
+            best_epoch,
+            training_time_seconds: None,
+        })
     }
 }
 // ---------------------------------------------------------------------------
