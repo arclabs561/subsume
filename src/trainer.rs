@@ -23,6 +23,48 @@ use crate::BoxError;
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
 
+/// Per-relation geometric transform applied to entity boxes during scoring.
+///
+/// In TransE-family models, relations are modeled as translations in embedding space.
+/// `RelationTransform` extends this idea to box embeddings: the head box is translated
+/// before computing containment with the tail box.
+///
+/// Default is [`Identity`](RelationTransform::Identity) (no transform), which recovers
+/// standard box containment scoring.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum RelationTransform {
+    /// No transform: containment scoring uses raw entity boxes.
+    #[default]
+    Identity,
+    /// Translate the box bounds by a per-dimension offset vector.
+    ///
+    /// Given a box `[min, max]` and offset `d`, the translated box is `[min + d, max + d]`.
+    Translation(Vec<f32>),
+}
+
+impl RelationTransform {
+    /// True if this transform is the identity (no-op).
+    #[inline]
+    pub fn is_identity(&self) -> bool {
+        matches!(self, RelationTransform::Identity)
+    }
+
+    /// Apply this transform to box bounds, returning `(new_min, new_max)`.
+    ///
+    /// For [`Identity`](RelationTransform::Identity), returns clones of the inputs.
+    /// For [`Translation`](RelationTransform::Translation), adds the offset to each bound.
+    pub fn apply_to_bounds(&self, min: &[f32], max: &[f32]) -> (Vec<f32>, Vec<f32>) {
+        match self {
+            RelationTransform::Identity => (min.to_vec(), max.to_vec()),
+            RelationTransform::Translation(offset) => {
+                let new_min: Vec<f32> = min.iter().zip(offset).map(|(m, d)| m + d).collect();
+                let new_max: Vec<f32> = max.iter().zip(offset).map(|(m, d)| m + d).collect();
+                (new_min, new_max)
+            }
+        }
+    }
+}
+
 /// Negative sampling strategy for training.
 ///
 /// # Research Background
@@ -57,7 +99,7 @@ use std::collections::{HashMap, HashSet};
 /// **The key insight**: The strategy affects what the model learns to distinguish. CorruptTail
 /// teaches "given a head and relation, which tails are plausible?" while CorruptHead teaches
 /// "given a tail and relation, which heads are plausible?"
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum NegativeSamplingStrategy {
     /// Uniform random sampling (corrupts head or tail randomly)
     Uniform,
@@ -152,7 +194,14 @@ pub enum NegativeSamplingStrategy {
 /// - \(L_{\text{volume}}\) is volume regularization (penalizes large boxes)
 /// - \(||\theta||^2\) is L2 regularization on parameters
 /// - \(\lambda_{\text{wd}}\) is `weight_decay`
-#[derive(Debug, Clone)]
+/// # Field usage
+///
+/// Only `learning_rate`, `margin`, `regularization`, and `negative_weight` are consumed
+/// by [`BoxEmbeddingTrainer::train_step`] and [`ConeEmbeddingTrainer::train_step`].
+/// The remaining fields (`epochs`, `batch_size`, `negative_samples`, `negative_strategy`,
+/// `temperature`, `weight_decay`, `early_stopping_*`, `warmup_epochs`) are configuration
+/// metadata for caller-side training loops (e.g., [`el_training::train_el_embeddings`](crate::el_training::train_el_embeddings)).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TrainingConfig {
     /// Learning rate (default: 1e-3, paper range: 1e-3 to 5e-4)
     pub learning_rate: f32,
@@ -207,7 +256,7 @@ impl Default for TrainingConfig {
 }
 
 /// Evaluation results for link prediction.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct EvaluationResults {
     /// Mean Reciprocal Rank (average of head and tail MRR).
     pub mrr: f32,
@@ -228,7 +277,7 @@ pub struct EvaluationResults {
 }
 
 /// Per-relation evaluation breakdown.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PerRelationResults {
     /// Relation name or ID.
     pub relation: String,
@@ -583,6 +632,20 @@ impl FilteredTripleIndex {
         index
     }
 
+    /// Build a filtered-ranking index from all splits of a [`Dataset`](crate::dataset::Dataset).
+    ///
+    /// Indexes train + valid + test triples so that filtered evaluation can
+    /// exclude all known-true triples.
+    pub fn from_dataset(dataset: &crate::dataset::Dataset) -> Self {
+        Self::from_triples(
+            dataset
+                .train
+                .iter()
+                .chain(dataset.valid.iter())
+                .chain(dataset.test.iter()),
+        )
+    }
+
     /// Build a filtered-ranking index from an iterator of **owned** triples.
     ///
     /// This avoids cloning `(head, relation, tail)` strings, which can matter when you're
@@ -697,6 +760,20 @@ impl FilteredTripleIndexIds {
         let mut index = Self::default();
         index.extend(triples);
         index
+    }
+
+    /// Build a filtered-ranking index from all splits of an [`InternedDataset`](crate::dataset::InternedDataset).
+    ///
+    /// Indexes train + valid + test triples so that filtered evaluation can
+    /// exclude all known-true triples.
+    pub fn from_dataset(dataset: &crate::dataset::InternedDataset) -> Self {
+        Self::from_triples(
+            dataset
+                .train
+                .iter()
+                .chain(dataset.valid.iter())
+                .chain(dataset.test.iter()),
+        )
     }
 
     /// Extend the index with more known-true triples.
@@ -822,11 +899,27 @@ where
 fn evaluate_link_prediction_inner<B>(
     test_triples: &[Triple],
     entity_boxes: &HashMap<String, B>,
+    relation_transforms: Option<&HashMap<String, RelationTransform>>,
     filter: Option<&FilteredTripleIndex>,
 ) -> Result<EvaluationResults, crate::BoxError>
 where
     B: crate::Box<Scalar = f32>,
 {
+    // The generic (string-keyed) path only supports Identity transforms.
+    // Non-Identity transforms require constructing translated boxes from concrete
+    // min/max coordinates, which needs the interned NdarrayBox path.
+    if let Some(transforms) = relation_transforms {
+        for (rel, transform) in transforms {
+            if !transform.is_identity() {
+                return Err(crate::BoxError::Internal(format!(
+                    "Non-Identity RelationTransform for relation '{}' requires the interned \
+                     evaluation path with NdarrayBox",
+                    rel
+                )));
+            }
+        }
+    }
+
     let mut tail_ranks = Vec::with_capacity(test_triples.len());
     let mut head_ranks = Vec::with_capacity(test_triples.len());
     // (relation, tail_rank, head_rank) per triple for per-relation aggregation.
@@ -1076,6 +1169,205 @@ where
     Ok(better + tie_before + 1)
 }
 
+/// Rank target among all entities using a translated query box (tail prediction).
+///
+/// Constructs a translated `NdarrayBox` from `query_box` + `transform`, then
+/// scores `translated.containment_prob_fast(candidate)` for each entity.
+#[cfg(feature = "ndarray-backend")]
+fn rank_with_translated_query_forward(
+    entity_boxes: &[crate::ndarray_backend::NdarrayBox],
+    entities: &crate::dataset::Vocab,
+    target_id: usize,
+    query_box: &crate::ndarray_backend::NdarrayBox,
+    transform: &RelationTransform,
+    filter_known: Option<&HashSet<usize>>,
+) -> Result<usize, crate::BoxError> {
+    use crate::Box as BoxTrait;
+
+    let (new_min, new_max) = transform.apply_to_bounds(
+        query_box.min().as_slice().unwrap_or(&[]),
+        query_box.max().as_slice().unwrap_or(&[]),
+    );
+    let translated = crate::ndarray_backend::NdarrayBox::new(
+        ndarray::Array1::from_vec(new_min),
+        ndarray::Array1::from_vec(new_max),
+        1.0,
+    )?;
+
+    let target_score = translated.containment_prob_fast(
+        entity_boxes.get(target_id).ok_or_else(|| {
+            crate::BoxError::Internal(format!("Missing entity id (target): {target_id}"))
+        })?,
+        1.0,
+    )?;
+    if target_score.is_nan() {
+        return Err(crate::BoxError::Internal(
+            "NaN containment score encountered (target)".to_string(),
+        ));
+    }
+    let target_name = entities
+        .get(target_id)
+        .ok_or_else(|| crate::BoxError::Internal(format!("Missing entity label: {target_id}")))?;
+
+    let mut better = 0usize;
+    let mut tie_before = 0usize;
+    for (entity_id, candidate) in entity_boxes.iter().enumerate() {
+        if entity_id == target_id {
+            continue;
+        }
+        let score = translated.containment_prob_fast(candidate, 1.0)?;
+        if score.is_nan() {
+            return Err(crate::BoxError::Internal(
+                "NaN containment score encountered".to_string(),
+            ));
+        }
+        if score > target_score {
+            better += 1;
+        } else if score == target_score {
+            let name = entities.get(entity_id).ok_or_else(|| {
+                crate::BoxError::Internal(format!("Missing entity label: {entity_id}"))
+            })?;
+            if name < target_name {
+                tie_before += 1;
+            }
+        }
+    }
+
+    if let Some(known) = filter_known {
+        let mut filtered_better = 0usize;
+        let mut filtered_tie_before = 0usize;
+        for &known_id in known {
+            if known_id == target_id {
+                continue;
+            }
+            let Some(box_) = entity_boxes.get(known_id) else {
+                continue;
+            };
+            let score = translated.containment_prob_fast(box_, 1.0)?;
+            if score.is_nan() {
+                continue;
+            }
+            if score > target_score {
+                filtered_better += 1;
+            } else if score == target_score {
+                let name = entities.get(known_id).ok_or_else(|| {
+                    crate::BoxError::Internal(format!("Missing entity label: {known_id}"))
+                })?;
+                if name < target_name {
+                    filtered_tie_before += 1;
+                }
+            }
+        }
+        better = better.saturating_sub(filtered_better);
+        tie_before = tie_before.saturating_sub(filtered_tie_before);
+    }
+
+    Ok(better + tie_before + 1)
+}
+
+/// Rank target among all entities using a translated query box (head prediction).
+///
+/// For head prediction `(?, r, t)`, we score `candidate.containment_prob_fast(translated_tail)`.
+/// The transform is applied inversely: `Translation(d)` becomes `Translation(-d)` so that
+/// the tail is shifted to the "un-transformed" space where candidates live.
+#[cfg(feature = "ndarray-backend")]
+fn rank_with_translated_query_reverse(
+    entity_boxes: &[crate::ndarray_backend::NdarrayBox],
+    entities: &crate::dataset::Vocab,
+    target_id: usize,
+    query_box: &crate::ndarray_backend::NdarrayBox,
+    transform: &RelationTransform,
+    filter_known: Option<&HashSet<usize>>,
+) -> Result<usize, crate::BoxError> {
+    use crate::Box as BoxTrait;
+
+    // Inverse transform for head prediction: negate the translation.
+    let inverse_transform = match transform {
+        RelationTransform::Identity => RelationTransform::Identity,
+        RelationTransform::Translation(d) => {
+            RelationTransform::Translation(d.iter().map(|x| -x).collect())
+        }
+    };
+
+    let (new_min, new_max) = inverse_transform.apply_to_bounds(
+        query_box.min().as_slice().unwrap_or(&[]),
+        query_box.max().as_slice().unwrap_or(&[]),
+    );
+    let translated = crate::ndarray_backend::NdarrayBox::new(
+        ndarray::Array1::from_vec(new_min),
+        ndarray::Array1::from_vec(new_max),
+        1.0,
+    )?;
+
+    let target_box = entity_boxes.get(target_id).ok_or_else(|| {
+        crate::BoxError::Internal(format!("Missing entity id (target): {target_id}"))
+    })?;
+    let target_score = target_box.containment_prob_fast(&translated, 1.0)?;
+    if target_score.is_nan() {
+        return Err(crate::BoxError::Internal(
+            "NaN containment score encountered (target)".to_string(),
+        ));
+    }
+    let target_name = entities
+        .get(target_id)
+        .ok_or_else(|| crate::BoxError::Internal(format!("Missing entity label: {target_id}")))?;
+
+    let mut better = 0usize;
+    let mut tie_before = 0usize;
+    for (entity_id, candidate) in entity_boxes.iter().enumerate() {
+        if entity_id == target_id {
+            continue;
+        }
+        let score = candidate.containment_prob_fast(&translated, 1.0)?;
+        if score.is_nan() {
+            return Err(crate::BoxError::Internal(
+                "NaN containment score encountered".to_string(),
+            ));
+        }
+        if score > target_score {
+            better += 1;
+        } else if score == target_score {
+            let name = entities.get(entity_id).ok_or_else(|| {
+                crate::BoxError::Internal(format!("Missing entity label: {entity_id}"))
+            })?;
+            if name < target_name {
+                tie_before += 1;
+            }
+        }
+    }
+
+    if let Some(known) = filter_known {
+        let mut filtered_better = 0usize;
+        let mut filtered_tie_before = 0usize;
+        for &known_id in known {
+            if known_id == target_id {
+                continue;
+            }
+            let Some(box_) = entity_boxes.get(known_id) else {
+                continue;
+            };
+            let score = box_.containment_prob_fast(&translated, 1.0)?;
+            if score.is_nan() {
+                continue;
+            }
+            if score > target_score {
+                filtered_better += 1;
+            } else if score == target_score {
+                let name = entities.get(known_id).ok_or_else(|| {
+                    crate::BoxError::Internal(format!("Missing entity label: {known_id}"))
+                })?;
+                if name < target_name {
+                    filtered_tie_before += 1;
+                }
+            }
+        }
+        better = better.saturating_sub(filtered_better);
+        tie_before = tie_before.saturating_sub(filtered_tie_before);
+    }
+
+    Ok(better + tie_before + 1)
+}
+
 fn evaluate_link_prediction_interned_inner<B>(
     test_triples: &[crate::dataset::TripleIds],
     entity_boxes: &[B],
@@ -1098,7 +1390,6 @@ where
             crate::BoxError::Internal(format!("Missing entity id (tail): {}", triple.tail))
         })?;
 
-        // -- Tail prediction: (h, r, ?) -- score = head.containment_prob(candidate)
         let filter_tails = filter.and_then(|f| f.known_tails(triple.head, triple.relation));
         let t_rank = rank_among_entities_interned(
             entity_boxes,
@@ -1110,7 +1401,6 @@ where
             &mut scores_buf,
         )?;
 
-        // -- Head prediction: (?, r, t) -- score = candidate.containment_prob(tail)
         let filter_heads = filter.and_then(|f| f.known_heads(triple.tail, triple.relation));
         let h_rank = rank_among_entities_interned(
             entity_boxes,
@@ -1127,6 +1417,97 @@ where
         per_triple.push((triple.relation, t_rank, h_rank));
     }
 
+    collect_evaluation_results(&tail_ranks, &head_ranks, &per_triple)
+}
+
+/// Evaluate interned link prediction with relation-specific transforms (NdarrayBox only).
+///
+/// This is the concrete implementation backing
+/// [`evaluate_link_prediction_interned_with_transforms`]. It handles both identity
+/// and non-identity transforms by dispatching to the translated ranking helpers.
+#[cfg(feature = "ndarray-backend")]
+fn evaluate_interned_with_transforms_inner(
+    test_triples: &[crate::dataset::TripleIds],
+    entity_boxes: &[crate::ndarray_backend::NdarrayBox],
+    entities: &crate::dataset::Vocab,
+    relation_transforms: &[RelationTransform],
+    filter: Option<&FilteredTripleIndexIds>,
+) -> Result<EvaluationResults, crate::BoxError> {
+    let mut tail_ranks = Vec::with_capacity(test_triples.len());
+    let mut head_ranks = Vec::with_capacity(test_triples.len());
+    let mut per_triple: Vec<(usize, usize, usize)> = Vec::with_capacity(test_triples.len());
+    let mut scores_buf = vec![0.0f32; 4096];
+
+    for triple in test_triples {
+        let head_box = entity_boxes.get(triple.head).ok_or_else(|| {
+            crate::BoxError::Internal(format!("Missing entity id (head): {}", triple.head))
+        })?;
+        let tail_box = entity_boxes.get(triple.tail).ok_or_else(|| {
+            crate::BoxError::Internal(format!("Missing entity id (tail): {}", triple.tail))
+        })?;
+
+        let transform = relation_transforms
+            .get(triple.relation)
+            .unwrap_or(&RelationTransform::Identity);
+
+        let filter_tails = filter.and_then(|f| f.known_tails(triple.head, triple.relation));
+        let t_rank = if transform.is_identity() {
+            rank_among_entities_interned(
+                entity_boxes,
+                entities,
+                triple.tail,
+                head_box,
+                &ScoreDirection::Forward,
+                filter_tails,
+                &mut scores_buf,
+            )?
+        } else {
+            rank_with_translated_query_forward(
+                entity_boxes,
+                entities,
+                triple.tail,
+                head_box,
+                transform,
+                filter_tails,
+            )?
+        };
+
+        let filter_heads = filter.and_then(|f| f.known_heads(triple.tail, triple.relation));
+        let h_rank = if transform.is_identity() {
+            rank_among_entities_interned(
+                entity_boxes,
+                entities,
+                triple.head,
+                tail_box,
+                &ScoreDirection::Reverse,
+                filter_heads,
+                &mut scores_buf,
+            )?
+        } else {
+            rank_with_translated_query_reverse(
+                entity_boxes,
+                entities,
+                triple.head,
+                tail_box,
+                transform,
+                filter_heads,
+            )?
+        };
+
+        tail_ranks.push(t_rank);
+        head_ranks.push(h_rank);
+        per_triple.push((triple.relation, t_rank, h_rank));
+    }
+
+    collect_evaluation_results(&tail_ranks, &head_ranks, &per_triple)
+}
+
+/// Collect tail/head ranks into [`EvaluationResults`].
+fn collect_evaluation_results(
+    tail_ranks: &[usize],
+    head_ranks: &[usize],
+    per_triple: &[(usize, usize, usize)],
+) -> Result<EvaluationResults, crate::BoxError> {
     let all_ranks: Vec<usize> = tail_ranks
         .iter()
         .chain(head_ranks.iter())
@@ -1141,8 +1522,7 @@ where
     let hits_at_10 = hits_at_k(all_ranks.iter().copied(), 10);
     let mean_rank_val = mean_rank(all_ranks.iter().copied());
 
-    // Per-relation aggregation (uses relation ID as string name).
-    let per_relation = aggregate_per_relation_ids(&per_triple);
+    let per_relation = aggregate_per_relation_ids(per_triple);
 
     Ok(EvaluationResults {
         mrr,
@@ -1240,7 +1620,7 @@ pub fn evaluate_link_prediction<B>(
 where
     B: crate::Box<Scalar = f32>,
 {
-    evaluate_link_prediction_inner(test_triples, entity_boxes, None)
+    evaluate_link_prediction_inner(test_triples, entity_boxes, None, None)
 }
 
 /// Evaluate link prediction in the **filtered** setting.
@@ -1256,7 +1636,28 @@ pub fn evaluate_link_prediction_filtered<B>(
 where
     B: crate::Box<Scalar = f32>,
 {
-    evaluate_link_prediction_inner(test_triples, entity_boxes, Some(filter))
+    evaluate_link_prediction_inner(test_triples, entity_boxes, None, Some(filter))
+}
+
+/// Evaluate link prediction with relation-specific transforms (string-keyed).
+///
+/// Only [`RelationTransform::Identity`] is supported in this path. For
+/// [`RelationTransform::Translation`], use the interned evaluation path.
+pub fn evaluate_link_prediction_with_transforms<B>(
+    test_triples: &[Triple],
+    entity_boxes: &HashMap<String, B>,
+    relation_transforms: &HashMap<String, RelationTransform>,
+    filter: Option<&FilteredTripleIndex>,
+) -> Result<EvaluationResults, crate::BoxError>
+where
+    B: crate::Box<Scalar = f32>,
+{
+    evaluate_link_prediction_inner(
+        test_triples,
+        entity_boxes,
+        Some(relation_transforms),
+        filter,
+    )
 }
 
 /// Evaluate link prediction using interned IDs (`usize`) for entities/relations.
@@ -1287,8 +1688,32 @@ where
     evaluate_link_prediction_interned_inner(test_triples, entity_boxes, entities, Some(filter))
 }
 
+/// Evaluate link prediction with relation-specific transforms (interned IDs).
+///
+/// The `relation_transforms` slice is indexed by relation ID. Use
+/// [`RelationTransform::Identity`] for relations without a transform.
+/// [`RelationTransform::Translation`] is supported because this function
+/// requires the `ndarray-backend` feature and concrete `NdarrayBox` entities.
+#[cfg(feature = "ndarray-backend")]
+#[cfg_attr(docsrs, doc(cfg(feature = "ndarray-backend")))]
+pub fn evaluate_link_prediction_interned_with_transforms(
+    test_triples: &[crate::dataset::TripleIds],
+    entity_boxes: &[crate::ndarray_backend::NdarrayBox],
+    entities: &crate::dataset::Vocab,
+    relation_transforms: &[RelationTransform],
+    filter: Option<&FilteredTripleIndexIds>,
+) -> Result<EvaluationResults, crate::BoxError> {
+    evaluate_interned_with_transforms_inner(
+        test_triples,
+        entity_boxes,
+        entities,
+        relation_transforms,
+        filter,
+    )
+}
+
 /// Training result with metrics and history.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TrainingResult {
     /// Final evaluation results
     pub final_results: EvaluationResults,
@@ -1436,6 +1861,7 @@ pub fn compute_analytical_gradients(
 ///     let loss = trainer.train_step(&train_triples)?;
 /// }
 /// ```
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct BoxEmbeddingTrainer {
     /// Training configuration.
     pub config: TrainingConfig,
@@ -1445,6 +1871,8 @@ pub struct BoxEmbeddingTrainer {
     pub optimizer_states: HashMap<usize, AMSGradState>,
     /// Embedding dimension.
     pub dim: usize,
+    /// Per-relation transforms (relation_id -> transform). Default: empty (all Identity).
+    pub relation_transforms: HashMap<usize, RelationTransform>,
 }
 
 impl BoxEmbeddingTrainer {
@@ -1455,6 +1883,7 @@ impl BoxEmbeddingTrainer {
             boxes: HashMap::new(),
             optimizer_states: HashMap::new(),
             dim,
+            relation_transforms: HashMap::new(),
         }
     }
 
@@ -1475,6 +1904,15 @@ impl BoxEmbeddingTrainer {
             self.optimizer_states
                 .insert(id, AMSGradState::new(n_params, self.config.learning_rate));
         }
+    }
+
+    /// Ensure entity exists and return a clone of its trainable box.
+    fn snapshot_box(&mut self, id: usize) -> TrainableBox {
+        self.ensure_entity(id);
+        self.boxes
+            .get(&id)
+            .cloned()
+            .expect("ensure_entity guarantees key exists")
     }
 
     /// Run one training epoch over the given triples.
@@ -1498,24 +1936,39 @@ impl BoxEmbeddingTrainer {
             .collect::<HashSet<_>>()
             .len();
 
-        for &(h, _r, t) in triples {
-            self.ensure_entity(h);
-            self.ensure_entity(t);
+        for &(h, r, t) in triples {
+            // Get the relation transform (default to Identity).
+            let transform = self
+                .relation_transforms
+                .get(&r)
+                .cloned()
+                .unwrap_or(RelationTransform::Identity);
 
             // Snapshot current boxes (immutable copy for gradient computation).
-            let box_h = self
-                .boxes
-                .get(&h)
-                .cloned()
-                .expect("ensure_entity guarantees key exists");
-            let box_t = self
-                .boxes
-                .get(&t)
-                .cloned()
-                .expect("ensure_entity guarantees key exists");
+            let box_h = self.snapshot_box(h);
+            let box_t = self.snapshot_box(t);
+
+            // Apply transform to head box for scoring.
+            let box_h_transformed = if transform.is_identity() {
+                box_h.clone()
+            } else {
+                let dense = box_h.to_box();
+                let (new_min, new_max) = transform.apply_to_bounds(&dense.min, &dense.max);
+                let mu: Vec<f32> = new_min
+                    .iter()
+                    .zip(&new_max)
+                    .map(|(lo, hi)| (lo + hi) / 2.0)
+                    .collect();
+                let delta: Vec<f32> = new_min
+                    .iter()
+                    .zip(&new_max)
+                    .map(|(lo, hi)| ((hi - lo).max(1e-6)).ln())
+                    .collect();
+                TrainableBox::new(mu, delta).unwrap_or_else(|_| box_h.clone())
+            };
 
             // Positive loss: head should contain tail.
-            let pos_loss = compute_pair_loss(&box_h, &box_t, true, &self.config);
+            let pos_loss = compute_pair_loss(&box_h_transformed, &box_t, true, &self.config);
             total_loss += pos_loss;
 
             // Positive gradients.
@@ -1546,16 +1999,8 @@ impl BoxEmbeddingTrainer {
 
             self.ensure_entity(neg_t);
 
-            let box_h2 = self
-                .boxes
-                .get(&h)
-                .cloned()
-                .expect("ensure_entity guarantees key exists");
-            let box_neg = self
-                .boxes
-                .get(&neg_t)
-                .cloned()
-                .expect("ensure_entity guarantees key exists");
+            let box_h2 = self.snapshot_box(h);
+            let box_neg = self.snapshot_box(neg_t);
 
             // Negative loss.
             let neg_loss = compute_pair_loss(&box_h2, &box_neg, false, &self.config);
@@ -1598,6 +2043,67 @@ impl BoxEmbeddingTrainer {
             .filter_map(|(&id, b)| b.to_ndarray_box().ok().map(|nb| (id, nb)))
             .collect()
     }
+
+    /// Evaluate the trained model on test triples using interned link prediction.
+    ///
+    /// Converts learned [`TrainableBox`] embeddings to [`NdarrayBox`](crate::ndarray_backend::NdarrayBox)
+    /// and runs bidirectional (head + tail) evaluation, optionally with filtered ranking
+    /// and relation-specific transforms.
+    ///
+    /// This is a convenience method that bridges the trainer's internal state to
+    /// [`evaluate_link_prediction_interned`] (or the transform-aware variant).
+    #[cfg(feature = "ndarray-backend")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "ndarray-backend")))]
+    pub fn evaluate(
+        &self,
+        test_triples: &[crate::dataset::TripleIds],
+        entities: &crate::dataset::Vocab,
+        filter: Option<&FilteredTripleIndexIds>,
+    ) -> Result<EvaluationResults, BoxError> {
+        let max_id = self.boxes.keys().copied().max().unwrap_or(0);
+        let num_entities = entities.len().max(max_id + 1);
+        let mut entity_vec: Vec<crate::ndarray_backend::NdarrayBox> =
+            Vec::with_capacity(num_entities);
+
+        // Build a dense vector indexed by entity ID.
+        for id in 0..num_entities {
+            let nb = if let Some(b) = self.boxes.get(&id) {
+                b.to_ndarray_box().map_err(|e| {
+                    BoxError::Internal(format!("Failed to convert entity {id}: {e}"))
+                })?
+            } else {
+                // Default zero-volume box for entities not in the trainer.
+                crate::ndarray_backend::NdarrayBox::new(
+                    ndarray::Array1::zeros(self.dim),
+                    ndarray::Array1::zeros(self.dim),
+                    1.0,
+                )?
+            };
+            entity_vec.push(nb);
+        }
+
+        // Use transform-aware eval if any non-identity transforms exist.
+        let has_transforms = !self.relation_transforms.is_empty()
+            && self.relation_transforms.values().any(|t| !t.is_identity());
+
+        if has_transforms {
+            // Build a dense relation transform vector.
+            let max_rel = self.relation_transforms.keys().copied().max().unwrap_or(0);
+            let mut transforms = vec![RelationTransform::Identity; max_rel + 1];
+            for (&rel_id, t) in &self.relation_transforms {
+                transforms[rel_id] = t.clone();
+            }
+            evaluate_interned_with_transforms_inner(
+                test_triples,
+                &entity_vec,
+                entities,
+                &transforms,
+                filter,
+            )
+        } else {
+            evaluate_link_prediction_interned_inner(test_triples, &entity_vec, entities, filter)
+        }
+    }
 }
 // ---------------------------------------------------------------------------
 // Cone training
@@ -1609,6 +2115,7 @@ use crate::trainable::TrainableCone;
 ///
 /// Each entity is represented as a [`TrainableCone`] with per-dimension axis
 /// angles and apertures, optimized via AMSGrad.
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct ConeEmbeddingTrainer {
     /// Training configuration (shared with box trainer).
     pub config: TrainingConfig,

@@ -61,7 +61,8 @@ ndarray = "0.16"
 
 ```rust
 use subsume::ndarray_backend::NdarrayBox;
-use subsume::Box as BoxTrait;
+// Renamed import avoids shadowing std::boxed::Box
+use subsume::Box as BoxRegion;
 use ndarray::array;
 
 // Box A: [0,0,0] to [1,1,1] (general concept)

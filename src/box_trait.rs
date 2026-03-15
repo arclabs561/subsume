@@ -68,6 +68,12 @@
 /// one statement is more general than another. This geometric representation
 /// directly models logical subsumption through containment.
 ///
+/// # Name conflict with `std::boxed::Box`
+///
+/// This trait shadows `std::boxed::Box` when imported unqualified. Use one of:
+/// - `use subsume::Box as BoxRegion;` (recommended)
+/// - Qualify calls as `subsume::Box` or `<T as subsume::Box>::method()`
+///
 /// # Type Parameters
 ///
 /// - `Scalar`: The scalar type (e.g., `f32`, `Tensor`)
