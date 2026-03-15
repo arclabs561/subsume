@@ -1,18 +1,15 @@
 //! End-to-end box embedding training on a real-format knowledge graph dataset.
 //!
-//! Demonstrates the full pipeline: load a dataset in WN18RR/FB15k-237 format,
-//! train box embeddings with direct coordinate updates, and evaluate with
-//! standard link prediction metrics (MRR, Hits@1, Hits@10).
+//! Demonstrates the full pipeline using [`BoxEmbeddingTrainer`]:
+//!   1. Load a dataset in WN18RR/FB15k-237 format
+//!   2. Intern to integer IDs for efficient training
+//!   3. Train box embeddings with `BoxEmbeddingTrainer::fit` (epochs, early stopping, LR warmup)
+//!   4. Evaluate with standard link prediction metrics (MRR, Hits@1, Hits@10)
+//!   5. Save and reload a training checkpoint via serde
 //!
 //! The dataset is a 60-triple subset of WordNet hypernym relations, embedded
 //! inline so the example is self-contained. The format matches WN18RR:
 //! tab-separated (head, relation, tail) triples in train/valid/test splits.
-//!
-//! Training uses four passes per epoch (same approach as `box_training`):
-//!   1. Positive: expand parent boxes to contain children
-//!   2. Parent regularization: tighten parents to children's extent
-//!   3. Negative: break containment between siblings/unrelated pairs
-//!   4. Leaf shrinkage: contract leaf boxes for volume differentiation
 //!
 //! References:
 //! - Bordes et al. (2013), "Translating Embeddings for Modeling Multi-relational Data"
@@ -22,17 +19,14 @@
 //! Run: cargo run -p subsume --example dataset_training --release
 //!
 //! Related examples:
-//! - `box_training`: hand-placed taxonomy with same training approach
+//! - `box_training`: hand-placed taxonomy with direct coordinate updates
 //! - `el_training`: EL++ ontology embeddings with role composition
 //! - `cone_training`: cone embeddings with angular containment
 
-use ndarray::Array1;
-use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use subsume::dataset::load_dataset;
-use subsume::ndarray_backend::NdarrayBox;
-use subsume::training::metrics::{hits_at_k, mean_rank, mean_reciprocal_rank};
-use subsume::Box as BoxTrait;
+use subsume::trainer::{BoxEmbeddingTrainer, FilteredTripleIndexIds};
+use subsume::TrainingConfig;
 
 /// WordNet hypernym triples (subset). Format: head \t relation \t tail.
 /// These represent real is-a relationships from WordNet's noun hierarchy.
@@ -103,7 +97,7 @@ tulip.n.01\t_hypernym\tplant.n.02
 truck.n.01\t_hypernym\tartifact.n.01";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("=== Dataset-Driven Box Embedding Training ===\n");
+    println!("=== Dataset-Driven Box Embedding Training (BoxEmbeddingTrainer) ===\n");
 
     // --- Step 1: Write dataset to temp files and load ---
     let dir = tempfile::tempdir()?;
@@ -121,270 +115,103 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         stats.num_entities, stats.num_relations, stats.num_train, stats.num_valid, stats.num_test
     );
 
-    // --- Step 2: Build hierarchy from training triples ---
-    // Extract parent-child relationships (child _hypernym parent)
-    let mut parent_of: HashMap<&str, &str> = HashMap::new();
-    let mut children_of: HashMap<&str, Vec<&str>> = HashMap::new();
-    for t in &dataset.train {
-        parent_of.insert(t.head.as_str(), t.tail.as_str());
-        children_of
-            .entry(t.tail.as_str())
-            .or_default()
-            .push(t.head.as_str());
-    }
-
-    let entity_set = dataset.entities();
-    let mut entity_names: Vec<&str> = entity_set.iter().map(|s| s.as_str()).collect();
-    entity_names.sort();
-
-    // Compute depth (root = 0)
-    let mut depth: HashMap<&str, usize> = HashMap::new();
-    for &name in &entity_names {
-        let mut d = 0;
-        let mut cur = name;
-        while let Some(&p) = parent_of.get(cur) {
-            d += 1;
-            cur = p;
-        }
-        depth.insert(name, d);
-    }
-
-    // Sibling indices for spatial separation
-    let mut sibling_idx: HashMap<&str, usize> = HashMap::new();
-    for children in children_of.values() {
-        for (i, child) in children.iter().enumerate() {
-            sibling_idx.insert(child, i);
-        }
-    }
-
-    // --- Step 3: Initialize box embeddings (hierarchy-aware) ---
-    let dim = 12;
-    let mut boxes: HashMap<&str, (Array1<f32>, Array1<f32>)> = HashMap::new();
-    for &name in &entity_names {
-        let d = depth.get(name).copied().unwrap_or(0);
-        let half = match d {
-            0 => 6.0,
-            1 => 4.0,
-            2 => 2.5,
-            3 => 1.5,
-            4 => 0.8,
-            _ => 0.4,
-        };
-        let mut center = vec![0.0f32; dim];
-        let mut cur = name;
-        while let Some(&p) = parent_of.get(cur) {
-            let si = sibling_idx.get(cur).copied().unwrap_or(0);
-            let sep_dim = depth.get(cur).copied().unwrap_or(0) % dim;
-            center[sep_dim] += (si as f32) * 2.5;
-            cur = p;
-        }
-        let min_arr = Array1::from_vec(center.iter().map(|c| c - half).collect());
-        let max_arr = Array1::from_vec(center.iter().map(|c| c + half).collect());
-        boxes.insert(name, (min_arr, max_arr));
-    }
-
-    // Build containment pairs and negative (sibling) pairs
-    let containment_pairs: Vec<(&str, &str)> = dataset
+    // --- Step 2: Intern to integer IDs ---
+    let interned = dataset.into_interned();
+    let train_triples: Vec<(usize, usize, usize)> = interned
         .train
         .iter()
-        .map(|t| (t.tail.as_str(), t.head.as_str()))
-        .collect(); // (parent, child)
-
-    let mut negative_pairs: Vec<(&str, &str)> = Vec::new();
-    for children in children_of.values() {
-        for i in 0..children.len() {
-            for j in (i + 1)..children.len() {
-                negative_pairs.push((children[i], children[j]));
-                negative_pairs.push((children[j], children[i]));
-            }
-        }
-    }
-
-    let heads: HashSet<&str> = containment_pairs.iter().map(|(h, _)| *h).collect();
-    let leaves: Vec<&str> = entity_names
-        .iter()
-        .copied()
-        .filter(|n| !heads.contains(n))
+        .map(|t| (t.head, t.relation, t.tail))
         .collect();
 
-    // --- Step 4: Train ---
-    let lr = 0.05;
-    let neg_lr = 0.04;
-    let shrink_lr = 0.002;
-    let parent_shrink_lr = 0.03;
-    let epochs = 200;
+    // Build filtered index for evaluation (excludes known-true triples).
+    let filter = FilteredTripleIndexIds::from_dataset(&interned);
+
+    // --- Step 3: Configure and create trainer ---
+    let config = TrainingConfig {
+        learning_rate: 0.01,
+        epochs: 200,
+        margin: 0.1,
+        regularization: 0.0001,
+        negative_weight: 1.0,
+        early_stopping_patience: Some(30),
+        warmup_epochs: 10,
+        ..Default::default()
+    };
+    let dim = 12;
+    let mut trainer = BoxEmbeddingTrainer::new(config, dim);
 
     println!(
-        "\nTraining {} epochs (dim={}, {} containment pairs, {} negative pairs)...\n",
-        epochs,
+        "\nTraining up to 200 epochs (dim={}, {} train triples, early stopping patience=30)...\n",
         dim,
-        containment_pairs.len(),
-        negative_pairs.len()
+        train_triples.len()
     );
 
-    for epoch in 0..epochs {
-        let mut total_violation = 0.0f32;
+    // --- Step 4: Train with fit() -- handles epochs, LR warmup, early stopping ---
+    let result = trainer.fit(
+        &train_triples,
+        Some((&interned.valid, &interned.entities)),
+        Some(&filter),
+    )?;
 
-        // Pass 1: positive containment -- expand parent to contain child
-        for &(head, tail) in &containment_pairs {
-            let (tail_min, tail_max) = boxes[tail].clone();
-            let (head_min, head_max) = boxes.get_mut(head).unwrap();
-            for d in 0..dim {
-                let margin = 0.05;
-                if head_min[d] > tail_min[d] - margin {
-                    let v = head_min[d] - (tail_min[d] - margin);
-                    head_min[d] -= lr * v;
-                    total_violation += v.abs();
-                }
-                if head_max[d] < tail_max[d] + margin {
-                    let v = (tail_max[d] + margin) - head_max[d];
-                    head_max[d] += lr * v;
-                    total_violation += v.abs();
-                }
-            }
-        }
+    let actual_epochs = result.loss_history.len();
+    println!(
+        "  Trained {} epochs (best epoch: {})",
+        actual_epochs, result.best_epoch
+    );
+    if let (Some(&first), Some(&last)) = (result.loss_history.first(), result.loss_history.last()) {
+        println!("  Loss: {:.4} -> {:.4}", first, last);
+    }
+    if let (Some(&first), Some(&last)) = (
+        result.validation_mrr_history.first(),
+        result.validation_mrr_history.last(),
+    ) {
+        println!("  Val MRR: {:.4} -> {:.4}", first, last);
+    }
 
-        // Pass 2: parent regularization -- tighten parents to children's extent
-        for (parent, children) in &children_of {
-            let mut child_min = vec![f32::MAX; dim];
-            let mut child_max = vec![f32::MIN; dim];
-            for &child in children {
-                let (cmin, cmax) = &boxes[child];
-                for d in 0..dim {
-                    child_min[d] = child_min[d].min(cmin[d]);
-                    child_max[d] = child_max[d].max(cmax[d]);
-                }
-            }
-            let margin = 0.1;
-            let (pmin, pmax) = boxes.get_mut(parent).unwrap();
-            for d in 0..dim {
-                let target_min = child_min[d] - margin;
-                let target_max = child_max[d] + margin;
-                if pmin[d] < target_min {
-                    pmin[d] += parent_shrink_lr * (target_min - pmin[d]);
-                }
-                if pmax[d] > target_max {
-                    pmax[d] -= parent_shrink_lr * (pmax[d] - target_max);
-                }
-            }
-        }
+    // --- Step 5: Evaluate on test set ---
+    println!("\n--- Evaluation (test set, filtered) ---\n");
 
-        // Pass 3: negative separation -- break containment between siblings
-        for &(a_name, b_name) in &negative_pairs {
-            let (b_min_r, b_max_r) = boxes[b_name].clone();
-            let (a_min_r, a_max_r) = &boxes[a_name];
-            let mut best_dim: Option<usize> = None;
-            let mut best_gap = f32::MAX;
-            for d in 0..dim {
-                if a_min_r[d] <= b_min_r[d] && a_max_r[d] >= b_max_r[d] {
-                    let gap = (b_min_r[d] - a_min_r[d]).min(a_max_r[d] - b_max_r[d]);
-                    if gap < best_gap {
-                        best_gap = gap;
-                        best_dim = Some(d);
-                    }
-                }
-            }
-            if let Some(d) = best_dim {
-                let (a_min, a_max) = boxes.get_mut(a_name).unwrap();
-                let gap_min = b_min_r[d] - a_min[d];
-                let gap_max = a_max[d] - b_max_r[d];
-                if gap_min <= gap_max {
-                    a_min[d] += neg_lr * (gap_min + 0.3);
-                } else {
-                    a_max[d] -= neg_lr * (gap_max + 0.3);
-                }
-                total_violation += best_gap;
-            }
-        }
+    let test_results = trainer.evaluate(&interned.test, &interned.entities, Some(&filter))?;
 
-        // Pass 4: leaf shrinkage -- contract leaves toward center
-        for &leaf in &leaves {
-            let (lmin, lmax) = boxes.get_mut(leaf).unwrap();
-            let center: Vec<f32> = lmin
-                .iter()
-                .zip(lmax.iter())
-                .map(|(&a, &b)| (a + b) / 2.0)
-                .collect();
-            for d in 0..dim {
-                lmin[d] += shrink_lr * (center[d] - lmin[d]);
-                lmax[d] -= shrink_lr * (lmax[d] - center[d]);
-            }
-        }
+    println!("  MRR:       {:.4}", test_results.mrr);
+    println!("  Hits@1:    {:.4}", test_results.hits_at_1);
+    println!("  Hits@3:    {:.4}", test_results.hits_at_3);
+    println!("  Hits@10:   {:.4}", test_results.hits_at_10);
+    println!("  Mean Rank: {:.1}", test_results.mean_rank);
+    println!(
+        "\n  ({} test triples, {} entities, filtered ranking)",
+        interned.test.len(),
+        interned.entities.len()
+    );
 
-        if epoch % 40 == 0 || epoch == epochs - 1 {
+    // --- Step 6: Show per-relation breakdown ---
+    if !test_results.per_relation.is_empty() {
+        println!("\n--- Per-Relation Breakdown ---\n");
+        for pr in &test_results.per_relation {
+            let rel_name = interned
+                .relations
+                .get(pr.relation.parse::<usize>().unwrap_or(0))
+                .unwrap_or(&pr.relation);
             println!(
-                "  epoch {:>3}: total_violation = {:.4}",
-                epoch, total_violation
+                "  {}: MRR={:.4}, Hits@10={:.4} ({} triples)",
+                rel_name, pr.mrr, pr.hits_at_10, pr.count
             );
         }
     }
 
-    // --- Step 5: Evaluate on test set ---
-    println!("\n--- Evaluation (test set) ---\n");
-
-    // Convert to NdarrayBox for trait-based evaluation
-    let ndarray_boxes: HashMap<&str, NdarrayBox> = boxes
-        .iter()
-        .filter_map(|(name, (min, max))| {
-            NdarrayBox::new(min.clone(), max.clone(), 1.0)
-                .ok()
-                .map(|b| (*name, b))
-        })
-        .collect();
-
-    let mut ranks = Vec::new();
-    let n_entities = entity_names.len();
-
-    for triple in &dataset.test {
-        let child_name = triple.head.as_str();
-        let true_parent = triple.tail.as_str();
-
-        let Some(child_b) = ndarray_boxes.get(child_name) else {
-            continue;
-        };
-
-        // Score all entities as potential parents
-        let mut scores: Vec<(&str, f32)> = entity_names
-            .iter()
-            .filter_map(|&ename| {
-                let parent_b = ndarray_boxes.get(ename)?;
-                let p = parent_b.containment_prob(child_b, 1.0).ok()?;
-                Some((ename, p))
-            })
-            .collect();
-
-        scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-
-        let rank = scores
-            .iter()
-            .position(|(name, _)| *name == true_parent)
-            .map(|pos| pos + 1)
-            .unwrap_or(0);
-
-        ranks.push(rank);
-        println!(
-            "  {} -> {}: rank {} / {}",
-            child_name, true_parent, rank, n_entities
-        );
-    }
-
-    // Compute metrics
-    let mrr = mean_reciprocal_rank(ranks.iter().copied());
-    let h1 = hits_at_k(ranks.iter().copied(), 1);
-    let h3 = hits_at_k(ranks.iter().copied(), 3);
-    let h10 = hits_at_k(ranks.iter().copied(), 10);
-    let mr = mean_rank(ranks.iter().copied());
-
-    println!("\n--- Link Prediction Metrics ---\n");
-    println!("  MRR:       {mrr:.4}");
-    println!("  Hits@1:    {h1:.4}");
-    println!("  Hits@3:    {h3:.4}");
-    println!("  Hits@10:   {h10:.4}");
-    println!("  Mean Rank: {mr:.1}");
+    // --- Step 7: Demonstrate checkpoint save/load ---
+    let checkpoint = serde_json::to_string(&trainer)?;
     println!(
-        "\n  ({} test triples, {} candidate entities)",
-        ranks.len(),
-        n_entities
+        "\nCheckpoint: {} bytes (serialized {} entity boxes + optimizer state)",
+        checkpoint.len(),
+        trainer.boxes.len()
+    );
+
+    let restored: BoxEmbeddingTrainer = serde_json::from_str(&checkpoint)?;
+    assert_eq!(restored.boxes.len(), trainer.boxes.len());
+    println!(
+        "Checkpoint round-trip: OK ({} entities restored)",
+        restored.boxes.len()
     );
 
     Ok(())
