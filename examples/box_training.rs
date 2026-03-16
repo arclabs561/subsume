@@ -16,11 +16,12 @@
 //!     vehicle
 //!       car, truck, bicycle
 //!
-//! The training uses direct coordinate updates with three passes per epoch:
-//!   1. Positive: expand head boxes to contain their children (push min down, max up).
-//!   2. Negative: for sibling and cross-branch pairs, shrink boxes to break
+//! The training uses direct coordinate updates with four passes per epoch:
+//!   1. Positive containment: expand head boxes to contain their children (push min down, max up).
+//!   2. Parent regularization: tighten each parent's boundaries toward its children's extent.
+//!   3. Negative separation: for sibling and cross-branch pairs, shrink boxes to break
 //!      full containment on at least some dimensions.
-//!   3. Shrinkage: gently contract leaf boxes toward their center so they
+//!   4. Leaf shrinkage: gently contract leaf boxes toward their center so they
 //!      develop varied, tighter volumes.
 //!
 //! This is a simplified approach; production systems would use backpropagation
