@@ -222,16 +222,6 @@ pub fn stable_sigmoid(x: f32) -> f32 {
 pub fn gumbel_membership_prob(x: f32, min: f32, max: f32, temp: f32) -> f32 {
     let temp_safe = clamp_temperature_default(temp);
 
-    // Avoid division by zero and handle edge cases
-    if temp_safe < MIN_TEMPERATURE {
-        // Hard bounds: return 1.0 if in bounds, 0.0 otherwise
-        if x >= min && x <= max {
-            return 1.0;
-        } else {
-            return 0.0;
-        }
-    }
-
     // P(x > min) using stable sigmoid
     let min_prob = stable_sigmoid((x - min) / temp_safe);
     // P(x < max) using stable sigmoid

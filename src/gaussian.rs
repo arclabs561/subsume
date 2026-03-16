@@ -330,20 +330,6 @@ pub fn volume_regularization(g: &GaussianBox, min_var: f32) -> f32 {
     sum / d as f32
 }
 
-/// Sigma floor loss: prevents sigma from collapsing to near-zero.
-///
-/// Returns `sum_i max(0, min_sigma - sigma_i)` over all dimensions.
-/// This is a simpler linear-hinge variant of [`volume_regularization`].
-///
-/// For the paper-faithful squared-hinge on variance (Eq. 13), use
-/// [`volume_regularization`] instead. This function is retained for
-/// backward compatibility and for cases where a linear penalty on
-/// the standard deviation (not variance) is preferred.
-#[must_use]
-pub fn sigma_clipping_loss(g: &GaussianBox, min_sigma: f32) -> f32 {
-    g.sigma.iter().map(|&s| (min_sigma - s).max(0.0)).sum()
-}
-
 /// Variance ceiling loss (paper's L_clip, Eq. 14): prevents variance explosion.
 ///
 /// Linear hinge on variance exceeding a maximum threshold:
@@ -478,15 +464,6 @@ mod tests {
             // Negative -> should fail
             let sigma_neg = vec![-1.0f32; dim];
             prop_assert!(GaussianBox::new(mu, sigma_neg).is_err());
-        }
-
-        #[test]
-        fn prop_sigma_clipping_nonneg(
-            g in arb_gaussian(8),
-            min_sigma in 0.0f32..10.0,
-        ) {
-            let loss = sigma_clipping_loss(&g, min_sigma);
-            prop_assert!(loss >= 0.0, "Sigma clipping loss should be non-negative, got {}", loss);
         }
 
         // -- Bhattacharyya distance >= 0 --
@@ -631,16 +608,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_sigma_clipping_all_above_threshold() {
-        let g = GaussianBox::new(vec![0.0, 0.0], vec![1.0, 2.0]).unwrap();
-        let loss = sigma_clipping_loss(&g, 0.5);
-        assert!(
-            loss.abs() < 1e-10,
-            "All sigmas above threshold: loss should be 0, got {loss}"
-        );
-    }
-
     // --- Audit-driven regression tests ---
 
     /// Hand-computed 2D KL divergence to verify the formula matches the standard.
@@ -702,18 +669,11 @@ mod tests {
         }
     }
 
-    /// sigma_clipping_loss penalizes below floor; sigma_ceiling_loss penalizes above ceiling.
+    /// sigma_ceiling_loss penalizes variance above ceiling.
     #[test]
-    fn test_sigma_floor_vs_ceiling() {
+    fn test_sigma_ceiling_loss_hand_computed() {
         // Sigma = [0.05, 0.3, 5.0]
         let g = GaussianBox::new(vec![0.0; 3], vec![0.05, 0.3, 5.0]).unwrap();
-
-        // Floor = 0.1: only dim 0 violates (0.05 < 0.1), penalty = 0.05
-        let floor_loss = sigma_clipping_loss(&g, 0.1);
-        assert!(
-            (floor_loss - 0.05).abs() < 1e-6,
-            "floor loss: expected 0.05, got {floor_loss}"
-        );
 
         // Ceiling max_var = 1.0: sigma^2 = [0.0025, 0.09, 25.0]
         // Only dim 2 violates: excess = 25.0 - 1.0 = 24.0 (linear hinge)
@@ -892,14 +852,6 @@ mod tests {
         // loss = (1/4) * 4 * 1.0^2 = 1.0
         let loss2 = volume_regularization(&g, 2.0);
         assert!((loss2 - 1.0).abs() < 1e-6, "expected 1.0, got {loss2}");
-    }
-
-    #[test]
-    fn test_sigma_clipping() {
-        let g = GaussianBox::new(vec![0.0, 0.0], vec![0.01, 1.0]).unwrap();
-        let loss = sigma_clipping_loss(&g, 0.1);
-        // sigma[0]=0.01 < 0.1, penalty = 0.09; sigma[1]=1.0 >= 0.1, penalty = 0
-        assert!((loss - 0.09).abs() < 1e-6, "expected 0.09, got {loss}");
     }
 
     #[test]
