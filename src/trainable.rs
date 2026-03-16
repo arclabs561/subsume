@@ -31,6 +31,7 @@ impl DenseBox {
     }
 
     #[inline]
+    #[allow(dead_code)]
     pub fn intersection_volume(&self, other: &Self) -> f32 {
         let mut v = 1.0f32;
         for i in 0..self.min.len().min(other.min.len()) {
@@ -49,6 +50,7 @@ impl DenseBox {
     ///
     /// For hard boxes: Vol(self ∩ other) / Vol(other), with 0 when other has 0 volume.
     #[inline]
+    #[allow(dead_code)]
     pub fn conditional_probability(&self, other: &Self) -> f32 {
         let denom = other.volume();
         if denom <= 0.0 {
@@ -181,9 +183,12 @@ impl TrainableBox {
         let t = state.t as f32;
 
         // Update moments for all parameters (mu then delta).
+        // Sanitize non-finite gradients to zero to prevent NaN poisoning the
+        // optimizer state (v_hat accumulates via max, so one NaN is permanent).
         for (i, &g) in grads.iter().enumerate().take(n) {
-            state.m[i] = state.beta1 * state.m[i] + (1.0 - state.beta1) * g;
-            let v_new = state.beta2 * state.v[i] + (1.0 - state.beta2) * g * g;
+            let g_safe = if g.is_finite() { g } else { 0.0 };
+            state.m[i] = state.beta1 * state.m[i] + (1.0 - state.beta1) * g_safe;
+            let v_new = state.beta2 * state.v[i] + (1.0 - state.beta2) * g_safe * g_safe;
             state.v[i] = v_new;
             state.v_hat[i] = state.v_hat[i].max(v_new);
         }
