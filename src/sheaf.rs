@@ -290,54 +290,6 @@ impl DenseRestriction {
             cols: dim,
         }
     }
-
-    /// Create a random orthogonal restriction map.
-    ///
-    /// Uses QR decomposition of random matrix.
-    /// Useful for connection Laplacians.
-    #[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
-    #[cfg(feature = "rand")]
-    pub fn random_orthogonal(dim: usize) -> Self {
-        use rand::Rng;
-        let mut rng = rand::rng();
-
-        // Generate random matrix
-        let mut data: Vec<f32> = (0..dim * dim)
-            .map(|_| rng.random_range(-0.5..0.5))
-            .collect();
-
-        // Simple Gram-Schmidt orthogonalization
-        for i in 0..dim {
-            // Normalize column i
-            let mut norm: f32 = 0.0;
-            for j in 0..dim {
-                norm += data[j * dim + i] * data[j * dim + i];
-            }
-            norm = norm.sqrt();
-            if norm > 1e-6 {
-                for j in 0..dim {
-                    data[j * dim + i] /= norm;
-                }
-            }
-
-            // Subtract projections from remaining columns
-            for k in (i + 1)..dim {
-                let mut dot = 0.0;
-                for j in 0..dim {
-                    dot += data[j * dim + i] * data[j * dim + k];
-                }
-                for j in 0..dim {
-                    data[j * dim + k] -= dot * data[j * dim + i];
-                }
-            }
-        }
-
-        Self {
-            data,
-            rows: dim,
-            cols: dim,
-        }
-    }
 }
 
 impl RestrictionMap for DenseRestriction {
