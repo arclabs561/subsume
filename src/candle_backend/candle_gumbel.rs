@@ -1,8 +1,8 @@
-//! Candle implementation of GumbelBox trait.
+//! Candle Gumbel box embedding with temperature-controlled probabilistic bounds.
 
 use crate::candle_backend::candle_box::CandleBox;
 use crate::utils::{gumbel_membership_prob, map_gumbel_to_bounds, sample_gumbel};
-use crate::{Box, BoxError, GumbelBox};
+use crate::{Box, BoxError};
 use candle_core::Tensor;
 use serde::{Deserialize, Serialize};
 
@@ -10,10 +10,10 @@ use serde::{Deserialize, Serialize};
 ///
 /// # Approximation note
 ///
-/// The [`GumbelBox`] trait methods ([`membership_probability`](GumbelBox::membership_probability),
-/// [`sample`](GumbelBox::sample)) use proper Gumbel math. However, the [`Box`] trait methods
-/// (`intersection`, `volume`, `containment_prob`, `overlap_prob`) delegate to [`CandleBox`]
-/// (hard-box operations) rather than the Gumbel-specific formulas used by
+/// The Gumbel-specific methods (`membership_probability`, `sample`) use proper Gumbel math.
+/// However, the [`Box`] trait methods (`intersection`, `volume`, `containment_prob`,
+/// `overlap_prob`) delegate to [`CandleBox`] (hard-box operations) rather than the
+/// Gumbel-specific formulas used by
 /// [`NdarrayGumbelBox`](crate::ndarray_backend::NdarrayGumbelBox) (Bessel volume, LSE intersection).
 ///
 /// For training workflows that require exact Gumbel volume and intersection, use the ndarray backend.
@@ -94,15 +94,20 @@ impl Box for CandleGumbelBox {
     }
 }
 
-impl GumbelBox for CandleGumbelBox {
-    fn temperature(&self) -> Self::Scalar {
+impl CandleGumbelBox {
+    /// Get the temperature parameter (controls softness of bounds).
+    pub fn temperature(&self) -> f32 {
         self.inner.temperature
     }
 
-    fn membership_probability(
-        &self,
-        point: &Self::Vector,
-    ) -> std::result::Result<Self::Scalar, BoxError> {
+    /// Compute membership probability for a point using Gumbel-Softmax.
+    ///
+    /// Returns P(point in self) as the product of per-dimension sigmoid probabilities.
+    ///
+    /// # Errors
+    ///
+    /// Returns `BoxError::DimensionMismatch` if point dimension doesn't match box dimension.
+    pub fn membership_probability(&self, point: &Tensor) -> std::result::Result<f32, BoxError> {
         if point.dims() != [self.dim()] {
             return Err(BoxError::DimensionMismatch {
                 expected: self.dim(),
@@ -137,7 +142,8 @@ impl GumbelBox for CandleGumbelBox {
         Ok(prob)
     }
 
-    fn sample(&self) -> Self::Vector {
+    /// Sample a point from the box distribution using Gumbel-Softmax.
+    pub fn sample(&self) -> Tensor {
         use candle_core::Tensor;
 
         // Use LCG for pseudo-random sampling to avoid rand dependency conflicts.

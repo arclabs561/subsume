@@ -1,7 +1,7 @@
 //! Trainable geometric representations with learnable parameters.
 //!
-//! Contains both [`TrainableBox`] (axis-aligned hyperrectangles) and
-//! [`TrainableCone`] (Cartesian products of 2D angular sectors, ConE model).
+//! Contains both `TrainableBox` (axis-aligned hyperrectangles) and
+//! `TrainableCone` (Cartesian products of 2D angular sectors, ConE model).
 
 use crate::optimizer::AMSGradState;
 use crate::BoxError;

@@ -13,12 +13,12 @@
 //! | Goal | Start here |
 //! |------|-----------|
 //! | Understand the core abstraction | [`Box`] trait, [`BoxError`] |
-//! | Use probabilistic (Gumbel) boxes | [`GumbelBox`] trait, [`gumbel`] module |
+//! | Use probabilistic (Gumbel) boxes | [`NdarrayGumbelBox`](ndarray_backend::NdarrayGumbelBox), [`gumbel`] module |
 //! | Use octagon embeddings (box + diagonal constraints) | [`NdarrayOctagon`](ndarray_backend::ndarray_octagon::NdarrayOctagon), [`octagon`] module |
-//! | Fuzzy query answering (t-norms) | [`TNorm`], [`TConorm`], [`fuzzy`] module |
+//! | Fuzzy query answering (t-norms) | [`fuzzy::TNorm`], [`fuzzy::TConorm`], [`fuzzy`] module |
 //! | Load a knowledge graph dataset | [`Dataset`], [`Triple`] |
 //! | Train box embeddings (ndarray) | [`ndarray_backend`], [`TrainingConfig`] |
-//! | Evaluate with link prediction | [`evaluate_link_prediction`], [`training::metrics`] |
+//! | Evaluate with link prediction | [`evaluate_link_prediction`], [`metrics`] module |
 //!
 //! # Why regions instead of points?
 //!
@@ -54,7 +54,7 @@
 //! ## Core traits and geometry
 //!
 //! - [`box_trait`] -- the [`Box`] trait: containment, overlap, volume
-//! - [`gumbel`] -- the [`GumbelBox`] trait: probabilistic box operations
+//! - [`gumbel`] -- Gumbel box documentation and research background
 //! - [`octagon`] -- octagon error types (implementations in [`ndarray_backend`])
 //! - [`cone`] -- cone error types (implementations in [`ndarray_backend`])
 //! - [`hyperbolic`] -- Poincare ball embeddings for tree-like hierarchies
@@ -75,9 +75,9 @@
 //! ## Training and evaluation
 //!
 //! - [`dataset`] -- load WN18RR, FB15k-237, YAGO3-10, and similar KG datasets
-//! - [`trainable`] -- [`TrainableBox`] and [`TrainableCone`] with learnable parameters
+//! - [`trainable`] -- [`trainable::TrainableBox`] and [`trainable::TrainableCone`] with learnable parameters
 //! - [`trainer`] -- negative sampling, loss computation, link prediction evaluation
-//! - [`training`] -- rank-based metrics (MRR, Hits@k, Mean Rank, nDCG)
+//! - [`metrics`] -- rank-based metrics (MRR, Hits@k, Mean Rank, nDCG)
 //! - [`optimizer`] -- AMSGrad state management
 //! - [`utils`] -- numerical stability (log-space volume, stable sigmoid, Gumbel operations)
 //!
@@ -101,7 +101,6 @@
 //! ```rust,ignore
 //! // Rename to avoid shadowing std::boxed::Box
 //! use subsume::Box as BoxRegion;
-//! use subsume::GumbelBox;
 //!
 //! // Framework-agnostic: works with NdarrayBox, CandleBox, or your own impl
 //! fn compute_entailment<B: BoxRegion>(
@@ -151,7 +150,7 @@ pub mod dataset;
 /// Distance metrics: Query2Box distance scoring.
 pub mod distance;
 
-/// [`GumbelBox`] trait: probabilistic boxes with Gumbel-distributed coordinates.
+/// Gumbel box module: probabilistic boxes with Gumbel-distributed coordinates.
 pub mod gumbel;
 
 /// Poincare ball embeddings for tree-like hierarchical structures.
@@ -174,8 +173,8 @@ pub mod trainable;
 /// Training loop utilities: negative sampling, loss kernels, link prediction evaluation.
 pub mod trainer;
 
-/// Rank-based evaluation metrics for link prediction (MRR, Hits@k, Mean Rank, nDCG).
-pub mod training;
+/// Rank-based evaluation metrics (MRR, Hits@k, Mean Rank, nDCG).
+pub mod metrics;
 
 /// Numerical stability: log-space volume, stable sigmoid, Gumbel operations.
 pub mod utils;
@@ -223,33 +222,25 @@ pub use box_trait::{Box, BoxError};
 /// `use subsume::BoxRegion;` is equivalent to `use subsume::Box as BoxRegion;`.
 pub use box_trait::Box as BoxRegion;
 
-/// The probabilistic box trait (Gumbel-distributed coordinates).
-pub use gumbel::GumbelBox;
-
-// Re-exports: geometry variants
+// Re-exports: geometry errors
 pub use cone::ConeError;
 #[cfg_attr(docsrs, doc(cfg(feature = "ndarray-backend")))]
 #[cfg(feature = "ndarray-backend")]
 pub use hyperbolic::{
     hierarchy_preserved, pairwise_distances, Curvature, HyperbolicError, PoincareBallPoint,
 };
+pub use octagon::OctagonError;
+pub use sheaf::SheafError;
 
 // Re-exports: data loading
-pub use dataset::{Dataset, DatasetError, DatasetStats, Triple};
-
-// Re-exports: representations and scoring
-pub use distance::query2box_distance;
+pub use dataset::{Dataset, DatasetError, Triple};
 
 // Re-exports: training
-pub use optimizer::{get_learning_rate, AMSGradState};
-pub use trainable::{TrainableBox, TrainableCone};
 #[cfg(feature = "ndarray-backend")]
 #[cfg_attr(docsrs, doc(cfg(feature = "ndarray-backend")))]
 pub use trainer::evaluate_link_prediction_interned_with_transforms;
 pub use trainer::{
-    compute_cone_analytical_gradients, compute_cone_pair_loss, evaluate_link_prediction,
-    evaluate_link_prediction_with_transforms, log_training_result, BoxEmbeddingTrainer,
-    ConeEmbeddingTrainer, EvaluationResults, NegativeSamplingStrategy, PerRelationResults,
+    evaluate_link_prediction, BoxEmbeddingTrainer, ConeEmbeddingTrainer, EvaluationResults,
     RelationTransform, TrainingConfig, TrainingResult,
 };
 
@@ -262,40 +253,11 @@ pub use trainer::{
     generate_self_adversarial_negatives, SortedEntityPool,
 };
 
-// Re-exports: evaluation metrics (access diagnostics/quality via subsume::training::*)
-pub use training::metrics::{hits_at_k, mean_rank, mean_reciprocal_rank, ndcg};
-
-// Re-exports: sheaf
-pub use sheaf::{
-    consistency_score, diffuse_until_convergence, DenseRestriction, DiffusionConfig,
-    RestrictionMap, SheafEdge, SheafError, SheafGraph, SimpleSheafGraph, Stalk, VecStalk,
-};
+// Re-exports: evaluation metrics
+pub use metrics::{hits_at_k, mean_rank, mean_reciprocal_rank, ndcg};
 
 // Re-exports: Gaussian boxes
-pub use gaussian::{
-    bhattacharyya_coefficient, bhattacharyya_distance, kl_divergence as gaussian_kl_divergence,
-    sigma_ceiling_loss, volume_regularization as gaussian_volume_regularization, GaussianBox,
-};
-
-// Re-exports: taxonomy
-pub use taxonomy::{TaxonomyDataset, TaxonomyNode};
-
-// Re-exports: TaxoBell loss
-pub use taxobell::{CombinedLossResult, TaxoBellConfig, TaxoBellLoss};
-
-// Re-exports: TaxoBell encoder and training (candle-backend)
-#[cfg_attr(docsrs, doc(cfg(feature = "candle-backend")))]
-#[cfg(feature = "candle-backend")]
-pub use taxobell_encoder::{
-    evaluate_taxobell, train_taxobell, Mlp, TaxoBellEncoder, TaxoBellEvalResult,
-    TaxoBellTrainingConfig, TrainingSnapshot,
-};
-
-// Re-exports: EL++ ontology
-pub use el::{
-    compose_roles, disjointness_loss, el_inclusion_loss, existential_box,
-    intersection_nonempty_loss, translate,
-};
+pub use gaussian::GaussianBox;
 
 // Re-exports: EL++ training
 #[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
@@ -303,15 +265,6 @@ pub use el::{
 pub use el_training::{
     evaluate_subsumption, train_el_embeddings, Axiom, ElTrainingConfig, ElTrainingResult, Ontology,
 };
-
-// Re-exports: fuzzy operators
-pub use fuzzy::{
-    fuzzy_negation, tconorm_lukasiewicz, tconorm_max, tconorm_probabilistic, tnorm_lukasiewicz,
-    tnorm_min, tnorm_product, TConorm, TNorm,
-};
-
-// Re-exports: octagon
-pub use octagon::OctagonError;
 
 // ---------------------------------------------------------------------------
 // Feature-gated backends

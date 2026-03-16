@@ -53,11 +53,6 @@
 //! Sheaf neural networks generalize GNNs by learning edge-specific linear maps
 //! instead of using identity or scalar weights.
 //!
-//! # Implementation
-//!
-//! This module provides framework-agnostic traits with a concrete CPU implementation.
-//! GPU-accelerated sheaf operations may be added to the `candle_backend` module.
-//!
 //! # References
 //!
 //! - Hansen & Ghrist (2019): "Toward a spectral theory of cellular sheaves"
@@ -73,7 +68,6 @@
 //!   -- comprehensive survey of sheaf neural networks and sheaf attention mechanisms
 
 use std::collections::HashMap;
-use std::fmt::Debug;
 
 /// Error type for sheaf operations.
 #[non_exhaustive]
@@ -98,141 +92,29 @@ pub enum SheafError {
     InvalidRestriction(String),
 }
 
-/// A restriction map (linear transformation) on an edge.
-///
-/// For edge (u, v), this maps from the stalk at u to the edge space.
-/// The restriction map captures "how information flows" along the edge.
-///
-/// For coreference: if mentions u and v are coreferent, their stalks
-/// should map to the same point in the edge space.
-pub trait RestrictionMap: Clone + Debug {
-    /// Scalar type for the map.
-    type Scalar: Clone + Debug;
-    /// Vector type for input/output.
-    type Vector: Clone + Debug;
-
-    /// Input dimension (stalk dimension at source node).
-    fn in_dim(&self) -> usize;
-
-    /// Output dimension (edge space dimension).
-    fn out_dim(&self) -> usize;
-
-    /// Apply the restriction map to a stalk vector.
-    fn apply(&self, x: &Self::Vector) -> Result<Self::Vector, SheafError>;
-
-    /// Apply the transpose (adjoint) of the restriction map.
-    /// Used in Laplacian computation.
-    fn apply_transpose(&self, x: &Self::Vector) -> Result<Self::Vector, SheafError>;
-
-    /// Get the matrix representation (for debugging/serialization).
-    fn as_matrix(&self) -> Vec<Vec<Self::Scalar>>;
-
-    /// Frobenius norm of the map (for regularization).
-    fn frobenius_norm(&self) -> Self::Scalar;
-}
-
-/// A stalk (vector space) at a node.
-///
-/// For coreference: the stalk at a mention node contains its embedding.
-pub trait Stalk: Clone + Debug {
-    /// Scalar type.
-    type Scalar: Clone + Debug;
-    /// Vector type.
-    type Vector: Clone + Debug;
-
-    /// Dimension of the stalk.
-    fn dim(&self) -> usize;
-
-    /// Get the current value (signal on the stalk).
-    fn value(&self) -> &Self::Vector;
-
-    /// Set the value.
-    fn set_value(&mut self, v: Self::Vector) -> Result<(), SheafError>;
-
-    /// Zero vector in this stalk.
-    fn zero(&self) -> Self::Vector;
-}
+// =============================================================================
+// Edge data
+// =============================================================================
 
 /// Edge data in a sheaf graph.
 #[derive(Debug, Clone)]
-pub struct SheafEdge<R: RestrictionMap> {
+pub struct SheafEdge {
     /// Source node ID.
     pub source: usize,
     /// Target node ID.
     pub target: usize,
     /// Restriction map from source stalk to edge space.
-    pub restriction_source: R,
+    pub restriction_source: DenseRestriction,
     /// Restriction map from target stalk to edge space.
-    pub restriction_target: R,
+    pub restriction_target: DenseRestriction,
     /// Edge weight (optional, for weighted Laplacian).
     pub weight: f32,
 }
 
-/// A sheaf on a graph.
-///
-/// This is the main data structure for sheaf neural networks.
-/// It assigns stalks to nodes and restriction maps to edges.
-pub trait SheafGraph: Debug {
-    /// Scalar type.
-    type Scalar: Clone + Debug + Default;
-    /// Vector type.
-    type Vector: Clone + Debug;
-    /// Restriction map type.
-    type Restriction: RestrictionMap<Scalar = Self::Scalar, Vector = Self::Vector>;
-    /// Stalk type.
-    type Stalk: Stalk<Scalar = Self::Scalar, Vector = Self::Vector>;
-
-    /// Number of nodes.
-    fn num_nodes(&self) -> usize;
-
-    /// Number of edges.
-    fn num_edges(&self) -> usize;
-
-    /// Get stalk at node.
-    fn stalk(&self, node: usize) -> Result<&Self::Stalk, SheafError>;
-
-    /// Get mutable stalk at node.
-    fn stalk_mut(&mut self, node: usize) -> Result<&mut Self::Stalk, SheafError>;
-
-    /// Get edge data.
-    fn edge(
-        &self,
-        source: usize,
-        target: usize,
-    ) -> Result<&SheafEdge<Self::Restriction>, SheafError>;
-
-    /// Iterate over all edges.
-    fn edges(&self) -> impl Iterator<Item = &SheafEdge<Self::Restriction>>;
-
-    /// Get neighbors of a node.
-    fn neighbors(&self, node: usize) -> Result<Vec<usize>, SheafError>;
-
-    /// Compute Dirichlet energy for the current stalk values.
-    ///
-    /// E(x) = Σ_{(u,v) ∈ E} w_{uv} ||R_u(x_u) - R_v(x_v)||²
-    ///
-    /// Low energy means consistent signal across the sheaf.
-    fn dirichlet_energy(&self) -> Result<Self::Scalar, SheafError>;
-
-    /// Compute the sheaf Laplacian action on a given node.
-    ///
-    /// (L_F x)_v = Σ_{u ~ v} R_v^T (R_v x_v - R_u x_u)
-    fn laplacian_at(&self, node: usize) -> Result<Self::Vector, SheafError>;
-
-    /// Perform one step of sheaf diffusion.
-    ///
-    /// x_{t+1} = x_t - α * L_F * x_t
-    ///
-    /// This smooths the signal according to sheaf structure.
-    fn diffusion_step(&mut self, step_size: Self::Scalar) -> Result<(), SheafError>;
-}
-
 // =============================================================================
-// Sheaf Laplacian Types
+// Configuration
 // =============================================================================
 
-/// Describes the structure of a sheaf Laplacian.
-///
 /// Configuration for sheaf diffusion.
 #[derive(Debug, Clone)]
 pub struct DiffusionConfig {
@@ -252,10 +134,13 @@ impl Default for DiffusionConfig {
 }
 
 // =============================================================================
-// Simple In-Memory Implementation (f32, Vec<f32>)
+// DenseRestriction -- restriction map using a dense matrix
 // =============================================================================
 
-/// Simple restriction map using a dense matrix.
+/// A restriction map (linear transformation) on an edge, stored as a dense matrix.
+///
+/// For edge (u, v), this maps from the stalk at u to the edge space.
+/// The restriction map captures "how information flows" along the edge.
 #[derive(Debug, Clone)]
 pub struct DenseRestriction {
     /// Matrix data in row-major order.
@@ -290,21 +175,19 @@ impl DenseRestriction {
             cols: dim,
         }
     }
-}
 
-impl RestrictionMap for DenseRestriction {
-    type Scalar = f32;
-    type Vector = Vec<f32>;
-
-    fn in_dim(&self) -> usize {
+    /// Input dimension (stalk dimension at source node).
+    pub fn in_dim(&self) -> usize {
         self.cols
     }
 
-    fn out_dim(&self) -> usize {
+    /// Output dimension (edge space dimension).
+    pub fn out_dim(&self) -> usize {
         self.rows
     }
 
-    fn apply(&self, x: &Self::Vector) -> Result<Self::Vector, SheafError> {
+    /// Apply the restriction map to a stalk vector.
+    pub fn apply(&self, x: &[f32]) -> Result<Vec<f32>, SheafError> {
         if x.len() != self.cols {
             return Err(SheafError::DimensionMismatch {
                 expected: self.cols,
@@ -313,7 +196,6 @@ impl RestrictionMap for DenseRestriction {
         }
 
         // Matrix multiplication: result = A * x
-        // Using explicit indexing for clarity in matrix math
         let mut result = vec![0.0; self.rows];
         #[allow(clippy::needless_range_loop)]
         for i in 0..self.rows {
@@ -324,7 +206,9 @@ impl RestrictionMap for DenseRestriction {
         Ok(result)
     }
 
-    fn apply_transpose(&self, x: &Self::Vector) -> Result<Self::Vector, SheafError> {
+    /// Apply the transpose (adjoint) of the restriction map.
+    /// Used in Laplacian computation.
+    pub fn apply_transpose(&self, x: &[f32]) -> Result<Vec<f32>, SheafError> {
         if x.len() != self.rows {
             return Err(SheafError::DimensionMismatch {
                 expected: self.rows,
@@ -343,8 +227,8 @@ impl RestrictionMap for DenseRestriction {
         Ok(result)
     }
 
-    fn as_matrix(&self) -> Vec<Vec<Self::Scalar>> {
-        // Convert flat storage to row-major matrix
+    /// Get the matrix representation (for debugging/serialization).
+    pub fn as_matrix(&self) -> Vec<Vec<f32>> {
         let mut matrix = vec![vec![0.0; self.cols]; self.rows];
         #[allow(clippy::needless_range_loop)]
         for i in 0..self.rows {
@@ -355,12 +239,17 @@ impl RestrictionMap for DenseRestriction {
         matrix
     }
 
-    fn frobenius_norm(&self) -> Self::Scalar {
+    /// Frobenius norm of the map (for regularization).
+    pub fn frobenius_norm(&self) -> f32 {
         self.data.iter().map(|x| x * x).sum::<f32>().sqrt()
     }
 }
 
-/// Simple stalk holding a `Vec<f32>`.
+// =============================================================================
+// VecStalk -- stalk holding a Vec<f32>
+// =============================================================================
+
+/// A stalk (vector space) at a node, holding a `Vec<f32>`.
 #[derive(Debug, Clone)]
 pub struct VecStalk {
     value: Vec<f32>,
@@ -371,21 +260,19 @@ impl VecStalk {
     pub fn new(value: Vec<f32>) -> Self {
         Self { value }
     }
-}
 
-impl Stalk for VecStalk {
-    type Scalar = f32;
-    type Vector = Vec<f32>;
-
-    fn dim(&self) -> usize {
+    /// Dimension of the stalk.
+    pub fn dim(&self) -> usize {
         self.value.len()
     }
 
-    fn value(&self) -> &Self::Vector {
+    /// Get the current value (signal on the stalk).
+    pub fn value(&self) -> &Vec<f32> {
         &self.value
     }
 
-    fn set_value(&mut self, v: Self::Vector) -> Result<(), SheafError> {
+    /// Set the value.
+    pub fn set_value(&mut self, v: Vec<f32>) -> Result<(), SheafError> {
         if v.len() != self.value.len() {
             return Err(SheafError::DimensionMismatch {
                 expected: self.value.len(),
@@ -396,16 +283,25 @@ impl Stalk for VecStalk {
         Ok(())
     }
 
-    fn zero(&self) -> Self::Vector {
+    /// Zero vector in this stalk.
+    pub fn zero(&self) -> Vec<f32> {
         vec![0.0; self.value.len()]
     }
 }
 
+// =============================================================================
+// SimpleSheafGraph -- in-memory sheaf graph
+// =============================================================================
+
 /// Simple in-memory sheaf graph.
+///
+/// Assigns stalks (`VecStalk`) to nodes and restriction maps (`DenseRestriction`)
+/// to edges. Supports Dirichlet energy computation, Laplacian action, and
+/// diffusion steps.
 #[derive(Debug, Clone)]
 pub struct SimpleSheafGraph {
     stalks: Vec<VecStalk>,
-    edges: Vec<SheafEdge<DenseRestriction>>,
+    edges: Vec<SheafEdge>,
     adjacency: HashMap<usize, Vec<usize>>,
 }
 
@@ -475,43 +371,31 @@ impl SimpleSheafGraph {
 
         Ok(())
     }
-}
 
-impl Default for SimpleSheafGraph {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl SheafGraph for SimpleSheafGraph {
-    type Scalar = f32;
-    type Vector = Vec<f32>;
-    type Restriction = DenseRestriction;
-    type Stalk = VecStalk;
-
-    fn num_nodes(&self) -> usize {
+    /// Number of nodes.
+    pub fn num_nodes(&self) -> usize {
         self.stalks.len()
     }
 
-    fn num_edges(&self) -> usize {
+    /// Number of edges.
+    pub fn num_edges(&self) -> usize {
         self.edges.len()
     }
 
-    fn stalk(&self, node: usize) -> Result<&Self::Stalk, SheafError> {
+    /// Get stalk at node.
+    pub fn stalk(&self, node: usize) -> Result<&VecStalk, SheafError> {
         self.stalks.get(node).ok_or(SheafError::NodeNotFound(node))
     }
 
-    fn stalk_mut(&mut self, node: usize) -> Result<&mut Self::Stalk, SheafError> {
+    /// Get mutable stalk at node.
+    pub fn stalk_mut(&mut self, node: usize) -> Result<&mut VecStalk, SheafError> {
         self.stalks
             .get_mut(node)
             .ok_or(SheafError::NodeNotFound(node))
     }
 
-    fn edge(
-        &self,
-        source: usize,
-        target: usize,
-    ) -> Result<&SheafEdge<Self::Restriction>, SheafError> {
+    /// Get edge data.
+    pub fn edge(&self, source: usize, target: usize) -> Result<&SheafEdge, SheafError> {
         self.edges
             .iter()
             .find(|e| {
@@ -521,18 +405,25 @@ impl SheafGraph for SimpleSheafGraph {
             .ok_or(SheafError::EdgeNotFound(source, target))
     }
 
-    fn edges(&self) -> impl Iterator<Item = &SheafEdge<Self::Restriction>> {
+    /// Iterate over all edges.
+    pub fn edges(&self) -> impl Iterator<Item = &SheafEdge> {
         self.edges.iter()
     }
 
-    fn neighbors(&self, node: usize) -> Result<Vec<usize>, SheafError> {
+    /// Get neighbors of a node.
+    pub fn neighbors(&self, node: usize) -> Result<Vec<usize>, SheafError> {
         self.adjacency
             .get(&node)
             .cloned()
             .ok_or(SheafError::NodeNotFound(node))
     }
 
-    fn dirichlet_energy(&self) -> Result<Self::Scalar, SheafError> {
+    /// Compute Dirichlet energy for the current stalk values.
+    ///
+    /// E(x) = Σ_{(u,v) ∈ E} w_{uv} ||R_u(x_u) - R_v(x_v)||²
+    ///
+    /// Low energy means consistent signal across the sheaf.
+    pub fn dirichlet_energy(&self) -> Result<f32, SheafError> {
         let mut energy = 0.0;
 
         for edge in &self.edges {
@@ -555,7 +446,10 @@ impl SheafGraph for SimpleSheafGraph {
         Ok(energy)
     }
 
-    fn laplacian_at(&self, node: usize) -> Result<Self::Vector, SheafError> {
+    /// Compute the sheaf Laplacian action on a given node.
+    ///
+    /// (L_F x)_v = Σ_{u ~ v} R_v^T (R_v x_v - R_u x_u)
+    pub fn laplacian_at(&self, node: usize) -> Result<Vec<f32>, SheafError> {
         let stalk = self.stalk(node)?;
         let mut result = stalk.zero();
 
@@ -599,7 +493,12 @@ impl SheafGraph for SimpleSheafGraph {
         Ok(result)
     }
 
-    fn diffusion_step(&mut self, step_size: Self::Scalar) -> Result<(), SheafError> {
+    /// Perform one step of sheaf diffusion.
+    ///
+    /// x_{t+1} = x_t - α * L_F * x_t
+    ///
+    /// This smooths the signal according to sheaf structure.
+    pub fn diffusion_step(&mut self, step_size: f32) -> Result<(), SheafError> {
         // Compute Laplacian at all nodes first (to avoid borrowing issues)
         let laplacians: Vec<Vec<f32>> = (0..self.num_nodes())
             .map(|i| self.laplacian_at(i))
@@ -621,6 +520,12 @@ impl SheafGraph for SimpleSheafGraph {
     }
 }
 
+impl Default for SimpleSheafGraph {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // =============================================================================
 // Utility Functions
 // =============================================================================
@@ -628,7 +533,7 @@ impl SheafGraph for SimpleSheafGraph {
 /// Compute consistency score for a sheaf graph.
 ///
 /// Returns 1.0 for perfect consistency (zero energy), decreasing toward 0.
-pub fn consistency_score(graph: &impl SheafGraph<Scalar = f32>) -> Result<f32, SheafError> {
+pub fn consistency_score(graph: &SimpleSheafGraph) -> Result<f32, SheafError> {
     let energy = graph.dirichlet_energy()?;
     // Use exponential decay: exp(-energy)
     Ok((-energy).exp())
@@ -770,7 +675,7 @@ mod tests {
         let y = r.apply(&x).unwrap();
         assert_eq!(y, vec![6.0]);
 
-        let yt = r.apply_transpose(&vec![2.0]).unwrap();
+        let yt = r.apply_transpose(&[2.0]).unwrap();
         assert_eq!(yt, vec![6.0]); // Transpose of 1x1 is itself
     }
 

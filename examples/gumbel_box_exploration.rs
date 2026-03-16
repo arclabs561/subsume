@@ -19,7 +19,6 @@
 use ndarray::array;
 use subsume::ndarray_backend::NdarrayGumbelBox;
 use subsume::Box as BoxTrait;
-use subsume::GumbelBox;
 
 fn main() -> Result<(), subsume::BoxError> {
     println!("=== Gumbel Box Embeddings: Probabilistic Containment ===\n");
