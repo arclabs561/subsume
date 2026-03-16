@@ -128,13 +128,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // --- Step 3: Configure and create trainer ---
     let config = TrainingConfig {
-        learning_rate: 0.01,
+        learning_rate: 0.02,
         epochs: 200,
         margin: 0.1,
         regularization: 0.0001,
         negative_weight: 1.0,
         early_stopping_patience: Some(30),
         warmup_epochs: 10,
+        gumbel_beta: 10.0,
+        gumbel_beta_final: 50.0,
         ..Default::default()
     };
     let dim = 12;
