@@ -174,7 +174,7 @@ pub mod trainable;
 /// Training loop utilities: negative sampling, loss kernels, link prediction evaluation.
 pub mod trainer;
 
-/// Evaluation and diagnostics: rank metrics, calibration, gradient flow, quality analysis.
+/// Rank-based evaluation metrics for link prediction (MRR, Hits@k, Mean Rank, nDCG).
 pub mod training;
 
 /// Numerical stability: log-space volume, stable sigmoid, Gumbel operations.

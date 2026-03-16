@@ -1,4 +1,7 @@
 //! Rank-based evaluation metrics for link prediction and knowledge graph tasks.
+//!
+//! Provides MRR, Hits@K, Mean Rank, and nDCG -- the standard evaluation suite
+//! for knowledge graph embedding quality on downstream ranking tasks.
 
 /// Rank-based evaluation metrics for link prediction and knowledge graph tasks.
 ///
