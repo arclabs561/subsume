@@ -157,7 +157,6 @@ fn parity_10d() {
 
 use subsume::candle_backend::CandleGumbelBox;
 use subsume::ndarray_backend::NdarrayGumbelBox;
-use subsume::GumbelBox;
 
 fn make_gumbel_pair(
     min: &[f32],

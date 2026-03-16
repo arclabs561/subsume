@@ -1,9 +1,9 @@
-//! Ndarray implementation of GumbelBox trait.
+//! Ndarray Gumbel box embedding with temperature-controlled probabilistic bounds.
 
 use crate::ndarray_backend::ndarray_box::NdarrayBox;
 use crate::utils::{bessel_log_volume, gumbel_lse_max, gumbel_lse_min};
 use crate::utils::{gumbel_membership_prob, map_gumbel_to_bounds, sample_gumbel};
-use crate::{Box, BoxError, GumbelBox};
+use crate::{Box, BoxError};
 use ndarray::Array1;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -180,12 +180,20 @@ impl Box for NdarrayGumbelBox {
     }
 }
 
-impl GumbelBox for NdarrayGumbelBox {
-    fn temperature(&self) -> Self::Scalar {
+impl NdarrayGumbelBox {
+    /// Get the temperature parameter (controls softness of bounds).
+    pub fn temperature(&self) -> f32 {
         self.inner.temperature
     }
 
-    fn membership_probability(&self, point: &Self::Vector) -> Result<Self::Scalar, BoxError> {
+    /// Compute membership probability for a point using Gumbel-Softmax.
+    ///
+    /// Returns P(point in self) as the product of per-dimension sigmoid probabilities.
+    ///
+    /// # Errors
+    ///
+    /// Returns `BoxError::DimensionMismatch` if point dimension doesn't match box dimension.
+    pub fn membership_probability(&self, point: &Array1<f32>) -> Result<f32, BoxError> {
         if point.len() != self.dim() {
             return Err(BoxError::DimensionMismatch {
                 expected: self.dim(),
@@ -206,7 +214,8 @@ impl GumbelBox for NdarrayGumbelBox {
         Ok(prob)
     }
 
-    fn sample(&self) -> Self::Vector {
+    /// Sample a point from the box distribution using Gumbel-Softmax.
+    pub fn sample(&self) -> Array1<f32> {
         use ndarray::Array1;
 
         // Use LCG for pseudo-random sampling to avoid rand dependency conflicts.
@@ -241,7 +250,6 @@ impl GumbelBox for NdarrayGumbelBox {
 mod tests {
     use super::*;
     use crate::Box as BoxTrait;
-    use crate::GumbelBox as GumbelBoxTrait;
     use ndarray::array;
 
     // ---- Membership probability ----
@@ -746,7 +754,6 @@ mod tests {
 #[cfg(test)]
 mod proptest_tests {
     use super::*;
-    use crate::GumbelBox as GumbelBoxTrait;
     use ndarray::Array1;
     use proptest::prelude::*;
 
