@@ -12,8 +12,8 @@ use tempfile::tempdir;
 
 use ndarray::Array1;
 use subsume::dataset::load_dataset;
+use subsume::metrics::{hits_at_k, mean_reciprocal_rank};
 use subsume::ndarray_backend::NdarrayBox;
-use subsume::training::metrics::{hits_at_k, mean_reciprocal_rank};
 use subsume::Box as BoxTrait;
 use subsume::{ConeEmbeddingTrainer, TrainingConfig};
 

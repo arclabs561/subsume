@@ -45,55 +45,6 @@
 //! assert!((lhs - rhs).abs() < 1e-6);
 //! ```
 
-/// Godel t-norm: `min(a, b)`.
-///
-/// The strongest t-norm: `min(a, b) >= T(a, b)` for any t-norm T.
-#[inline]
-#[must_use]
-pub fn tnorm_min(a: f32, b: f32) -> f32 {
-    a.min(b)
-}
-
-/// Product t-norm: `a * b`.
-///
-/// Corresponds to probabilistic independence: if two events are independent,
-/// the probability of both occurring is the product of their probabilities.
-#[inline]
-#[must_use]
-pub fn tnorm_product(a: f32, b: f32) -> f32 {
-    a * b
-}
-
-/// Lukasiewicz t-norm: `max(a + b - 1, 0)`.
-///
-/// The weakest common t-norm. Produces 0 unless both inputs are high.
-#[inline]
-#[must_use]
-pub fn tnorm_lukasiewicz(a: f32, b: f32) -> f32 {
-    (a + b - 1.0).max(0.0)
-}
-
-/// Godel t-conorm (dual of min): `max(a, b)`.
-#[inline]
-#[must_use]
-pub fn tconorm_max(a: f32, b: f32) -> f32 {
-    a.max(b)
-}
-
-/// Probabilistic t-conorm (dual of product): `a + b - a*b`.
-#[inline]
-#[must_use]
-pub fn tconorm_probabilistic(a: f32, b: f32) -> f32 {
-    a + b - a * b
-}
-
-/// Lukasiewicz t-conorm (dual of Lukasiewicz): `min(a + b, 1)`.
-#[inline]
-#[must_use]
-pub fn tconorm_lukasiewicz(a: f32, b: f32) -> f32 {
-    (a + b).min(1.0)
-}
-
 /// Standard fuzzy negation: `1 - a`.
 #[inline]
 #[must_use]
@@ -118,9 +69,9 @@ impl TNorm {
     #[must_use]
     pub fn apply(&self, a: f32, b: f32) -> f32 {
         match self {
-            TNorm::Min => tnorm_min(a, b),
-            TNorm::Product => tnorm_product(a, b),
-            TNorm::Lukasiewicz => tnorm_lukasiewicz(a, b),
+            TNorm::Min => a.min(b),
+            TNorm::Product => a * b,
+            TNorm::Lukasiewicz => (a + b - 1.0).max(0.0),
         }
     }
 
@@ -153,9 +104,9 @@ impl TConorm {
     #[must_use]
     pub fn apply(&self, a: f32, b: f32) -> f32 {
         match self {
-            TConorm::Max => tconorm_max(a, b),
-            TConorm::Probabilistic => tconorm_probabilistic(a, b),
-            TConorm::Lukasiewicz => tconorm_lukasiewicz(a, b),
+            TConorm::Max => a.max(b),
+            TConorm::Probabilistic => a + b - a * b,
+            TConorm::Lukasiewicz => (a + b).min(1.0),
         }
     }
 
@@ -180,47 +131,47 @@ mod tests {
 
     #[test]
     fn tnorm_min_basic() {
-        assert_eq!(tnorm_min(0.3, 0.7), 0.3);
-        assert_eq!(tnorm_min(0.5, 0.5), 0.5);
-        assert_eq!(tnorm_min(1.0, 0.4), 0.4);
-        assert_eq!(tnorm_min(0.0, 0.9), 0.0);
+        assert_eq!(TNorm::Min.apply(0.3, 0.7), 0.3);
+        assert_eq!(TNorm::Min.apply(0.5, 0.5), 0.5);
+        assert_eq!(TNorm::Min.apply(1.0, 0.4), 0.4);
+        assert_eq!(TNorm::Min.apply(0.0, 0.9), 0.0);
     }
 
     #[test]
     fn tnorm_product_basic() {
-        assert!((tnorm_product(0.5, 0.5) - 0.25).abs() < 1e-7);
-        assert_eq!(tnorm_product(1.0, 0.7), 0.7);
-        assert_eq!(tnorm_product(0.0, 0.5), 0.0);
+        assert!((TNorm::Product.apply(0.5, 0.5) - 0.25).abs() < 1e-7);
+        assert_eq!(TNorm::Product.apply(1.0, 0.7), 0.7);
+        assert_eq!(TNorm::Product.apply(0.0, 0.5), 0.0);
     }
 
     #[test]
     fn tnorm_lukasiewicz_basic() {
-        assert_eq!(tnorm_lukasiewicz(0.3, 0.5), 0.0); // 0.3+0.5-1 = -0.2 -> 0
-        assert!((tnorm_lukasiewicz(0.8, 0.9) - 0.7).abs() < 1e-7);
-        assert_eq!(tnorm_lukasiewicz(1.0, 1.0), 1.0);
-        assert_eq!(tnorm_lukasiewicz(0.0, 1.0), 0.0);
+        assert_eq!(TNorm::Lukasiewicz.apply(0.3, 0.5), 0.0); // 0.3+0.5-1 = -0.2 -> 0
+        assert!((TNorm::Lukasiewicz.apply(0.8, 0.9) - 0.7).abs() < 1e-7);
+        assert_eq!(TNorm::Lukasiewicz.apply(1.0, 1.0), 1.0);
+        assert_eq!(TNorm::Lukasiewicz.apply(0.0, 1.0), 0.0);
     }
 
     #[test]
     fn tconorm_max_basic() {
-        assert_eq!(tconorm_max(0.3, 0.7), 0.7);
-        assert_eq!(tconorm_max(0.0, 0.0), 0.0);
-        assert_eq!(tconorm_max(1.0, 0.5), 1.0);
+        assert_eq!(TConorm::Max.apply(0.3, 0.7), 0.7);
+        assert_eq!(TConorm::Max.apply(0.0, 0.0), 0.0);
+        assert_eq!(TConorm::Max.apply(1.0, 0.5), 1.0);
     }
 
     #[test]
     fn tconorm_probabilistic_basic() {
         // 0.3 + 0.7 - 0.21 = 0.79
-        assert!((tconorm_probabilistic(0.3, 0.7) - 0.79).abs() < 1e-6);
-        assert_eq!(tconorm_probabilistic(0.0, 0.5), 0.5);
-        assert_eq!(tconorm_probabilistic(1.0, 0.5), 1.0);
+        assert!((TConorm::Probabilistic.apply(0.3, 0.7) - 0.79).abs() < 1e-6);
+        assert_eq!(TConorm::Probabilistic.apply(0.0, 0.5), 0.5);
+        assert_eq!(TConorm::Probabilistic.apply(1.0, 0.5), 1.0);
     }
 
     #[test]
     fn tconorm_lukasiewicz_basic() {
-        assert!((tconorm_lukasiewicz(0.3, 0.5) - 0.8).abs() < 1e-7);
-        assert_eq!(tconorm_lukasiewicz(0.6, 0.7), 1.0); // 1.3 clamped
-        assert_eq!(tconorm_lukasiewicz(0.0, 0.0), 0.0);
+        assert!((TConorm::Lukasiewicz.apply(0.3, 0.5) - 0.8).abs() < 1e-7);
+        assert_eq!(TConorm::Lukasiewicz.apply(0.6, 0.7), 1.0); // 1.3 clamped
+        assert_eq!(TConorm::Lukasiewicz.apply(0.0, 0.0), 0.0);
     }
 
     #[test]
@@ -228,25 +179,6 @@ mod tests {
         assert_eq!(fuzzy_negation(0.0), 1.0);
         assert_eq!(fuzzy_negation(1.0), 0.0);
         assert!((fuzzy_negation(0.3) - 0.7).abs() < 1e-7);
-    }
-
-    #[test]
-    fn enum_apply() {
-        assert_eq!(TNorm::Min.apply(0.3, 0.7), tnorm_min(0.3, 0.7));
-        assert_eq!(TNorm::Product.apply(0.3, 0.7), tnorm_product(0.3, 0.7));
-        assert_eq!(
-            TNorm::Lukasiewicz.apply(0.3, 0.7),
-            tnorm_lukasiewicz(0.3, 0.7)
-        );
-        assert_eq!(TConorm::Max.apply(0.3, 0.7), tconorm_max(0.3, 0.7));
-        assert_eq!(
-            TConorm::Probabilistic.apply(0.3, 0.7),
-            tconorm_probabilistic(0.3, 0.7)
-        );
-        assert_eq!(
-            TConorm::Lukasiewicz.apply(0.3, 0.7),
-            tconorm_lukasiewicz(0.3, 0.7)
-        );
     }
 
     #[test]
@@ -267,39 +199,39 @@ mod tests {
 
         #[test]
         fn prop_tnorm_min_commutative(a in arb_unit(), b in arb_unit()) {
-            prop_assert_eq!(tnorm_min(a, b), tnorm_min(b, a));
+            prop_assert_eq!(TNorm::Min.apply(a, b), TNorm::Min.apply(b, a));
         }
 
         #[test]
         fn prop_tnorm_product_commutative(a in arb_unit(), b in arb_unit()) {
-            prop_assert!((tnorm_product(a, b) - tnorm_product(b, a)).abs() < 1e-6);
+            prop_assert!((TNorm::Product.apply(a, b) - TNorm::Product.apply(b, a)).abs() < 1e-6);
         }
 
         #[test]
         fn prop_tnorm_lukasiewicz_commutative(a in arb_unit(), b in arb_unit()) {
-            prop_assert!((tnorm_lukasiewicz(a, b) - tnorm_lukasiewicz(b, a)).abs() < 1e-6);
+            prop_assert!((TNorm::Lukasiewicz.apply(a, b) - TNorm::Lukasiewicz.apply(b, a)).abs() < 1e-6);
         }
 
         // -- Associativity --
 
         #[test]
         fn prop_tnorm_min_associative(a in arb_unit(), b in arb_unit(), c in arb_unit()) {
-            let lhs = tnorm_min(a, tnorm_min(b, c));
-            let rhs = tnorm_min(tnorm_min(a, b), c);
+            let lhs = TNorm::Min.apply(a, TNorm::Min.apply(b, c));
+            let rhs = TNorm::Min.apply(TNorm::Min.apply(a, b), c);
             prop_assert!((lhs - rhs).abs() < 1e-6);
         }
 
         #[test]
         fn prop_tnorm_product_associative(a in arb_unit(), b in arb_unit(), c in arb_unit()) {
-            let lhs = tnorm_product(a, tnorm_product(b, c));
-            let rhs = tnorm_product(tnorm_product(a, b), c);
+            let lhs = TNorm::Product.apply(a, TNorm::Product.apply(b, c));
+            let rhs = TNorm::Product.apply(TNorm::Product.apply(a, b), c);
             prop_assert!((lhs - rhs).abs() < 1e-5);
         }
 
         #[test]
         fn prop_tnorm_lukasiewicz_associative(a in arb_unit(), b in arb_unit(), c in arb_unit()) {
-            let lhs = tnorm_lukasiewicz(a, tnorm_lukasiewicz(b, c));
-            let rhs = tnorm_lukasiewicz(tnorm_lukasiewicz(a, b), c);
+            let lhs = TNorm::Lukasiewicz.apply(a, TNorm::Lukasiewicz.apply(b, c));
+            let rhs = TNorm::Lukasiewicz.apply(TNorm::Lukasiewicz.apply(a, b), c);
             prop_assert!((lhs - rhs).abs() < 1e-6);
         }
 
@@ -325,24 +257,24 @@ mod tests {
 
         #[test]
         fn prop_de_morgan_min(a in arb_unit(), b in arb_unit()) {
-            let lhs = fuzzy_negation(tnorm_min(a, b));
-            let rhs = tconorm_max(fuzzy_negation(a), fuzzy_negation(b));
+            let lhs = fuzzy_negation(TNorm::Min.apply(a, b));
+            let rhs = TConorm::Max.apply(fuzzy_negation(a), fuzzy_negation(b));
             prop_assert!((lhs - rhs).abs() < 1e-6,
                 "De Morgan min: {lhs} != {rhs}");
         }
 
         #[test]
         fn prop_de_morgan_product(a in arb_unit(), b in arb_unit()) {
-            let lhs = fuzzy_negation(tnorm_product(a, b));
-            let rhs = tconorm_probabilistic(fuzzy_negation(a), fuzzy_negation(b));
+            let lhs = fuzzy_negation(TNorm::Product.apply(a, b));
+            let rhs = TConorm::Probabilistic.apply(fuzzy_negation(a), fuzzy_negation(b));
             prop_assert!((lhs - rhs).abs() < 1e-5,
                 "De Morgan product: {lhs} != {rhs}");
         }
 
         #[test]
         fn prop_de_morgan_lukasiewicz(a in arb_unit(), b in arb_unit()) {
-            let lhs = fuzzy_negation(tnorm_lukasiewicz(a, b));
-            let rhs = tconorm_lukasiewicz(fuzzy_negation(a), fuzzy_negation(b));
+            let lhs = fuzzy_negation(TNorm::Lukasiewicz.apply(a, b));
+            let rhs = TConorm::Lukasiewicz.apply(fuzzy_negation(a), fuzzy_negation(b));
             prop_assert!((lhs - rhs).abs() < 1e-6,
                 "De Morgan Lukasiewicz: {lhs} != {rhs}");
         }
