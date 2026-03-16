@@ -1887,55 +1887,233 @@ pub fn compute_pair_loss(
     }
 }
 
-/// Compute analytical gradients for a pair of boxes.
+/// Compute the true gradient of [`compute_pair_loss`] with respect to
+/// the reparameterized parameters `(mu, delta)` of both boxes.
+///
+/// Uses the chain rule through the reparameterization:
+/// - `min[i] = mu[i] - exp(delta[i]) / 2`
+/// - `max[i] = mu[i] + exp(delta[i]) / 2`
+///
+/// For **positive** pairs, the loss is `-ln(min(P(A|B), P(B|A))) + reg * (Vol_A + Vol_B)`.
+/// For **negative** pairs, the loss is `w_neg * max(0, max(P(A|B), P(B|A)) - margin)^2`.
+///
+/// When boxes are disjoint (zero intersection volume), the gradient through the
+/// loss is zero. To handle this, a center-attraction surrogate gradient is used
+/// for positive pairs, pushing centers together so the boxes start to overlap.
+/// This matches the straight-through estimator pattern used in discrete
+/// optimization.
+///
+/// Returns `(grad_mu_a, grad_delta_a, grad_mu_b, grad_delta_b)`.
 pub fn compute_analytical_gradients(
     box_a: &TrainableBox,
     box_b: &TrainableBox,
     is_positive: bool,
-    _config: &TrainingConfig,
+    config: &TrainingConfig,
 ) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>) {
-    let box_a_embed = box_a.to_box();
-    let box_b_embed = box_b.to_box();
+    let a = box_a.to_box();
+    let b = box_b.to_box();
     let dim = box_a.dim();
 
-    let mut grad_mu_a = vec![0.0; dim];
-    let mut grad_delta_a = vec![0.0; dim];
-    let mut grad_mu_b = vec![0.0; dim];
-    let mut grad_delta_b = vec![0.0; dim];
+    let mut grad_mu_a = vec![0.0f32; dim];
+    let mut grad_delta_a = vec![0.0f32; dim];
+    let mut grad_mu_b = vec![0.0f32; dim];
+    let mut grad_delta_b = vec![0.0f32; dim];
 
-    let _vol_a = box_a_embed.volume();
-    let _vol_b = box_b_embed.volume();
-    let vol_intersection = box_a_embed.intersection_volume(&box_b_embed);
+    let vol_a = a.volume().max(1e-30);
+    let vol_b = b.volume().max(1e-30);
+    let vol_int = a.intersection_volume(&b);
+
+    // Per-dimension intersection side lengths and which bounds are active.
+    // side[i] = max(0, min(max_a, max_b) - max(min_a, min_b))
+    let mut sides = vec![0.0f32; dim];
+    // Which bound is active in each dimension:
+    // lo_from_a[i]: true if max(min_a, min_b) = min_a (A's lower bound is active)
+    // hi_from_a[i]: true if min(max_a, max_b) = max_a (A's upper bound is active)
+    let mut lo_from_a = vec![false; dim];
+    let mut hi_from_a = vec![false; dim];
+    for i in 0..dim {
+        let lo = a.min[i].max(b.min[i]);
+        let hi = a.max[i].min(b.max[i]);
+        sides[i] = (hi - lo).max(0.0);
+        lo_from_a[i] = a.min[i] >= b.min[i];
+        hi_from_a[i] = a.max[i] <= b.max[i];
+    }
+
+    // Reparameterization derivatives:
+    // d(min_a)/d(mu_a) = 1,   d(min_a)/d(delta_a) = -exp(delta_a)/2
+    // d(max_a)/d(mu_a) = 1,   d(max_a)/d(delta_a) = +exp(delta_a)/2
+    let half_width_a: Vec<f32> = box_a.delta.iter().map(|d| d.exp() / 2.0).collect();
+    let half_width_b: Vec<f32> = box_b.delta.iter().map(|d| d.exp() / 2.0).collect();
 
     if is_positive {
-        // Positive: push boxes to overlap (attract centers, expand to contain).
-        for i in 0..dim {
-            if vol_intersection > 1e-10 {
-                // Already overlapping: gently tighten both boxes.
-                grad_delta_a[i] -= CONE_CENTER_WEIGHT;
-                grad_delta_b[i] -= CONE_CENTER_WEIGHT;
-            } else {
-                // Disjoint: move centers toward each other.
-                let diff = box_b_embed.min[i] + box_b_embed.max[i]
-                    - (box_a_embed.min[i] + box_a_embed.max[i]);
-                grad_mu_a[i] -= 0.5 * diff;
-                grad_mu_b[i] += 0.5 * diff;
+        // Positive loss: L = -ln(min(P_AB, P_BA)) + reg * (Vol_A + Vol_B)
+        // where P_AB = Vol_int / Vol_B, P_BA = Vol_int / Vol_A
+
+        if vol_int < 1e-30 {
+            // Disjoint: true gradient is zero (Vol_int = 0).
+            // Use surrogate: attract centers so boxes start overlapping.
+            for i in 0..dim {
+                let center_diff = (b.min[i] + b.max[i]) - (a.min[i] + a.max[i]);
+                grad_mu_a[i] = -center_diff; // move A toward B
+                grad_mu_b[i] = center_diff; // move B toward A
+                                            // Expand both boxes to increase chance of overlap.
+                grad_delta_a[i] = -0.1;
+                grad_delta_b[i] = -0.1;
             }
+            return (grad_mu_a, grad_delta_a, grad_mu_b, grad_delta_b);
+        }
+
+        let p_ab = (vol_int / vol_b).clamp(1e-8, 1.0);
+        let p_ba = (vol_int / vol_a).clamp(1e-8, 1.0);
+
+        // Determine which conditional probability is the minimum.
+        let (p, use_ab) = if p_ab <= p_ba {
+            (p_ab, true)
+        } else {
+            (p_ba, false)
+        };
+
+        // dL/dP = -1/P (from -ln(P))
+        let dl_dp = -1.0 / p;
+
+        // dP/d(Vol_int): P = Vol_int / Vol_denom
+        // dP/d(Vol_denom): P = Vol_int / Vol_denom => dP/d(Vol_denom) = -Vol_int / Vol_denom^2
+        let (vol_denom, dl_dvol_int, dl_dvol_denom) = if use_ab {
+            // P = Vol_int / Vol_B
+            (vol_b, dl_dp / vol_b, dl_dp * (-vol_int / (vol_b * vol_b)))
+        } else {
+            // P = Vol_int / Vol_A
+            (vol_a, dl_dp / vol_a, dl_dp * (-vol_int / (vol_a * vol_a)))
+        };
+        let _ = vol_denom; // suppress unused warning
+
+        // Gradient of Vol_int w.r.t. each bound.
+        // Vol_int = prod_j sides[j]. d(Vol_int)/d(sides[i]) = Vol_int / sides[i].
+        for i in 0..dim {
+            if sides[i] < 1e-30 {
+                continue;
+            }
+            let dvol_int_dside = vol_int / sides[i];
+            let dside_dl = dl_dvol_int * dvol_int_dside;
+
+            // d(side_i)/d(min_a_i): if lo_from_a (A's min is the active lower bound),
+            // side = hi - min_a, so d(side)/d(min_a) = -1.
+            if lo_from_a[i] {
+                let dside_dmin_a = -1.0;
+                // d(min_a)/d(mu_a) = 1, d(min_a)/d(delta_a) = -half_width_a
+                grad_mu_a[i] += dside_dl * dside_dmin_a * 1.0;
+                grad_delta_a[i] += dside_dl * dside_dmin_a * (-half_width_a[i]);
+            } else {
+                // B's min is active: d(side)/d(min_b) = -1
+                let dside_dmin_b = -1.0;
+                grad_mu_b[i] += dside_dl * dside_dmin_b * 1.0;
+                grad_delta_b[i] += dside_dl * dside_dmin_b * (-half_width_b[i]);
+            }
+
+            // d(side_i)/d(max_a_i): if hi_from_a (A's max is the active upper bound),
+            // side = max_a - lo, so d(side)/d(max_a) = 1.
+            if hi_from_a[i] {
+                let dside_dmax_a = 1.0;
+                // d(max_a)/d(mu_a) = 1, d(max_a)/d(delta_a) = +half_width_a
+                grad_mu_a[i] += dside_dl * dside_dmax_a * 1.0;
+                grad_delta_a[i] += dside_dl * dside_dmax_a * half_width_a[i];
+            } else {
+                let dside_dmax_b = 1.0;
+                grad_mu_b[i] += dside_dl * dside_dmax_b * 1.0;
+                grad_delta_b[i] += dside_dl * dside_dmax_b * half_width_b[i];
+            }
+        }
+
+        // Gradient of denom volume w.r.t. parameters.
+        // Vol = prod_j exp(delta_j). d(Vol)/d(delta_i) = Vol * 1 = Vol (since d(exp(d))/d(d) = exp(d))
+        // But Vol = prod exp(delta), so d(Vol)/d(delta_i) = Vol (each factor contributes exp(delta_i)).
+        if use_ab {
+            // Denom = Vol_B. d(Vol_B)/d(delta_b_i) = Vol_B.
+            let denom_grad = dl_dvol_denom * vol_b;
+            for g in grad_delta_b.iter_mut().take(dim) {
+                *g += denom_grad;
+            }
+        } else {
+            let denom_grad = dl_dvol_denom * vol_a;
+            for g in grad_delta_a.iter_mut().take(dim) {
+                *g += denom_grad;
+            }
+        }
+
+        // Volume regularization: d(reg * (Vol_A + Vol_B))/d(delta_a_i) = reg * Vol_A
+        let reg = config.regularization;
+        let reg_a = reg * vol_a;
+        let reg_b = reg * vol_b;
+        for g in grad_delta_a.iter_mut().take(dim) {
+            *g += reg_a;
+        }
+        for g in grad_delta_b.iter_mut().take(dim) {
+            *g += reg_b;
         }
     } else {
-        // Negative: push overlapping boxes apart (repel centers, shrink overlap).
-        if vol_intersection > 1e-10 {
-            for i in 0..dim {
-                let diff = box_b_embed.min[i] + box_b_embed.max[i]
-                    - (box_a_embed.min[i] + box_a_embed.max[i]);
-                // Move centers apart.
-                grad_mu_a[i] += CONE_GRADIENT_STRENGTH * diff;
-                grad_mu_b[i] -= CONE_GRADIENT_STRENGTH * diff;
-                // Shrink both boxes to reduce overlap.
-                grad_delta_a[i] += CONE_APERTURE_GRADIENT;
-                grad_delta_b[i] += CONE_APERTURE_GRADIENT;
+        // Negative loss: L = w_neg * max(0, max(P_AB, P_BA) - margin)^2
+        let p_ab = (vol_int / vol_b).clamp(0.0, 1.0);
+        let p_ba = (vol_int / vol_a).clamp(0.0, 1.0);
+        let max_p = p_ab.max(p_ba);
+
+        if max_p <= config.margin || vol_int < 1e-30 {
+            // No loss, no gradient.
+            return (grad_mu_a, grad_delta_a, grad_mu_b, grad_delta_b);
+        }
+
+        let use_ab = p_ab >= p_ba;
+        let p = if use_ab { p_ab } else { p_ba };
+
+        // dL/dP = w_neg * 2 * (P - margin)
+        let dl_dp = config.negative_weight * 2.0 * (p - config.margin);
+        let vol_denom = if use_ab { vol_b } else { vol_a };
+        let dl_dvol_int = dl_dp / vol_denom;
+        let dl_dvol_denom = dl_dp * (-vol_int / (vol_denom * vol_denom));
+
+        // Same chain rule as positive case.
+        for i in 0..dim {
+            if sides[i] < 1e-30 {
+                continue;
+            }
+            let dvol_int_dside = vol_int / sides[i];
+            let dside_dl = dl_dvol_int * dvol_int_dside;
+
+            if lo_from_a[i] {
+                grad_mu_a[i] += -dside_dl;
+                grad_delta_a[i] += -dside_dl * (-half_width_a[i]);
+            } else {
+                grad_mu_b[i] += -dside_dl;
+                grad_delta_b[i] += -dside_dl * (-half_width_b[i]);
+            }
+            if hi_from_a[i] {
+                grad_mu_a[i] += dside_dl * 1.0;
+                grad_delta_a[i] += dside_dl * half_width_a[i];
+            } else {
+                grad_mu_b[i] += dside_dl * 1.0;
+                grad_delta_b[i] += dside_dl * half_width_b[i];
             }
         }
+
+        if use_ab {
+            let denom_grad = dl_dvol_denom * vol_b;
+            for g in grad_delta_b.iter_mut().take(dim) {
+                *g += denom_grad;
+            }
+        } else {
+            let denom_grad = dl_dvol_denom * vol_a;
+            for g in grad_delta_a.iter_mut().take(dim) {
+                *g += denom_grad;
+            }
+        }
+    }
+
+    // Clamp gradients to prevent explosion.
+    let clamp = 5.0f32;
+    for i in 0..dim {
+        grad_mu_a[i] = grad_mu_a[i].clamp(-clamp, clamp);
+        grad_delta_a[i] = grad_delta_a[i].clamp(-clamp, clamp);
+        grad_mu_b[i] = grad_mu_b[i].clamp(-clamp, clamp);
+        grad_delta_b[i] = grad_delta_b[i].clamp(-clamp, clamp);
     }
 
     (grad_mu_a, grad_delta_a, grad_mu_b, grad_delta_b)
