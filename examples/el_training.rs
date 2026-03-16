@@ -4,7 +4,7 @@
 //! with the EL++ loss functions (Box2EL / TransBox), and evaluating subsumption
 //! prediction.
 //!
-//! Ontology (15 concepts, 3 roles):
+//! Ontology (15 concepts, 4 roles):
 //!   LivingThing
 //!     Animal
 //!       Mammal: Dog, Cat, Whale
@@ -12,7 +12,7 @@
 //!       Fish: Salmon
 //!     Plant
 //!       Tree, Flower
-//!   Roles: partOf, hasHabitat, eats
+//!   Roles: partOf, hasHabitat, eats, locatedIn
 //!
 //! Run: cargo run -p subsume --example el_training
 

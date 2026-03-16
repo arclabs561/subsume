@@ -2768,6 +2768,276 @@ impl ConeEmbeddingTrainer {
 
         loss
     }
+
+    /// Run one training epoch over the given triples.
+    ///
+    /// For each `(head, relation, tail)` triple, trains a positive pair
+    /// `(head, tail)` and one deterministic negative `(head, neg_tail)`.
+    /// Returns the average loss across all triples.
+    ///
+    /// This mirrors [`BoxEmbeddingTrainer::train_step`] in API shape,
+    /// accepting a batch of triples rather than individual pairs.
+    pub fn train_step_batch(&mut self, triples: &[(usize, usize, usize)]) -> Result<f32, BoxError> {
+        if triples.is_empty() {
+            return Err(BoxError::Internal("empty triple set".to_string()));
+        }
+
+        // Collect all entity IDs for deterministic negative sampling.
+        let entity_ids: Vec<usize> = triples
+            .iter()
+            .flat_map(|&(h, _, t)| [h, t])
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+
+        let mut total_loss = 0.0f32;
+        let mut count = 0usize;
+
+        for &(h, _r, t) in triples {
+            // Positive pair.
+            let pos_loss = self.train_step(h, t, true);
+            total_loss += pos_loss;
+            count += 1;
+
+            // Negative sample: corrupt the tail with a different entity.
+            if entity_ids.len() > 1 {
+                let idx = (h.wrapping_mul(31).wrapping_add(t).wrapping_add(7)) % entity_ids.len();
+                let candidate = entity_ids[idx];
+                let neg_t = if candidate == t {
+                    entity_ids[(idx + 1) % entity_ids.len()]
+                } else {
+                    candidate
+                };
+                let neg_loss = self.train_step(h, neg_t, false);
+                total_loss += neg_loss;
+                count += 1;
+            }
+        }
+
+        Ok(total_loss / count as f32)
+    }
+
+    /// Retrieve a learned cone for a given entity ID.
+    ///
+    /// Returns `None` if the entity has not been registered with
+    /// [`ensure_entity`](Self::ensure_entity) or [`train_step`](Self::train_step).
+    #[cfg(feature = "ndarray-backend")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "ndarray-backend")))]
+    pub fn get_cone(&self, entity_id: usize) -> Option<crate::ndarray_backend::NdarrayCone> {
+        self.cones
+            .get(&entity_id)
+            .and_then(|c| c.to_ndarray_cone().ok())
+    }
+
+    /// Convert all entity cones to [`NdarrayCone`](crate::ndarray_backend::NdarrayCone) for evaluation.
+    #[cfg(feature = "ndarray-backend")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "ndarray-backend")))]
+    pub fn get_all_cones(&self) -> HashMap<usize, crate::ndarray_backend::NdarrayCone> {
+        self.cones
+            .iter()
+            .filter_map(|(&id, c)| c.to_ndarray_cone().ok().map(|nc| (id, nc)))
+            .collect()
+    }
+
+    /// Export all entity embeddings as flat `f32` vectors.
+    ///
+    /// Returns `(entity_ids, axes, apertures)` where:
+    /// - `entity_ids[i]` is the entity ID for the i-th embedding
+    /// - `axes` is a flat `Vec<f32>` of length `n_entities * dim` (row-major)
+    /// - `apertures` is a flat `Vec<f32>` of the same length
+    pub fn export_embeddings(&self) -> (Vec<usize>, Vec<f32>, Vec<f32>) {
+        let mut ids: Vec<usize> = self.cones.keys().copied().collect();
+        ids.sort_unstable();
+
+        let n = ids.len();
+        let mut axes = Vec::with_capacity(n * self.dim);
+        let mut apertures = Vec::with_capacity(n * self.dim);
+
+        for &id in &ids {
+            let c = &self.cones[&id];
+            axes.extend_from_slice(&c.axes());
+            apertures.extend_from_slice(&c.apertures());
+        }
+
+        (ids, axes, apertures)
+    }
+
+    /// Evaluate the trained model on test triples using cone distance scoring.
+    ///
+    /// Ranks entities by containment score (`gamma - distance * modulus` through sigmoid).
+    /// Uses the same bidirectional (head + tail) evaluation protocol as
+    /// [`BoxEmbeddingTrainer::evaluate`], but with cone-distance-based scoring.
+    ///
+    /// # Parameters
+    ///
+    /// - `test_triples`: `(head, tail)` entity-ID pairs to evaluate.
+    /// - `gamma`: scoring parameter (bias toward positive scores). Typical: 12.0.
+    /// - `modulus`: scoring parameter (distance scaling). Typical: 1.0.
+    pub fn evaluate(
+        &self,
+        test_triples: &[(usize, usize)],
+        gamma: f32,
+        modulus: f32,
+    ) -> EvaluationResults {
+        let cen = CONE_CENTER_WEIGHT;
+        let mut tail_ranks = Vec::with_capacity(test_triples.len());
+        let mut head_ranks = Vec::with_capacity(test_triples.len());
+
+        let all_ids: Vec<usize> = self.cones.keys().copied().collect();
+
+        for &(h, t) in test_triples {
+            let cone_h = match self.cones.get(&h) {
+                Some(c) => c,
+                None => continue,
+            };
+            let cone_t = match self.cones.get(&t) {
+                Some(c) => c,
+                None => continue,
+            };
+
+            // Tail prediction: rank all entities by score(h, ?).
+            let target_score = cone_h.containment_score(cone_t, cen, gamma, modulus);
+            let mut better = 0usize;
+            let mut tie_before = 0usize;
+            for &candidate_id in &all_ids {
+                if candidate_id == t {
+                    continue;
+                }
+                if let Some(candidate) = self.cones.get(&candidate_id) {
+                    let score = cone_h.containment_score(candidate, cen, gamma, modulus);
+                    if score > target_score {
+                        better += 1;
+                    } else if score == target_score && candidate_id < t {
+                        tie_before += 1;
+                    }
+                }
+            }
+            tail_ranks.push(better + tie_before + 1);
+
+            // Head prediction: rank all entities by score(?, t).
+            let target_score = cone_h.containment_score(cone_t, cen, gamma, modulus);
+            let mut better = 0usize;
+            let mut tie_before = 0usize;
+            for &candidate_id in &all_ids {
+                if candidate_id == h {
+                    continue;
+                }
+                if let Some(candidate) = self.cones.get(&candidate_id) {
+                    let score = candidate.containment_score(cone_t, cen, gamma, modulus);
+                    if score > target_score {
+                        better += 1;
+                    } else if score == target_score && candidate_id < h {
+                        tie_before += 1;
+                    }
+                }
+            }
+            head_ranks.push(better + tie_before + 1);
+        }
+
+        let all_ranks: Vec<usize> = tail_ranks
+            .iter()
+            .chain(head_ranks.iter())
+            .copied()
+            .collect();
+
+        EvaluationResults {
+            mrr: mean_reciprocal_rank(all_ranks.iter().copied()),
+            tail_mrr: mean_reciprocal_rank(tail_ranks.iter().copied()),
+            head_mrr: mean_reciprocal_rank(head_ranks.iter().copied()),
+            hits_at_1: hits_at_k(all_ranks.iter().copied(), 1),
+            hits_at_3: hits_at_k(all_ranks.iter().copied(), 3),
+            hits_at_10: hits_at_k(all_ranks.iter().copied(), 10),
+            mean_rank: mean_rank(all_ranks.iter().copied()),
+            per_relation: Vec::new(),
+        }
+    }
+
+    /// Train for multiple epochs with optional validation and early stopping.
+    ///
+    /// Mirrors [`BoxEmbeddingTrainer::fit`] in structure:
+    /// - Uses `config.epochs` as the epoch count.
+    /// - Applies learning rate warmup from `config.warmup_epochs`.
+    /// - Early stops based on `config.early_stopping_patience`.
+    ///
+    /// # Parameters
+    ///
+    /// - `train_triples`: `(head, relation, tail)` triples for training.
+    /// - `validation`: optional `(head, tail)` pairs for validation scoring.
+    /// - `gamma`, `modulus`: scoring parameters passed to [`evaluate`](Self::evaluate).
+    pub fn fit(
+        &mut self,
+        train_triples: &[(usize, usize, usize)],
+        validation: Option<&[(usize, usize)]>,
+        gamma: f32,
+        modulus: f32,
+    ) -> Result<TrainingResult, BoxError> {
+        let epochs = self.config.epochs;
+        let warmup = self.config.warmup_epochs;
+        let base_lr = self.config.learning_rate;
+        let patience = self.config.early_stopping_patience;
+        let min_delta = self.config.early_stopping_min_delta;
+
+        let mut loss_history = Vec::with_capacity(epochs);
+        let mut mrr_history = Vec::new();
+        let mut best_mrr = 0.0f32;
+        let mut best_epoch = 0;
+        let mut epochs_without_improvement = 0usize;
+
+        for epoch in 0..epochs {
+            // Learning rate scheduling.
+            let lr = crate::optimizer::get_learning_rate(epoch, epochs, base_lr, warmup);
+            for state in self.optimizer_states.values_mut() {
+                state.set_lr(lr);
+            }
+
+            let loss = self.train_step_batch(train_triples)?;
+            loss_history.push(loss);
+
+            // Validation.
+            if let Some(val_pairs) = validation {
+                let results = self.evaluate(val_pairs, gamma, modulus);
+                mrr_history.push(results.mrr);
+
+                if results.mrr > best_mrr + min_delta {
+                    best_mrr = results.mrr;
+                    best_epoch = epoch;
+                    epochs_without_improvement = 0;
+                } else {
+                    epochs_without_improvement += 1;
+                }
+
+                // Early stopping.
+                if let Some(p) = patience {
+                    if epochs_without_improvement >= p {
+                        break;
+                    }
+                }
+            }
+        }
+
+        let final_results = if let Some(val_pairs) = validation {
+            self.evaluate(val_pairs, gamma, modulus)
+        } else {
+            EvaluationResults {
+                mrr: 0.0,
+                head_mrr: 0.0,
+                tail_mrr: 0.0,
+                hits_at_1: 0.0,
+                hits_at_3: 0.0,
+                hits_at_10: 0.0,
+                mean_rank: 0.0,
+                per_relation: Vec::new(),
+            }
+        };
+
+        Ok(TrainingResult {
+            final_results,
+            loss_history,
+            validation_mrr_history: mrr_history,
+            best_epoch,
+            training_time_seconds: None,
+        })
+    }
 }
 
 /// Degree smoothing exponent for negative sampling (Mikolov et al., 2013).
