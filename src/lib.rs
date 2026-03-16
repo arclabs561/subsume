@@ -258,7 +258,6 @@ pub use trainer::{
 #[cfg(feature = "rand")]
 pub use trainer::{
     generate_degree_weighted_negatives, generate_negative_samples,
-    generate_negative_samples_from_pool_with_rng,
     generate_negative_samples_from_sorted_pool_with_rng, generate_negative_samples_with_rng,
     generate_self_adversarial_negatives, SortedEntityPool,
 };
@@ -275,8 +274,7 @@ pub use sheaf::{
 // Re-exports: Gaussian boxes
 pub use gaussian::{
     bhattacharyya_coefficient, bhattacharyya_distance, kl_divergence as gaussian_kl_divergence,
-    sigma_ceiling_loss, sigma_clipping_loss,
-    volume_regularization as gaussian_volume_regularization, GaussianBox,
+    sigma_ceiling_loss, volume_regularization as gaussian_volume_regularization, GaussianBox,
 };
 
 // Re-exports: taxonomy

@@ -375,18 +375,6 @@ pub trait Box: Sized {
         temperature: Self::Scalar,
     ) -> Result<Self::Scalar, BoxError>;
 
-    /// Compute overlap probability (fast path).
-    ///
-    /// Default implementation forwards to [`Box::overlap_prob`].
-    #[inline]
-    fn overlap_prob_fast(
-        &self,
-        other: &Self,
-        temperature: Self::Scalar,
-    ) -> Result<Self::Scalar, BoxError> {
-        self.overlap_prob(other, temperature)
-    }
-
     /// Compute the union of two boxes.
     ///
     /// Returns the smallest box that contains both `self` and `other`.

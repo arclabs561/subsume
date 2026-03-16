@@ -110,11 +110,6 @@ impl Curvature {
     pub fn abs(&self) -> f64 {
         self.0.abs()
     }
-
-    /// Get the square root of |c|.
-    pub fn sqrt_abs(&self) -> f64 {
-        self.0.abs().sqrt()
-    }
 }
 
 impl Default for Curvature {
@@ -478,7 +473,6 @@ mod tests {
         // Negative curvature should succeed.
         let c = Curvature::new(-2.0).unwrap();
         assert!((c.abs() - 2.0).abs() < 1e-10);
-        assert!((c.sqrt_abs() - 2.0_f64.sqrt()).abs() < 1e-10);
     }
 
     #[test]
