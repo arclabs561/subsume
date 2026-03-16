@@ -233,6 +233,55 @@ pub struct TrainingConfig {
     /// This does not affect `evaluate_link_prediction`; it only scales the margin term in
     /// `compute_pair_loss` for negative examples.
     pub negative_weight: f32,
+
+    /// Softplus steepness for Gumbel intersection volume in gradient computation.
+    ///
+    /// Controls the smoothness of the intersection volume approximation:
+    /// `softplus(beta * (hi - lo), 1.0)` replaces the hard `max(0, hi - lo)`.
+    /// Lower values give broader gradients for disjoint boxes; higher values
+    /// approach the hard intersection. Annealed toward `gumbel_beta_final`
+    /// across epochs when using `BoxEmbeddingTrainer::fit`.
+    ///
+    /// Default: `1.0` (broad gradients, backward-compatible behavior when
+    /// combined with the disjoint surrogate).
+    pub gumbel_beta: f32,
+
+    /// Final value of `gumbel_beta` after annealing across epochs.
+    ///
+    /// In `BoxEmbeddingTrainer::fit`, `gumbel_beta` is linearly interpolated
+    /// from its initial value to this value over the training epochs.
+    /// Higher final beta gives sharper containment boundaries at convergence.
+    ///
+    /// Default: `10.0`.
+    pub gumbel_beta_final: f32,
+
+    /// Maximum L2 norm for combined gradients (global gradient clipping).
+    ///
+    /// If the L2 norm of all gradient components exceeds this value, gradients
+    /// are uniformly scaled down to `max_grad_norm / norm`. Matches the IESL
+    /// box-embeddings library default.
+    ///
+    /// Default: `10.0`.
+    pub max_grad_norm: f32,
+
+    /// Temperature for self-adversarial negative weighting.
+    ///
+    /// Controls how strongly harder negatives (those the model currently scores
+    /// highly) are upweighted during training. Lower temperature concentrates
+    /// weight on the hardest negatives; higher temperature approaches uniform
+    /// weighting.
+    ///
+    /// Default: `1.0`.
+    pub adversarial_temperature: f32,
+
+    /// Use InfoNCE-style contrastive loss instead of margin-based ranking loss.
+    ///
+    /// When true, the loss for a (positive, negative) pair becomes:
+    /// `softplus((score_neg - score_pos) / tau)` where `tau = margin`.
+    /// This is equivalent to the binary cross-entropy form of InfoNCE.
+    ///
+    /// Default: `false` (backward-compatible margin-based loss).
+    pub use_infonce: bool,
 }
 
 impl Default for TrainingConfig {
@@ -251,6 +300,11 @@ impl Default for TrainingConfig {
             regularization: 0.0001,
             warmup_epochs: 10,
             negative_weight: 1.0,
+            gumbel_beta: 10.0,
+            gumbel_beta_final: 50.0,
+            max_grad_norm: 10.0,
+            adversarial_temperature: 1.0,
+            use_infonce: false,
         }
     }
 }
@@ -1785,23 +1839,29 @@ pub fn compute_pair_loss(
     is_positive: bool,
     config: &TrainingConfig,
 ) -> f32 {
-    let box_a_embed = box_a.to_box();
-    let box_b_embed = box_b.to_box();
+    let a = box_a.to_box();
+    let b = box_b.to_box();
+
+    // Compute softplus-smoothed intersection volume: always positive, always
+    // has gradient, unlike the hard max(0, hi-lo) per dimension.
+    let beta = config.gumbel_beta;
+    let vol_int_soft = softplus_intersection_volume(&a, &b, beta);
+    let vol_a = a.volume().max(1e-30);
+    let vol_b = b.volume().max(1e-30);
 
     if is_positive {
-        let p_a_b = box_a_embed.conditional_probability(&box_b_embed).max(1e-8);
-        let p_b_a = box_b_embed.conditional_probability(&box_a_embed).max(1e-8);
+        let p_a_b = (vol_int_soft / vol_b).clamp(1e-8, 1.0);
+        let p_b_a = (vol_int_soft / vol_a).clamp(1e-8, 1.0);
         let min_prob = p_a_b.min(p_b_a);
-        let neg_log_prob = -min_prob.ln();
+        // Cap at 10.0 to prevent explosion from near-zero probabilities.
+        let neg_log_prob = (-min_prob.ln()).min(10.0);
 
-        let vol_a = box_a_embed.volume();
-        let vol_b = box_b_embed.volume();
         let reg = config.regularization * (vol_a + vol_b);
 
         (neg_log_prob + reg).max(0.0)
     } else {
-        let p_a_b = box_a_embed.conditional_probability(&box_b_embed);
-        let p_b_a = box_b_embed.conditional_probability(&box_a_embed);
+        let p_a_b = (vol_int_soft / vol_b).clamp(0.0, 1.0);
+        let p_b_a = (vol_int_soft / vol_a).clamp(0.0, 1.0);
         let max_prob = p_a_b.max(p_b_a);
 
         let margin_loss = if max_prob > config.margin {
@@ -1814,7 +1874,31 @@ pub fn compute_pair_loss(
     }
 }
 
-/// Compute the true gradient of [`compute_pair_loss`] with respect to
+/// Compute softplus-smoothed intersection volume.
+///
+/// Replaces the hard `max(0, hi - lo)` per dimension with
+/// `softplus(beta * (hi - lo), 1.0) / beta`, giving always-positive
+/// volume and always-nonzero gradients even for disjoint boxes.
+fn softplus_intersection_volume(
+    a: &crate::trainable::DenseBox,
+    b: &crate::trainable::DenseBox,
+    beta: f32,
+) -> f32 {
+    let dim = a.min.len().min(b.min.len());
+    let mut vol = 1.0f32;
+    for i in 0..dim {
+        let lo = a.min[i].max(b.min[i]);
+        let hi = a.max[i].min(b.max[i]);
+        let side = crate::utils::softplus(hi - lo, beta);
+        vol *= side;
+        if vol < 1e-30 {
+            break;
+        }
+    }
+    vol
+}
+
+/// Compute the gradient of [`compute_pair_loss`] with respect to
 /// the reparameterized parameters `(mu, delta)` of both boxes.
 ///
 /// Uses the chain rule through the reparameterization:
@@ -1824,11 +1908,13 @@ pub fn compute_pair_loss(
 /// For **positive** pairs, the loss is `-ln(min(P(A|B), P(B|A))) + reg * (Vol_A + Vol_B)`.
 /// For **negative** pairs, the loss is `w_neg * max(0, max(P(A|B), P(B|A)) - margin)^2`.
 ///
-/// When boxes are disjoint (zero intersection volume), the gradient through the
-/// loss is zero. To handle this, a center-attraction surrogate gradient is used
-/// for positive pairs, pushing centers together so the boxes start to overlap.
-/// This matches the straight-through estimator pattern used in discrete
-/// optimization.
+/// Intersection volume uses softplus smoothing (`config.gumbel_beta`), so
+/// `d(side)/d(bound) = sigmoid(beta * (hi - lo))` rather than the hard 0/1
+/// indicator. This gives nonzero gradients even for disjoint boxes, though a
+/// center-attraction surrogate is still used when the softplus volume is
+/// negligible (`< 1e-30`).
+///
+/// Gradients are globally norm-clipped to `config.max_grad_norm`.
 ///
 /// Returns `(grad_mu_a, grad_delta_a, grad_mu_b, grad_delta_b)`.
 pub fn compute_analytical_gradients(
@@ -1848,23 +1934,31 @@ pub fn compute_analytical_gradients(
 
     let vol_a = a.volume().max(1e-30);
     let vol_b = b.volume().max(1e-30);
-    let vol_int = a.intersection_volume(&b);
 
-    // Per-dimension intersection side lengths and which bounds are active.
-    // side[i] = max(0, min(max_a, max_b) - max(min_a, min_b))
+    let beta = config.gumbel_beta;
+
+    // Per-dimension softplus-smoothed intersection side lengths.
+    // side[i] = softplus(hi - lo, beta), always positive -> always has gradient.
+    // The gradient of softplus(x, beta) w.r.t. x is sigmoid(beta * x).
     let mut sides = vec![0.0f32; dim];
-    // Which bound is active in each dimension:
-    // lo_from_a[i]: true if max(min_a, min_b) = min_a (A's lower bound is active)
-    // hi_from_a[i]: true if min(max_a, max_b) = max_a (A's upper bound is active)
+    let mut side_diffs = vec![0.0f32; dim]; // hi - lo per dimension (raw, before softplus)
+                                            // Which bound is active in each dimension:
+                                            // lo_from_a[i]: true if max(min_a, min_b) = min_a (A's lower bound is active)
+                                            // hi_from_a[i]: true if min(max_a, max_b) = max_a (A's upper bound is active)
     let mut lo_from_a = vec![false; dim];
     let mut hi_from_a = vec![false; dim];
     for i in 0..dim {
         let lo = a.min[i].max(b.min[i]);
         let hi = a.max[i].min(b.max[i]);
-        sides[i] = (hi - lo).max(0.0);
+        let diff = hi - lo;
+        side_diffs[i] = diff;
+        sides[i] = crate::utils::softplus(diff, beta);
         lo_from_a[i] = a.min[i] >= b.min[i];
         hi_from_a[i] = a.max[i] <= b.max[i];
     }
+
+    // Softplus-smoothed intersection volume.
+    let vol_int: f32 = sides.iter().product();
 
     // Reparameterization derivatives:
     // d(min_a)/d(mu_a) = 1,   d(min_a)/d(delta_a) = -exp(delta_a)/2
@@ -1916,36 +2010,35 @@ pub fn compute_analytical_gradients(
 
         // Gradient of Vol_int w.r.t. each bound.
         // Vol_int = prod_j sides[j]. d(Vol_int)/d(sides[i]) = Vol_int / sides[i].
+        // d(side_i)/d(hi) = sigmoid(beta * diff_i), d(side_i)/d(lo) = -sigmoid(beta * diff_i).
         for i in 0..dim {
             if sides[i] < 1e-30 {
                 continue;
             }
             let dvol_int_dside = vol_int / sides[i];
+            let sig = crate::utils::stable_sigmoid(beta * side_diffs[i]);
             let dside_dl = dl_dvol_int * dvol_int_dside;
 
-            // d(side_i)/d(min_a_i): if lo_from_a (A's min is the active lower bound),
-            // side = hi - min_a, so d(side)/d(min_a) = -1.
+            // d(side_i)/d(lo) = -sigmoid(beta * diff_i)
+            // lo = max(min_a, min_b); if lo_from_a, the active bound is min_a.
             if lo_from_a[i] {
-                let dside_dmin_a = -1.0;
-                // d(min_a)/d(mu_a) = 1, d(min_a)/d(delta_a) = -half_width_a
+                let dside_dmin_a = -sig;
                 grad_mu_a[i] += dside_dl * dside_dmin_a * 1.0;
                 grad_delta_a[i] += dside_dl * dside_dmin_a * (-half_width_a[i]);
             } else {
-                // B's min is active: d(side)/d(min_b) = -1
-                let dside_dmin_b = -1.0;
+                let dside_dmin_b = -sig;
                 grad_mu_b[i] += dside_dl * dside_dmin_b * 1.0;
                 grad_delta_b[i] += dside_dl * dside_dmin_b * (-half_width_b[i]);
             }
 
-            // d(side_i)/d(max_a_i): if hi_from_a (A's max is the active upper bound),
-            // side = max_a - lo, so d(side)/d(max_a) = 1.
+            // d(side_i)/d(hi) = sigmoid(beta * diff_i)
+            // hi = min(max_a, max_b); if hi_from_a, the active bound is max_a.
             if hi_from_a[i] {
-                let dside_dmax_a = 1.0;
-                // d(max_a)/d(mu_a) = 1, d(max_a)/d(delta_a) = +half_width_a
+                let dside_dmax_a = sig;
                 grad_mu_a[i] += dside_dl * dside_dmax_a * 1.0;
                 grad_delta_a[i] += dside_dl * dside_dmax_a * half_width_a[i];
             } else {
-                let dside_dmax_b = 1.0;
+                let dside_dmax_b = sig;
                 grad_mu_b[i] += dside_dl * dside_dmax_b * 1.0;
                 grad_delta_b[i] += dside_dl * dside_dmax_b * half_width_b[i];
             }
@@ -1997,27 +2090,32 @@ pub fn compute_analytical_gradients(
         let dl_dvol_int = dl_dp / vol_denom;
         let dl_dvol_denom = dl_dp * (-vol_int / (vol_denom * vol_denom));
 
-        // Same chain rule as positive case.
+        // Same chain rule as positive case, using sigmoid-based derivatives.
         for i in 0..dim {
             if sides[i] < 1e-30 {
                 continue;
             }
             let dvol_int_dside = vol_int / sides[i];
+            let sig = crate::utils::stable_sigmoid(beta * side_diffs[i]);
             let dside_dl = dl_dvol_int * dvol_int_dside;
 
             if lo_from_a[i] {
-                grad_mu_a[i] += -dside_dl;
-                grad_delta_a[i] += -dside_dl * (-half_width_a[i]);
+                let dside_dmin_a = -sig;
+                grad_mu_a[i] += dside_dl * dside_dmin_a;
+                grad_delta_a[i] += dside_dl * dside_dmin_a * (-half_width_a[i]);
             } else {
-                grad_mu_b[i] += -dside_dl;
-                grad_delta_b[i] += -dside_dl * (-half_width_b[i]);
+                let dside_dmin_b = -sig;
+                grad_mu_b[i] += dside_dl * dside_dmin_b;
+                grad_delta_b[i] += dside_dl * dside_dmin_b * (-half_width_b[i]);
             }
             if hi_from_a[i] {
-                grad_mu_a[i] += dside_dl * 1.0;
-                grad_delta_a[i] += dside_dl * half_width_a[i];
+                let dside_dmax_a = sig;
+                grad_mu_a[i] += dside_dl * dside_dmax_a;
+                grad_delta_a[i] += dside_dl * dside_dmax_a * half_width_a[i];
             } else {
-                grad_mu_b[i] += dside_dl * 1.0;
-                grad_delta_b[i] += dside_dl * half_width_b[i];
+                let dside_dmax_b = sig;
+                grad_mu_b[i] += dside_dl * dside_dmax_b;
+                grad_delta_b[i] += dside_dl * dside_dmax_b * half_width_b[i];
             }
         }
 
@@ -2034,13 +2132,31 @@ pub fn compute_analytical_gradients(
         }
     }
 
-    // Clamp gradients to prevent explosion.
-    let clamp = 5.0f32;
-    for i in 0..dim {
-        grad_mu_a[i] = grad_mu_a[i].clamp(-clamp, clamp);
-        grad_delta_a[i] = grad_delta_a[i].clamp(-clamp, clamp);
-        grad_mu_b[i] = grad_mu_b[i].clamp(-clamp, clamp);
-        grad_delta_b[i] = grad_delta_b[i].clamp(-clamp, clamp);
+    // Global gradient norm clipping: if the L2 norm of all gradient components
+    // exceeds max_grad_norm, scale all gradients uniformly.
+    let max_norm = config.max_grad_norm;
+    let sq_norm: f32 = grad_mu_a
+        .iter()
+        .chain(grad_delta_a.iter())
+        .chain(grad_mu_b.iter())
+        .chain(grad_delta_b.iter())
+        .map(|g| g * g)
+        .sum();
+    let norm = sq_norm.sqrt();
+    if norm > max_norm && norm > 0.0 {
+        let scale = max_norm / norm;
+        for g in grad_mu_a.iter_mut() {
+            *g *= scale;
+        }
+        for g in grad_delta_a.iter_mut() {
+            *g *= scale;
+        }
+        for g in grad_mu_b.iter_mut() {
+            *g *= scale;
+        }
+        for g in grad_delta_b.iter_mut() {
+            *g *= scale;
+        }
     }
 
     (grad_mu_a, grad_delta_a, grad_mu_b, grad_delta_b)
@@ -2080,17 +2196,22 @@ pub struct BoxEmbeddingTrainer {
     pub dim: usize,
     /// Per-relation transforms (relation_id -> transform). Default: empty (all Identity).
     pub relation_transforms: HashMap<usize, RelationTransform>,
+    /// Current Gumbel beta, annealed from `config.gumbel_beta` to
+    /// `config.gumbel_beta_final` across epochs in `fit()`.
+    pub current_beta: f32,
 }
 
 impl BoxEmbeddingTrainer {
     /// Create a new box embedding trainer.
     pub fn new(config: TrainingConfig, dim: usize) -> Self {
+        let current_beta = config.gumbel_beta;
         Self {
             config,
             boxes: HashMap::new(),
             optimizer_states: HashMap::new(),
             dim,
             relation_transforms: HashMap::new(),
+            current_beta,
         }
     }
 
@@ -2130,11 +2251,22 @@ impl BoxEmbeddingTrainer {
     /// 3. Compute containment loss for the positive pair and the negative pair.
     /// 4. Compute analytical gradients and apply AMSGrad updates.
     ///
+    /// When `config.use_infonce` is true, uses InfoNCE-style contrastive loss
+    /// instead of separate margin-based losses. When `config.adversarial_temperature`
+    /// is finite, negative gradients are weighted by the model's current positive
+    /// score for the negative triple (self-adversarial weighting).
+    ///
+    /// Uses `self.current_beta` as the effective `gumbel_beta` for this step.
+    ///
     /// Returns the average loss across all triples.
     pub fn train_step(&mut self, triples: &[(usize, usize, usize)]) -> Result<f32, BoxError> {
         if triples.is_empty() {
             return Err(BoxError::Internal("empty triple set".to_string()));
         }
+
+        // Build a step-local config snapshot with the annealed beta.
+        let mut step_config = self.config.clone();
+        step_config.gumbel_beta = self.current_beta;
 
         let mut total_loss = 0.0f32;
         // Collect all entity IDs present in this batch for negative sampling.
@@ -2176,24 +2308,6 @@ impl BoxEmbeddingTrainer {
                 TrainableBox::new(mu, delta).unwrap_or_else(|_| box_h.clone())
             };
 
-            // Positive loss: head should contain tail.
-            let pos_loss = compute_pair_loss(&box_h_transformed, &box_t, true, &self.config);
-            total_loss += pos_loss;
-
-            // Positive gradients.
-            let (grad_mu_h, grad_delta_h, grad_mu_t, grad_delta_t) =
-                compute_analytical_gradients(&box_h, &box_t, true, &self.config);
-
-            // Apply positive gradients.
-            if let (Some(b), Some(s)) = (self.boxes.get_mut(&h), self.optimizer_states.get_mut(&h))
-            {
-                b.update_amsgrad(&grad_mu_h, &grad_delta_h, s);
-            }
-            if let (Some(b), Some(s)) = (self.boxes.get_mut(&t), self.optimizer_states.get_mut(&t))
-            {
-                b.update_amsgrad(&grad_mu_t, &grad_delta_t, s);
-            }
-
             // Negative sample: corrupt the tail with a different entity from the batch.
             // Deterministic: pick an entity that is not the true tail.
             let neg_t = if entity_ids.len() > 1 {
@@ -2209,26 +2323,133 @@ impl BoxEmbeddingTrainer {
                 continue; // cannot generate a negative with a single entity
             };
 
-            let box_h2 = self.snapshot_box(h);
             let box_neg = self.snapshot_box(neg_t);
 
-            // Negative loss.
-            let neg_loss = compute_pair_loss(&box_h2, &box_neg, false, &self.config);
-            total_loss += neg_loss;
+            if step_config.use_infonce {
+                // InfoNCE loss: softplus((score_neg - score_pos) / tau)
+                // where score = ln(Vol_int / Vol_other) (log containment probability),
+                // and tau = margin (repurposed as temperature).
+                let pos_score = compute_pair_loss(&box_h_transformed, &box_t, true, &step_config);
+                let neg_score = compute_pair_loss(&box_h_transformed, &box_neg, true, &step_config);
+                let tau = step_config.margin.max(1e-6);
+                // InfoNCE: L = softplus((neg_score - pos_score) / tau)
+                // Note: pos_score/neg_score are negative-log-prob (lower = better),
+                // so "better negative" means lower neg_score. We want to penalize
+                // when neg_score < pos_score (model confused).
+                let infonce_loss = crate::utils::softplus((pos_score - neg_score) / tau, 1.0);
+                total_loss += infonce_loss;
 
-            // Negative gradients.
-            let (grad_mu_h2, grad_delta_h2, grad_mu_neg, grad_delta_neg) =
-                compute_analytical_gradients(&box_h2, &box_neg, false, &self.config);
+                // Gradients: use positive gradients for both, then weight.
+                // d(infonce)/d(pos_score) = sigmoid((pos_score - neg_score) / tau) / tau
+                // d(infonce)/d(neg_score) = -sigmoid((pos_score - neg_score) / tau) / tau
+                let sig = crate::utils::stable_sigmoid((pos_score - neg_score) / tau);
+                let dldpos = sig / tau;
+                let dldneg = -sig / tau;
 
-            if let (Some(b), Some(s)) = (self.boxes.get_mut(&h), self.optimizer_states.get_mut(&h))
-            {
-                b.update_amsgrad(&grad_mu_h2, &grad_delta_h2, s);
-            }
-            if let (Some(b), Some(s)) = (
-                self.boxes.get_mut(&neg_t),
-                self.optimizer_states.get_mut(&neg_t),
-            ) {
-                b.update_amsgrad(&grad_mu_neg, &grad_delta_neg, s);
+                // Positive pair gradients (scaled by dldpos).
+                let (grad_mu_h, grad_delta_h, grad_mu_t, grad_delta_t) =
+                    compute_analytical_gradients(&box_h, &box_t, true, &step_config);
+                if let (Some(b), Some(s)) =
+                    (self.boxes.get_mut(&h), self.optimizer_states.get_mut(&h))
+                {
+                    let scaled_mu: Vec<f32> = grad_mu_h.iter().map(|g| g * dldpos).collect();
+                    let scaled_delta: Vec<f32> = grad_delta_h.iter().map(|g| g * dldpos).collect();
+                    b.update_amsgrad(&scaled_mu, &scaled_delta, s);
+                }
+                if let (Some(b), Some(s)) =
+                    (self.boxes.get_mut(&t), self.optimizer_states.get_mut(&t))
+                {
+                    let scaled_mu: Vec<f32> = grad_mu_t.iter().map(|g| g * dldpos).collect();
+                    let scaled_delta: Vec<f32> = grad_delta_t.iter().map(|g| g * dldpos).collect();
+                    b.update_amsgrad(&scaled_mu, &scaled_delta, s);
+                }
+
+                // Negative pair gradients (scaled by dldneg, computed as positive).
+                let box_h2 = self.snapshot_box(h);
+                let (grad_mu_h2, grad_delta_h2, grad_mu_neg, grad_delta_neg) =
+                    compute_analytical_gradients(&box_h2, &box_neg, true, &step_config);
+                if let (Some(b), Some(s)) =
+                    (self.boxes.get_mut(&h), self.optimizer_states.get_mut(&h))
+                {
+                    let scaled_mu: Vec<f32> = grad_mu_h2.iter().map(|g| g * dldneg).collect();
+                    let scaled_delta: Vec<f32> = grad_delta_h2.iter().map(|g| g * dldneg).collect();
+                    b.update_amsgrad(&scaled_mu, &scaled_delta, s);
+                }
+                if let (Some(b), Some(s)) = (
+                    self.boxes.get_mut(&neg_t),
+                    self.optimizer_states.get_mut(&neg_t),
+                ) {
+                    let scaled_mu: Vec<f32> = grad_mu_neg.iter().map(|g| g * dldneg).collect();
+                    let scaled_delta: Vec<f32> =
+                        grad_delta_neg.iter().map(|g| g * dldneg).collect();
+                    b.update_amsgrad(&scaled_mu, &scaled_delta, s);
+                }
+            } else {
+                // Standard margin-based loss path.
+
+                // Positive loss: head should contain tail.
+                let pos_loss = compute_pair_loss(&box_h_transformed, &box_t, true, &step_config);
+                total_loss += pos_loss;
+
+                // Positive gradients.
+                let (grad_mu_h, grad_delta_h, grad_mu_t, grad_delta_t) =
+                    compute_analytical_gradients(&box_h, &box_t, true, &step_config);
+
+                // Apply positive gradients.
+                if let (Some(b), Some(s)) =
+                    (self.boxes.get_mut(&h), self.optimizer_states.get_mut(&h))
+                {
+                    b.update_amsgrad(&grad_mu_h, &grad_delta_h, s);
+                }
+                if let (Some(b), Some(s)) =
+                    (self.boxes.get_mut(&t), self.optimizer_states.get_mut(&t))
+                {
+                    b.update_amsgrad(&grad_mu_t, &grad_delta_t, s);
+                }
+
+                let box_h2 = self.snapshot_box(h);
+
+                // Negative loss.
+                let neg_loss = compute_pair_loss(&box_h2, &box_neg, false, &step_config);
+                total_loss += neg_loss;
+
+                // Negative gradients.
+                let (mut grad_mu_h2, mut grad_delta_h2, mut grad_mu_neg, mut grad_delta_neg) =
+                    compute_analytical_gradients(&box_h2, &box_neg, false, &step_config);
+
+                // Self-adversarial weighting: scale negative gradients by
+                // exp(positive_score / adversarial_temperature), capped at 10.0.
+                // Higher-scoring negatives (harder) get more gradient weight.
+                let adv_temp = step_config.adversarial_temperature;
+                let neg_as_pos_score = compute_pair_loss(&box_h2, &box_neg, true, &step_config);
+                // neg_as_pos_score is -ln(P), so lower = model thinks it's positive.
+                // We want to upweight negatives the model mistakes for positives,
+                // i.e. weight = exp(-neg_as_pos_score / adv_temp) (high when score is low/good).
+                let adv_weight = (-neg_as_pos_score / adv_temp).exp().min(10.0);
+                for g in grad_mu_h2.iter_mut() {
+                    *g *= adv_weight;
+                }
+                for g in grad_delta_h2.iter_mut() {
+                    *g *= adv_weight;
+                }
+                for g in grad_mu_neg.iter_mut() {
+                    *g *= adv_weight;
+                }
+                for g in grad_delta_neg.iter_mut() {
+                    *g *= adv_weight;
+                }
+
+                if let (Some(b), Some(s)) =
+                    (self.boxes.get_mut(&h), self.optimizer_states.get_mut(&h))
+                {
+                    b.update_amsgrad(&grad_mu_h2, &grad_delta_h2, s);
+                }
+                if let (Some(b), Some(s)) = (
+                    self.boxes.get_mut(&neg_t),
+                    self.optimizer_states.get_mut(&neg_t),
+                ) {
+                    b.update_amsgrad(&grad_mu_neg, &grad_delta_neg, s);
+                }
             }
         }
 
@@ -2347,6 +2568,9 @@ impl BoxEmbeddingTrainer {
     /// for early stopping, and `config.warmup_epochs` for learning rate warmup.
     /// If `validation` is provided, evaluates after each epoch and tracks best MRR.
     ///
+    /// Linearly anneals `current_beta` from `config.gumbel_beta` to
+    /// `config.gumbel_beta_final` across epochs (soft -> hard containment).
+    ///
     /// Returns a [`TrainingResult`] with loss history, validation MRR history,
     /// and the final evaluation results.
     #[cfg(feature = "ndarray-backend")]
@@ -2362,6 +2586,8 @@ impl BoxEmbeddingTrainer {
         let base_lr = self.config.learning_rate;
         let patience = self.config.early_stopping_patience;
         let min_delta = self.config.early_stopping_min_delta;
+        let beta_start = self.config.gumbel_beta;
+        let beta_end = self.config.gumbel_beta_final;
 
         let mut loss_history = Vec::with_capacity(epochs);
         let mut mrr_history = Vec::new();
@@ -2375,6 +2601,14 @@ impl BoxEmbeddingTrainer {
             for state in self.optimizer_states.values_mut() {
                 state.set_lr(lr);
             }
+
+            // Gumbel beta annealing: linear interpolation from start to end.
+            let progress = if epochs > 1 {
+                epoch as f32 / (epochs - 1) as f32
+            } else {
+                1.0
+            };
+            self.current_beta = beta_start + (beta_end - beta_start) * progress;
 
             let loss = self.train_step(train_triples)?;
             loss_history.push(loss);
