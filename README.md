@@ -21,7 +21,7 @@ Geometric region embeddings for subsumption, entailment, and logical query answe
 | `NdarrayCone` | Angular cones in d-dimensional space: containment via aperture, closed under negation (Zhang & Wang, NeurIPS 2021) |
 | `NdarrayOctagon` | Axis-aligned polytopes with diagonal constraints; tighter volume bounds than boxes (Charpenay & Schockaert, IJCAI 2024) |
 | `gaussian` | Diagonal Gaussian boxes: KL divergence (asymmetric containment) and Bhattacharyya coefficient (symmetric overlap) |
-| `hyperbolic` | Poincare ball embeddings and hyperbolic box intervals (via `hyperball`) |
+| `hyperbolic` | Poincare ball embeddings and hyperbolic box intervals (via `hyperball`; requires `hyperbolic` feature) |
 | `sheaf` | Sheaf diffusion primitives: stalks, restriction maps, Laplacian (Hansen & Ghrist 2019; Bodnar et al., ICLR 2022) |
 
 ### Scoring and query answering
@@ -89,6 +89,7 @@ cargo run -p subsume --example octagon_demo             # octagon embeddings: di
 cargo run -p subsume --example fuzzy_query              # fuzzy query answering: t-norms, De Morgan duality, rankings
 cargo run -p subsume --example dataset_training --release # full pipeline: WN18RR-format data, train, evaluate
 cargo run -p subsume --example imagenet_hierarchy --release # 252 Tiny ImageNet synsets, volume-depth correlation
+cargo run -p subsume --example save_checkpoint --release           # generate pretrained/wordnet_subset.json checkpoint
 cargo run -p subsume --features hyperbolic --example hyperbolic_demo  # Poincare ball: hierarchy preservation, exponential capacity
 cargo run -p subsume --example el_training              # EL++ box embeddings on a biomedical-style ontology
 cargo run -p subsume --features candle-backend --example taxobell_training  # TaxoBell MLP encoder training (Candle)
@@ -257,7 +258,7 @@ let dataset = Dataset::new(triples, vec![], vec![]);
 
 ## See also
 
-- [`hyperball`](https://crates.io/crates/hyperball) -- hyperbolic geometry primitives (direct dependency for Poincare/Lorentz embeddings)
+- [`hyperball`](https://crates.io/crates/hyperball) -- hyperbolic geometry primitives (optional; requires `hyperbolic` feature for Poincare ball embeddings)
 
 ## License
 
