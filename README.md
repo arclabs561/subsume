@@ -157,6 +157,9 @@ Three tasks where point embeddings structurally fail:
 If your task is link prediction or entity similarity, use RotatE. If you need
 containment, set operations, or volume, you need regions.
 
+See [`docs/SUBSUMPTION_HISTORY.md`](docs/SUBSUMPTION_HISTORY.md) for the research
+history of geometric subsumption embeddings, from hard boxes through Gumbel, cones, and beyond.
+
 ## Why Gumbel boxes?
 
 ![Gumbel gradient landscape](docs/gumbel_robustness.png)
