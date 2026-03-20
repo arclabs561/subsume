@@ -254,6 +254,11 @@ pub use trainer::{
     generate_self_adversarial_negatives, SortedEntityPool,
 };
 
+// Re-export: ndarray (public dependency -- appears in NdarrayBox/NdarrayGumbelBox/NdarrayCone API)
+#[cfg(feature = "ndarray-backend")]
+#[cfg_attr(docsrs, doc(cfg(feature = "ndarray-backend")))]
+pub use ndarray;
+
 // Re-exports: evaluation metrics
 pub use metrics::{hits_at_k, mean_rank, mean_reciprocal_rank, ndcg};
 
