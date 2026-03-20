@@ -199,7 +199,7 @@ for corner_verts, corner_label_pos in [
     ([(0,5), (2,5), (0,3)], None),
 ]:
     ax.add_patch(Polygon(corner_verts, closed=True,
-        facecolor=ROSE, alpha=0.12, edgecolor="none"))
+        facecolor=ROSE, alpha=0.06, edgecolor="none"))
 
 # Diagonal constraint lines with labels
 # x + y = 1.5 (lower-left cut)
@@ -236,7 +236,7 @@ ax.set_xticks([0, 1, 2, 3, 4, 5])
 ax.set_yticks([0, 1, 2, 3, 4, 5])
 ax.tick_params(labelsize=7, colors=SLATE_LIGHT)
 ax.grid(True, alpha=0.3, linewidth=0.4, color=GRID)
-ax.set_title("(c) Octagon $\\supset$ box", fontsize=10, fontweight="bold",
+ax.set_title("(c) Octagon $\\subset$ box", fontsize=10, fontweight="bold",
              color=TEXT, pad=10)
 
 # ── Save ───────────────────────────────────────────────────────────────
