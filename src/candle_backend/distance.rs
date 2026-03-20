@@ -71,15 +71,14 @@ pub fn vector_to_box_distance(point: &Tensor, box_: &CandleBox) -> Result<f32, B
 pub fn depth_distance(
     box_a: &CandleBox,
     box_b: &CandleBox,
-    temperature: f32,
     volume_weight: f32,
 ) -> Result<f32, BoxError> {
     // Standard Euclidean distance
     let euclidean_dist = box_a.distance(box_b)?;
 
     // Volume-based term: |log(Vol(A)) - log(Vol(B))|
-    let vol_a = box_a.volume(temperature)?;
-    let vol_b = box_b.volume(temperature)?;
+    let vol_a = box_a.volume()?;
+    let vol_b = box_b.volume()?;
 
     // Use actual logarithm for proper depth distance
     let log_vol_a = if vol_a > 1e-10 {
@@ -107,10 +106,9 @@ pub fn depth_distance(
 pub fn boundary_distance(
     outer: &CandleBox,
     inner: &CandleBox,
-    temperature: f32,
 ) -> Result<Option<f32>, BoxError> {
     // Check if inner is contained in outer
-    let containment = outer.containment_prob(inner, temperature)?;
+    let containment = outer.containment_prob(inner)?;
     if containment < BOUNDARY_CONTAINMENT_THRESHOLD {
         // Not fully contained
         return Ok(None);
@@ -205,7 +203,7 @@ mod tests {
             Tensor::new(&[0.8f32, 0.8], &device).map_err(|e| BoxError::Internal(e.to_string()))?,
             1.0,
         )?;
-        let dist = depth_distance(&box_a, &box_b, 1.0, 0.1)?;
+        let dist = depth_distance(&box_a, &box_b, 0.1)?;
         assert!(dist >= 0.0);
         Ok(())
     }
@@ -223,7 +221,7 @@ mod tests {
             Tensor::new(&[0.8f32, 0.8], &device).map_err(|e| BoxError::Internal(e.to_string()))?,
             1.0,
         )?;
-        let dist = boundary_distance(&outer, &inner, 1.0)?;
+        let dist = boundary_distance(&outer, &inner)?;
         assert!(dist.is_some());
         let dist_val = dist.unwrap();
         assert!(dist_val >= 0.0);
@@ -244,7 +242,7 @@ mod tests {
             Tensor::new(&[1.5f32, 1.5], &device).map_err(|e| BoxError::Internal(e.to_string()))?,
             1.0,
         )?;
-        let dist = boundary_distance(&outer, &inner, 1.0)?;
+        let dist = boundary_distance(&outer, &inner)?;
         assert!(dist.is_none()); // Not contained
         Ok(())
     }

@@ -78,10 +78,10 @@ For containment probability with Gumbel boxes:
 **Location:** `subsume-ndarray/src/ndarray_box.rs::containment_prob()` and `subsume-candle/src/candle_box.rs::containment_prob()`
 
 ```rust
-fn containment_prob(&self, other: &Self, temperature: Self::Scalar) -> Result<Self::Scalar, BoxError> {
+fn containment_prob(&self, other: &Self) -> Result<Self::Scalar, BoxError> {
     let intersection = self.intersection(other)?;
-    let intersection_vol = intersection.volume(temperature)?;
-    let other_vol = other.volume(temperature)?;
+    let intersection_vol = intersection.volume()?;
+    let other_vol = other.volume()?;
     
     if other_vol <= 0.0 {
         return Err(BoxError::ZeroVolume);

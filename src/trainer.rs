@@ -1011,7 +1011,7 @@ where
         let t_rank = rank_among_entities(
             entity_boxes,
             &triple.tail,
-            |candidate| head_box.containment_prob_fast(candidate, 1.0),
+            |candidate| head_box.containment_prob_fast(candidate),
             filter_tails,
         )?;
 
@@ -1023,7 +1023,7 @@ where
         let h_rank = rank_among_entities(
             entity_boxes,
             &triple.head,
-            |candidate| candidate.containment_prob_fast(tail_box, 1.0),
+            |candidate| candidate.containment_prob_fast(tail_box),
             filter_heads,
         )?;
 
@@ -1124,8 +1124,8 @@ where
         crate::BoxError::Internal(format!("Missing entity label (target): {}", target_id))
     })?;
     let target_score = match direction {
-        ScoreDirection::Forward => query_box.containment_prob_fast(target_box, 1.0)?,
-        ScoreDirection::Reverse => target_box.containment_prob_fast(query_box, 1.0)?,
+        ScoreDirection::Forward => query_box.containment_prob_fast(target_box)?,
+        ScoreDirection::Reverse => target_box.containment_prob_fast(query_box)?,
     };
     if target_score.is_nan() {
         return Err(crate::BoxError::Internal(
@@ -1148,7 +1148,7 @@ where
                 let slice = &entity_boxes[start..end];
                 let len = end - start;
 
-                query_box.containment_prob_many(slice, 1.0, &mut scores_buf[..len])?;
+                query_box.containment_prob_many(slice, &mut scores_buf[..len])?;
 
                 for (i, &score) in scores_buf[..len].iter().enumerate() {
                     let entity_id = start + i;
@@ -1182,7 +1182,7 @@ where
                 if entity_id == target_id {
                     continue;
                 }
-                let score = candidate.containment_prob_fast(query_box, 1.0)?;
+                let score = candidate.containment_prob_fast(query_box)?;
                 if score.is_nan() {
                     return Err(crate::BoxError::Internal(
                         "NaN containment score encountered".to_string(),
@@ -1216,8 +1216,8 @@ where
                 continue;
             };
             let score = match direction {
-                ScoreDirection::Forward => query_box.containment_prob_fast(box_, 1.0)?,
-                ScoreDirection::Reverse => box_.containment_prob_fast(query_box, 1.0)?,
+                ScoreDirection::Forward => query_box.containment_prob_fast(box_)?,
+                ScoreDirection::Reverse => box_.containment_prob_fast(query_box)?,
             };
             if score.is_nan() {
                 return Err(crate::BoxError::Internal(
@@ -1273,9 +1273,7 @@ fn rank_with_translated_query_forward(
     let target_score = translated.containment_prob_fast(
         entity_boxes.get(target_id).ok_or_else(|| {
             crate::BoxError::Internal(format!("Missing entity id (target): {target_id}"))
-        })?,
-        1.0,
-    )?;
+        })?)?;
     if target_score.is_nan() {
         return Err(crate::BoxError::Internal(
             "NaN containment score encountered (target)".to_string(),
@@ -1291,7 +1289,7 @@ fn rank_with_translated_query_forward(
         if entity_id == target_id {
             continue;
         }
-        let score = translated.containment_prob_fast(candidate, 1.0)?;
+        let score = translated.containment_prob_fast(candidate)?;
         if score.is_nan() {
             return Err(crate::BoxError::Internal(
                 "NaN containment score encountered".to_string(),
@@ -1319,7 +1317,7 @@ fn rank_with_translated_query_forward(
             let Some(box_) = entity_boxes.get(known_id) else {
                 continue;
             };
-            let score = translated.containment_prob_fast(box_, 1.0)?;
+            let score = translated.containment_prob_fast(box_)?;
             if score.is_nan() {
                 continue;
             }
@@ -1378,7 +1376,7 @@ fn rank_with_translated_query_reverse(
     let target_box = entity_boxes.get(target_id).ok_or_else(|| {
         crate::BoxError::Internal(format!("Missing entity id (target): {target_id}"))
     })?;
-    let target_score = target_box.containment_prob_fast(&translated, 1.0)?;
+    let target_score = target_box.containment_prob_fast(&translated)?;
     if target_score.is_nan() {
         return Err(crate::BoxError::Internal(
             "NaN containment score encountered (target)".to_string(),
@@ -1394,7 +1392,7 @@ fn rank_with_translated_query_reverse(
         if entity_id == target_id {
             continue;
         }
-        let score = candidate.containment_prob_fast(&translated, 1.0)?;
+        let score = candidate.containment_prob_fast(&translated)?;
         if score.is_nan() {
             return Err(crate::BoxError::Internal(
                 "NaN containment score encountered".to_string(),
@@ -1422,7 +1420,7 @@ fn rank_with_translated_query_reverse(
             let Some(box_) = entity_boxes.get(known_id) else {
                 continue;
             };
-            let score = box_.containment_prob_fast(&translated, 1.0)?;
+            let score = box_.containment_prob_fast(&translated)?;
             if score.is_nan() {
                 continue;
             }

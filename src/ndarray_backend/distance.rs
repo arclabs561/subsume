@@ -85,15 +85,14 @@ pub fn vector_to_box_distance(point: &Array1<f32>, box_: &NdarrayBox) -> Result<
 pub fn depth_distance(
     box_a: &NdarrayBox,
     box_b: &NdarrayBox,
-    temperature: f32,
     volume_weight: f32,
 ) -> Result<f32, BoxError> {
     // Standard Euclidean distance
     let euclidean_dist = box_a.distance(box_b)?;
 
     // Volume-based term: |log(Vol(A)) - log(Vol(B))|
-    let vol_a = box_a.volume(temperature)?;
-    let vol_b = box_b.volume(temperature)?;
+    let vol_a = box_a.volume()?;
+    let vol_b = box_b.volume()?;
 
     // Use actual logarithm for proper depth distance
     let log_vol_a = if vol_a > 1e-10 {
@@ -121,10 +120,9 @@ pub fn depth_distance(
 pub fn boundary_distance(
     outer: &NdarrayBox,
     inner: &NdarrayBox,
-    temperature: f32,
 ) -> Result<Option<f32>, BoxError> {
     // Check if inner is contained in outer
-    let containment = outer.containment_prob(inner, temperature)?;
+    let containment = outer.containment_prob(inner)?;
     if containment < BOUNDARY_CONTAINMENT_THRESHOLD {
         // Not fully contained
         return Ok(None);
@@ -219,7 +217,7 @@ mod tests {
     fn test_depth_distance() {
         let box_a = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();
         let box_b = NdarrayBox::new(array![0.2, 0.2], array![0.8, 0.8], 1.0).unwrap();
-        let dist = depth_distance(&box_a, &box_b, 1.0, 0.1).unwrap();
+        let dist = depth_distance(&box_a, &box_b, 0.1).unwrap();
         assert!(dist >= 0.0);
     }
 
@@ -227,7 +225,7 @@ mod tests {
     fn test_boundary_distance_contained() {
         let outer = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();
         let inner = NdarrayBox::new(array![0.2, 0.2], array![0.8, 0.8], 1.0).unwrap();
-        let dist = boundary_distance(&outer, &inner, 1.0).unwrap();
+        let dist = boundary_distance(&outer, &inner).unwrap();
         assert!(dist.is_some());
         let dist_val = dist.unwrap();
         assert!(dist_val >= 0.0);
@@ -238,7 +236,7 @@ mod tests {
     fn test_boundary_distance_not_contained() {
         let outer = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();
         let inner = NdarrayBox::new(array![0.5, 0.5], array![1.5, 1.5], 1.0).unwrap();
-        let dist = boundary_distance(&outer, &inner, 1.0).unwrap();
+        let dist = boundary_distance(&outer, &inner).unwrap();
         assert!(dist.is_none()); // Not contained
     }
 

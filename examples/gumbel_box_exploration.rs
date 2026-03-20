@@ -76,7 +76,7 @@ fn main() -> Result<(), subsume::BoxError> {
             name,
             b.dim(),
             b.temperature(),
-            b.volume(temperature)?
+            b.volume()?
         );
     }
 
@@ -96,23 +96,23 @@ fn main() -> Result<(), subsume::BoxError> {
     // to recover hard-box-like scores. The Part 3 table below shows this effect.
     println!(
         "  P(dog inside animal)  = {:.4}   (dog IS-A animal; <1 due to temp=1.0 softening)",
-        animal.containment_prob(&dog, temperature)?
+        animal.containment_prob(&dog)?
     );
     println!(
         "  P(dog inside mammal)  = {:.4}   (dog IS-A mammal; <1 due to temp=1.0 softening)",
-        mammal.containment_prob(&dog, temperature)?
+        mammal.containment_prob(&dog)?
     );
     println!(
         "  P(mammal inside animal) = {:.4} (mammal IS-A animal; <1 due to temp=1.0 softening)",
-        animal.containment_prob(&mammal, temperature)?
+        animal.containment_prob(&mammal)?
     );
     println!(
         "  P(animal inside dog)  = {:.4}   (should be < P(dog|animal): animal is NOT a dog)",
-        dog.containment_prob(&animal, temperature)?
+        dog.containment_prob(&animal)?
     );
     println!(
         "  P(dog inside vehicle) = {:.4}   (should be ~0.0: dog is NOT a vehicle)",
-        vehicle.containment_prob(&dog, temperature)?
+        vehicle.containment_prob(&dog)?
     );
 
     // --- Part 3: Temperature controls softness ---
@@ -137,8 +137,8 @@ fn main() -> Result<(), subsume::BoxError> {
         let dog_t = NdarrayGumbelBox::new(array![0.1, 0.1, 0.1], array![0.4, 0.4, 0.4], t)?;
         let vehicle_t = NdarrayGumbelBox::new(array![2.0, 2.0, 2.0], array![3.0, 3.0, 3.0], t)?;
 
-        let p_dog_animal = animal_t.containment_prob(&dog_t, t)?;
-        let p_dog_vehicle = vehicle_t.containment_prob(&dog_t, t)?;
+        let p_dog_animal = animal_t.containment_prob(&dog_t)?;
+        let p_dog_vehicle = vehicle_t.containment_prob(&dog_t)?;
 
         println!("{:>12.2} {:>20.6} {:>20.6}", t, p_dog_animal, p_dog_vehicle);
     }

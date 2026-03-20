@@ -108,9 +108,8 @@
 //! fn compute_entailment<B: BoxRegion>(
 //!     premise: &B,
 //!     hypothesis: &B,
-//!     temp: B::Scalar,
 //! ) -> Result<B::Scalar, subsume::BoxError> {
-//!     premise.containment_prob(hypothesis, temp)
+//!     premise.containment_prob(hypothesis)
 //! }
 //! ```
 //!

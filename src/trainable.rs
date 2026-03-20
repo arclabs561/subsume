@@ -623,7 +623,7 @@ mod tests {
 
         // Verify coordinates: min = mu - exp(delta)/2, max = mu + exp(delta)/2
         let dense = tb.to_box();
-        let volume = nb.volume(1.0).unwrap();
+        let volume = nb.volume().unwrap();
         let expected_vol: f32 = dense
             .min
             .iter()

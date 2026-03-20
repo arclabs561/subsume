@@ -42,12 +42,12 @@ use subsume::Box as BoxTrait;
 fn rank_candidates<'a>(
     query: &NdarrayBox,
     candidates: &[(&'a str, &NdarrayBox)],
-    temp: f32,
+
 ) -> Vec<(&'a str, f32)> {
     let mut scored: Vec<(&str, f32)> = candidates
         .iter()
         .map(|(name, b)| {
-            let p = query.containment_prob(b, temp).unwrap_or(0.0);
+            let p = query.containment_prob(b).unwrap_or(0.0);
             (*name, p)
         })
         .collect();
@@ -178,7 +178,7 @@ fn main() -> Result<(), subsume::BoxError> {
     println!("Q1: What cities are in France?\n");
     let city_candidates: Vec<(&str, &NdarrayBox)> =
         vec![("Paris", &paris), ("Lyon", &lyon), ("London", &london)];
-    let q1 = rank_candidates(&france, &city_candidates, temp);
+    let q1 = rank_candidates(&france, &city_candidates);
     print_ranking("Rank by P(France contains city):", &q1);
 
     // --- Q2: languages spoken in France ---
@@ -186,7 +186,7 @@ fn main() -> Result<(), subsume::BoxError> {
     println!("Q2: What languages are spoken in France?\n");
     let lang_candidates: Vec<(&str, &NdarrayBox)> =
         vec![("French", &french), ("English", &english)];
-    let q2 = rank_candidates(&france, &lang_candidates, temp);
+    let q2 = rank_candidates(&france, &lang_candidates);
     print_ranking("Rank by P(France contains language):", &q2);
 
     // --- Q3: compositional -- languages spoken in countries containing French cities ---
@@ -213,11 +213,11 @@ fn main() -> Result<(), subsume::BoxError> {
     let hop1 = france.intersection(&city_region)?;
     println!(
         "    intersection volume: {:.4}  (> 0 confirms France has cities)",
-        hop1.volume(temp)?
+        hop1.volume()?
     );
 
     println!("  Hop 2: rank languages by containment in hop-1 result\n");
-    let q3 = rank_candidates(&hop1, &lang_candidates, temp);
+    let q3 = rank_candidates(&hop1, &lang_candidates);
     print_ranking("Rank by P(hop1_box contains language):", &q3);
 
     // --- Q4: alpha-weighted distance scoring (Query2Box original) ---
