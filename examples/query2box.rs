@@ -170,7 +170,7 @@ fn main() -> Result<(), subsume::BoxError> {
         .collect();
     let english = NdarrayBox::new(english_min, english_max, 1.0)?;
 
-    let temp = 1.0;
+    let _temp = 1.0;
 
     // --- Q1: cities in France ---
     // Query box = France (the "located_in" projection of France is France itself
