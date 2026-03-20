@@ -29,35 +29,6 @@ impl DenseBox {
             .map(|(&a, &b)| (b - a).max(0.0))
             .product::<f32>()
     }
-
-    #[inline]
-    #[allow(dead_code)]
-    pub fn intersection_volume(&self, other: &Self) -> f32 {
-        let mut v = 1.0f32;
-        for i in 0..self.min.len().min(other.min.len()) {
-            let lo = self.min[i].max(other.min[i]);
-            let hi = self.max[i].min(other.max[i]);
-            let side = (hi - lo).max(0.0);
-            v *= side;
-            if v == 0.0 {
-                break;
-            }
-        }
-        v
-    }
-
-    /// Containment-style probability: \(P(\text{other} \subseteq \text{self})\).
-    ///
-    /// For hard boxes: Vol(self ∩ other) / Vol(other), with 0 when other has 0 volume.
-    #[inline]
-    #[allow(dead_code)]
-    pub fn conditional_probability(&self, other: &Self) -> f32 {
-        let denom = other.volume();
-        if denom <= 0.0 {
-            return 0.0;
-        }
-        (self.intersection_volume(other) / denom).clamp(0.0, 1.0)
-    }
 }
 
 /// A trainable box embedding with learnable parameters.
@@ -304,9 +275,9 @@ impl DenseCone {
 /// independent axis angle and aperture (half-width). The parameterization uses
 /// unconstrained scalars that are mapped to valid ranges during the forward pass:
 ///
-/// - **raw_axes\[i\]**: unconstrained; `axis[i] = tanh(raw_axes[i]) * pi` maps to \[-pi, pi\]
+/// - **raw_axes\[i\]**: unconstrained; `axis[i] = tanh(raw_axes[i]) * pi` maps to `[-pi, pi]`
 /// - **raw_apertures\[i\]**: unconstrained; `aperture[i] = tanh(2 * raw_apertures[i]) * pi/2 + pi/2`
-///   maps to \(0, pi\)
+///   maps to `(0, pi)`
 ///
 /// This ensures all parameters receive gradients regardless of the current geometry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -373,7 +344,7 @@ impl TrainableCone {
         self.raw_axes.len()
     }
 
-    /// Compute the actual per-dimension axis angles, each in \(-pi, pi\).
+    /// Compute the actual per-dimension axis angles, each in `(-pi, pi)`.
     #[must_use]
     pub fn axes(&self) -> Vec<f32> {
         self.raw_axes
@@ -382,7 +353,7 @@ impl TrainableCone {
             .collect()
     }
 
-    /// Compute the actual per-dimension apertures, each in \(0, pi\).
+    /// Compute the actual per-dimension apertures, each in `(0, pi)`.
     #[must_use]
     pub fn apertures(&self) -> Vec<f32> {
         let pi = std::f32::consts::PI;

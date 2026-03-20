@@ -17,7 +17,7 @@ Geometric region embeddings for subsumption, entailment, and logical query answe
 | Component | What it does |
 |---|---|
 | `Box` trait | Axis-aligned hyperrectangle: volume, containment, overlap, distance |
-| `GumbelBox` trait | Probabilistic boxes via Gumbel random variables (dense gradients, no flat regions; Dasgupta et al., 2020) |
+| `NdarrayGumbelBox` / `CandleGumbelBox` | Probabilistic boxes via Gumbel random variables (dense gradients, no flat regions; Dasgupta et al., 2020) |
 | `NdarrayCone` | Angular cones in d-dimensional space: containment via aperture, closed under negation (Zhang & Wang, NeurIPS 2021) |
 | `NdarrayOctagon` | Axis-aligned polytopes with diagonal constraints; tighter volume bounds than boxes (Charpenay & Schockaert, IJCAI 2024) |
 | `gaussian` | Diagonal Gaussian boxes: KL divergence (asymmetric containment) and Bhattacharyya coefficient (symmetric overlap) |
@@ -89,7 +89,7 @@ cargo run -p subsume --example octagon_demo             # octagon embeddings: di
 cargo run -p subsume --example fuzzy_query              # fuzzy query answering: t-norms, De Morgan duality, rankings
 cargo run -p subsume --example dataset_training --release # full pipeline: WN18RR-format data, train, evaluate
 cargo run -p subsume --example imagenet_hierarchy --release # 252 Tiny ImageNet synsets, volume-depth correlation
-cargo run -p subsume --example hyperbolic_demo           # Poincare ball: hierarchy preservation, exponential capacity
+cargo run -p subsume --features hyperbolic --example hyperbolic_demo  # Poincare ball: hierarchy preservation, exponential capacity
 cargo run -p subsume --example el_training              # EL++ box embeddings on a biomedical-style ontology
 cargo run -p subsume --features candle-backend --example taxobell_training  # TaxoBell MLP encoder training (Candle)
 ```
@@ -116,7 +116,7 @@ Unit, property, and doc tests covering:
 
 | Geometry | When to use it | ¬? | Key tradeoff |
 |---|---|---|---|
-| Box / GumbelBox | Containment hierarchies, each dimension independent | No | Simple, fast; Gumbel adds dense gradients where hard boxes have zero gradient |
+| NdarrayBox / NdarrayGumbelBox | Containment hierarchies, each dimension independent | No | Simple, fast; Gumbel adds dense gradients where hard boxes have zero gradient |
 | Cone | Multi-hop queries requiring negation (FOL with ¬) | Yes | Closed under complement; angular parameterization harder to initialize |
 | Octagon | Rule-aware KG completion; tighter containment than boxes | No | Diagonal constraints cut box corners; more parameters per entity |
 | Gaussian | Taxonomy expansion with uncertainty (TaxoBell) | No | KL = asymmetric containment; Bhattacharyya = symmetric overlap |

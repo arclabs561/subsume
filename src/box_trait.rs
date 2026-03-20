@@ -216,23 +216,26 @@ pub trait Box: Sized {
     /// ```
     ///
     /// Or in LaTeX:
-    /// \[
+    ///
+    /// $$
     /// P(\text{other} \subseteq \text{self}) = \frac{\text{Vol}(\text{self} \cap \text{other})}{\text{Vol}(\text{other})}
-    /// \]
+    /// $$
     ///
     /// For Gumbel boxes, this uses the expected volume with first-order Taylor approximation:
-    /// \[
-    /// P(\text{other} \subseteq \text{self}) \approx \frac{\mathbb{E}[\text{Vol}(\text{self} \cap \text{other})]}{\mathbb{E}[\text{Vol}(\text{other})]}
-    /// \]
     ///
-    /// The approximation \(\mathbb{E}[\text{X}/\text{Y}] \approx \mathbb{E}[\text{X}]/\mathbb{E}[\text{Y}]\) is valid when:
-    /// - The coefficient of variation \(\text{Var}(Y)/\mu_Y^2\) is small
-    /// - \(\mu_Y\) is bounded away from zero
+    /// $$
+    /// P(\text{other} \subseteq \text{self}) \approx \frac{\mathbb{E}[\text{Vol}(\text{self} \cap \text{other})]}{\mathbb{E}[\text{Vol}(\text{other})]}
+    /// $$
+    ///
+    /// The approximation `E[X/Y] ~= E[X]/E[Y]` is valid when:
+    /// - The coefficient of variation `Var(Y)/mu_Y^2` is small
+    /// - `mu_Y` is bounded away from zero
     ///
     /// The second-order error term is approximately:
-    /// \[
+    ///
+    /// $$
     /// \text{Error} \approx -\frac{\text{Cov}(\text{X}, \text{Y})}{\mu_Y^2} + \frac{\mu_X \text{Var}(\text{Y})}{\mu_Y^3}
-    /// \]
+    /// $$
     ///
     /// This directly models logical subsumption: if the probability is 1.0, then
     /// `self` completely subsumes `other` (entailment relationship).
@@ -328,15 +331,16 @@ pub trait Box: Sized {
     ///
     /// Using the inclusion-exclusion principle:
     ///
-    /// \[
+    ///
+    /// $$
     /// P(\text{self} \cap \text{other} \neq \emptyset) = \frac{\text{Vol}(\text{self} \cap \text{other})}{\text{Vol}(\text{self} \cup \text{other})}
-    /// \]
+    /// $$
     ///
     /// Where the union volume is computed as:
     ///
-    /// \[
+    /// $$
     /// \text{Vol}(\text{self} \cup \text{other}) = \text{Vol}(\text{self}) + \text{Vol}(\text{other}) - \text{Vol}(\text{self} \cap \text{other})
-    /// \]
+    /// $$
     ///
     /// ## Interpretation
     ///
