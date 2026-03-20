@@ -4,40 +4,34 @@
 # ///
 """Generate Gumbel vs Gaussian vs Hard-box noise robustness plot for subsume README.
 
-Compares containment loss under coordinate noise perturbation.
-Gumbel soft boundaries absorb noise gracefully; hard/Gaussian boxes degrade faster.
+Shows per-dimension containment probability under increasing coordinate noise.
+Using d=1 isolates the boundary behavior that differentiates formulations,
+without the exponential decay from product-over-dimensions obscuring the signal.
 
 Style: distill.pub-inspired. Muted palette, minimal chrome.
 """
 
 # ── Methodology ──────────────────────────────────────────────────────
 #
-# Geometry: outer box [0, 10]^d, inner box [2, 8]^d, so margin = 2
-# on each side. Dimension d = 10. All dimensions are symmetric.
+# Geometry: 1D outer interval [0, 10], inner point at x=2 (margin=2
+# from the lower boundary). Noise N(0, sigma) added to the inner point.
 #
-# Noise model: Gaussian N(0, sigma) added independently to each
-# coordinate of the inner box. We measure the probability that the
-# perturbed inner point is still "contained" by the outer box, then
-# report containment loss = 100 * (1 - containment_prob).
+# We measure per-dimension containment probability at the BOUNDARY
+# coordinate (worst case), which is the measurement that matters for
+# multi-dimensional containment (total = per_dim^d).
 #
-# Hard box: containment per dim = P(x + noise in [0, 10]) where
-#   x in {2, 8}. By symmetry, p_dim = 1 - 2*Phi(-margin/sigma).
-#   Total = p_dim^d.
+# Hard box: P(x + noise in [0, 10]) = Phi(margin/sigma) for the near
+#   boundary (the far boundary at distance 8 is negligible).
 #
-# Gumbel box (beta=1.0): membership per dim uses Gumbel CDF at
-#   boundaries. Lower: exp(-exp(-(x - l)/beta)), Upper: 1 - exp(-exp(-(x - u)/beta)).
-#   Per-dim membership = lower * upper. Under noise, integrate
-#   membership(x + eps) * phi(eps; 0, sigma) over eps, via quad.
-#   Factorizes across dimensions. Total = (per_dim_integral)^d.
+# Gumbel box (beta): membership = exp(-exp(-(x-l)/beta)) at the lower
+#   boundary. Under noise, integrate membership(x+eps) * phi(eps) deps.
 #
-# Gaussian box (sigma_box=1.5): each boundary contributes uncertainty.
-#   Under coordinate noise sigma, effective std = sqrt(sigma_box^2 + sigma^2).
-#   Per-dim containment = Phi(upper_margin / eff) - Phi(-lower_margin / eff).
-#   Total = per_dim^d. Non-perfect at zero noise due to infinite Gaussian tails.
+# Gaussian box (sigma_box): boundary uncertainty broadens the step
+#   function into an error function. Effective std = sqrt(sigma_box^2 + sigma^2).
+#   P = Phi(margin / effective_sigma).
 #
-# Sources: Dasgupta et al. "Improving Local Identifiability in
-# Probabilistic Box Embeddings" (Gumbel membership); Li et al.
-# "Smoothing the Geometry of Probabilistic Box Embeddings" (Gaussian).
+# Sources: Dasgupta et al. 2020 (Gumbel membership); Li et al. 2019
+# (smoothed box geometry); Chen et al. 2021 BEUrRE (Gaussian boxes).
 
 import matplotlib
 
@@ -57,72 +51,52 @@ SLATE = "#64748b"
 SLATE_LIGHT = "#94a3b8"
 
 # ── Parameters ────────────────────────────────────────────────────────
-d = 10  # dimensionality
-outer_lo, outer_hi = 0.0, 10.0
-inner_lo, inner_hi = 2.0, 8.0
-margin = inner_lo - outer_lo  # = 2.0 (symmetric)
-beta = 1.0  # Gumbel softness parameter
+margin = 2.0  # distance from inner point to nearest outer boundary
+beta = 0.3  # Gumbel temperature (controls boundary softness)
 sigma_box = 1.5  # Gaussian box boundary uncertainty
 
-noise = np.linspace(0.0, 1.0, 51)
+noise_levels = np.linspace(0.0, 3.0, 61)
 
 # ── Hard box (analytical) ────────────────────────────────────────────
-hard_box = []
-for sigma in noise:
+# Per-dim P(contained) = Phi(margin / sigma) for the near boundary.
+hard_prob = []
+for sigma in noise_levels:
     if sigma == 0.0:
-        hard_box.append(0.0)
+        hard_prob.append(1.0)
     else:
-        p_dim = 1.0 - 2.0 * norm.cdf(-margin / sigma)
-        hard_box.append(100.0 * (1.0 - p_dim**d))
-hard_box = np.array(hard_box)
+        hard_prob.append(norm.cdf(margin / sigma))
+hard_prob = np.array(hard_prob)
+
 
 # ── Gumbel box (numerical integration) ──────────────────────────────
-# Membership at point x for outer box [outer_lo, outer_hi] with Gumbel CDF:
-#   lower_membership = exp(-exp(-(x - outer_lo) / beta))
-#   upper_membership = 1 - exp(-exp(-(outer_hi - x) / beta))
-#   Note: upper boundary uses (outer_hi - x) for the "right-tail" form.
-#   per_dim_membership = lower * upper
+# Lower-boundary membership at coordinate x:
+#   m(x) = exp(-exp(-(x - boundary) / beta))
+# where boundary = 0 (outer lower bound), and inner point is at x=margin.
+def gumbel_lower_membership(x):
+    return np.exp(-np.exp(-x / beta))
 
 
-def gumbel_membership(x):
-    lo_m = np.exp(-np.exp(-(x - outer_lo) / beta))
-    hi_m = 1.0 - np.exp(-np.exp(-(outer_hi - x) / beta))
-    return lo_m * hi_m
-
-
-# Inner box coordinate is at inner_lo (or inner_hi by symmetry).
-# Under noise N(0, sigma), integrate membership(inner_lo + eps) * phi(eps).
-# By symmetry of the box, the lower-boundary coordinate (inner_lo=2)
-# and upper-boundary coordinate (inner_hi=8) contribute identically
-# to the per-dimension membership when the box is centered.
-# We integrate over the lower-boundary point; by symmetry both
-# boundary contributions are captured in the single per-dim membership.
-
-gumbel_loss = []
-for sigma in noise:
+gumbel_prob = []
+for sigma in noise_levels:
     if sigma == 0.0:
-        p_dim = gumbel_membership(inner_lo)
-        # By symmetry inner_lo and inner_hi give same membership
+        gumbel_prob.append(gumbel_lower_membership(margin))
     else:
 
         def integrand(eps, s=sigma):
-            return gumbel_membership(inner_lo + eps) * norm.pdf(eps, 0, s)
+            return gumbel_lower_membership(margin + eps) * norm.pdf(eps, 0, s)
 
-        p_dim, _ = quad(integrand, -10 * sigma, 10 * sigma, limit=200)
-    gumbel_loss.append(100.0 * (1.0 - p_dim**d))
-gumbel_loss = np.array(gumbel_loss)
+        p, _ = quad(integrand, -8 * sigma, 8 * sigma, limit=200)
+        gumbel_prob.append(p)
+gumbel_prob = np.array(gumbel_prob)
 
-# ── Gaussian box (analytical) ───────────────────────────────────────
-# Effective std under coordinate noise: sqrt(sigma_box^2 + sigma^2).
-# Per-dim containment: Phi(margin / eff_sigma) - Phi(-margin / eff_sigma)
-#   = 1 - 2*Phi(-margin / eff_sigma), since margins are symmetric.
-
-gaussian_loss = []
-for sigma in noise:
-    eff_sigma = np.sqrt(sigma_box**2 + sigma**2)
-    p_dim = 1.0 - 2.0 * norm.cdf(-margin / eff_sigma)
-    gaussian_loss.append(100.0 * (1.0 - p_dim**d))
-gaussian_loss = np.array(gaussian_loss)
+# ── Gaussian box (analytical) ────────────────────────────────────────
+# Effective std under noise: sqrt(sigma_box^2 + sigma^2).
+# Per-dim containment at the near boundary: Phi(margin / effective_sigma).
+gaussian_prob = []
+for sigma in noise_levels:
+    eff = np.sqrt(sigma_box**2 + sigma**2)
+    gaussian_prob.append(norm.cdf(margin / eff))
+gaussian_prob = np.array(gaussian_prob)
 
 # ── Plot ──────────────────────────────────────────────────────────────
 fig, ax = plt.subplots(figsize=(5.5, 3.8))
@@ -135,42 +109,54 @@ for spine in ax.spines.values():
 ax.spines["top"].set_visible(False)
 ax.spines["right"].set_visible(False)
 
-# Fill region between Gumbel and Gaussian to show the gap
-ax.fill_between(noise, gumbel_loss, gaussian_loss, alpha=0.06, color=BLUE)
-
 ax.plot(
-    noise,
-    gumbel_loss,
+    noise_levels,
+    gumbel_prob,
     "-",
     color=BLUE,
     linewidth=1.8,
-    label=r"Gumbel box ($\beta$=1.0)",
+    label=rf"Gumbel ($\beta$={beta})",
 )
 ax.plot(
-    noise,
-    gaussian_loss,
+    noise_levels,
+    hard_prob,
+    "--",
+    color=SLATE,
+    linewidth=1.4,
+    alpha=0.8,
+    label="Hard box",
+)
+ax.plot(
+    noise_levels,
+    gaussian_prob,
     "-",
     color=RED,
     linewidth=1.8,
-    label=r"Gaussian box ($\sigma_b$=1.5)",
-)
-ax.plot(
-    noise,
-    hard_box,
-    "--",
-    color=SLATE,
-    linewidth=1.2,
-    alpha=0.7,
-    label=f"Hard box ($d$={d})",
+    label=rf"Gaussian ($\sigma_b$={sigma_box})",
 )
 
-ax.set_yscale("log")
-ax.set_ylim(0.01, 150)
-ax.set_xlim(0, 1.0)
+# Fill between Gumbel and Hard to show the gap
+ax.fill_between(
+    noise_levels,
+    gumbel_prob,
+    hard_prob,
+    where=(gumbel_prob > hard_prob),
+    alpha=0.08,
+    color=BLUE,
+)
 
-ax.set_xlabel("Noise level (coordinate perturbation $\\sigma$)", fontsize=9, color=TEXT)
-ax.set_ylabel("Containment loss (%, log scale)", fontsize=9, color=TEXT)
-ax.set_title("Noise robustness", fontsize=10, fontweight="bold", color=TEXT, pad=8)
+ax.set_xlim(0, 3.0)
+ax.set_ylim(0.45, 1.02)
+
+ax.set_xlabel(r"Noise level (coordinate perturbation $\sigma$)", fontsize=9, color=TEXT)
+ax.set_ylabel("Per-dimension containment probability", fontsize=9, color=TEXT)
+ax.set_title(
+    "Noise robustness (boundary coordinate, margin=2)",
+    fontsize=10,
+    fontweight="bold",
+    color=TEXT,
+    pad=8,
+)
 
 ax.legend(
     fontsize=7.5,
@@ -178,21 +164,47 @@ ax.legend(
     fancybox=False,
     edgecolor=GRID,
     framealpha=0.9,
-    loc="lower right",
+    loc="lower left",
 )
-ax.grid(True, alpha=0.3, linewidth=0.4, color=GRID, which="both")
+ax.grid(True, alpha=0.3, linewidth=0.4, color=GRID)
 ax.tick_params(labelsize=7, colors=SLATE_LIGHT)
 
-# Annotation -- position depends on computed curves
-gumbel_mid = gumbel_loss[len(noise) // 2]
+# Annotation: where Gumbel overtakes Hard box
+crossover_idx = np.argmax(gumbel_prob > hard_prob)
+if crossover_idx > 0:
+    cx = noise_levels[crossover_idx]
+    cy = gumbel_prob[crossover_idx]
+    ax.annotate(
+        "Gumbel overtakes\nhard box",
+        xy=(cx, cy),
+        xytext=(cx + 0.4, cy - 0.12),
+        fontsize=7,
+        color=BLUE,
+        fontstyle="italic",
+        arrowprops=dict(arrowstyle="->", color=BLUE, lw=0.8),
+    )
+
+# Annotation: Gaussian baseline
 ax.annotate(
-    "soft boundaries\nabsorb noise",
-    xy=(0.5, gumbel_mid),
-    xytext=(0.65, gumbel_mid * 0.15),
-    fontsize=7.5,
-    color=BLUE,
+    "Gaussian: inherent\nboundary uncertainty",
+    xy=(0.1, gaussian_prob[1]),
+    xytext=(0.6, 0.72),
+    fontsize=7,
+    color=RED,
     fontstyle="italic",
-    arrowprops=dict(arrowstyle="->", color=BLUE, lw=0.8),
+    arrowprops=dict(arrowstyle="->", color=RED, lw=0.8),
+)
+
+# Note: multi-dim containment = per_dim^d
+ax.text(
+    0.98,
+    0.02,
+    r"Multi-dim containment: $P_\mathrm{total} = P_\mathrm{dim}^{\,d}$",
+    transform=ax.transAxes,
+    fontsize=6,
+    color=SLATE_LIGHT,
+    ha="right",
+    va="bottom",
 )
 
 fig.savefig(
