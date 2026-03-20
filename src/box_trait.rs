@@ -344,21 +344,6 @@ pub trait Box: Sized {
     ///
     /// Returns `BoxError::DimensionMismatch` if boxes have different dimensions.
     ///
-    /// ## Interpretation
-    ///
-    /// - **1.0**: Complete overlap (boxes are identical or one contains the other)
-    /// - **0.0**: Complete disjointness (boxes don't intersect)
-    /// - **0.5**: Partial overlap (half the union is intersection)
-    ///
-    /// ## Use Cases
-    ///
-    /// - **Entity resolution**: High overlap probability suggests two boxes represent the same entity
-    /// - **Relatedness**: Moderate overlap suggests related but distinct concepts
-    /// - **Disjointness**: Low overlap suggests mutually exclusive concepts
-    ///
-    /// # Errors
-    ///
-    /// Returns `BoxError::DimensionMismatch` if boxes have different dimensions.
     fn overlap_prob(&self, other: &Self) -> Result<Self::Scalar, BoxError>;
 
     /// Compute the union of two boxes.

@@ -17,7 +17,7 @@ use crate::BoxError;
 
 /// Compute Query2Box alpha-weighted distance from an entity point to a query box.
 ///
-/// ## Mathematical Formulation (Ren et al., NeurIPS 2020)
+/// ## Mathematical Formulation (Ren et al., ICLR 2020)
 ///
 /// The distance from an entity point `v` to a query box `q` is:
 ///

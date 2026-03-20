@@ -251,7 +251,7 @@ pub struct TrainingConfig {
     /// approach the hard intersection. Annealed toward `gumbel_beta_final`
     /// across epochs when using `BoxEmbeddingTrainer::fit`.
     ///
-    /// Default: `1.0` (broad gradients, backward-compatible behavior when
+    /// Default: `10.0` (broad gradients, backward-compatible behavior when
     /// combined with the disjoint surrogate).
     pub gumbel_beta: f32,
 
@@ -261,7 +261,7 @@ pub struct TrainingConfig {
     /// from its initial value to this value over the training epochs.
     /// Higher final beta gives sharper containment boundaries at convergence.
     ///
-    /// Default: `10.0`.
+    /// Default: `50.0`.
     pub gumbel_beta_final: f32,
 
     /// Maximum L2 norm for combined gradients (global gradient clipping).
