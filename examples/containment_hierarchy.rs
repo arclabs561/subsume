@@ -8,7 +8,7 @@
 //! 1. Containment probabilities reflect the hierarchy
 //! 2. Volume correlates with concept generality
 //! 3. Overlap detects related-but-distinct concepts
-//! 4. Temperature controls the sharpness of probabilistic scores
+//! 4. Volume ratios quantify how much more general one concept is than another
 //!
 //! Reference: Vilnis et al. (2018), "Probabilistic Embedding of Knowledge Graphs
 //! with Box Lattice Measures"
@@ -35,7 +35,6 @@ fn main() -> Result<(), subsume::BoxError> {
     let cat = NdarrayBox::new(array![0.5, 0.5, 0.1], array![0.9, 0.9, 0.4], 1.0)?;
     let fish = NdarrayBox::new(array![0.1, 0.1, 0.96], array![0.5, 0.5, 0.99], 1.0)?;
 
-    let temp = 1.0;
 
     // --- Part 1: Volumes reflect generality ---
     println!("--- Volumes (larger = more general) ---\n");
@@ -82,13 +81,14 @@ fn main() -> Result<(), subsume::BoxError> {
         println!();
     }
 
-    // --- Part 4: Temperature effects ---
-    println!("\n--- Temperature effect on P(dog inside animal) ---\n");
-    println!("{:>12} {:>12}", "temperature", "P(dog|animal)");
-    for &t in &[0.1, 0.5, 1.0, 2.0, 5.0, 10.0] {
-        let p = animal.containment_prob(&dog)?;
-        println!("{:>12.1} {:>12.4}", t, p);
-    }
+    // --- Part 4: Volume ratios ---
+    println!("\n--- Volume ratios (generality) ---\n");
+    let vol_animal = animal.volume()?;
+    let vol_mammal = mammal.volume()?;
+    let vol_dog = dog.volume()?;
+    println!("  animal / mammal = {:.1}x", vol_animal / vol_mammal);
+    println!("  mammal / dog    = {:.1}x", vol_mammal / vol_dog);
+    println!("  animal / dog    = {:.1}x", vol_animal / vol_dog);
 
     // --- Part 5: Verify key relationships with computed values ---
     println!("\n--- Key relationships (computed) ---\n");

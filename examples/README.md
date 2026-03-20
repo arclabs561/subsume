@@ -13,6 +13,7 @@
 | `fuzzy_query` | Fuzzy query answering with t-norms (Min/Product/Lukasiewicz), t-conorms, negation, and De Morgan duality on a small KG |
 | `taxobell_demo` | TaxoBell Gaussian box losses on a mini taxonomy (no training, loss inspection only) |
 | `dataset_training` | Full pipeline: load WN18RR-format dataset, train box embeddings, evaluate with MRR/Hits@k |
+| `save_checkpoint` | Generate the pretrained WordNet subset checkpoint (writes `pretrained/wordnet_subset.json`) |
 | `imagenet_hierarchy` | Real-scale training on 252 Tiny ImageNet WordNet synsets; volume-depth correlation (Spearman) |
 | `hyperbolic_demo` | Poincare ball embeddings: norm-depth correlation, hierarchy preservation, exponential capacity |
 | `el_training` | End-to-end EL++ box embedding training on a biomedical-style ontology |
@@ -62,7 +63,7 @@ cargo run -p subsume --example fuzzy_query
 cargo run -p subsume --example taxobell_demo
 cargo run -p subsume --example dataset_training --release
 cargo run -p subsume --example imagenet_hierarchy --release
-cargo run -p subsume --example hyperbolic_demo
+cargo run -p subsume --features hyperbolic --example hyperbolic_demo
 cargo run -p subsume --example el_training --release
 cargo run -p subsume --features candle-backend --example taxobell_training --release
 ```
@@ -103,15 +104,11 @@ Each example below shows actual output from a single run.
        cat     0.048     0.066     0.000     1.000     0.000
       fish     0.005     0.000     0.000     0.000     1.000
 
---- Temperature effect on P(dog inside animal) ---
+--- Volume ratios (generality) ---
 
- temperature P(dog|animal)
-         0.1       1.0000
-         0.5       1.0000
-         1.0       1.0000
-         2.0       1.0000
-         5.0       1.0000
-        10.0       1.0000
+  animal / mammal = 1.4x
+  mammal / dog    = 27.0x
+  animal / dog    = 37.0x
 
 --- Key relationships (computed) ---
 
@@ -797,6 +794,6 @@ The `scripts/` directory contains Python plotting scripts (PEP 723, run with `uv
 
 - `scripts/plot_box_concept.py` -- generates `docs/box_concepts.png` (containment, Gumbel soft boundary, octagon vs box)
 - `scripts/plot_training.py` -- generates `docs/training_convergence.png` (loss curve + containment probability convergence)
-- `scripts/plot_gumbel_robustness.py` -- generates `docs/gumbel_robustness.png` (Gumbel vs Gaussian vs hard-box noise robustness)
+- `scripts/plot_gumbel_robustness.py` -- generates `docs/gumbel_robustness.png` (gradient landscape: Gumbel membership + gradient magnitude at box boundary)
 - `scripts/plot_temperature_sensitivity.py` -- generates `docs/temperature_sensitivity.png` (containment probability vs Gumbel temperature)
 - `scripts/plot_fuzzy_tnorms.py` -- generates `docs/fuzzy_tnorms.png` (t-norm contour plots and 1D slices)
