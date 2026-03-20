@@ -327,7 +327,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut vol_pairs: Vec<(&str, f32)> = entity_boxes
         .iter()
-        .map(|(&name, b)| (name, b.volume(1.0).unwrap_or(0.0)))
+        .map(|(&name, b)| (name, b.volume().unwrap_or(0.0)))
         .collect();
     vol_pairs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
 
@@ -363,7 +363,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for (label, head, tail, expect_high) in &checks {
         let hb = &entity_boxes[head];
         let tb = &entity_boxes[tail];
-        let p = hb.containment_prob(tb, 1.0)?;
+        let p = hb.containment_prob(tb)?;
         let ok = if *expect_high { p > 0.5 } else { p < 0.5 };
         let status = if ok { "OK" } else { "FAIL" };
         println!("  [{:>4}] {:<30} P = {:.3}", status, label, p);

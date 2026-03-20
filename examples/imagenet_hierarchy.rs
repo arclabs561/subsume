@@ -590,7 +590,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .iter()
             .filter_map(|&ename| {
                 let parent_b = ndarray_boxes.get(ename)?;
-                let p = parent_b.containment_prob(child_b, 1.0).ok()?;
+                let p = parent_b.containment_prob(child_b).ok()?;
                 Some((ename, p))
             })
             .collect();
@@ -634,7 +634,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .iter()
         .filter_map(|&name| {
             let b = ndarray_boxes.get(name)?;
-            let v = b.volume(1.0).unwrap_or(0.0) as f64;
+            let v = b.volume().unwrap_or(0.0) as f64;
             let lv = if v > 0.0 { v.ln() } else { f64::NEG_INFINITY };
             Some((name, depth[name], lv))
         })

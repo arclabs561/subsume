@@ -58,7 +58,7 @@ impl Box for CandleGumbelBox {
     /// Uses the stored temperature from construction; the `temperature` parameter is ignored.
     ///
     /// Per dimension: `softplus(Z - z - 2*gamma*T, beta=1/T)`
-    fn volume(&self, _temperature: Self::Scalar) -> std::result::Result<Self::Scalar, BoxError> {
+    fn volume(&self) -> std::result::Result<Self::Scalar, BoxError> {
         let t = self.inner.temperature;
         let mins = self
             .min()
@@ -135,14 +135,10 @@ impl Box for CandleGumbelBox {
     /// Uses the stored temperature from construction; the `temperature` parameter is ignored.
     ///
     /// `P(other inside self) = Vol(self cap other) / Vol(other)`
-    fn containment_prob(
-        &self,
-        other: &Self,
-        _temperature: Self::Scalar,
-    ) -> std::result::Result<Self::Scalar, BoxError> {
+    fn containment_prob(&self, other: &Self) -> std::result::Result<Self::Scalar, BoxError> {
         let inter = self.intersection(other)?;
-        let inter_vol = inter.volume(0.0)?;
-        let other_vol = other.volume(0.0)?;
+        let inter_vol = inter.volume()?;
+        let other_vol = other.volume()?;
         if other_vol <= 1e-30 {
             return Ok(0.0);
         }
@@ -152,15 +148,11 @@ impl Box for CandleGumbelBox {
     /// Overlap probability using Gumbel volume and LSE intersection.
     ///
     /// `P(self cap other != empty) = Vol(self cap other) / Vol(self cup other)`
-    fn overlap_prob(
-        &self,
-        other: &Self,
-        _temperature: Self::Scalar,
-    ) -> std::result::Result<Self::Scalar, BoxError> {
+    fn overlap_prob(&self, other: &Self) -> std::result::Result<Self::Scalar, BoxError> {
         let inter = self.intersection(other)?;
-        let inter_vol = inter.volume(0.0)?;
-        let self_vol = self.volume(0.0)?;
-        let other_vol = other.volume(0.0)?;
+        let inter_vol = inter.volume()?;
+        let self_vol = self.volume()?;
+        let other_vol = other.volume()?;
         let union_vol = self_vol + other_vol - inter_vol;
         if union_vol <= 1e-30 {
             return Ok(0.0);

@@ -175,7 +175,7 @@ impl Box for NdarrayBox {
         self.min.len()
     }
 
-    fn volume(&self, _temperature: Self::Scalar) -> Result<Self::Scalar, BoxError> {
+    fn volume(&self) -> Result<Self::Scalar, BoxError> {
         use crate::utils::log_space_volume;
 
         // Hard box volume: product of side lengths (Vilnis et al., 2018).
@@ -237,11 +237,7 @@ impl Box for NdarrayBox {
         )
     }
 
-    fn containment_prob(
-        &self,
-        other: &Self,
-        _temperature: Self::Scalar,
-    ) -> Result<Self::Scalar, BoxError> {
+    fn containment_prob(&self, other: &Self) -> Result<Self::Scalar, BoxError> {
         // Containment probability: P(other ⊆ self) = Vol(self ∩ other) / Vol(other).
         //
         // IMPORTANT: this is a hot path (training + evaluation). Constructing an explicit
@@ -310,12 +306,7 @@ impl Box for NdarrayBox {
         }
     }
 
-    fn containment_prob_many(
-        &self,
-        others: &[Self],
-        _temperature: Self::Scalar,
-        out: &mut [Self::Scalar],
-    ) -> Result<(), BoxError> {
+    fn containment_prob_many(&self, others: &[Self], out: &mut [Self::Scalar]) -> Result<(), BoxError> {
         if out.len() < others.len() {
             return Err(BoxError::Internal(format!(
                 "output buffer too small: need {}, got {}",
@@ -391,11 +382,7 @@ impl Box for NdarrayBox {
         Ok(())
     }
 
-    fn overlap_prob(
-        &self,
-        other: &Self,
-        _temperature: Self::Scalar,
-    ) -> Result<Self::Scalar, BoxError> {
+    fn overlap_prob(&self, other: &Self) -> Result<Self::Scalar, BoxError> {
         // Overlap probability: Vol(self ∩ other) / Vol(self ∪ other).
         //
         // Same optimization as `containment_prob`: avoid allocating an intersection box.
@@ -513,7 +500,7 @@ impl Box for NdarrayBox {
 
         // Check if boxes overlap (distance = 0)
         let intersection = self.intersection(other)?;
-        let intersection_vol = intersection.volume(1.0)?;
+        let intersection_vol = intersection.volume()?;
         if intersection_vol > 0.0 {
             return Ok(0.0);
         }
@@ -568,7 +555,7 @@ mod tests {
         let a = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();
         let b = NdarrayBox::new(array![2.0, 2.0], array![3.0, 3.0], 1.0).unwrap();
         let inter = a.intersection(&b).unwrap();
-        let vol = inter.volume(1.0).unwrap();
+        let vol = inter.volume().unwrap();
         assert_eq!(
             vol, 0.0,
             "Disjoint boxes must have zero intersection volume"
@@ -582,7 +569,7 @@ mod tests {
         let b = NdarrayBox::new(array![1.0, 1.0], array![3.0, 3.0], 1.0).unwrap();
         let inter = a.intersection(&b).unwrap();
         // Intersection should be [1,1] to [2,2], volume = 1.0
-        let vol = inter.volume(1.0).unwrap();
+        let vol = inter.volume().unwrap();
         assert!(
             (vol - 1.0).abs() < 1e-6,
             "Partial intersection volume should be 1.0, got {}",
@@ -596,8 +583,8 @@ mod tests {
         let a = NdarrayBox::new(array![0.0, 0.0], array![4.0, 4.0], 1.0).unwrap();
         let b = NdarrayBox::new(array![1.0, 1.0], array![3.0, 3.0], 1.0).unwrap();
         let inter = a.intersection(&b).unwrap();
-        let vol_inter = inter.volume(1.0).unwrap();
-        let vol_b = b.volume(1.0).unwrap();
+        let vol_inter = inter.volume().unwrap();
+        let vol_b = b.volume().unwrap();
         assert!(
             (vol_inter - vol_b).abs() < 1e-6,
             "When B is inside A, intersection volume should equal B's volume"
@@ -610,7 +597,7 @@ mod tests {
         let a = NdarrayBox::new(array![0.0, 0.0], array![2.0, 1.0], 1.0).unwrap();
         let b = NdarrayBox::new(array![1.0, 2.0], array![3.0, 3.0], 1.0).unwrap();
         let inter = a.intersection(&b).unwrap();
-        let vol = inter.volume(1.0).unwrap();
+        let vol = inter.volume().unwrap();
         assert_eq!(
             vol, 0.0,
             "Disjoint in one dimension means zero intersection volume"
@@ -624,9 +611,9 @@ mod tests {
         let a = NdarrayBox::new(array![0.0, 0.0], array![2.0, 2.0], 1.0).unwrap();
         let b = NdarrayBox::new(array![1.0, 1.0], array![3.0, 3.0], 1.0).unwrap();
         let u = a.union(&b).unwrap();
-        let vol_u = u.volume(1.0).unwrap();
-        let vol_a = a.volume(1.0).unwrap();
-        let vol_b = b.volume(1.0).unwrap();
+        let vol_u = u.volume().unwrap();
+        let vol_a = a.volume().unwrap();
+        let vol_b = b.volume().unwrap();
         assert!(
             vol_u >= vol_a - 1e-6,
             "Union volume {} must be >= volume of A {}",
@@ -645,8 +632,8 @@ mod tests {
     fn union_of_identical_boxes_equals_self() {
         let a = NdarrayBox::new(array![1.0, 2.0], array![3.0, 4.0], 1.0).unwrap();
         let u = a.union(&a).unwrap();
-        let vol_a = a.volume(1.0).unwrap();
-        let vol_u = u.volume(1.0).unwrap();
+        let vol_a = a.volume().unwrap();
+        let vol_u = u.volume().unwrap();
         assert!(
             (vol_a - vol_u).abs() < 1e-6,
             "Union of a box with itself should have the same volume"
@@ -662,13 +649,13 @@ mod tests {
         let a = NdarrayBox::new(array![0.0, 0.0, 0.0], array![4.0, 4.0, 4.0], 1.0).unwrap();
         let b = NdarrayBox::new(array![1.0, 1.0, 1.0], array![3.0, 3.0, 3.0], 1.0).unwrap();
 
-        let full_prob = a.containment_prob(&b, 1.0).unwrap();
+        let full_prob = a.containment_prob(&b).unwrap();
         assert!(full_prob > 0.99, "B should be inside A in full dims");
 
         for k in 1..=3 {
             let a_trunc = a.truncate(k).unwrap();
             let b_trunc = b.truncate(k).unwrap();
-            let trunc_prob = a_trunc.containment_prob(&b_trunc, 1.0).unwrap();
+            let trunc_prob = a_trunc.containment_prob(&b_trunc).unwrap();
             assert!(
                 trunc_prob > 0.99,
                 "Containment should be preserved when truncating to {} dims, got {}",
@@ -702,7 +689,7 @@ mod tests {
         let b = NdarrayBox::new(array![1.0, 1.0], array![3.0, 3.0], 1.0).unwrap();
         // NdarrayBox containment_prob ignores temperature for hard boxes,
         // but the call should not panic or produce NaN.
-        let p = a.containment_prob(&b, 0.01).unwrap();
+        let p = a.containment_prob(&b).unwrap();
         assert!(p.is_finite(), "Containment prob must be finite at low temp");
         assert!(
             (0.0..=1.0).contains(&p),
@@ -714,7 +701,7 @@ mod tests {
     fn containment_prob_very_large_temperature() {
         let a = NdarrayBox::new(array![0.0, 0.0], array![4.0, 4.0], 1.0).unwrap();
         let b = NdarrayBox::new(array![1.0, 1.0], array![3.0, 3.0], 1.0).unwrap();
-        let p = a.containment_prob(&b, 100.0).unwrap();
+        let p = a.containment_prob(&b).unwrap();
         assert!(
             p.is_finite(),
             "Containment prob must be finite at high temp"
@@ -784,7 +771,7 @@ mod tests {
     fn containment_prob_disjoint_is_zero() {
         let a = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();
         let b = NdarrayBox::new(array![5.0, 5.0], array![6.0, 6.0], 1.0).unwrap();
-        let p = a.containment_prob(&b, 1.0).unwrap();
+        let p = a.containment_prob(&b).unwrap();
         assert_eq!(p, 0.0, "Disjoint boxes should have zero containment");
     }
 
@@ -792,7 +779,7 @@ mod tests {
     fn containment_prob_full_containment_is_one() {
         let a = NdarrayBox::new(array![0.0, 0.0], array![4.0, 4.0], 1.0).unwrap();
         let b = NdarrayBox::new(array![1.0, 1.0], array![3.0, 3.0], 1.0).unwrap();
-        let p = a.containment_prob(&b, 1.0).unwrap();
+        let p = a.containment_prob(&b).unwrap();
         assert!(
             (p - 1.0).abs() < 1e-6,
             "Full containment should give prob ~1.0, got {}",
@@ -803,7 +790,7 @@ mod tests {
     #[test]
     fn overlap_prob_identical_boxes_is_one() {
         let a = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();
-        let p = a.overlap_prob(&a, 1.0).unwrap();
+        let p = a.overlap_prob(&a).unwrap();
         assert!(
             (p - 1.0).abs() < 1e-6,
             "Identical boxes should have overlap prob 1.0, got {}",
@@ -815,7 +802,7 @@ mod tests {
     fn overlap_prob_disjoint_is_zero() {
         let a = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();
         let b = NdarrayBox::new(array![5.0, 5.0], array![6.0, 6.0], 1.0).unwrap();
-        let p = a.overlap_prob(&b, 1.0).unwrap();
+        let p = a.overlap_prob(&b).unwrap();
         assert_eq!(p, 0.0, "Disjoint boxes should have overlap prob 0.0");
     }
 
@@ -851,7 +838,7 @@ mod tests {
     fn new_zero_width_box_is_valid() {
         // min == max is allowed (zero-volume box)
         let b = NdarrayBox::new(array![1.0, 2.0], array![1.0, 2.0], 1.0).unwrap();
-        let vol = b.volume(1.0).unwrap();
+        let vol = b.volume().unwrap();
         assert_eq!(vol, 0.0);
     }
 
@@ -859,7 +846,7 @@ mod tests {
     fn new_1d_box() {
         let b = NdarrayBox::new(array![0.0], array![5.0], 1.0).unwrap();
         assert_eq!(b.dim(), 1);
-        let vol = b.volume(1.0).unwrap();
+        let vol = b.volume().unwrap();
         assert!((vol - 5.0).abs() < 1e-6);
     }
 
@@ -871,19 +858,19 @@ mod tests {
         let b = NdarrayBox::new(array![3.0], array![7.0], 1.0).unwrap();
 
         // Volume: line segment lengths.
-        let vol_a = a.volume(1.0).unwrap();
+        let vol_a = a.volume().unwrap();
         assert!(
             (vol_a - 10.0).abs() < 1e-6,
             "vol(a) should be 10, got {vol_a}"
         );
-        let vol_b = b.volume(1.0).unwrap();
+        let vol_b = b.volume().unwrap();
         assert!(
             (vol_b - 4.0).abs() < 1e-6,
             "vol(b) should be 4, got {vol_b}"
         );
 
         // Containment: b is inside a.
-        let cp = a.containment_prob(&b, 1.0).unwrap();
+        let cp = a.containment_prob(&b).unwrap();
         assert!(
             (cp - 1.0).abs() < 1e-4,
             "b inside a => containment ~1.0, got {cp}"
@@ -891,7 +878,7 @@ mod tests {
 
         // Intersection: [3, 7].
         let inter = a.intersection(&b).unwrap();
-        let vol_inter = inter.volume(1.0).unwrap();
+        let vol_inter = inter.volume().unwrap();
         assert!(
             (vol_inter - 4.0).abs() < 1e-6,
             "intersection volume should be 4, got {vol_inter}"
@@ -899,7 +886,7 @@ mod tests {
 
         // Union: [0, 10].
         let u = a.union(&b).unwrap();
-        let vol_u = u.volume(1.0).unwrap();
+        let vol_u = u.volume().unwrap();
         assert!(
             (vol_u - 10.0).abs() < 1e-6,
             "union volume should be 10, got {vol_u}"
@@ -929,11 +916,11 @@ mod tests {
         ];
         let mut out = vec![0.0f32; 3];
         parent
-            .containment_prob_many(&children, 1.0, &mut out)
+            .containment_prob_many(&children, &mut out)
             .unwrap();
 
         for (i, child) in children.iter().enumerate() {
-            let expected = parent.containment_prob(child, 1.0).unwrap();
+            let expected = parent.containment_prob(child).unwrap();
             assert!(
                 (out[i] - expected).abs() < 1e-6,
                 "Mismatch at index {}: batch={} individual={}",
@@ -952,7 +939,7 @@ mod tests {
             NdarrayBox::new(array![0.0, 0.0], array![0.5, 0.5], 1.0).unwrap(),
         ];
         let mut out = vec![0.0f32; 1]; // too small
-        let result = parent.containment_prob_many(&children, 1.0, &mut out);
+        let result = parent.containment_prob_many(&children, &mut out);
         assert!(result.is_err());
     }
 
@@ -962,7 +949,7 @@ mod tests {
         let children =
             vec![NdarrayBox::new(array![0.0, 0.0, 0.0], array![0.5, 0.5, 0.5], 1.0).unwrap()];
         let mut out = vec![0.0f32; 1];
-        let result = parent.containment_prob_many(&children, 1.0, &mut out);
+        let result = parent.containment_prob_many(&children, &mut out);
         assert!(result.is_err());
     }
 
@@ -974,7 +961,7 @@ mod tests {
         let min_vals = Array1::from(vec![0.0; 12]);
         let max_vals = Array1::from(vec![2.0; 12]);
         let b = NdarrayBox::new(min_vals, max_vals, 1.0).unwrap();
-        let vol = b.volume(1.0).unwrap();
+        let vol = b.volume().unwrap();
         assert!((vol - 4096.0).abs() < 1.0, "Expected ~4096, got {}", vol);
     }
 
@@ -993,7 +980,7 @@ mod tests {
             1.0,
         )
         .unwrap();
-        let p = parent.containment_prob(&child, 1.0).unwrap();
+        let p = parent.containment_prob(&child).unwrap();
         assert!(
             (p - 1.0).abs() < 1e-4,
             "Fully nested in high dim should give ~1.0, got {}",
@@ -1016,7 +1003,7 @@ mod tests {
             1.0,
         )
         .unwrap();
-        let p = a.containment_prob(&b, 1.0).unwrap();
+        let p = a.containment_prob(&b).unwrap();
         assert_eq!(p, 0.0);
     }
 
@@ -1029,7 +1016,7 @@ mod tests {
             1.0,
         )
         .unwrap();
-        let p = a.overlap_prob(&a, 1.0).unwrap();
+        let p = a.overlap_prob(&a).unwrap();
         assert!(
             (p - 1.0).abs() < 1e-4,
             "Identical high-dim boxes should have overlap ~1.0, got {}",
@@ -1062,7 +1049,7 @@ mod tests {
         ];
         let mut out = vec![0.0f32; 2];
         parent
-            .containment_prob_many(&children, 1.0, &mut out)
+            .containment_prob_many(&children, &mut out)
             .unwrap();
         assert!(
             out[0] > 0.99,
@@ -1099,14 +1086,14 @@ mod tests {
     fn containment_prob_dimension_mismatch() {
         let a = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();
         let b = NdarrayBox::new(array![0.0], array![1.0], 1.0).unwrap();
-        assert!(a.containment_prob(&b, 1.0).is_err());
+        assert!(a.containment_prob(&b).is_err());
     }
 
     #[test]
     fn overlap_prob_dimension_mismatch() {
         let a = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();
         let b = NdarrayBox::new(array![0.0], array![1.0], 1.0).unwrap();
-        assert!(a.overlap_prob(&b, 1.0).is_err());
+        assert!(a.overlap_prob(&b).is_err());
     }
 
     #[test]
@@ -1122,7 +1109,7 @@ mod tests {
         let parent = NdarrayBox::new(array![0.0, 0.0], array![4.0, 4.0], 1.0).unwrap();
         let child = NdarrayBox::new(array![1.0, 1.0], array![1.0, 1.0], 1.0).unwrap();
         // Zero-volume "other" causes ZeroVolume error
-        let result = parent.containment_prob(&child, 1.0);
+        let result = parent.containment_prob(&child);
         assert!(result.is_err());
     }
 
@@ -1155,7 +1142,7 @@ mod tests {
     fn overlap_prob_partial_overlap_in_unit_interval() {
         let a = NdarrayBox::new(array![0.0, 0.0], array![2.0, 2.0], 1.0).unwrap();
         let b = NdarrayBox::new(array![1.0, 1.0], array![3.0, 3.0], 1.0).unwrap();
-        let p = a.overlap_prob(&b, 1.0).unwrap();
+        let p = a.overlap_prob(&b).unwrap();
         // Intersection = [1,1]-[2,2] vol=1, union = [0,0]-[3,3] vol=9
         // But overlap = vol_intersection / vol_union = 1/(4+4-1) = 1/7
         assert!(
@@ -1232,11 +1219,11 @@ mod tests {
         let max = Array1::from(vec![1.0f32; dim]);
         let a = NdarrayBox::new(min, max, 1.0).unwrap();
 
-        let vol = a.volume(1.0).unwrap();
+        let vol = a.volume().unwrap();
         assert!(!vol.is_nan(), "dim=100 volume is NaN");
         assert!(vol >= 0.0, "dim=100 volume is negative: {vol}");
 
-        let cp = a.containment_prob(&a, 1.0).unwrap();
+        let cp = a.containment_prob(&a).unwrap();
         assert!(cp.is_finite(), "dim=100 self-containment not finite: {cp}");
         assert!(
             (cp - 1.0).abs() < 1e-4,
@@ -1248,7 +1235,7 @@ mod tests {
         let inner_max = Array1::from(vec![0.75f32; dim]);
         let inner = NdarrayBox::new(inner_min, inner_max, 1.0).unwrap();
         let isect = a.intersection(&inner).unwrap();
-        let isect_vol = isect.volume(1.0).unwrap();
+        let isect_vol = isect.volume().unwrap();
         assert!(!isect_vol.is_nan(), "dim=100 intersection volume is NaN");
     }
 
@@ -1258,7 +1245,7 @@ mod tests {
     fn point_box_volume_zero() {
         let coords = array![1.0, 2.0, 3.0];
         let b = NdarrayBox::new(coords.clone(), coords, 1.0).unwrap();
-        let vol = b.volume(1.0).unwrap();
+        let vol = b.volume().unwrap();
         assert_eq!(vol, 0.0, "point box should have zero volume, got {vol}");
     }
 
@@ -1267,7 +1254,7 @@ mod tests {
         let coords = array![1.0, 2.0, 3.0];
         let point = NdarrayBox::new(coords.clone(), coords, 1.0).unwrap();
         // containment_prob may return Err(ZeroVolume) or Ok -- both are valid.
-        let result = point.containment_prob(&point, 1.0);
+        let result = point.containment_prob(&point);
         if let Ok(v) = result {
             assert!(v.is_finite(), "point box containment not finite: {v}");
         }
@@ -1280,7 +1267,7 @@ mod tests {
         let container = NdarrayBox::new(array![0.0, 0.0, 0.0], array![5.0, 5.0, 5.0], 1.0).unwrap();
 
         let isect = container.intersection(&point).unwrap();
-        let vol = isect.volume(1.0).unwrap();
+        let vol = isect.volume().unwrap();
         assert_eq!(
             vol, 0.0,
             "intersection with point box should have zero volume, got {vol}"
@@ -1321,7 +1308,7 @@ mod proptest_tests {
             let strat = arb_box(dim);
             proptest::test_runner::TestRunner::default()
                 .run(&strat, |b| {
-                    let v = b.volume(1.0).unwrap();
+                    let v = b.volume().unwrap();
                     prop_assert!(v >= 0.0, "volume must be >= 0, got {}", v);
                     prop_assert!(v.is_finite(), "volume must be finite, got {}", v);
                     Ok(())
@@ -1343,7 +1330,7 @@ mod proptest_tests {
                 maxs.push(a.max(*b));
             }
             let bx = NdarrayBox::new(Array1::from(mins), Array1::from(maxs), 1.0).unwrap();
-            let v = bx.volume(1.0).unwrap();
+            let v = bx.volume().unwrap();
             prop_assert!(v >= 0.0, "volume must be >= 0, got {}", v);
             prop_assert!(v.is_finite(), "volume must be finite");
         }
@@ -1364,7 +1351,7 @@ mod proptest_tests {
                 maxs.push(*lo + *width);
             }
             let bx = NdarrayBox::new(Array1::from(mins), Array1::from(maxs), 1.0).unwrap();
-            let p = bx.containment_prob(&bx, 1.0).unwrap();
+            let p = bx.containment_prob(&bx).unwrap();
             prop_assert!(
                 (p - 1.0).abs() < 1e-5,
                 "containment_prob(b, b) should be 1.0, got {}",
@@ -1388,7 +1375,7 @@ mod proptest_tests {
                 maxs.push(*lo + *width);
             }
             let bx = NdarrayBox::new(Array1::from(mins), Array1::from(maxs), 1.0).unwrap();
-            let p = bx.overlap_prob(&bx, 1.0).unwrap();
+            let p = bx.overlap_prob(&bx).unwrap();
             prop_assert!(
                 (p - 1.0).abs() < 1e-5,
                 "overlap_prob(b, b) should be 1.0, got {}",
@@ -1485,9 +1472,9 @@ mod proptest_tests {
             let a = NdarrayBox::new(outer_mins, outer_maxs, 1.0).unwrap();
             let b = NdarrayBox::new(inner_mins, inner_maxs, 1.0).unwrap();
 
-            let cp = a.containment_prob(&b, 1.0).unwrap();
+            let cp = a.containment_prob(&b).unwrap();
             if cp > 0.9 {
-                let op = a.overlap_prob(&b, 1.0).unwrap();
+                let op = a.overlap_prob(&b).unwrap();
                 prop_assert!(
                     op > 0.0,
                     "containment_prob={} > 0.9 but overlap_prob={} is not > 0",
@@ -1558,9 +1545,9 @@ mod proptest_tests {
             (a, b) in (arb_nondegenerate_box(3), arb_nondegenerate_box(3))
         ) {
             let inter = a.intersection(&b).unwrap();
-            let vol_inter = inter.volume(1.0).unwrap();
-            let vol_a = a.volume(1.0).unwrap();
-            let vol_b = b.volume(1.0).unwrap();
+            let vol_inter = inter.volume().unwrap();
+            let vol_a = a.volume().unwrap();
+            let vol_b = b.volume().unwrap();
             let min_vol = vol_a.min(vol_b);
             prop_assert!(
                 vol_inter <= min_vol + 1e-4,
@@ -1609,9 +1596,9 @@ mod proptest_tests {
                 1.0,
             ).unwrap();
 
-            let p_ab = a.containment_prob(&b, 1.0).unwrap();
-            let p_bc = b.containment_prob(&c, 1.0).unwrap();
-            let p_ac = a.containment_prob(&c, 1.0).unwrap();
+            let p_ab = a.containment_prob(&b).unwrap();
+            let p_bc = b.containment_prob(&c).unwrap();
+            let p_ac = a.containment_prob(&c).unwrap();
 
             // If A contains B and B contains C, then A must contain C.
             if p_ab > 0.99 && p_bc > 0.99 {
@@ -1649,10 +1636,10 @@ mod degenerate_tests {
             let d = val.len();
             // Fully zero-volume: min == max everywhere.
             let zb = NdarrayBox::new(Array1::from(val.clone()), Array1::from(val.clone()), 1.0).unwrap();
-            let vol = zb.volume(1.0).unwrap();
+            let vol = zb.volume().unwrap();
             assert!(vol == 0.0, "zero-volume box has vol {vol}");
             // containment_prob may return Err(ZeroVolume) -- that's valid.
-            let cp = zb.containment_prob(&zb, 1.0);
+            let cp = zb.containment_prob(&zb);
             if let Ok(v) = cp { assert!(v.is_finite(), "zero-vol containment not finite: {v}"); }
 
             // Partial zero-volume: first k dims collapsed, rest have width 1.
@@ -1662,7 +1649,7 @@ mod degenerate_tests {
                 *m += 1.0;
             }
             let pb = NdarrayBox::new(Array1::from(val), Array1::from(maxs), 1.0).unwrap();
-            let pv = pb.volume(1.0).unwrap();
+            let pv = pb.volume().unwrap();
             assert!(pv.is_finite() && pv >= 0.0, "partial zero-vol: {pv}");
         }
 
@@ -1674,10 +1661,10 @@ mod degenerate_tests {
             let eps = 1e-7_f32;
             let maxs: Vec<f32> = base.iter().map(|v| v + eps).collect();
             let b = NdarrayBox::new(Array1::from(base), Array1::from(maxs), 1.0).unwrap();
-            let vol = b.volume(1.0).unwrap();
+            let vol = b.volume().unwrap();
             assert!(vol.is_finite() && vol >= 0.0, "near-zero vol: {vol}");
             // May return Err(ZeroVolume) if width underflows to zero.
-            if let Ok(cp) = b.containment_prob(&b, 1.0) {
+            if let Ok(cp) = b.containment_prob(&b) {
                 assert!(cp.is_finite(), "near-zero containment: {cp}");
             }
         }
@@ -1691,7 +1678,7 @@ mod degenerate_tests {
                 Array1::from(vec![big; dim]),
                 1.0,
             ).unwrap();
-            let vol = b.volume(1.0).unwrap();
+            let vol = b.volume().unwrap();
             // Volume may overflow to inf in high dims; just must not NaN or panic.
             assert!(!vol.is_nan(), "large-coord volume is NaN");
         }
@@ -1704,9 +1691,9 @@ mod degenerate_tests {
                 Array1::from(vec![1.0f32; dim]),
                 1.0,
             ).unwrap();
-            let vol = b.volume(1.0).unwrap();
+            let vol = b.volume().unwrap();
             assert!(!vol.is_nan(), "high-dim volume is NaN (d={dim})");
-            let cp = b.containment_prob(&b, 1.0).unwrap();
+            let cp = b.containment_prob(&b).unwrap();
             assert!(cp.is_finite(), "high-dim containment not finite (d={dim})");
         }
 
@@ -1720,9 +1707,9 @@ mod degenerate_tests {
                 Array1::from(vec![1.0, 0.0, 3.0]),
                 temp,
             ).unwrap();
-            let vol = b.volume(temp).unwrap();
+            let vol = b.volume().unwrap();
             assert!(vol.is_finite() && vol >= 0.0, "temp={temp} vol={vol}");
-            let cp = b.containment_prob(&b, temp).unwrap();
+            let cp = b.containment_prob(&b).unwrap();
             assert_finite_prob(cp, &format!("temp={temp} self-containment"));
         }
 
@@ -1734,7 +1721,7 @@ mod degenerate_tests {
                 Array1::from(vec![lo + width]),
                 1.0,
             ).unwrap();
-            let vol = b.volume(1.0).unwrap();
+            let vol = b.volume().unwrap();
             assert!(vol.is_finite() && vol >= 0.0, "1d vol: {vol}");
             assert!((vol - width).abs() < 1e-4, "1d vol should equal width: {vol} vs {width}");
         }

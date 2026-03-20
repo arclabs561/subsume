@@ -47,7 +47,7 @@ fn main() -> Result<(), subsume::BoxError> {
         ("fish", &fish),
     ];
     for (name, b) in &entities {
-        println!("  {:>8}: volume = {:.4}", name, b.volume(temp)?);
+        println!("  {:>8}: volume = {:.4}", name, b.volume()?);
     }
 
     // --- Part 2: Containment probabilities ---
@@ -60,7 +60,7 @@ fn main() -> Result<(), subsume::BoxError> {
     for (rname, rb) in &entities {
         print!("{:>10}", rname);
         for (_cname, cb) in &entities {
-            let p = cb.containment_prob(rb, temp)?;
+            let p = cb.containment_prob(rb)?;
             print!("{:>10.3}", p);
         }
         println!();
@@ -76,7 +76,7 @@ fn main() -> Result<(), subsume::BoxError> {
     for (rname, rb) in &entities {
         print!("{:>10}", rname);
         for (_cname, cb) in &entities {
-            let p = rb.overlap_prob(cb, temp)?;
+            let p = rb.overlap_prob(cb)?;
             print!("{:>10.3}", p);
         }
         println!();
@@ -86,32 +86,32 @@ fn main() -> Result<(), subsume::BoxError> {
     println!("\n--- Temperature effect on P(dog inside animal) ---\n");
     println!("{:>12} {:>12}", "temperature", "P(dog|animal)");
     for &t in &[0.1, 0.5, 1.0, 2.0, 5.0, 10.0] {
-        let p = animal.containment_prob(&dog, t)?;
+        let p = animal.containment_prob(&dog)?;
         println!("{:>12.1} {:>12.4}", t, p);
     }
 
     // --- Part 5: Verify key relationships with computed values ---
     println!("\n--- Key relationships (computed) ---\n");
 
-    let p_dog_mammal = mammal.containment_prob(&dog, temp)?;
-    let p_mammal_animal = animal.containment_prob(&mammal, temp)?;
-    let p_dog_animal = animal.containment_prob(&dog, temp)?;
+    let p_dog_mammal = mammal.containment_prob(&dog)?;
+    let p_mammal_animal = animal.containment_prob(&mammal)?;
+    let p_dog_animal = animal.containment_prob(&dog)?;
     println!(
         "  P(dog in mammal) = {:.4}, P(mammal in animal) = {:.4}, P(dog in animal) = {:.4}",
         p_dog_mammal, p_mammal_animal, p_dog_animal
     );
     println!("  -> Transitive containment: dog inside mammal inside animal");
 
-    let p_dog_cat = dog.overlap_prob(&cat, temp)?;
-    let p_cat_dog = cat.overlap_prob(&dog, temp)?;
+    let p_dog_cat = dog.overlap_prob(&cat)?;
+    let p_cat_dog = cat.overlap_prob(&dog)?;
     println!(
         "\n  overlap(dog, cat) = {:.4}, overlap(cat, dog) = {:.4}",
         p_dog_cat, p_cat_dog
     );
     println!("  -> Low overlap: dog and cat occupy different regions");
 
-    let p_fish_mammal = mammal.containment_prob(&fish, temp)?;
-    let p_fish_animal = animal.containment_prob(&fish, temp)?;
+    let p_fish_mammal = mammal.containment_prob(&fish)?;
+    let p_fish_animal = animal.containment_prob(&fish)?;
     println!(
         "\n  P(fish in mammal) = {:.4}, P(fish in animal) = {:.4}",
         p_fish_mammal, p_fish_animal
@@ -122,8 +122,8 @@ fn main() -> Result<(), subsume::BoxError> {
     // Temperature smoothing only affects Gumbel boxes (see gumbel_box_exploration example).
     // The temperature sweep above (Part 4) shows this: P(dog|animal) is ~1.0 at all temps
     // because hard containment is exact. For probabilistic soft boundaries, use GumbelBox.
-    let v_animal = animal.volume(temp)?;
-    let v_dog = dog.volume(temp)?;
+    let v_animal = animal.volume()?;
+    let v_dog = dog.volume()?;
     println!(
         "\n  volume(animal) = {:.4}, volume(dog) = {:.4}, ratio = {:.1}x",
         v_animal,

@@ -78,7 +78,7 @@ impl Box for NdarrayGumbelBox {
     ///
     /// This provides smooth gradients even for near-empty boxes, solving the local
     /// identifiability problem that motivates Gumbel boxes in the first place.
-    fn volume(&self, _temperature: Self::Scalar) -> Result<Self::Scalar, BoxError> {
+    fn volume(&self) -> Result<Self::Scalar, BoxError> {
         let t = self.inner.temperature;
         let mins = self.min().as_slice().unwrap();
         let maxs = self.max().as_slice().unwrap();
@@ -126,14 +126,10 @@ impl Box for NdarrayGumbelBox {
     /// Uses the stored temperature from construction; the `temperature` parameter is ignored.
     ///
     /// `P(other inside self) = Vol(self cap other) / Vol(other)`
-    fn containment_prob(
-        &self,
-        other: &Self,
-        _temperature: Self::Scalar,
-    ) -> Result<Self::Scalar, BoxError> {
+    fn containment_prob(&self, other: &Self) -> Result<Self::Scalar, BoxError> {
         let inter = self.intersection(other)?;
-        let inter_vol = inter.volume(0.0)?;
-        let other_vol = other.volume(0.0)?;
+        let inter_vol = inter.volume()?;
+        let other_vol = other.volume()?;
         if other_vol <= 1e-30 {
             return Ok(0.0);
         }
@@ -143,15 +139,11 @@ impl Box for NdarrayGumbelBox {
     /// Overlap probability using Gumbel volume and LSE intersection.
     ///
     /// `P(self cap other != empty) = Vol(self cap other) / Vol(self cup other)`
-    fn overlap_prob(
-        &self,
-        other: &Self,
-        _temperature: Self::Scalar,
-    ) -> Result<Self::Scalar, BoxError> {
+    fn overlap_prob(&self, other: &Self) -> Result<Self::Scalar, BoxError> {
         let inter = self.intersection(other)?;
-        let inter_vol = inter.volume(0.0)?;
-        let self_vol = self.volume(0.0)?;
-        let other_vol = other.volume(0.0)?;
+        let inter_vol = inter.volume()?;
+        let self_vol = self.volume()?;
+        let other_vol = other.volume()?;
         let union_vol = self_vol + other_vol - inter_vol;
         if union_vol <= 1e-30 {
             return Ok(0.0);
@@ -316,9 +308,9 @@ mod tests {
         let b = NdarrayGumbelBox::new(array![1.0, 1.0], array![9.0, 9.0], 1.0).unwrap();
         let c = NdarrayGumbelBox::new(array![2.0, 2.0], array![8.0, 8.0], 1.0).unwrap();
 
-        let p_b_in_a = a.containment_prob(&b, 1.0).unwrap();
-        let p_c_in_a = a.containment_prob(&c, 1.0).unwrap();
-        let p_c_in_b = b.containment_prob(&c, 1.0).unwrap();
+        let p_b_in_a = a.containment_prob(&b).unwrap();
+        let p_c_in_a = a.containment_prob(&c).unwrap();
+        let p_c_in_b = b.containment_prob(&c).unwrap();
 
         // All should be well above 0.5 for clearly nested boxes
         assert!(p_b_in_a > 0.7, "B should be inside A, got {}", p_b_in_a);
@@ -328,7 +320,7 @@ mod tests {
         // At low temperature, should approach hard-box behavior
         let a_sharp = NdarrayGumbelBox::new(array![0.0, 0.0], array![10.0, 10.0], 0.01).unwrap();
         let b_sharp = NdarrayGumbelBox::new(array![1.0, 1.0], array![9.0, 9.0], 0.01).unwrap();
-        let p_sharp = a_sharp.containment_prob(&b_sharp, 0.01).unwrap();
+        let p_sharp = a_sharp.containment_prob(&b_sharp).unwrap();
         assert!(
             p_sharp > 0.99,
             "At low T, containment should be ~1.0, got {}",
@@ -502,7 +494,7 @@ mod tests {
         let a = NdarrayGumbelBox::new(array![0.0, 0.0], array![2.0, 2.0], 1.0).unwrap();
         let b = NdarrayGumbelBox::new(array![1.0, 1.0], array![3.0, 3.0], 1.0).unwrap();
         let inter = a.intersection(&b).unwrap();
-        let vol = inter.volume(1.0).unwrap();
+        let vol = inter.volume().unwrap();
         // Volume should be positive but less than the hard intersection volume (1.0)
         assert!(
             vol > 0.0,
@@ -519,7 +511,7 @@ mod tests {
         let a_sharp = NdarrayGumbelBox::new(array![0.0, 0.0], array![2.0, 2.0], 0.01).unwrap();
         let b_sharp = NdarrayGumbelBox::new(array![1.0, 1.0], array![3.0, 3.0], 0.01).unwrap();
         let inter_sharp = a_sharp.intersection(&b_sharp).unwrap();
-        let vol_sharp = inter_sharp.volume(0.01).unwrap();
+        let vol_sharp = inter_sharp.volume().unwrap();
         // Hard intersection is [1,2]^2 = 1.0; Bessel vol at T=0.01 should be close
         assert!(
             (vol_sharp - 1.0).abs() < 0.1,
@@ -532,8 +524,8 @@ mod tests {
     fn gumbel_box_union_delegates() {
         let a = NdarrayGumbelBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();
         let u = a.union(&a).unwrap();
-        let vol_a = a.volume(1.0).unwrap();
-        let vol_u = u.volume(1.0).unwrap();
+        let vol_a = a.volume().unwrap();
+        let vol_u = u.volume().unwrap();
         assert!((vol_a - vol_u).abs() < 1e-6);
     }
 
@@ -600,8 +592,8 @@ mod tests {
         // Larger side length => larger Bessel volume
         let small = NdarrayGumbelBox::new(array![0.0], array![2.0], 1.0).unwrap();
         let large = NdarrayGumbelBox::new(array![0.0], array![5.0], 1.0).unwrap();
-        let v_small = small.volume(1.0).unwrap();
-        let v_large = large.volume(1.0).unwrap();
+        let v_small = small.volume().unwrap();
+        let v_large = large.volume().unwrap();
         assert!(
             v_large > v_small,
             "larger box should have larger vol: {v_large} vs {v_small}"
@@ -611,7 +603,7 @@ mod tests {
     #[test]
     fn bessel_volume_positive_for_nonempty_box() {
         let b = NdarrayGumbelBox::new(array![0.0, 0.0, 0.0], array![1.0, 1.0, 1.0], 1.0).unwrap();
-        let v = b.volume(1.0).unwrap();
+        let v = b.volume().unwrap();
         assert!(
             v > 0.0,
             "non-empty box should have positive volume, got {v}"
@@ -623,7 +615,7 @@ mod tests {
     fn bessel_volume_approaches_hard_at_low_temperature() {
         // At T=0.01, Bessel volume should be close to hard volume
         let b = NdarrayGumbelBox::new(array![0.0, 0.0], array![3.0, 4.0], 0.01).unwrap();
-        let v = b.volume(0.01).unwrap();
+        let v = b.volume().unwrap();
         let hard_vol = 3.0 * 4.0;
         assert!(
             (v - hard_vol).abs() / hard_vol < 0.05,
@@ -635,7 +627,7 @@ mod tests {
     fn bessel_volume_smaller_than_hard_at_high_temperature() {
         // The 2*gamma*T offset reduces effective side lengths
         let b = NdarrayGumbelBox::new(array![0.0, 0.0], array![5.0, 5.0], 1.0).unwrap();
-        let bessel_vol = b.volume(1.0).unwrap();
+        let bessel_vol = b.volume().unwrap();
         let hard_vol = 5.0 * 5.0;
         assert!(
             bessel_vol < hard_vol,
@@ -722,7 +714,7 @@ mod tests {
     fn disjoint_boxes_have_near_zero_gumbel_containment() {
         let a = NdarrayGumbelBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();
         let b = NdarrayGumbelBox::new(array![10.0, 10.0], array![11.0, 11.0], 1.0).unwrap();
-        let p = a.containment_prob(&b, 1.0).unwrap();
+        let p = a.containment_prob(&b).unwrap();
         assert!(
             p < 0.01,
             "disjoint boxes should have near-zero containment, got {p}"
@@ -734,7 +726,7 @@ mod tests {
         // Overlapping boxes
         let a = NdarrayGumbelBox::new(array![0.0, 0.0], array![3.0, 3.0], 1.0).unwrap();
         let b = NdarrayGumbelBox::new(array![1.0, 1.0], array![4.0, 4.0], 1.0).unwrap();
-        let p = a.overlap_prob(&b, 1.0).unwrap();
+        let p = a.overlap_prob(&b).unwrap();
         assert!(
             p > 0.0,
             "overlapping boxes should have positive overlap, got {p}"
@@ -743,7 +735,7 @@ mod tests {
 
         // Disjoint boxes
         let c = NdarrayGumbelBox::new(array![10.0, 10.0], array![11.0, 11.0], 1.0).unwrap();
-        let p_disjoint = a.overlap_prob(&c, 1.0).unwrap();
+        let p_disjoint = a.overlap_prob(&c).unwrap();
         assert!(
             p_disjoint < 0.01,
             "disjoint boxes should have near-zero overlap, got {p_disjoint}"
@@ -907,7 +899,7 @@ mod proptest_tests {
                 temp,
             ).unwrap();
 
-            let vol = gb.volume(temp).unwrap();
+            let vol = gb.volume().unwrap();
             prop_assert!(vol >= 0.0, "Bessel volume must be >= 0, got {vol}");
             prop_assert!(vol.is_finite(), "Bessel volume must be finite, got {vol}");
         }
@@ -936,7 +928,7 @@ mod proptest_tests {
                 temp,
             ).unwrap();
 
-            let p = a.containment_prob(&b, temp).unwrap();
+            let p = a.containment_prob(&b).unwrap();
             prop_assert!(p >= -1e-6, "containment prob must be >= 0, got {p}");
             prop_assert!(p <= 1.0 + 1e-6, "containment prob must be <= 1, got {p}");
             prop_assert!(p.is_finite(), "containment prob must be finite, got {p}");
@@ -968,8 +960,8 @@ mod proptest_tests {
 
             let ab = a.intersection(&b).unwrap();
             let ba = b.intersection(&a).unwrap();
-            let vol_ab = ab.volume(temp).unwrap();
-            let vol_ba = ba.volume(temp).unwrap();
+            let vol_ab = ab.volume().unwrap();
+            let vol_ba = ba.volume().unwrap();
             prop_assert!(
                 (vol_ab - vol_ba).abs() < 1e-4,
                 "intersection volume should be symmetric: {vol_ab} vs {vol_ba}"
@@ -1060,7 +1052,7 @@ mod proptest_tests {
                 Array1::from(maxs),
                 temp,
             ).unwrap();
-            let bessel_vol = gb.volume(temp).unwrap();
+            let bessel_vol = gb.volume().unwrap();
 
             // At low T, Bessel volume should be close to hard volume but slightly less
             // (the 2*gamma*T offset reduces each side by ~2*0.577*T per dim).
@@ -1104,7 +1096,7 @@ mod proptest_tests {
                 t_low,
             ).unwrap();
 
-            let containment = a.containment_prob(&b, t_low).unwrap();
+            let containment = a.containment_prob(&b).unwrap();
             prop_assert!(
                 containment > 0.9,
                 "hard containment=1.0 but Gumbel containment at T={t_low} is only {containment}"
@@ -1136,7 +1128,7 @@ mod proptest_tests {
                 stored_temp,
             ).unwrap();
 
-            let vol = gb.volume(query_temp).unwrap();
+            let vol = gb.volume().unwrap();
             prop_assert!(vol >= 0.0,
                 "Gumbel volume must be >= 0 for any temp, got {vol} (stored_t={stored_temp}, query_t={query_temp})");
             prop_assert!(vol.is_finite(),

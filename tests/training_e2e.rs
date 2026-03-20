@@ -257,7 +257,7 @@ fn box_training_convergence() {
     for &(parent, child) in &containment_pairs {
         let pb = &entity_boxes[parent];
         let cb = &entity_boxes[child];
-        let p = pb.containment_prob(cb, 1.0).unwrap();
+        let p = pb.containment_prob(cb).unwrap();
         assert!(
             p > 0.5,
             "containment_prob({parent}, {child}) = {p}, expected > 0.5"
@@ -267,8 +267,8 @@ fn box_training_convergence() {
     // Check 3: volume ordering -- parent volume > child volume for >= 80% of pairs
     let mut volume_ok = 0;
     for &(parent, child) in &containment_pairs {
-        let pv = entity_boxes[parent].volume(1.0).unwrap();
-        let cv = entity_boxes[child].volume(1.0).unwrap();
+        let pv = entity_boxes[parent].volume().unwrap();
+        let cv = entity_boxes[child].volume().unwrap();
         if pv > cv {
             volume_ok += 1;
         }
@@ -734,7 +734,7 @@ salmon\t_hypernym\tanimal";
             .iter()
             .filter_map(|&ename| {
                 let parent_b = ndarray_boxes.get(ename)?;
-                let p = parent_b.containment_prob(child_b, 1.0).ok()?;
+                let p = parent_b.containment_prob(child_b).ok()?;
                 Some((ename, p))
             })
             .collect();

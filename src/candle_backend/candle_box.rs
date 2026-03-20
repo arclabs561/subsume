@@ -97,7 +97,7 @@ impl Box for CandleBox {
         self.min.dims().iter().product()
     }
 
-    fn volume(&self, _temperature: Self::Scalar) -> std::result::Result<Self::Scalar, BoxError> {
+    fn volume(&self) -> std::result::Result<Self::Scalar, BoxError> {
         // Volume = ∏(max\[i\] - min\[i\])
         let diff = self
             .max
@@ -150,11 +150,7 @@ impl Box for CandleBox {
         Self::new(intersection_min, intersection_max, self.temperature)
     }
 
-    fn containment_prob(
-        &self,
-        other: &Self,
-        temperature: Self::Scalar,
-    ) -> std::result::Result<Self::Scalar, BoxError> {
+    fn containment_prob(&self, other: &Self) -> std::result::Result<Self::Scalar, BoxError> {
         if self.dim() != other.dim() {
             return Err(BoxError::DimensionMismatch {
                 expected: self.dim(),
@@ -164,8 +160,8 @@ impl Box for CandleBox {
 
         // P(other ⊆ self) = intersection_volume(other, self) / other.volume()
         let intersection = self.intersection(other)?;
-        let intersection_vol = intersection.volume(temperature)?;
-        let other_vol = other.volume(temperature)?;
+        let intersection_vol = intersection.volume()?;
+        let other_vol = other.volume()?;
 
         if other_vol <= 0.0 {
             return Err(BoxError::ZeroVolume);
@@ -174,19 +170,15 @@ impl Box for CandleBox {
         Ok((intersection_vol / other_vol).clamp(0.0, 1.0))
     }
 
-    fn overlap_prob(
-        &self,
-        other: &Self,
-        temperature: Self::Scalar,
-    ) -> std::result::Result<Self::Scalar, BoxError> {
+    fn overlap_prob(&self, other: &Self) -> std::result::Result<Self::Scalar, BoxError> {
         // P(self ∩ other ≠ ∅) = intersection_volume / union_volume
         // Using inclusion-exclusion: P(A ∩ B ≠ ∅) = intersection_vol(A, B) / union_vol(A, B)
         let intersection = self.intersection(other)?;
-        let intersection_vol = intersection.volume(temperature)?;
+        let intersection_vol = intersection.volume()?;
 
         // Union volume = vol(A) + vol(B) - intersection_vol(A, B)
-        let vol_a = self.volume(temperature)?;
-        let vol_b = other.volume(temperature)?;
+        let vol_a = self.volume()?;
+        let vol_b = other.volume()?;
         let union_vol = vol_a + vol_b - intersection_vol;
 
         if union_vol <= 0.0 {
@@ -240,7 +232,7 @@ impl Box for CandleBox {
 
         // Check if boxes overlap (distance = 0)
         let intersection = self.intersection(other)?;
-        let intersection_vol = intersection.volume(1.0)?;
+        let intersection_vol = intersection.volume()?;
         if intersection_vol > 0.0 {
             return Ok(0.0);
         }

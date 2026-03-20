@@ -25,17 +25,17 @@ impl PyNdarrayBox {
         Ok(Self { inner })
     }
 
-    /// Compute the volume of this box at the given temperature.
-    fn volume(&self, temperature: f32) -> PyResult<f32> {
+    /// Compute the volume of this box.
+    fn volume(&self) -> PyResult<f32> {
         self.inner
-            .volume(temperature)
+            .volume()
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
     }
 
     /// Compute containment probability P(other inside self).
-    fn containment_prob(&self, other: &PyNdarrayBox, temperature: f32) -> PyResult<f32> {
+    fn containment_prob(&self, other: &PyNdarrayBox) -> PyResult<f32> {
         self.inner
-            .containment_prob(&other.inner, temperature)
+            .containment_prob(&other.inner)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
     }
 
@@ -154,7 +154,7 @@ fn containment_probability(
     )
     .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
-    a.containment_prob(&b, temperature)
+    a.containment_prob(&b)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
 }
 
