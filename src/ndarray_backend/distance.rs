@@ -14,9 +14,11 @@ use ndarray::Array1;
 ///
 /// For axis-aligned boxes, the distance from point v to box B is:
 ///
-/// \[
+///
+/// $$
 /// d(v, B) = \sqrt{\sum_{i=1}^{d} \max(0, \min(v_i, B_{\min,i}) - B_{\min,i})^2 + \max(0, B_{\max,i} - \max(v_i, B_{\min,i}))^2}
-/// \]
+/// $$
+///
 ///
 /// Simplified: for each dimension i:
 /// - If v\[i\] < min\[i\]: distance contribution = (min\[i\] - v\[i\])²

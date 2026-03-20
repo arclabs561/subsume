@@ -149,11 +149,9 @@ fn parity_10d() {
 
 // -- GumbelBox parity --
 //
-// CandleGumbelBox delegates Box trait methods (volume, intersection, containment_prob)
-// to hard-box CandleBox, while NdarrayGumbelBox uses Bessel volume and LSE intersection.
-// These are documented to differ (see CandleGumbelBox doc comment). We therefore test
-// only the GumbelBox-specific method: membership_probability, which uses identical
-// scalar math (gumbel_membership_prob) in both backends.
+// Both CandleGumbelBox and NdarrayGumbelBox use the same Gumbel math:
+// Bessel/softplus volume, LSE intersection, and gumbel_membership_prob.
+// All Box trait methods and inherent methods should produce identical results.
 
 use subsume::candle_backend::CandleGumbelBox;
 use subsume::ndarray_backend::NdarrayGumbelBox;
@@ -297,6 +295,82 @@ fn gumbel_parity_temperature() {
             &format!("gumbel_temperature temp={temp}"),
             ng.temperature(),
             cg.temperature(),
+        );
+    }
+}
+
+#[test]
+fn gumbel_parity_volume() {
+    for &temp in &[0.01, 0.5, 1.0, 2.0] {
+        let (ng, cg) = make_gumbel_pair(&[0.0, 0.0, 0.0], &[2.0, 3.0, 1.0], temp);
+        assert_close(
+            &format!("gumbel_volume temp={temp}"),
+            ng.volume(temp).unwrap(),
+            cg.volume(temp).unwrap(),
+        );
+    }
+}
+
+#[test]
+fn gumbel_parity_intersection() {
+    use subsume::Box as BoxTrait;
+    for &temp in &[0.01, 0.5, 1.0, 2.0] {
+        let (na, ca) = make_gumbel_pair(&[0.0, 0.0], &[3.0, 3.0], temp);
+        let (nb, cb) = make_gumbel_pair(&[1.0, 1.0], &[4.0, 4.0], temp);
+
+        let ni = na.intersection(&nb).unwrap();
+        let ci = ca.intersection(&cb).unwrap();
+
+        let ni_min: Vec<f32> = ni.min().iter().copied().collect();
+        let ci_min: Vec<f32> = ci.min().to_vec1::<f32>().unwrap();
+        let ni_max: Vec<f32> = ni.max().iter().copied().collect();
+        let ci_max: Vec<f32> = ci.max().to_vec1::<f32>().unwrap();
+
+        for d in 0..2 {
+            assert_close(
+                &format!("gumbel_inter_min[{d}] temp={temp}"),
+                ni_min[d],
+                ci_min[d],
+            );
+            assert_close(
+                &format!("gumbel_inter_max[{d}] temp={temp}"),
+                ni_max[d],
+                ci_max[d],
+            );
+        }
+
+        assert_close(
+            &format!("gumbel_inter_vol temp={temp}"),
+            ni.volume(temp).unwrap(),
+            ci.volume(temp).unwrap(),
+        );
+    }
+}
+
+#[test]
+fn gumbel_parity_containment() {
+    for &temp in &[0.01, 0.5, 1.0, 2.0] {
+        let (na, ca) = make_gumbel_pair(&[0.0, 0.0], &[5.0, 5.0], temp);
+        let (nb, cb) = make_gumbel_pair(&[1.0, 1.0], &[4.0, 4.0], temp);
+
+        assert_close(
+            &format!("gumbel_containment temp={temp}"),
+            na.containment_prob(&nb, temp).unwrap(),
+            ca.containment_prob(&cb, temp).unwrap(),
+        );
+    }
+}
+
+#[test]
+fn gumbel_parity_overlap() {
+    for &temp in &[0.01, 0.5, 1.0, 2.0] {
+        let (na, ca) = make_gumbel_pair(&[0.0, 0.0], &[3.0, 3.0], temp);
+        let (nb, cb) = make_gumbel_pair(&[1.0, 1.0], &[4.0, 4.0], temp);
+
+        assert_close(
+            &format!("gumbel_overlap temp={temp}"),
+            na.overlap_prob(&nb, temp).unwrap(),
+            ca.overlap_prob(&cb, temp).unwrap(),
         );
     }
 }
