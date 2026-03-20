@@ -106,7 +106,7 @@
 /// ).unwrap();
 ///
 /// // Compute containment probability: P(hypothesis ⊆ premise)
-/// let prob = premise.containment_prob(&hypothesis, 1.0).unwrap();
+/// let prob = premise.containment_prob(&hypothesis).unwrap();
 /// assert!(prob > 0.9); // hypothesis is contained in premise
 /// ```
 pub trait Box: Sized {
@@ -127,10 +127,7 @@ pub trait Box: Sized {
 
     /// Compute the volume of the box.
     ///
-    /// The `temperature` parameter is part of the trait signature for backends that
-    /// compute temperature at evaluation time (e.g., `NdarrayBox`). Stored-temperature
-    /// backends (`NdarrayGumbelBox`, `CandleGumbelBox`) use their intrinsic temperature
-    /// from construction and ignore this parameter.
+    /// All backends use the temperature stored at construction time.
     ///
     /// ## Mathematical Formulation
     ///
@@ -149,7 +146,7 @@ pub trait Box: Sized {
     /// # Errors
     ///
     /// Returns `BoxError::InvalidBounds` if any min\[i\] > max\[i\].
-    fn volume(&self, temperature: Self::Scalar) -> Result<Self::Scalar, BoxError>;
+    fn volume(&self) -> Result<Self::Scalar, BoxError>;
 
     /// Compute the intersection of two boxes.
     ///
@@ -186,9 +183,7 @@ pub trait Box: Sized {
     ///
     /// This is the core **subsumption** operation: P(other ⊆ self).
     ///
-    /// The `temperature` parameter is used by evaluation-time backends (e.g., `NdarrayBox`).
-    /// Stored-temperature backends (`NdarrayGumbelBox`, `CandleGumbelBox`) use their
-    /// intrinsic temperature from construction and ignore this parameter.
+    /// All backends use the temperature stored at construction time.
     ///
     /// ## Paradigm Problem: Modeling Hierarchical Relationships
     ///
@@ -246,11 +241,7 @@ pub trait Box: Sized {
     /// # Errors
     ///
     /// Returns `BoxError::DimensionMismatch` if boxes have different dimensions.
-    fn containment_prob(
-        &self,
-        other: &Self,
-        temperature: Self::Scalar,
-    ) -> Result<Self::Scalar, BoxError>;
+    fn containment_prob(&self, other: &Self) -> Result<Self::Scalar, BoxError>;
 
     /// Compute the probability that `self` contains `other` (fast path).
     ///
@@ -263,12 +254,8 @@ pub trait Box: Sized {
     /// Backends can override this method to compute intersection volume directly (no allocation),
     /// or to batch the computation when evaluating a query against many candidates.
     #[inline]
-    fn containment_prob_fast(
-        &self,
-        other: &Self,
-        temperature: Self::Scalar,
-    ) -> Result<Self::Scalar, BoxError> {
-        self.containment_prob(other, temperature)
+    fn containment_prob_fast(&self, other: &Self) -> Result<Self::Scalar, BoxError> {
+        self.containment_prob(other)
     }
 
     /// Compute containment probabilities for many candidates.
@@ -286,7 +273,6 @@ pub trait Box: Sized {
     fn containment_prob_many(
         &self,
         others: &[Self],
-        temperature: Self::Scalar,
         out: &mut [Self::Scalar],
     ) -> Result<(), BoxError> {
         if out.len() < others.len() {
@@ -298,7 +284,7 @@ pub trait Box: Sized {
         }
 
         for (i, other) in others.iter().enumerate() {
-            out[i] = self.containment_prob_fast(other, temperature)?;
+            out[i] = self.containment_prob_fast(other)?;
         }
         Ok(())
     }
@@ -373,11 +359,7 @@ pub trait Box: Sized {
     /// # Errors
     ///
     /// Returns `BoxError::DimensionMismatch` if boxes have different dimensions.
-    fn overlap_prob(
-        &self,
-        other: &Self,
-        temperature: Self::Scalar,
-    ) -> Result<Self::Scalar, BoxError>;
+    fn overlap_prob(&self, other: &Self) -> Result<Self::Scalar, BoxError>;
 
     /// Compute the union of two boxes.
     ///

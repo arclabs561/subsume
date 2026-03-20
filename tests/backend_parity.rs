@@ -66,42 +66,42 @@ fn check_parity(dim: usize, temperature: f32) {
     // -- volume --
     assert_close(
         &format!("{tag} volume(A)"),
-        na.volume(temperature).unwrap(),
-        ca.volume(temperature).unwrap(),
+        na.volume().unwrap(),
+        ca.volume().unwrap(),
     );
 
     // -- containment_prob: contained, overlapping, disjoint --
     assert_close(
         &format!("{tag} contain(A,B)"),
-        na.containment_prob(&nb, temperature).unwrap(),
-        ca.containment_prob(&cb, temperature).unwrap(),
+        na.containment_prob(&nb).unwrap(),
+        ca.containment_prob(&cb).unwrap(),
     );
     assert_close(
         &format!("{tag} contain(A,C)"),
-        na.containment_prob(&nc, temperature).unwrap(),
-        ca.containment_prob(&cc, temperature).unwrap(),
+        na.containment_prob(&nc).unwrap(),
+        ca.containment_prob(&cc).unwrap(),
     );
     assert_close(
         &format!("{tag} contain(A,D)"),
-        na.containment_prob(&nd, temperature).unwrap(),
-        ca.containment_prob(&cd, temperature).unwrap(),
+        na.containment_prob(&nd).unwrap(),
+        ca.containment_prob(&cd).unwrap(),
     );
 
     // -- overlap_prob --
     assert_close(
         &format!("{tag} overlap(A,B)"),
-        na.overlap_prob(&nb, temperature).unwrap(),
-        ca.overlap_prob(&cb, temperature).unwrap(),
+        na.overlap_prob(&nb).unwrap(),
+        ca.overlap_prob(&cb).unwrap(),
     );
     assert_close(
         &format!("{tag} overlap(A,C)"),
-        na.overlap_prob(&nc, temperature).unwrap(),
-        ca.overlap_prob(&cc, temperature).unwrap(),
+        na.overlap_prob(&nc).unwrap(),
+        ca.overlap_prob(&cc).unwrap(),
     );
     assert_close(
         &format!("{tag} overlap(A,D)"),
-        na.overlap_prob(&nd, temperature).unwrap(),
-        ca.overlap_prob(&cd, temperature).unwrap(),
+        na.overlap_prob(&nd).unwrap(),
+        ca.overlap_prob(&cd).unwrap(),
     );
 
     // -- intersection: compare resulting min/max coordinates --
@@ -121,8 +121,8 @@ fn check_parity(dim: usize, temperature: f32) {
     let ci_d = ca.intersection(&cd).unwrap();
     assert_close(
         &format!("{tag} isect_disjoint_vol"),
-        ni_d.volume(temperature).unwrap(),
-        ci_d.volume(temperature).unwrap(),
+        ni_d.volume().unwrap(),
+        ci_d.volume().unwrap(),
     );
 }
 
@@ -229,8 +229,8 @@ fn check_extended_parity(dim: usize, temperature: f32) {
     // Union volume parity.
     assert_close(
         &format!("{tag} union_vol"),
-        nu.volume(temperature).unwrap(),
-        cu.volume(temperature).unwrap(),
+        nu.volume().unwrap(),
+        cu.volume().unwrap(),
     );
 
     // -- center --
@@ -260,8 +260,8 @@ fn check_extended_parity(dim: usize, temperature: f32) {
         assert_eq!(nt.dim(), ct.dim(), "{tag} truncate dim mismatch");
         assert_close(
             &format!("{tag} truncate_vol"),
-            nt.volume(temperature).unwrap(),
-            ct.volume(temperature).unwrap(),
+            nt.volume().unwrap(),
+            ct.volume().unwrap(),
         );
     }
 }
@@ -305,8 +305,8 @@ fn gumbel_parity_volume() {
         let (ng, cg) = make_gumbel_pair(&[0.0, 0.0, 0.0], &[2.0, 3.0, 1.0], temp);
         assert_close(
             &format!("gumbel_volume temp={temp}"),
-            ng.volume(temp).unwrap(),
-            cg.volume(temp).unwrap(),
+            ng.volume().unwrap(),
+            cg.volume().unwrap(),
         );
     }
 }
@@ -341,8 +341,8 @@ fn gumbel_parity_intersection() {
 
         assert_close(
             &format!("gumbel_inter_vol temp={temp}"),
-            ni.volume(temp).unwrap(),
-            ci.volume(temp).unwrap(),
+            ni.volume().unwrap(),
+            ci.volume().unwrap(),
         );
     }
 }
@@ -355,8 +355,8 @@ fn gumbel_parity_containment() {
 
         assert_close(
             &format!("gumbel_containment temp={temp}"),
-            na.containment_prob(&nb, temp).unwrap(),
-            ca.containment_prob(&cb, temp).unwrap(),
+            na.containment_prob(&nb).unwrap(),
+            ca.containment_prob(&cb).unwrap(),
         );
     }
 }
@@ -369,8 +369,8 @@ fn gumbel_parity_overlap() {
 
         assert_close(
             &format!("gumbel_overlap temp={temp}"),
-            na.overlap_prob(&nb, temp).unwrap(),
-            ca.overlap_prob(&cb, temp).unwrap(),
+            na.overlap_prob(&nb).unwrap(),
+            ca.overlap_prob(&cb).unwrap(),
         );
     }
 }

@@ -72,7 +72,7 @@ let premise = NdarrayBox::new(array![0., 0., 0.], array![1., 1., 1.], 1.0)?;
 let hypothesis = NdarrayBox::new(array![0.2, 0.2, 0.2], array![0.8, 0.8, 0.8], 1.0)?;
 
 // Containment probability: P(B inside A)
-let p = premise.containment_prob(&hypothesis, 1.0)?;
+let p = premise.containment_prob(&hypothesis)?;
 assert!(p > 0.9);
 ```
 
