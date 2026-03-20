@@ -95,6 +95,8 @@
 //! | `ndarray-backend` | yes | [`ndarray_backend`] module, enables `rand` |
 //! | `candle-backend` | no | `candle_backend` module (GPU via candle) |
 //! | `rand` | no | Negative sampling utilities in [`trainer`] |
+//! | `hyperbolic` | no | [`hyperbolic`] module (Poincare ball via `hyperball` + `skel`) |
+//! | `petgraph` | no | [`petgraph_adapter`] module (convert petgraph graphs to datasets) |
 //!
 //! # Example
 //!
@@ -155,10 +157,10 @@ pub mod gumbel;
 
 /// Poincare ball embeddings for tree-like hierarchical structures.
 ///
-/// Requires the `ndarray-backend` feature (uses `ndarray::ArrayView1` for
+/// Requires the `hyperbolic` feature (uses `ndarray::ArrayView1` for
 /// interoperability with the `hyperball` and `skel` crates).
-#[cfg(feature = "ndarray-backend")]
-#[cfg_attr(docsrs, doc(cfg(feature = "ndarray-backend")))]
+#[cfg(feature = "hyperbolic")]
+#[cfg_attr(docsrs, doc(cfg(feature = "hyperbolic")))]
 pub mod hyperbolic;
 
 /// AMSGrad optimizer state and learning rate utilities.
@@ -224,8 +226,8 @@ pub use box_trait::Box as BoxRegion;
 
 // Re-exports: geometry errors
 pub use cone::ConeError;
-#[cfg_attr(docsrs, doc(cfg(feature = "ndarray-backend")))]
-#[cfg(feature = "ndarray-backend")]
+#[cfg_attr(docsrs, doc(cfg(feature = "hyperbolic")))]
+#[cfg(feature = "hyperbolic")]
 pub use hyperbolic::{
     hierarchy_preserved, pairwise_distances, Curvature, HyperbolicError, PoincareBallPoint,
 };

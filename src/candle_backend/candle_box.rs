@@ -16,6 +16,18 @@ pub struct CandleBox {
 }
 
 impl CandleBox {
+    /// Create a CandleBox without validating that min <= max.
+    ///
+    /// Used by Gumbel LSE intersection, which can produce "flipped" boxes
+    /// (min > max in some dimension) that softplus volume handles gracefully.
+    pub(crate) fn new_unchecked(min: Tensor, max: Tensor, temperature: f32) -> Self {
+        Self {
+            min,
+            max,
+            temperature,
+        }
+    }
+
     /// Create a new CandleBox.
     ///
     /// # Errors

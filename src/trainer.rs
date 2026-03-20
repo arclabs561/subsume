@@ -11,7 +11,7 @@
 //! - **Negative sampling prevents the trivial solution**: without negatives, "everything contains everything"
 //!   can score well on positives. Negatives force discrimination.
 //! - **Evaluation is deterministic**: ranking metrics are sensitive to tie-handling; we use a deterministic
-//!   tie-break so \( \text{same model + same data} \Rightarrow \text{same metrics} \).
+//!   tie-break so `same model + same data => same metrics`.
 //! - **NaNs are treated as hard errors** in evaluation: silently propagating NaNs yields meaningless metrics.
 
 use crate::dataset::Triple;
@@ -185,22 +185,25 @@ pub enum NegativeSamplingStrategy {
 ///
 /// The total loss combines multiple terms:
 ///
-/// \[
+///
+/// $$
 /// L_{\text{total}} = L_{\text{ranking}} + \lambda_{\text{reg}} \cdot L_{\text{volume}} + \lambda_{\text{wd}} \cdot ||\theta||^2
-/// \]
+/// $$
 ///
 /// where:
-/// - \(L_{\text{ranking}}\) is the margin-based ranking loss
-/// - \(L_{\text{volume}}\) is volume regularization (penalizes large boxes)
-/// - \(||\theta||^2\) is L2 regularization on parameters
-/// - \(\lambda_{\text{wd}}\) is `weight_decay`
+/// - `L_ranking` is the margin-based ranking loss
+/// - `L_volume` is volume regularization (penalizes large boxes)
+/// - `||theta||^2` is L2 regularization on parameters
+/// - `lambda_wd` is `weight_decay`
 /// # Field usage
 ///
-/// Only `learning_rate`, `margin`, `regularization`, and `negative_weight` are consumed
-/// by [`BoxEmbeddingTrainer::train_step`] and [`ConeEmbeddingTrainer::train_step`].
-/// The remaining fields (`epochs`, `batch_size`, `negative_samples`, `negative_strategy`,
-/// `temperature`, `weight_decay`, `early_stopping_*`, `warmup_epochs`) are configuration
-/// metadata for caller-side training loops (e.g., [`el_training::train_el_embeddings`](crate::el_training::train_el_embeddings)).
+/// Fields consumed by [`BoxEmbeddingTrainer::train_step`]: `learning_rate`, `margin`,
+/// `regularization`, `negative_weight`, `negative_samples`, `negative_strategy`,
+/// `gumbel_beta`, `max_grad_norm`, `adversarial_temperature`, `use_infonce`.
+///
+/// The remaining fields (`epochs`, `batch_size`, `temperature`, `weight_decay`,
+/// `early_stopping_*`, `warmup_epochs`, `gumbel_beta_final`) are configuration
+/// metadata for caller-side training loops (e.g., [`BoxEmbeddingTrainer::fit`]).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TrainingConfig {
     /// Learning rate (default: 1e-3, paper range: 1e-3 to 5e-4)
@@ -306,6 +309,48 @@ impl Default for TrainingConfig {
             adversarial_temperature: 1.0,
             use_infonce: false,
         }
+    }
+}
+
+impl TrainingConfig {
+    /// Validate that all fields have sensible values.
+    ///
+    /// Call after deserialization to catch invalid configs early.
+    /// Returns the first validation error found, if any.
+    pub fn validate(&self) -> Result<(), BoxError> {
+        if !self.learning_rate.is_finite() || self.learning_rate <= 0.0 {
+            return Err(BoxError::Internal(format!(
+                "learning_rate must be positive and finite, got {}",
+                self.learning_rate
+            )));
+        }
+        if self.batch_size == 0 {
+            return Err(BoxError::Internal("batch_size must be > 0".to_string()));
+        }
+        if self.negative_samples == 0 {
+            return Err(BoxError::Internal(
+                "negative_samples must be > 0".to_string(),
+            ));
+        }
+        if !self.margin.is_finite() || self.margin < 0.0 {
+            return Err(BoxError::Internal(format!(
+                "margin must be non-negative and finite, got {}",
+                self.margin
+            )));
+        }
+        if !self.gumbel_beta.is_finite() || self.gumbel_beta <= 0.0 {
+            return Err(BoxError::Internal(format!(
+                "gumbel_beta must be positive and finite, got {}",
+                self.gumbel_beta
+            )));
+        }
+        if !self.max_grad_norm.is_finite() || self.max_grad_norm <= 0.0 {
+            return Err(BoxError::Internal(format!(
+                "max_grad_norm must be positive and finite, got {}",
+                self.max_grad_norm
+            )));
+        }
+        Ok(())
     }
 }
 
@@ -676,7 +721,7 @@ where
 ///
 /// This index is intentionally shaped for the most common evaluation query we currently
 /// support in `subsume`:
-/// - tail prediction: \((h, r, ?)\)
+/// - tail prediction: `(h, r, ?)`
 ///
 /// Notes:
 /// - Building this index **allocates**, but using it during evaluation does not.
@@ -712,20 +757,6 @@ impl FilteredTripleIndex {
         )
     }
 
-    /// Build a filtered-ranking index from an iterator of **owned** triples.
-    ///
-    /// This avoids cloning `(head, relation, tail)` strings, which can matter when you're
-    /// building an index for a one-shot evaluation and you don't need to retain the original
-    /// triple list.
-    pub fn from_owned_triples<I>(triples: I) -> Self
-    where
-        I: IntoIterator<Item = Triple>,
-    {
-        let mut index = Self::default();
-        index.extend_owned(triples);
-        index
-    }
-
     /// Extend the index with more known-true triples.
     pub fn extend<'a, I>(&mut self, triples: I)
     where
@@ -747,27 +778,6 @@ impl FilteredTripleIndex {
         }
     }
 
-    /// Extend the index with more known-true triples (owned).
-    pub fn extend_owned<I>(&mut self, triples: I)
-    where
-        I: IntoIterator<Item = Triple>,
-    {
-        for t in triples {
-            self.tails_by_head_rel
-                .entry(t.head.clone())
-                .or_default()
-                .entry(t.relation.clone())
-                .or_default()
-                .insert(t.tail.clone());
-            self.heads_by_tail_rel
-                .entry(t.tail)
-                .or_default()
-                .entry(t.relation)
-                .or_default()
-                .insert(t.head);
-        }
-    }
-
     /// True iff `(head, relation, tail)` is a known true triple.
     #[inline]
     pub fn is_known_tail(&self, head: &str, relation: &str, tail: &str) -> bool {
@@ -777,7 +787,7 @@ impl FilteredTripleIndex {
             .is_some_and(|tails| tails.contains(tail))
     }
 
-    /// Return all known-true tails for the query \((head, relation, ?)\).
+    /// Return all known-true tails for the query `(head, relation, ?)`.
     #[inline]
     pub fn known_tails(&self, head: &str, relation: &str) -> Option<&HashSet<String>> {
         self.tails_by_head_rel
@@ -794,7 +804,7 @@ impl FilteredTripleIndex {
             .is_some_and(|heads| heads.contains(head))
     }
 
-    /// Return all known-true heads for the query \((?, relation, tail)\).
+    /// Return all known-true heads for the query `(?, relation, tail)`.
     #[inline]
     pub fn known_heads(&self, tail: &str, relation: &str) -> Option<&HashSet<String>> {
         self.heads_by_tail_rel
@@ -867,7 +877,7 @@ impl FilteredTripleIndexIds {
             .is_some_and(|tails| tails.contains(&tail))
     }
 
-    /// Return all known-true tails for the query \((head, relation, ?)\).
+    /// Return all known-true tails for the query `(head, relation, ?)`.
     #[inline]
     pub fn known_tails(&self, head: usize, relation: usize) -> Option<&HashSet<usize>> {
         self.tails_by_head_rel.get(&(head, relation))
@@ -881,7 +891,7 @@ impl FilteredTripleIndexIds {
             .is_some_and(|heads| heads.contains(&head))
     }
 
-    /// Return all known-true heads for the query \((?, relation, tail)\).
+    /// Return all known-true heads for the query `(?, relation, tail)`.
     #[inline]
     pub fn known_heads(&self, tail: usize, relation: usize) -> Option<&HashSet<usize>> {
         self.heads_by_tail_rel.get(&(tail, relation))
@@ -1692,8 +1702,8 @@ where
 /// Evaluate link prediction in the **filtered** setting.
 ///
 /// Filtered ranking excludes known-true candidates: for tail prediction, excludes
-/// \(t’\) where \((h, r, t’)\) is known; for head prediction, excludes \(h’\)
-/// where \((h’, r, t)\) is known. The test triple’s own entity is never filtered.
+/// `t’` where `(h, r, t’)` is known; for head prediction, excludes `h’`
+/// where `(h’, r, t)` is known. The test triple’s own entity is never filtered.
 pub fn evaluate_link_prediction_filtered<B>(
     test_triples: &[Triple],
     entity_boxes: &HashMap<String, B>,
@@ -1703,27 +1713,6 @@ where
     B: crate::Box<Scalar = f32>,
 {
     evaluate_link_prediction_inner(test_triples, entity_boxes, None, Some(filter))
-}
-
-/// Evaluate link prediction with relation-specific transforms (string-keyed).
-///
-/// Only [`RelationTransform::Identity`] is supported in this path. For
-/// [`RelationTransform::Translation`], use the interned evaluation path.
-pub fn evaluate_link_prediction_with_transforms<B>(
-    test_triples: &[Triple],
-    entity_boxes: &HashMap<String, B>,
-    relation_transforms: &HashMap<String, RelationTransform>,
-    filter: Option<&FilteredTripleIndex>,
-) -> Result<EvaluationResults, crate::BoxError>
-where
-    B: crate::Box<Scalar = f32>,
-{
-    evaluate_link_prediction_inner(
-        test_triples,
-        entity_boxes,
-        Some(relation_transforms),
-        filter,
-    )
 }
 
 /// Evaluate link prediction using interned IDs (`usize`) for entities/relations.
@@ -1793,46 +1782,14 @@ pub struct TrainingResult {
     pub training_time_seconds: Option<f64>,
 }
 
-/// Log training results to file or stdout.
-pub fn log_training_result(result: &TrainingResult, path: Option<&str>) -> Result<(), BoxError> {
-    let output = format!(
-        "Training Results\n\
-         ===============\n\
-         Final MRR: {:.4} (head: {:.4}, tail: {:.4})\n\
-         Final Hits@1: {:.4}\n\
-         Final Hits@3: {:.4}\n\
-         Final Hits@10: {:.4}\n\
-         Final Mean Rank: {:.2}\n\
-         Best Epoch: {}\n\
-         Training Time: {:.2}s\n",
-        result.final_results.mrr,
-        result.final_results.head_mrr,
-        result.final_results.tail_mrr,
-        result.final_results.hits_at_1,
-        result.final_results.hits_at_3,
-        result.final_results.hits_at_10,
-        result.final_results.mean_rank,
-        result.best_epoch,
-        result.training_time_seconds.unwrap_or(0.0)
-    );
-
-    if let Some(p) = path {
-        std::fs::write(p, output).map_err(|e| BoxError::Internal(e.to_string()))?;
-    } else {
-        println!("{}", output);
-    }
-
-    Ok(())
-}
-
 /// Compute loss for a pair of boxes.
 ///
 /// Design choice (important):
 /// - For **positive** examples this loss uses a *symmetric* score by taking
-///   \(\min(P(B \subseteq A),\; P(A \subseteq B))\). This encourages "near-equivalence"
+///   `min(P(B ⊆ A), P(A ⊆ B))`. This encourages "near-equivalence"
 ///   more than directed entailment.
 /// - For hierarchy-like relations, a more typical objective is *directed* containment,
-///   e.g. minimize \(-\ln P(B \subseteq A)\) only.
+///   e.g. minimize `-ln P(B ⊆ A)` only.
 pub fn compute_pair_loss(
     box_a: &TrainableBox,
     box_b: &TrainableBox,
@@ -2308,152 +2265,204 @@ impl BoxEmbeddingTrainer {
                 TrainableBox::new(mu, delta).unwrap_or_else(|_| box_h.clone())
             };
 
-            // Negative sample: corrupt the tail with a different entity from the batch.
-            // Deterministic: pick an entity that is not the true tail.
-            let neg_t = if entity_ids.len() > 1 {
-                // Hash-based deterministic selection: use (h + t + epoch-proxy) to vary.
-                let idx = (h.wrapping_mul(31).wrapping_add(t).wrapping_add(7)) % entity_ids.len();
-                let candidate = entity_ids[idx];
-                if candidate == t {
-                    entity_ids[(idx + 1) % entity_ids.len()]
-                } else {
-                    candidate
-                }
-            } else {
-                continue; // cannot generate a negative with a single entity
-            };
-
-            let box_neg = self.snapshot_box(neg_t);
-
-            if step_config.use_infonce {
-                // InfoNCE loss: softplus((score_neg - score_pos) / tau)
-                // where score = ln(Vol_int / Vol_other) (log containment probability),
-                // and tau = margin (repurposed as temperature).
-                let pos_score = compute_pair_loss(&box_h_transformed, &box_t, true, &step_config);
-                let neg_score = compute_pair_loss(&box_h_transformed, &box_neg, true, &step_config);
-                let tau = step_config.margin.max(1e-6);
-                // InfoNCE: L = softplus((neg_score - pos_score) / tau)
-                // Note: pos_score/neg_score are negative-log-prob (lower = better),
-                // so "better negative" means lower neg_score. We want to penalize
-                // when neg_score < pos_score (model confused).
-                let infonce_loss = crate::utils::softplus((pos_score - neg_score) / tau, 1.0);
-                total_loss += infonce_loss;
-
-                // Gradients: use positive gradients for both, then weight.
-                // d(infonce)/d(pos_score) = sigmoid((pos_score - neg_score) / tau) / tau
-                // d(infonce)/d(neg_score) = -sigmoid((pos_score - neg_score) / tau) / tau
-                let sig = crate::utils::stable_sigmoid((pos_score - neg_score) / tau);
-                let dldpos = sig / tau;
-                let dldneg = -sig / tau;
-
-                // Positive pair gradients (scaled by dldpos).
-                let (grad_mu_h, grad_delta_h, grad_mu_t, grad_delta_t) =
-                    compute_analytical_gradients(&box_h, &box_t, true, &step_config);
-                if let (Some(b), Some(s)) =
-                    (self.boxes.get_mut(&h), self.optimizer_states.get_mut(&h))
-                {
-                    let scaled_mu: Vec<f32> = grad_mu_h.iter().map(|g| g * dldpos).collect();
-                    let scaled_delta: Vec<f32> = grad_delta_h.iter().map(|g| g * dldpos).collect();
-                    b.update_amsgrad(&scaled_mu, &scaled_delta, s);
-                }
-                if let (Some(b), Some(s)) =
-                    (self.boxes.get_mut(&t), self.optimizer_states.get_mut(&t))
-                {
-                    let scaled_mu: Vec<f32> = grad_mu_t.iter().map(|g| g * dldpos).collect();
-                    let scaled_delta: Vec<f32> = grad_delta_t.iter().map(|g| g * dldpos).collect();
-                    b.update_amsgrad(&scaled_mu, &scaled_delta, s);
-                }
-
-                // Negative pair gradients (scaled by dldneg, computed as positive).
-                let box_h2 = self.snapshot_box(h);
-                let (grad_mu_h2, grad_delta_h2, grad_mu_neg, grad_delta_neg) =
-                    compute_analytical_gradients(&box_h2, &box_neg, true, &step_config);
-                if let (Some(b), Some(s)) =
-                    (self.boxes.get_mut(&h), self.optimizer_states.get_mut(&h))
-                {
-                    let scaled_mu: Vec<f32> = grad_mu_h2.iter().map(|g| g * dldneg).collect();
-                    let scaled_delta: Vec<f32> = grad_delta_h2.iter().map(|g| g * dldneg).collect();
-                    b.update_amsgrad(&scaled_mu, &scaled_delta, s);
-                }
-                if let (Some(b), Some(s)) = (
-                    self.boxes.get_mut(&neg_t),
-                    self.optimizer_states.get_mut(&neg_t),
-                ) {
-                    let scaled_mu: Vec<f32> = grad_mu_neg.iter().map(|g| g * dldneg).collect();
-                    let scaled_delta: Vec<f32> =
-                        grad_delta_neg.iter().map(|g| g * dldneg).collect();
-                    b.update_amsgrad(&scaled_mu, &scaled_delta, s);
-                }
-            } else {
-                // Standard margin-based loss path.
-
-                // Positive loss: head should contain tail.
-                let pos_loss = compute_pair_loss(&box_h_transformed, &box_t, true, &step_config);
-                total_loss += pos_loss;
-
-                // Positive gradients.
-                let (grad_mu_h, grad_delta_h, grad_mu_t, grad_delta_t) =
-                    compute_analytical_gradients(&box_h, &box_t, true, &step_config);
-
-                // Apply positive gradients.
-                if let (Some(b), Some(s)) =
-                    (self.boxes.get_mut(&h), self.optimizer_states.get_mut(&h))
-                {
-                    b.update_amsgrad(&grad_mu_h, &grad_delta_h, s);
-                }
-                if let (Some(b), Some(s)) =
-                    (self.boxes.get_mut(&t), self.optimizer_states.get_mut(&t))
-                {
-                    b.update_amsgrad(&grad_mu_t, &grad_delta_t, s);
-                }
-
-                let box_h2 = self.snapshot_box(h);
-
-                // Negative loss.
-                let neg_loss = compute_pair_loss(&box_h2, &box_neg, false, &step_config);
-                total_loss += neg_loss;
-
-                // Negative gradients.
-                let (mut grad_mu_h2, mut grad_delta_h2, mut grad_mu_neg, mut grad_delta_neg) =
-                    compute_analytical_gradients(&box_h2, &box_neg, false, &step_config);
-
-                // Self-adversarial weighting: scale negative gradients by
-                // exp(positive_score / adversarial_temperature), capped at 10.0.
-                // Higher-scoring negatives (harder) get more gradient weight.
-                let adv_temp = step_config.adversarial_temperature;
-                let neg_as_pos_score = compute_pair_loss(&box_h2, &box_neg, true, &step_config);
-                // neg_as_pos_score is -ln(P), so lower = model thinks it's positive.
-                // We want to upweight negatives the model mistakes for positives,
-                // i.e. weight = exp(-neg_as_pos_score / adv_temp) (high when score is low/good).
-                let adv_weight = (-neg_as_pos_score / adv_temp).exp().min(10.0);
-                for g in grad_mu_h2.iter_mut() {
-                    *g *= adv_weight;
-                }
-                for g in grad_delta_h2.iter_mut() {
-                    *g *= adv_weight;
-                }
-                for g in grad_mu_neg.iter_mut() {
-                    *g *= adv_weight;
-                }
-                for g in grad_delta_neg.iter_mut() {
-                    *g *= adv_weight;
-                }
-
-                if let (Some(b), Some(s)) =
-                    (self.boxes.get_mut(&h), self.optimizer_states.get_mut(&h))
-                {
-                    b.update_amsgrad(&grad_mu_h2, &grad_delta_h2, s);
-                }
-                if let (Some(b), Some(s)) = (
-                    self.boxes.get_mut(&neg_t),
-                    self.optimizer_states.get_mut(&neg_t),
-                ) {
-                    b.update_amsgrad(&grad_mu_neg, &grad_delta_neg, s);
-                }
+            // Generate negative samples using the configured strategy and count.
+            if entity_ids.len() <= 1 {
+                continue; // cannot generate negatives with a single entity
             }
+            let n_neg = step_config.negative_samples.max(1);
+
+            for neg_idx in 0..n_neg {
+                // Deterministic hash-based selection, varied by neg_idx.
+                let (neg_h, neg_t) = {
+                    let idx = (h.wrapping_mul(31).wrapping_add(t).wrapping_add(7 + neg_idx))
+                        % entity_ids.len();
+                    match &step_config.negative_strategy {
+                        NegativeSamplingStrategy::CorruptTail => {
+                            let candidate = entity_ids[idx];
+                            let nt = if candidate == t {
+                                entity_ids[(idx + 1) % entity_ids.len()]
+                            } else {
+                                candidate
+                            };
+                            (h, nt)
+                        }
+                        NegativeSamplingStrategy::CorruptHead => {
+                            let candidate = entity_ids[idx];
+                            let nh = if candidate == h {
+                                entity_ids[(idx + 1) % entity_ids.len()]
+                            } else {
+                                candidate
+                            };
+                            (nh, t)
+                        }
+                        NegativeSamplingStrategy::CorruptBoth => {
+                            let nh_idx = idx;
+                            let nt_idx = (idx.wrapping_add(3)) % entity_ids.len();
+                            let nh = {
+                                let c = entity_ids[nh_idx];
+                                if c == h {
+                                    entity_ids[(nh_idx + 1) % entity_ids.len()]
+                                } else {
+                                    c
+                                }
+                            };
+                            let nt = {
+                                let c = entity_ids[nt_idx];
+                                if c == t {
+                                    entity_ids[(nt_idx + 1) % entity_ids.len()]
+                                } else {
+                                    c
+                                }
+                            };
+                            (nh, nt)
+                        }
+                        NegativeSamplingStrategy::Uniform => {
+                            // Alternate between head and tail corruption.
+                            if neg_idx % 2 == 0 {
+                                let candidate = entity_ids[idx];
+                                let nt = if candidate == t {
+                                    entity_ids[(idx + 1) % entity_ids.len()]
+                                } else {
+                                    candidate
+                                };
+                                (h, nt)
+                            } else {
+                                let candidate = entity_ids[idx];
+                                let nh = if candidate == h {
+                                    entity_ids[(idx + 1) % entity_ids.len()]
+                                } else {
+                                    candidate
+                                };
+                                (nh, t)
+                            }
+                        }
+                    }
+                };
+
+                let box_neg_h = self.snapshot_box(neg_h);
+                let box_neg = self.snapshot_box(neg_t);
+
+                if step_config.use_infonce {
+                    let pos_score =
+                        compute_pair_loss(&box_h_transformed, &box_t, true, &step_config);
+                    let neg_score = compute_pair_loss(&box_neg_h, &box_neg, true, &step_config);
+                    let tau = step_config.margin.max(1e-6);
+                    let infonce_loss = crate::utils::softplus((pos_score - neg_score) / tau, 1.0);
+                    total_loss += infonce_loss;
+
+                    let sig = crate::utils::stable_sigmoid((pos_score - neg_score) / tau);
+                    let dldpos = sig / tau;
+                    let dldneg = -sig / tau;
+
+                    // Positive pair gradients (scaled by dldpos).
+                    let (grad_mu_h, grad_delta_h, grad_mu_t, grad_delta_t) =
+                        compute_analytical_gradients(&box_h, &box_t, true, &step_config);
+                    if let (Some(b), Some(s)) =
+                        (self.boxes.get_mut(&h), self.optimizer_states.get_mut(&h))
+                    {
+                        let scaled_mu: Vec<f32> = grad_mu_h.iter().map(|g| g * dldpos).collect();
+                        let scaled_delta: Vec<f32> =
+                            grad_delta_h.iter().map(|g| g * dldpos).collect();
+                        b.update_amsgrad(&scaled_mu, &scaled_delta, s);
+                    }
+                    if let (Some(b), Some(s)) =
+                        (self.boxes.get_mut(&t), self.optimizer_states.get_mut(&t))
+                    {
+                        let scaled_mu: Vec<f32> = grad_mu_t.iter().map(|g| g * dldpos).collect();
+                        let scaled_delta: Vec<f32> =
+                            grad_delta_t.iter().map(|g| g * dldpos).collect();
+                        b.update_amsgrad(&scaled_mu, &scaled_delta, s);
+                    }
+
+                    // Negative pair gradients -- applied to neg_h and neg_t.
+                    let bnh = self.snapshot_box(neg_h);
+                    let (gmnh, gdnh, gmnt, gdnt) =
+                        compute_analytical_gradients(&bnh, &box_neg, true, &step_config);
+                    if let (Some(b), Some(s)) = (
+                        self.boxes.get_mut(&neg_h),
+                        self.optimizer_states.get_mut(&neg_h),
+                    ) {
+                        let sm: Vec<f32> = gmnh.iter().map(|g| g * dldneg).collect();
+                        let sd: Vec<f32> = gdnh.iter().map(|g| g * dldneg).collect();
+                        b.update_amsgrad(&sm, &sd, s);
+                    }
+                    if let (Some(b), Some(s)) = (
+                        self.boxes.get_mut(&neg_t),
+                        self.optimizer_states.get_mut(&neg_t),
+                    ) {
+                        let sm: Vec<f32> = gmnt.iter().map(|g| g * dldneg).collect();
+                        let sd: Vec<f32> = gdnt.iter().map(|g| g * dldneg).collect();
+                        b.update_amsgrad(&sm, &sd, s);
+                    }
+                } else {
+                    // Standard margin-based loss path.
+
+                    // Positive loss: head should contain tail.
+                    let pos_loss =
+                        compute_pair_loss(&box_h_transformed, &box_t, true, &step_config);
+                    total_loss += pos_loss;
+
+                    // Positive gradients.
+                    let (grad_mu_h, grad_delta_h, grad_mu_t, grad_delta_t) =
+                        compute_analytical_gradients(&box_h, &box_t, true, &step_config);
+
+                    // Apply positive gradients.
+                    if let (Some(b), Some(s)) =
+                        (self.boxes.get_mut(&h), self.optimizer_states.get_mut(&h))
+                    {
+                        b.update_amsgrad(&grad_mu_h, &grad_delta_h, s);
+                    }
+                    if let (Some(b), Some(s)) =
+                        (self.boxes.get_mut(&t), self.optimizer_states.get_mut(&t))
+                    {
+                        b.update_amsgrad(&grad_mu_t, &grad_delta_t, s);
+                    }
+
+                    // Negative loss -- applied to neg_h and neg_t.
+                    let bnh = self.snapshot_box(neg_h);
+                    let neg_loss = compute_pair_loss(&bnh, &box_neg, false, &step_config);
+                    total_loss += neg_loss;
+
+                    // Negative gradients.
+                    let (mut gmnh, mut gdnh, mut gmnt, mut gdnt) =
+                        compute_analytical_gradients(&bnh, &box_neg, false, &step_config);
+
+                    // Self-adversarial weighting.
+                    let adv_temp = step_config.adversarial_temperature;
+                    let neg_as_pos = compute_pair_loss(&bnh, &box_neg, true, &step_config);
+                    let adv_weight = (-neg_as_pos / adv_temp).exp().min(10.0);
+                    for g in gmnh.iter_mut() {
+                        *g *= adv_weight;
+                    }
+                    for g in gdnh.iter_mut() {
+                        *g *= adv_weight;
+                    }
+                    for g in gmnt.iter_mut() {
+                        *g *= adv_weight;
+                    }
+                    for g in gdnt.iter_mut() {
+                        *g *= adv_weight;
+                    }
+
+                    if let (Some(b), Some(s)) = (
+                        self.boxes.get_mut(&neg_h),
+                        self.optimizer_states.get_mut(&neg_h),
+                    ) {
+                        b.update_amsgrad(&gmnh, &gdnh, s);
+                    }
+                    if let (Some(b), Some(s)) = (
+                        self.boxes.get_mut(&neg_t),
+                        self.optimizer_states.get_mut(&neg_t),
+                    ) {
+                        b.update_amsgrad(&gmnt, &gdnt, s);
+                    }
+                }
+            } // end for neg_idx
         }
 
-        Ok(total_loss / triples.len() as f32)
+        // Average over triples and negatives per triple.
+        let n_pairs = triples.len() as f32 * step_config.negative_samples.max(1) as f32;
+        Ok(total_loss / n_pairs)
     }
 
     /// Convert a single entity's [`TrainableBox`] to an [`NdarrayBox`](crate::ndarray_backend::NdarrayBox) for evaluation.
@@ -3059,26 +3068,7 @@ mod tests {
         assert!(!idx.is_known_tail("missing", "r", "t1"));
     }
 
-    #[test]
-    fn filtered_triple_index_from_owned_triples_avoids_cloning() {
-        let triples = vec![
-            Triple {
-                head: "h".to_string(),
-                relation: "r".to_string(),
-                tail: "t1".to_string(),
-            },
-            Triple {
-                head: "h".to_string(),
-                relation: "r".to_string(),
-                tail: "t2".to_string(),
-            },
-        ];
 
-        let idx = FilteredTripleIndex::from_owned_triples(triples);
-        assert!(idx.is_known_tail("h", "r", "t1"));
-        assert!(idx.is_known_tail("h", "r", "t2"));
-        assert!(!idx.is_known_tail("h", "r", "t3"));
-    }
 
     #[test]
     #[cfg(feature = "rand")]
@@ -3248,41 +3238,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_log_training_result() {
-        let result = TrainingResult {
-            final_results: EvaluationResults {
-                mrr: 0.5,
-                head_mrr: 0.45,
-                tail_mrr: 0.55,
-                hits_at_1: 0.3,
-                hits_at_3: 0.4,
-                hits_at_10: 0.6,
-                mean_rank: 5.5,
-                per_relation: vec![],
-            },
-            loss_history: vec![1.0, 0.8, 0.6],
-            validation_mrr_history: vec![0.3, 0.4, 0.5],
-            best_epoch: 2,
-            training_time_seconds: Some(10.5),
-        };
-
-        // Test stdout logging (should not panic)
-        log_training_result(&result, None).unwrap();
-
-        // Test file logging
-        let temp_file = std::env::temp_dir().join("test_training_result.txt");
-        log_training_result(&result, Some(temp_file.to_str().unwrap())).unwrap();
-
-        // Verify file was created and contains expected content
-        let content = std::fs::read_to_string(&temp_file).unwrap();
-        assert!(content.contains("Training Results"));
-        assert!(content.contains("0.5000")); // MRR
-        assert!(content.contains("2")); // Best epoch
-
-        // Cleanup
-        let _ = std::fs::remove_file(&temp_file);
-    }
 
     #[test]
     #[allow(unused_variables)] // empty_boxes documents the test structure
@@ -4027,43 +3982,6 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // log_training_result with tempfile
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn log_training_result_to_tempfile_roundtrip() {
-        let result = TrainingResult {
-            final_results: EvaluationResults {
-                mrr: 0.75,
-                head_mrr: 0.70,
-                tail_mrr: 0.80,
-                hits_at_1: 0.6,
-                hits_at_3: 0.7,
-                hits_at_10: 0.9,
-                mean_rank: 2.5,
-                per_relation: vec![],
-            },
-            loss_history: vec![2.0, 1.0, 0.5],
-            validation_mrr_history: vec![0.5, 0.65, 0.75],
-            best_epoch: 2,
-            training_time_seconds: Some(42.0),
-        };
-
-        let dir = std::env::temp_dir();
-        let path = dir.join("subsume_test_log_result.txt");
-        log_training_result(&result, Some(path.to_str().unwrap())).unwrap();
-
-        let content = std::fs::read_to_string(&path).unwrap();
-        assert!(content.contains("0.7500"), "should contain MRR");
-        assert!(content.contains("0.6000"), "should contain Hits@1");
-        assert!(content.contains("42.00"), "should contain training time");
-        assert!(
-            content.contains("Best Epoch: 2"),
-            "should contain best epoch"
-        );
-
-        let _ = std::fs::remove_file(&path);
-    }
 }
 
 #[cfg(test)]

@@ -70,7 +70,7 @@
 //!
 //! **Why this works**: The Bessel function $K_0$ naturally appears when integrating
 //! Gumbel distributions. The approximation uses the fact that $K_0(z) \approx -\ln(z/2) - \gamma$
-//! for small \(z\), which we can compute stably in log-space.
+//! for small `z`, which we can compute stably in log-space.
 //!
 //! **Reference**: The complete derivation is in **Dasgupta et al. (2020)**, Section 3,
 //! "Deriving the Expected Volume Formula". The key insight is that the Gumbel CDF leads
@@ -98,7 +98,3 @@
 //!
 //! See [`docs/MATH_TO_CODE_CONNECTIONS.md`](https://github.com/arclabs561/subsume/blob/main/docs/MATH_TO_CODE_CONNECTIONS.md) for
 //! how these mathematical concepts map to code implementations.
-
-// The GumbelBox trait was removed in v0.5.0. The methods (temperature,
-// membership_probability, sample) are now inherent methods on
-// NdarrayGumbelBox and CandleGumbelBox directly.

@@ -10,9 +10,11 @@
 //! For high-dimensional volumes, direct multiplication can underflow. The solution is
 //! to compute in log-space:
 //!
-//! \[
+//!
+//! $$
 //! \log(\text{Vol}) = \sum_{i=1}^{d} \log(\text{side}_i), \quad \text{Vol} = \exp\left(\sum_{i=1}^{d} \log(\text{side}_i)\right)
-//! \]
+//! $$
+//!
 //!
 //! ## Stable Sigmoid
 //!
@@ -26,9 +28,11 @@
 //!
 //! Many operations use the log-sum-exp pattern for numerical stability:
 //!
-//! \[
+//!
+//! $$
 //! \text{lse}_\beta(x, y) = \max(x, y) + \beta \log(1 + e^{-|x-y|/\beta})
-//! \]
+//! $$
+//!
 //!
 //! This pattern appears in Gumbel intersections and other operations.
 //!
@@ -144,11 +148,6 @@ pub fn bessel_log_volume(mins: &[f32], maxs: &[f32], t_int: f32, t_vol: f32) -> 
     (log_vol, log_vol.exp())
 }
 
-/// Clamp temperature to a safe range to avoid numerical instability.
-pub(crate) fn clamp_temperature(temp: f32, min: f32, max: f32) -> f32 {
-    temp.clamp(min, max)
-}
-
 /// Default minimum safe temperature to avoid numerical underflow.
 pub const MIN_TEMPERATURE: f32 = 1e-3;
 
@@ -157,7 +156,7 @@ pub const MAX_TEMPERATURE: f32 = 10.0;
 
 /// Clamp temperature using default safe bounds.
 pub(crate) fn clamp_temperature_default(temp: f32) -> f32 {
-    clamp_temperature(temp, MIN_TEMPERATURE, MAX_TEMPERATURE)
+    temp.clamp(MIN_TEMPERATURE, MAX_TEMPERATURE)
 }
 
 /// Compute numerically stable sigmoid: 1 / (1 + exp(-x))
@@ -181,15 +180,15 @@ pub fn stable_sigmoid(x: f32) -> f32 {
 ///
 /// ## Mathematical Formulation
 ///
-/// For a value \(x\) with bounds \([min, max]\) and temperature \(\tau\):
+/// For a value `x` with bounds `[min, max]` and temperature `tau`:
 ///
-/// \[
+/// $$
 /// P(min \leq x \leq max) = \sigma\left(\frac{x - min}{\tau}\right) \cdot \sigma\left(\frac{max - x}{\tau}\right)
-/// \]
+/// $$
 ///
-/// where \(\sigma\) is the sigmoid function. This is the product of:
-/// - \(P(x > min)\): Probability that point is above minimum bound
-/// - \(P(x < max)\): Probability that point is below maximum bound
+/// where `sigma` is the sigmoid function. This is the product of:
+/// - `P(x > min)`: Probability that point is above minimum bound
+/// - `P(x < max)`: Probability that point is below maximum bound
 ///
 /// **Derivation**: For Gumbel-distributed box boundaries, the probability that a point lies
 /// within the box is the product of the probabilities that it's above the minimum and below
@@ -198,17 +197,17 @@ pub fn stable_sigmoid(x: f32) -> f32 {
 ///
 /// ## Temperature Behavior
 ///
-/// - **\(\tau \to 0\)**: Approaches hard bounds (0 or 1) - deterministic membership
-/// - **\(\tau \to \infty\)**: Approaches uniform probability - smooth, continuous
+/// - **`tau -> 0`**: Approaches hard bounds (0 or 1) - deterministic membership
+/// - **`tau -> inf`**: Approaches uniform probability - smooth, continuous
 ///
 /// The temperature parameter controls the trade-off between:
-/// - **Low \(\tau\)**: Sharp boundaries, better correspondence to discrete logic
-/// - **High \(\tau\)**: Smooth boundaries, better gradients for optimization
+/// - **Low `tau`**: Sharp boundaries, better correspondence to discrete logic
+/// - **High `tau`**: Smooth boundaries, better gradients for optimization
 ///
 /// ## Numerical Stability
 ///
 /// Uses [`stable_sigmoid`] to avoid overflow when
-/// \(|x - min|/\tau\) or \(|max - x|/\tau\) is large.
+/// `|x - min|/tau` or `|max - x|/tau` is large.
 ///
 /// See [`docs/MATHEMATICAL_FOUNDATIONS.md`](https://github.com/arclabs561/subsume/blob/main/docs/MATHEMATICAL_FOUNDATIONS.md)
 /// section "Gumbel-Softmax Framework" for more details.
@@ -233,33 +232,33 @@ pub fn gumbel_membership_prob(x: f32, min: f32, max: f32, temp: f32) -> f32 {
 /// Sample from Gumbel distribution with numerical stability.
 ///
 /// The Gumbel distribution is used in the Gumbel-max trick for differentiable sampling.
-/// For a uniform random variable \(U \sim \text{Uniform}(0, 1)\), the Gumbel sample is:
+/// For a uniform random variable `U ~ Uniform(0, 1)`, the Gumbel sample is:
 ///
-/// \[
+/// $$
 /// G = -\ln(-\ln(U))
-/// \]
+/// $$
 ///
-/// This produces \(G \sim \text{Gumbel}(0, 1)\) (standard Gumbel distribution).
+/// This produces `G ~ Gumbel(0, 1)` (standard Gumbel distribution).
 ///
 /// ## Max-Stability Property
 ///
 /// **Why this matters**: The Gumbel distribution is **max-stable**, meaning the maximum
 /// of independent Gumbel random variables is itself Gumbel-distributed:
 ///
-/// If \(G_1, \ldots, G_k \sim \text{Gumbel}(\mu, \beta)\) are independent, then:
+/// If `G_1, ..., G_k ~ Gumbel(mu, beta)` are independent, then:
 ///
-/// \[
+/// $$
 /// \max\{G_1, \ldots, G_k\} \sim \text{Gumbel}(\mu + \beta \ln k, \beta)
-/// \]
+/// $$
 ///
 /// **Proof sketch**: The CDF of the maximum is the product of individual CDFs:
 ///
-/// \[
+/// $$
 /// P(\max\{G_1, \ldots, G_k\} \leq x) = [e^{-e^{-(x-\mu)/\beta}}]^k = e^{-k e^{-(x-\mu)/\beta}}
-/// \]
+/// $$
 ///
-/// After algebraic manipulation, this equals \(e^{-e^{-(x-(\mu+\beta\ln k))/\beta}}\), which is
-/// the CDF of \(\text{Gumbel}(\mu + \beta \ln k, \beta)\).
+/// After algebraic manipulation, this equals `e^{-e^{-(x-(mu+beta*ln(k)))/beta}}`, which is
+/// the CDF of `Gumbel(mu + beta*ln(k), beta)`.
 ///
 /// This property is crucial for maintaining the algebraic structure of box embeddings
 /// when computing intersections (max of minimums, min of maximums). It ensures that
