@@ -57,7 +57,7 @@
 //! - [`gumbel`] -- Gumbel box documentation and research background
 //! - [`octagon`] -- octagon error types (implementations in [`ndarray_backend`])
 //! - [`cone`] -- cone error types (implementations in [`ndarray_backend`])
-//! - [`hyperbolic`] -- Poincare ball embeddings for tree-like hierarchies
+//! - `hyperbolic` -- Poincare ball embeddings for tree-like hierarchies (feature-gated)
 //! - [`sheaf`] -- sheaf neural networks for transitivity/consistency on graphs
 //! - [`gaussian`] -- diagonal Gaussian box embeddings (KL, Bhattacharyya)
 //!
@@ -95,8 +95,8 @@
 //! | `ndarray-backend` | yes | [`ndarray_backend`] module, enables `rand` |
 //! | `candle-backend` | no | `candle_backend` module (GPU via candle) |
 //! | `rand` | no | Negative sampling utilities in [`trainer`] |
-//! | `hyperbolic` | no | [`hyperbolic`] module (Poincare ball via `hyperball` + `skel`) |
-//! | `petgraph` | no | [`petgraph_adapter`] module (convert petgraph graphs to datasets) |
+//! | `hyperbolic` | no | `hyperbolic` module (Poincare ball via `hyperball` + `skel`) |
+//! | `petgraph` | no | `petgraph_adapter` module (convert petgraph graphs to datasets) |
 //!
 //! # Example
 //!
