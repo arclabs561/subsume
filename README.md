@@ -159,16 +159,16 @@ containment, set operations, or volume, you need regions.
 
 ## Why Gumbel boxes?
 
-![Gumbel noise robustness](docs/gumbel_robustness.png)
+![Gumbel gradient landscape](docs/gumbel_robustness.png)
 
-*Containment loss under increasing coordinate noise for Gumbel, Gaussian, and hard boxes. Gumbel boxes remain stable at perturbation levels where other formulations fail.*
+*(a) Membership probability at a box boundary: hard boxes have a discontinuous step, Gumbel boxes have smooth sigmoids controlled by temperature. (b) Gradient magnitude: hard boxes produce zero gradient everywhere except the exact boundary (gray regions), while Gumbel boxes provide gradients throughout the space.*
 
 Gumbel boxes model coordinates as Gumbel random variables, creating soft boundaries
 that provide dense gradients throughout training. Hard boxes create flat regions where
 gradients vanish; Gumbel boxes solve this *local identifiability problem*
-(Dasgupta et al., 2020). As shown above, this also makes containment robust to
-coordinate noise -- Gumbel containment loss stays near zero even at high perturbation
-levels where Gaussian boxes fail completely.
+(Dasgupta et al., 2020). Lower temperature (small beta) gives crisper boundaries with
+sharper gradients; higher temperature gives broader gradients that reach further from
+the boundary but sacrifice containment precision.
 
 ## Training convergence
 
