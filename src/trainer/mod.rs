@@ -59,10 +59,24 @@ impl RelationTransform {
     ///
     /// For [`Identity`](RelationTransform::Identity), returns clones of the inputs.
     /// For [`Translation`](RelationTransform::Translation), adds the offset to each bound.
+    ///
+    /// # Panics
+    ///
+    /// Debug-asserts that `min`, `max`, and the offset vector (if [`Translation`](RelationTransform::Translation))
+    /// all have the same length. In release builds, mismatched lengths silently
+    /// truncate via `zip`.
     pub fn apply_to_bounds(&self, min: &[f32], max: &[f32]) -> (Vec<f32>, Vec<f32>) {
+        debug_assert_eq!(min.len(), max.len(), "min/max length mismatch");
         match self {
             RelationTransform::Identity => (min.to_vec(), max.to_vec()),
             RelationTransform::Translation(offset) => {
+                debug_assert_eq!(
+                    offset.len(),
+                    min.len(),
+                    "Translation offset length ({}) != bounds length ({})",
+                    offset.len(),
+                    min.len()
+                );
                 let new_min: Vec<f32> = min.iter().zip(offset).map(|(m, d)| m + d).collect();
                 let new_max: Vec<f32> = max.iter().zip(offset).map(|(m, d)| m + d).collect();
                 (new_min, new_max)
