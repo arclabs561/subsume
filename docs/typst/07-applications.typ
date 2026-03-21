@@ -24,7 +24,7 @@ This document surveys modern applications of box embeddings (2023-2025), demonst
 
 *Theoretical Significance*: RegD proves that Euclidean box embeddings can achieve hyperbolic-like expressiveness without the computational complexity of hyperbolic operations. This validates the choice of Euclidean space while maintaining theoretical guarantees.
 
-*Relevance to Foundations*: This work builds directly on the max-stability property (see the Gumbel Max-Stability document) and volume calculations (see the Gumbel-Box Volume document), demonstrating that the mathematical structure we've established enables state-of-the-art performance.
+*Relevance to Foundations*: This work builds directly on the max-stability property (see the Gumbel Max-Stability document) and volume calculations (see the Gumbel-Box Volume document), demonstrating that the mathematical structure we've established enables competitive performance.
 
 == 2024: TransBox - EL++-closed Ontology Embedding
 
@@ -273,7 +273,7 @@ Recent work demonstrates box embeddings' effectiveness:
 - *RegD (2025)*: Achieves hyperbolic-like expressiveness with Euclidean efficiency, demonstrating that box embeddings can capture hierarchical structures without the computational complexity of hyperbolic operations
 - *TransBox (2024)*: Handles complex DL axioms while maintaining logical consistency, validating the subsumption-based approach for formal ontologies
 - *Dual Box Embeddings (2023)*: Successfully embeds both ABox and TBox knowledge, showing that box embeddings can handle both instance-level and concept-level knowledge simultaneously
-- *BoxE (2020)*: Achieves state-of-the-art performance on FB15k-237 and WN18RR knowledge graph completion benchmarks, proving full expressivity with dimension $d = |E|^(n-1) * |R|$
+- *BoxE (2020)*: Achieves competitive performance on FB15k-237 and WN18RR knowledge graph completion benchmarks, proving full expressivity with dimension $d = |E|^(n-1) * |R|$
 - *Query2Box (2020)*: Achieves up to 25% relative improvement over Graph Query Embedding (GQE) on logical query answering tasks, demonstrating that attention-based geometric operations significantly improve performance
 
 These results validate the mathematical foundations we've established: the subsumption relationship, volume calculations, max-stability, and local identifiability all contribute to practical effectiveness. The $O(n * d)$ computational complexity (where $n$ is relation arity and $d$ is dimension) makes box embeddings efficient even for large knowledge graphs, while the VC dimension bound of $2d$ provides theoretical guarantees on representational capacity.
