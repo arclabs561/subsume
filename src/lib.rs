@@ -182,6 +182,14 @@ pub mod gaussian;
 /// EL++ ontology embedding primitives (Box2EL / TransBox).
 pub mod el;
 
+/// EL++ ontology embedding primitives for cones (angular containment).
+pub mod cone_el;
+
+/// Composable cone query operators for first-order logical query answering.
+#[cfg(feature = "ndarray-backend")]
+#[cfg_attr(docsrs, doc(cfg(feature = "ndarray-backend")))]
+pub mod cone_query;
+
 /// EL++ ontology embedding training: axiom parsing, training loop, evaluation.
 #[cfg(feature = "rand")]
 #[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
