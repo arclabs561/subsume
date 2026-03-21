@@ -404,6 +404,11 @@ pub struct BoxEmbeddingTrainer {
 
 impl BoxEmbeddingTrainer {
     /// Create a new box embedding trainer.
+    ///
+    /// This constructor does not validate the config (it cannot return `Result`
+    /// without a breaking API change). Call [`TrainingConfig::validate`] after
+    /// deserializing a config from an untrusted source. [`fit`](Self::fit)
+    /// validates automatically before training.
     pub fn new(config: TrainingConfig, dim: usize) -> Self {
         let current_beta = config.gumbel_beta;
         Self {
@@ -834,6 +839,7 @@ impl BoxEmbeddingTrainer {
         validation: Option<(&[crate::dataset::TripleIds], &crate::dataset::Vocab)>,
         filter: Option<&FilteredTripleIndexIds>,
     ) -> Result<TrainingResult, BoxError> {
+        self.config.validate()?;
         let epochs = self.config.epochs;
         let warmup = self.config.warmup_epochs;
         let base_lr = self.config.learning_rate;
@@ -1232,8 +1238,7 @@ mod tests {
         // to the intersection. Head is overall larger (higher delta) so
         // P(B|A) < P(A|B), placing us on one side of the min() and
         // avoiding the non-smooth kink where P(A|B) ~= P(B|A).
-        let head =
-            TrainableBox::new(vec![0.1, -0.2, 0.5, 0.3], vec![1.2, 0.7, 0.6, 0.7]).unwrap();
+        let head = TrainableBox::new(vec![0.1, -0.2, 0.5, 0.3], vec![1.2, 0.7, 0.6, 0.7]).unwrap();
         let tail =
             TrainableBox::new(vec![1.16, -0.42, 0.41, 1.54], vec![0.5, 0.5, 0.5, 0.5]).unwrap();
 
