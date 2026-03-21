@@ -33,7 +33,7 @@ The local identifiability problem and how Gumbel boxes solve it. Why probabilist
 ### Modern Applications and Future Directions
 
 **PDF:** [`typst-output/pdf/07-applications.pdf`](typst-output/pdf/07-applications.pdf)  
-Modern applications (2023-2025): RegD, TransBox, Concept2Box, and related developments. Demonstrates how the mathematical foundations enable state-of-the-art applications.
+Modern applications (2023-2025): RegD, TransBox, Concept2Box, and related developments. Demonstrates how the mathematical foundations enable competitive applications.
 
 **PDF:** [`typst-output/pdf/08-future.pdf`](typst-output/pdf/08-future.pdf)  
 Future directions and open questions. Scaling, expressiveness, uncertainty quantification, multi-modal extensions, and integration with large language models.
@@ -61,7 +61,7 @@ For implementation details connecting theory to code, see [`MATH_TO_CODE_CONNECT
 5. Gumbel Max-Stability (mathematical property)
 6. Log-Sum-Exp (numerical methods)
 7. Local Identifiability (learning theory)
-8. Applications (modern state-of-the-art)
+8. Applications (modern competitive)
 9. Future Directions (open questions)
 
 **For reference:** Use the quick reference for formulas, or jump to specific documents as needed.

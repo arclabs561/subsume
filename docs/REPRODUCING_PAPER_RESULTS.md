@@ -31,7 +31,7 @@ GumbelBox achieves ~6 F1 score improvement over SmoothBox on knowledge graph com
 
 **Verification**:
 ```rust
-// See subsume-ndarray/src/quantitative_verification_tests.rs
+// See src/ndarray_backend/quantitative_verification_tests.rs
 // test_dasgupta_2020_gradient_density_quantitative()
 ```
 
@@ -62,7 +62,7 @@ Euclidean boxes with depth distance achieve hyperbolic-like expressiveness.
 
 **Verification**:
 ```rust
-// See subsume-ndarray/src/quantitative_verification_tests.rs
+// See src/ndarray_backend/quantitative_verification_tests.rs
 // test_regd_2025_crowding_effect_mitigation()
 // test_regd_2025_hierarchy_depth_property()
 ```
@@ -102,7 +102,7 @@ Joint learning of concept boxes and entity vectors improves performance on two-v
 ## Abboud et al. (2020): "State-of-the-Art Performance"
 
 ### Claim
-BoxE achieves state-of-the-art performance on FB15k-237, WN18RR, YAGO3-10.
+BoxE achieves competitive performance on FB15k-237, WN18RR, YAGO3-10.
 
 ### Methodology
 
@@ -126,7 +126,7 @@ BoxE achieves state-of-the-art performance on FB15k-237, WN18RR, YAGO3-10.
 - Full BoxE requires additional components (bumps, training loop)
 
 **Verification**:
-- See `subsume-ndarray/src/invariant_tests.rs`
+- See `src/ndarray_backend/invariant_tests.rs`
 - `test_expressiveness_properties()` verifies theoretical expressiveness
 - Full performance verification requires complete BoxE implementation
 

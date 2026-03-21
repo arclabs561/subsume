@@ -11,7 +11,7 @@ Gumbel distributions are max-stable: if \(G_1, \ldots, G_k \sim \text{Gumbel}(\m
 \]
 
 ### Implementation
-**Location:** `subsume-core/src/utils.rs::sample_gumbel()`
+**Location:** `src/utils.rs::sample_gumbel()`
 
 ```rust
 pub fn sample_gumbel(u: f32, epsilon: f32) -> f32 {
@@ -42,7 +42,7 @@ For numerical stability, this is approximated as:
 \]
 
 ### Implementation
-**Location:** `subsume-ndarray/src/ndarray_gumbel.rs` and `subsume-candle/src/candle_gumbel.rs`
+**Location:** `src/ndarray_backend/ndarray_gumbel.rs` and `src/candle_backend/candle_gumbel.rs`
 
 **Implementation Note:** The current implementation uses the softplus approximation for computational efficiency. The Bessel function \(K_0\) provides the theoretical foundation, but the softplus form \(\beta \log(1 + \exp(x/\beta - 2\gamma))\) is used in practice because it:
 - Matches the Bessel function asymptotically (see [`gumbel-box-volume.pdf`](typst-output/pdf/gumbel-box-volume.pdf) for the derivation)
@@ -75,7 +75,7 @@ For containment probability with Gumbel boxes:
 \]
 
 ### Implementation
-**Location:** `subsume-ndarray/src/ndarray_box.rs::containment_prob()` and `subsume-candle/src/candle_box.rs::containment_prob()`
+**Location:** `src/ndarray_backend/ndarray_box.rs::containment_prob()` and `src/candle_backend/candle_box.rs::containment_prob()`
 
 ```rust
 fn containment_prob(&self, other: &Self) -> Result<Self::Scalar, BoxError> {
@@ -120,7 +120,7 @@ where:
 
 **Theoretical vs Practical:** The Bessel approximation is the theoretical foundation explaining why Gumbel boxes work (dense gradients, local identifiability), but the implementation uses the simpler standard volume calculation. The key benefit is that Gumbel coordinates ensure all parameters contribute to gradients, even when using the standard volume formula.
 
-**Location:** `subsume-core/src/utils.rs::gumbel_membership_prob()`
+**Location:** `src/utils.rs::gumbel_membership_prob()`
 
 ```rust
 pub fn gumbel_membership_prob(x: f32, min: f32, max: f32, temp: f32) -> f32 {
@@ -171,7 +171,7 @@ Solution: Compute in log-space:
 \]
 
 ### Implementation
-**Location:** `subsume-core/src/utils.rs::log_space_volume()`
+**Location:** `src/utils.rs::log_space_volume()`
 
 ```rust
 pub fn log_space_volume<I>(side_lengths: I) -> (f32, f32)
@@ -219,7 +219,7 @@ Stable form:
 - If \(x \geq 0\): use \(1 / (1 + e^{-x})\)
 
 ### Implementation
-**Location:** `subsume-core/src/utils.rs::stable_sigmoid()`
+**Location:** `src/utils.rs::stable_sigmoid()`
 
 ```rust
 pub fn stable_sigmoid(x: f32) -> f32 {
@@ -248,7 +248,7 @@ Extreme values cause numerical issues:
 - **Too high**: Loss of correspondence to discrete distributions
 
 ### Implementation
-**Location:** `subsume-core/src/utils.rs::clamp_temperature()`
+**Location:** `src/utils.rs::clamp_temperature()`
 
 ```rust
 pub const MIN_TEMPERATURE: f32 = 1e-3;
