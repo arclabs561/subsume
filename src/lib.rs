@@ -13,7 +13,7 @@
 //! | Goal | Start here |
 //! |------|-----------|
 //! | Understand the core abstraction | [`Box`] trait, [`BoxError`] |
-//! | Use probabilistic (Gumbel) boxes | [`NdarrayGumbelBox`](ndarray_backend::NdarrayGumbelBox), [`gumbel`] module |
+//! | Use probabilistic (Gumbel) boxes | [`NdarrayGumbelBox`](ndarray_backend::NdarrayGumbelBox) |
 //! | Use octagon embeddings (box + diagonal constraints) | [`NdarrayOctagon`](ndarray_backend::ndarray_octagon::NdarrayOctagon), [`octagon`] module |
 //! | Fuzzy query answering (t-norms) | [`fuzzy::TNorm`], [`fuzzy::TConorm`], [`fuzzy`] module |
 //! | Load a knowledge graph dataset | [`Dataset`], [`Triple`] |
@@ -54,7 +54,6 @@
 //! ## Core traits and geometry
 //!
 //! - [`box_trait`] -- the [`Box`] trait: containment, overlap, volume
-//! - [`gumbel`] -- Gumbel box documentation and research background
 //! - [`octagon`] -- octagon error types (implementations in [`ndarray_backend`])
 //! - [`cone`] -- cone error types (implementations in [`ndarray_backend`])
 //! - `hyperbolic` -- Poincare ball embeddings for tree-like hierarchies (feature-gated)
@@ -92,9 +91,9 @@
 //!
 //! | Feature | Default | Provides |
 //! |---------|---------|----------|
-//! | `ndarray-backend` | yes | [`ndarray_backend`] module, enables `rand` |
+//! | `ndarray-backend` | yes | [`ndarray_backend`] module (also enables `rand`) |
 //! | `candle-backend` | no | `candle_backend` module (GPU via candle) |
-//! | `rand` | no | Negative sampling utilities in [`trainer`] |
+//! | `rand` | yes (via `ndarray-backend`) | Negative sampling utilities in [`trainer`] |
 //! | `hyperbolic` | no | `hyperbolic` module (Poincare ball via `hyperball` + `skel`) |
 //! | `petgraph` | no | `petgraph_adapter` module (convert petgraph graphs to datasets) |
 //!
@@ -150,9 +149,6 @@ pub mod dataset;
 
 /// Distance metrics: Query2Box distance scoring.
 pub mod distance;
-
-/// Gumbel box module: probabilistic boxes with Gumbel-distributed coordinates.
-pub mod gumbel;
 
 /// Poincare ball embeddings for tree-like hierarchical structures.
 ///
@@ -237,22 +233,11 @@ pub use sheaf::SheafError;
 pub use dataset::{Dataset, DatasetError, Triple};
 
 // Re-exports: training
-#[cfg(feature = "ndarray-backend")]
-#[cfg_attr(docsrs, doc(cfg(feature = "ndarray-backend")))]
-pub use trainer::evaluate_link_prediction_interned_with_transforms;
 pub use trainer::{
     evaluate_link_prediction, BoxEmbeddingTrainer, ConeEmbeddingTrainer, EvaluationResults,
     RelationTransform, TrainingConfig, TrainingResult,
 };
 
-/// Negative sampling utilities (requires the `rand` feature).
-#[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
-#[cfg(feature = "rand")]
-pub use trainer::{
-    generate_degree_weighted_negatives, generate_negative_samples,
-    generate_negative_samples_from_sorted_pool_with_rng, generate_negative_samples_with_rng,
-    generate_self_adversarial_negatives, SortedEntityPool,
-};
 
 // Re-export: ndarray (public dependency -- appears in NdarrayBox/NdarrayGumbelBox/NdarrayCone API)
 #[cfg(feature = "ndarray-backend")]

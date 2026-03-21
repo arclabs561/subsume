@@ -255,14 +255,6 @@ impl DenseCone {
         dist_out + cen * dist_in
     }
 
-    /// Convert distance to a containment-like score in \[0, 1\].
-    ///
-    /// Uses `gamma - distance * modulus` mapped through sigmoid. Higher = better.
-    #[inline]
-    pub fn containment_score(&self, entity: &Self, cen: f32, gamma: f32, modulus: f32) -> f32 {
-        let dist = self.cone_distance(entity, cen);
-        crate::utils::stable_sigmoid(gamma - dist * modulus)
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -405,14 +397,6 @@ impl TrainableCone {
     /// Lower distance = better containment. Convenience wrapper around `DenseCone`.
     pub fn cone_distance(&self, entity: &Self, cen: f32) -> f32 {
         self.to_cone().cone_distance(&entity.to_cone(), cen)
-    }
-
-    /// Compute a containment-like score in \[0, 1\].
-    ///
-    /// Uses `gamma - distance * modulus` through sigmoid.
-    pub fn containment_score(&self, entity: &Self, cen: f32, gamma: f32, modulus: f32) -> f32 {
-        self.to_cone()
-            .containment_score(&entity.to_cone(), cen, gamma, modulus)
     }
 
     /// Update cone parameters using AMSGrad optimizer.
