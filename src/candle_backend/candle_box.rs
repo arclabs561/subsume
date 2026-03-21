@@ -49,7 +49,7 @@ impl CandleBox {
             .to_vec1::<f32>()
             .map_err(|e| BoxError::Internal(e.to_string()))?;
         for (i, (&m, &max_val)) in min_data.iter().zip(max_data.iter()).enumerate() {
-            if m.is_nan() || max_val.is_nan() {
+            if !m.is_finite() || !max_val.is_finite() {
                 return Err(BoxError::InvalidBounds {
                     dim: i,
                     min: m as f64,
