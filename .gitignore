@@ -36,3 +36,4 @@ Cargo.lock
 *.log
 
 subsume-python/target/
+data/
