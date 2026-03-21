@@ -103,10 +103,7 @@ pub fn depth_distance(
 /// Compute boundary distance between two boxes (RegD 2025).
 ///
 /// Optimized implementation for candle that computes exact boundary distance.
-pub fn boundary_distance(
-    outer: &CandleBox,
-    inner: &CandleBox,
-) -> Result<Option<f32>, BoxError> {
+pub fn boundary_distance(outer: &CandleBox, inner: &CandleBox) -> Result<Option<f32>, BoxError> {
     // Check if inner is contained in outer
     let containment = outer.containment_prob(inner)?;
     if containment < BOUNDARY_CONTAINMENT_THRESHOLD {

@@ -238,7 +238,6 @@ pub use trainer::{
     RelationTransform, TrainingConfig, TrainingResult,
 };
 
-
 // Re-export: ndarray (public dependency -- appears in NdarrayBox/NdarrayGumbelBox/NdarrayCone API)
 #[cfg(feature = "ndarray-backend")]
 #[cfg_attr(docsrs, doc(cfg(feature = "ndarray-backend")))]

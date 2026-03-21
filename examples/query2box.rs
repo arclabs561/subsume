@@ -42,7 +42,6 @@ use subsume::Box as BoxTrait;
 fn rank_candidates<'a>(
     query: &NdarrayBox,
     candidates: &[(&'a str, &NdarrayBox)],
-
 ) -> Vec<(&'a str, f32)> {
     let mut scored: Vec<(&str, f32)> = candidates
         .iter()

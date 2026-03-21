@@ -562,8 +562,8 @@ pub(crate) fn rank_with_translated_query_forward(
         1.0,
     )?;
 
-    let target_score = translated.containment_prob_fast(
-        entity_boxes.get(target_id).ok_or_else(|| {
+    let target_score =
+        translated.containment_prob_fast(entity_boxes.get(target_id).ok_or_else(|| {
             crate::BoxError::Internal(format!("Missing entity id (target): {target_id}"))
         })?)?;
     if target_score.is_nan() {
@@ -1303,8 +1303,7 @@ mod tests {
             tail: id_b,
         }];
 
-        let results =
-            evaluate_link_prediction_interned(&test_triples, &boxes, &vocab).unwrap();
+        let results = evaluate_link_prediction_interned(&test_triples, &boxes, &vocab).unwrap();
         assert!(
             results.mrr > 0.0,
             "MRR should be positive, got {}",
@@ -1351,8 +1350,7 @@ mod tests {
         ];
         let filter = FilteredTripleIndexIds::from_triples(known_triples.iter());
 
-        let unfiltered =
-            evaluate_link_prediction_interned(&test_triples, &boxes, &vocab).unwrap();
+        let unfiltered = evaluate_link_prediction_interned(&test_triples, &boxes, &vocab).unwrap();
         let filtered =
             evaluate_link_prediction_interned_filtered(&test_triples, &boxes, &vocab, &filter)
                 .unwrap();

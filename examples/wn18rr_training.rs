@@ -38,10 +38,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         dataset.test.len()
     );
 
-    
-    
     let stats = dataset.stats();
-    println!("Entities: {}, Relations: {}", stats.num_entities, stats.num_relations);
+    println!(
+        "Entities: {}, Relations: {}",
+        stats.num_entities, stats.num_relations
+    );
 
     // Intern the dataset for efficient training.
     let interned = dataset.into_interned();
@@ -78,7 +79,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         trainer.ensure_entity(id);
     }
 
-    println!("\nTraining {} epochs (dim={dim}, batch_size={})...\n", config.epochs, config.batch_size);
+    println!(
+        "\nTraining {} epochs (dim={dim}, batch_size={})...\n",
+        config.epochs, config.batch_size
+    );
 
     // Train in batches.
     let _n_batches = (train_triples.len() + config.batch_size - 1) / config.batch_size;
@@ -97,7 +101,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let avg_loss = epoch_loss / batch_count as f32;
 
         // Print loss every epoch for live progress.
-        println!("  epoch {epoch:>3}/{}: avg_loss = {avg_loss:.6}", config.epochs);
+        println!(
+            "  epoch {epoch:>3}/{}: avg_loss = {avg_loss:.6}",
+            config.epochs
+        );
 
         // Quick validation on a small sample (first 50 triples) every 10 epochs.
         // Full evaluation is too slow for 40K entities at every checkpoint.
@@ -127,13 +134,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Hits@3:    {:.4}", results.hits_at_3);
     println!("  Hits@10:   {:.4}", results.hits_at_10);
     println!("  Mean Rank: {:.1}", results.mean_rank);
-    println!("\n  ({} test triples, {} entities, filtered ranking)", interned.test.len(), entities.len());
+    println!(
+        "\n  ({} test triples, {} entities, filtered ranking)",
+        interned.test.len(),
+        entities.len()
+    );
 
     // Save checkpoint.
     let checkpoint = serde_json::to_string(&trainer)?;
     let checkpoint_path = "data/WN18RR/checkpoint.json";
     std::fs::write(checkpoint_path, &checkpoint)?;
-    println!("\nCheckpoint saved: {} ({} bytes)", checkpoint_path, checkpoint.len());
+    println!(
+        "\nCheckpoint saved: {} ({} bytes)",
+        checkpoint_path,
+        checkpoint.len()
+    );
 
     Ok(())
 }

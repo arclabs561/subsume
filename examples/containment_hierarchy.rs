@@ -35,7 +35,6 @@ fn main() -> Result<(), subsume::BoxError> {
     let cat = NdarrayBox::new(array![0.5, 0.5, 0.1], array![0.9, 0.9, 0.4], 1.0)?;
     let fish = NdarrayBox::new(array![0.1, 0.1, 0.96], array![0.5, 0.5, 0.99], 1.0)?;
 
-
     // --- Part 1: Volumes reflect generality ---
     println!("--- Volumes (larger = more general) ---\n");
     let entities = [
