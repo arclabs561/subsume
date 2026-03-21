@@ -1192,6 +1192,131 @@ mod tests {
         );
     }
 
+    /// Centered finite-difference gradient check for `compute_analytical_gradients`.
+    ///
+    /// For each parameter component (mu_h, delta_h, mu_t, delta_t), perturbs by
+    /// +/- epsilon and compares (loss_plus - loss_minus) / (2 * epsilon) against
+    /// the analytical gradient. Uses relative tolerance of 1e-2.
+    ///
+    /// Runs for both positive and negative pair losses.
+    #[test]
+    fn gradcheck_analytical_vs_finite_difference() {
+        // Disable gradient norm clipping so analytical gradients are unmodified.
+        // Use non-zero regularization to exercise that path too.
+        let cfg = TrainingConfig {
+            regularization: 0.001,
+            max_grad_norm: f32::MAX,
+            gumbel_beta: 10.0,
+            margin: 0.2,
+            negative_weight: 1.0,
+            ..Default::default()
+        };
+
+        let dim = 4;
+
+        // Fixed, deterministic parameters. Head is clearly larger than tail
+        // (higher delta values) so P(B|A) < P(A|B), placing us firmly on one
+        // side of the min() in the positive loss. This avoids the non-smooth
+        // kink where P(A|B) ~= P(B|A).
+        let head = TrainableBox::new(
+            vec![0.0, 0.0, 0.0, 0.0],
+            vec![1.5, 1.5, 1.5, 1.5],
+        )
+        .unwrap();
+        let tail = TrainableBox::new(
+            vec![0.3, -0.2, 0.1, 0.4],
+            vec![0.2, 0.3, 0.1, 0.2],
+        )
+        .unwrap();
+
+        let eps = 1e-4_f32;
+        let rel_tol = 2e-2;
+
+        // For the negative case, use overlapping boxes with clearly different
+        // volumes so max(P_AB, P_BA) has a definite winner, and max_prob is
+        // well above the margin to avoid the max(0, ...) kink.
+        let head_neg = TrainableBox::new(
+            vec![0.0, 0.0, 0.0, 0.0],
+            vec![1.2, 1.2, 1.2, 1.2],
+        )
+        .unwrap();
+        let tail_neg = TrainableBox::new(
+            vec![0.1, -0.1, 0.05, 0.15],
+            vec![0.3, 0.4, 0.35, 0.25],
+        )
+        .unwrap();
+
+        let test_cases: Vec<(bool, &TrainableBox, &TrainableBox)> = vec![
+            (true, &head, &tail),
+            (false, &head_neg, &tail_neg),
+        ];
+
+        let mut checked = 0usize; // count of non-trivial gradient comparisons
+
+        for (is_positive, h_box, t_box) in &test_cases {
+            let (g_mu_h, g_delta_h, g_mu_t, g_delta_t) =
+                compute_analytical_gradients(h_box, t_box, *is_positive, &cfg);
+
+            // Helper: perturb a single parameter, compute loss.
+            let is_pos = *is_positive;
+            let perturb_loss =
+                |which: &str, idx: usize, sign: f32| -> f32 {
+                    let mut h = (*h_box).clone();
+                    let mut t = (*t_box).clone();
+                    match which {
+                        "mu_h" => h.mu[idx] += sign * eps,
+                        "delta_h" => h.delta[idx] += sign * eps,
+                        "mu_t" => t.mu[idx] += sign * eps,
+                        "delta_t" => t.delta[idx] += sign * eps,
+                        _ => unreachable!(),
+                    }
+                    compute_pair_loss(&h, &t, is_pos, &cfg)
+                };
+
+            let cases: &[(&str, &[f32])] = &[
+                ("mu_h", &g_mu_h),
+                ("delta_h", &g_delta_h),
+                ("mu_t", &g_mu_t),
+                ("delta_t", &g_delta_t),
+            ];
+
+            for &(name, analytical) in cases {
+                for i in 0..dim {
+                    let loss_plus = perturb_loss(name, i, 1.0);
+                    let loss_minus = perturb_loss(name, i, -1.0);
+                    let numerical = (loss_plus - loss_minus) / (2.0 * eps);
+                    let a = analytical[i];
+
+                    // Skip comparison when both values are negligibly small.
+                    let abs_tol = 1e-4;
+                    if a.abs() < abs_tol && numerical.abs() < abs_tol {
+                        continue;
+                    }
+
+                    checked += 1;
+
+                    // Relative error: |a - n| / max(|a|, |n|)
+                    let denom = a.abs().max(numerical.abs());
+                    let rel_err = (a - numerical).abs() / denom;
+
+                    assert!(
+                        rel_err < rel_tol,
+                        "gradcheck failed: is_positive={is_pos}, {name}[{i}]: \
+                         analytical={a:.6}, numerical={numerical:.6}, rel_err={rel_err:.6}"
+                    );
+                }
+            }
+        }
+
+        // Ensure the test actually verified a meaningful number of components.
+        // With dim=4, 4 parameter groups, 2 cases => up to 32 components.
+        // We expect at least 10 non-trivial checks.
+        assert!(
+            checked >= 10,
+            "gradcheck only verified {checked} non-trivial components (expected >= 10)"
+        );
+    }
+
     fn arb_box(dim: usize) -> impl Strategy<Value = TrainableBox> {
         let mu_strat = prop::collection::vec(-10.0f32..10.0, dim);
         let delta_strat = prop::collection::vec(-5.0f32..2.0, dim);
