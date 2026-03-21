@@ -306,7 +306,11 @@ impl Box for NdarrayBox {
         }
     }
 
-    fn containment_prob_many(&self, others: &[Self], out: &mut [Self::Scalar]) -> Result<(), BoxError> {
+    fn containment_prob_many(
+        &self,
+        others: &[Self],
+        out: &mut [Self::Scalar],
+    ) -> Result<(), BoxError> {
         if out.len() < others.len() {
             return Err(BoxError::Internal(format!(
                 "output buffer too small: need {}, got {}",
@@ -915,9 +919,7 @@ mod tests {
             NdarrayBox::new(array![20.0, 20.0], array![30.0, 30.0], 1.0).unwrap(),
         ];
         let mut out = vec![0.0f32; 3];
-        parent
-            .containment_prob_many(&children, &mut out)
-            .unwrap();
+        parent.containment_prob_many(&children, &mut out).unwrap();
 
         for (i, child) in children.iter().enumerate() {
             let expected = parent.containment_prob(child).unwrap();
@@ -1048,9 +1050,7 @@ mod tests {
             .unwrap(),
         ];
         let mut out = vec![0.0f32; 2];
-        parent
-            .containment_prob_many(&children, &mut out)
-            .unwrap();
+        parent.containment_prob_many(&children, &mut out).unwrap();
         assert!(
             out[0] > 0.99,
             "Nested child should have ~1.0, got {}",
