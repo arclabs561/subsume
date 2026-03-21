@@ -100,15 +100,42 @@ pub enum SheafError {
 #[derive(Debug, Clone)]
 pub struct SheafEdge {
     /// Source node ID.
-    pub source: usize,
+    source: usize,
     /// Target node ID.
-    pub target: usize,
+    target: usize,
     /// Restriction map from source stalk to edge space.
-    pub restriction_source: DenseRestriction,
+    restriction_source: DenseRestriction,
     /// Restriction map from target stalk to edge space.
-    pub restriction_target: DenseRestriction,
+    restriction_target: DenseRestriction,
     /// Edge weight (optional, for weighted Laplacian).
-    pub weight: f32,
+    weight: f32,
+}
+
+impl SheafEdge {
+    /// Source node ID.
+    pub fn source(&self) -> usize {
+        self.source
+    }
+
+    /// Target node ID.
+    pub fn target(&self) -> usize {
+        self.target
+    }
+
+    /// Restriction map from source stalk to edge space.
+    pub fn restriction_source(&self) -> &DenseRestriction {
+        &self.restriction_source
+    }
+
+    /// Restriction map from target stalk to edge space.
+    pub fn restriction_target(&self) -> &DenseRestriction {
+        &self.restriction_target
+    }
+
+    /// Edge weight.
+    pub fn weight(&self) -> f32 {
+        self.weight
+    }
 }
 
 // =============================================================================
@@ -144,11 +171,11 @@ impl Default for DiffusionConfig {
 #[derive(Debug, Clone)]
 pub struct DenseRestriction {
     /// Matrix data in row-major order.
-    pub data: Vec<f32>,
+    data: Vec<f32>,
     /// Number of rows (output dimension).
-    pub rows: usize,
+    rows: usize,
     /// Number of columns (input dimension).
-    pub cols: usize,
+    cols: usize,
 }
 
 impl DenseRestriction {
@@ -174,6 +201,21 @@ impl DenseRestriction {
             rows: dim,
             cols: dim,
         }
+    }
+
+    /// Raw matrix data in row-major order.
+    pub fn data(&self) -> &[f32] {
+        &self.data
+    }
+
+    /// Number of rows (output dimension).
+    pub fn rows(&self) -> usize {
+        self.rows
+    }
+
+    /// Number of columns (input dimension).
+    pub fn cols(&self) -> usize {
+        self.cols
     }
 
     /// Input dimension (stalk dimension at source node).
