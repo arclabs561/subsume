@@ -12,12 +12,15 @@ use crate::trainer::evaluation::{evaluate_link_prediction_interned_inner, Filter
 
 /// Compute loss for a pair of boxes.
 ///
-/// Design choice (important):
-/// - For **positive** examples this loss uses a *symmetric* score by taking
-///   `min(P(B ⊆ A), P(A ⊆ B))`. This encourages "near-equivalence"
-///   more than directed entailment.
-/// - For hierarchy-like relations, a more typical objective is *directed* containment,
-///   e.g. minimize `-ln P(B ⊆ A)` only.
+/// For **positive** examples (default directed mode): `-ln P(B ⊆ A)` where
+/// `P(B ⊆ A) = Vol(A ∩ B) / Vol(B)`. This directly matches the evaluation
+/// metric (`containment_prob_fast`).
+///
+/// When `config.symmetric_loss` is `true`, uses the symmetric formulation
+/// `min(P(B ⊆ A), P(A ⊆ B))` instead. This is appropriate for datasets
+/// with symmetric relations.
+///
+/// For **negative** examples: `w_neg * max(0, max(P(A|B), P(B|A)) - margin)^2`.
 pub fn compute_pair_loss(
     box_a: &TrainableBox,
     box_b: &TrainableBox,
@@ -35,11 +38,16 @@ pub fn compute_pair_loss(
     let vol_b = b.volume().max(1e-30);
 
     if is_positive {
-        let p_a_b = (vol_int_soft / vol_b).clamp(1e-8, 1.0);
-        let p_b_a = (vol_int_soft / vol_a).clamp(1e-8, 1.0);
-        let min_prob = p_a_b.min(p_b_a);
+        let prob = if config.symmetric_loss {
+            let p_a_b = (vol_int_soft / vol_b).clamp(1e-8, 1.0);
+            let p_b_a = (vol_int_soft / vol_a).clamp(1e-8, 1.0);
+            p_a_b.min(p_b_a)
+        } else {
+            // Directed: P(B ⊆ A) = Vol(A ∩ B) / Vol(B)
+            (vol_int_soft / vol_b).clamp(1e-8, 1.0)
+        };
         // Cap at 10.0 to prevent explosion from near-zero probabilities.
-        let neg_log_prob = (-min_prob.ln()).min(10.0);
+        let neg_log_prob = (-prob.ln()).min(10.0);
 
         let reg = config.regularization * (vol_a + vol_b);
 
@@ -90,7 +98,9 @@ fn softplus_intersection_volume(
 /// - `min[i] = mu[i] - exp(delta[i]) / 2`
 /// - `max[i] = mu[i] + exp(delta[i]) / 2`
 ///
-/// For **positive** pairs, the loss is `-ln(min(P(A|B), P(B|A))) + reg * (Vol_A + Vol_B)`.
+/// For **positive** pairs (directed, default): the loss is `-ln P(B ⊆ A) + reg * (Vol_A + Vol_B)`
+/// where `P(B ⊆ A) = Vol(A ∩ B) / Vol(B)`. When `config.symmetric_loss` is true,
+/// uses `min(P(A|B), P(B|A))` instead.
 /// For **negative** pairs, the loss is `w_neg * max(0, max(P(A|B), P(B|A)) - margin)^2`.
 ///
 /// Intersection volume uses softplus smoothing (`config.gumbel_beta`), so
@@ -152,8 +162,9 @@ pub fn compute_analytical_gradients(
     let half_width_b: Vec<f32> = box_b.delta.iter().map(|d| d.exp() / 2.0).collect();
 
     if is_positive {
-        // Positive loss: L = -ln(min(P_AB, P_BA)) + reg * (Vol_A + Vol_B)
-        // where P_AB = Vol_int / Vol_B, P_BA = Vol_int / Vol_A
+        // Positive loss (directed): L = -ln P(B ⊆ A) + reg * (Vol_A + Vol_B)
+        // where P(B ⊆ A) = Vol_int / Vol_B.
+        // When symmetric_loss: L = -ln(min(P_AB, P_BA)).
 
         if vol_int < 1e-30 {
             // Disjoint: true gradient is zero (Vol_int = 0).
@@ -172,11 +183,16 @@ pub fn compute_analytical_gradients(
         let p_ab = (vol_int / vol_b).clamp(1e-8, 1.0);
         let p_ba = (vol_int / vol_a).clamp(1e-8, 1.0);
 
-        // Determine which conditional probability is the minimum.
-        let (p, use_ab) = if p_ab <= p_ba {
-            (p_ab, true)
+        // Directed: always use P(B ⊆ A) = Vol_int / Vol_B.
+        // Symmetric: use min(P_AB, P_BA).
+        let (p, use_ab) = if config.symmetric_loss {
+            if p_ab <= p_ba {
+                (p_ab, true)
+            } else {
+                (p_ba, false)
+            }
         } else {
-            (p_ba, false)
+            (p_ab, true)
         };
 
         // dL/dP = -1/P (from -ln(P))
@@ -962,7 +978,6 @@ mod tests {
         assert!(cfg.epochs > 0);
         assert!(cfg.batch_size > 0);
         assert!(cfg.negative_samples > 0);
-        assert!(cfg.temperature > 0.0);
         assert!(cfg.margin > 0.0);
         assert!(cfg.negative_weight > 0.0);
     }
