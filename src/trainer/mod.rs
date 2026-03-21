@@ -163,17 +163,7 @@ pub enum NegativeSamplingStrategy {
 ///
 /// ## Regularization Parameters
 ///
-/// - **`weight_decay`**: L2 regularization on box parameters
-///   - Prevents overfitting by keeping box coordinates small
-///   - Higher: Stronger regularization (simpler model)
-///   - Lower: Less regularization (more complex model)
-///
 /// ## Box-Specific Parameters
-///
-/// - **`temperature`**: Controls "softness" of Gumbel box boundaries
-///   - Lower (0.1-0.5): Sharp boundaries, more like hard boxes
-///   - Higher (1.0-2.0): Soft boundaries, smoother gradients
-///   - Can be scheduled: Start high, decrease during training
 ///
 /// - **`margin`**: Minimum score difference between positive and negative triples
 ///   - Higher: Forces stronger separation (better discrimination)
@@ -193,21 +183,19 @@ pub enum NegativeSamplingStrategy {
 ///
 ///
 /// $$
-/// L_{\text{total}} = L_{\text{ranking}} + \lambda_{\text{reg}} \cdot L_{\text{volume}} + \lambda_{\text{wd}} \cdot ||\theta||^2
+/// L_{\text{total}} = L_{\text{ranking}} + \lambda_{\text{reg}} \cdot L_{\text{volume}}
 /// $$
 ///
 /// where:
 /// - `L_ranking` is the margin-based ranking loss
 /// - `L_volume` is volume regularization (penalizes large boxes)
-/// - `||theta||^2` is L2 regularization on parameters
-/// - `lambda_wd` is `weight_decay`
 /// # Field usage
 ///
 /// Fields consumed by [`BoxEmbeddingTrainer::train_step`]: `learning_rate`, `margin`,
 /// `regularization`, `negative_weight`, `negative_samples`, `negative_strategy`,
 /// `gumbel_beta`, `max_grad_norm`, `adversarial_temperature`, `use_infonce`.
 ///
-/// The remaining fields (`epochs`, `batch_size`, `temperature`, `weight_decay`,
+/// The remaining fields (`epochs`, `batch_size`,
 /// `early_stopping_*`, `warmup_epochs`, `gumbel_beta_final`) are configuration
 /// metadata for caller-side training loops (e.g., [`BoxEmbeddingTrainer::fit`]).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -222,10 +210,6 @@ pub struct TrainingConfig {
     pub negative_samples: usize,
     /// Negative sampling strategy (default: CorruptTail)
     pub negative_strategy: NegativeSamplingStrategy,
-    /// Temperature for Gumbel boxes (default: 1.0)
-    pub temperature: f32,
-    /// Weight decay for AdamW (default: 1e-5, paper range: 1e-5 to 1e-3)
-    pub weight_decay: f32,
     /// Margin for ranking loss (default: 1.0)
     pub margin: f32,
     /// Early stopping patience (default: Some(10))
@@ -291,6 +275,17 @@ pub struct TrainingConfig {
     ///
     /// Default: `false` (backward-compatible margin-based loss).
     pub use_infonce: bool,
+
+    /// Use symmetric loss `min(P(A|B), P(B|A))` instead of directed `P(B|A)`.
+    ///
+    /// The default directed loss `-ln P(B ⊆ A)` matches the evaluation metric
+    /// (`containment_prob_fast`), which is correct for hierarchical relations
+    /// (hypernym, part-of, subclass). Set to `true` for datasets with mostly
+    /// symmetric relations (similar-to, sibling-of).
+    ///
+    /// Default: `false` (directed loss).
+    #[serde(default)]
+    pub symmetric_loss: bool,
 }
 
 impl Default for TrainingConfig {
@@ -301,8 +296,6 @@ impl Default for TrainingConfig {
             batch_size: 512, // Paper range: 512-4096
             negative_samples: 1,
             negative_strategy: NegativeSamplingStrategy::CorruptTail,
-            temperature: 1.0,
-            weight_decay: 1e-5,                // Paper range: 1e-5 to 1e-3
             margin: 1.0,                       // Margin for ranking loss
             early_stopping_patience: Some(10), // Early stopping after 10 epochs without improvement
             early_stopping_min_delta: 0.001,
@@ -314,6 +307,7 @@ impl Default for TrainingConfig {
             max_grad_norm: 10.0,
             adversarial_temperature: 1.0,
             use_infonce: false,
+            symmetric_loss: false,
         }
     }
 }

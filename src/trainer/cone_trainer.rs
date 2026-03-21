@@ -349,7 +349,6 @@ mod tests {
     fn cone_trainer_reduces_loss_over_steps() {
         let cfg = TrainingConfig {
             learning_rate: 0.01,
-            temperature: 1.0,
             regularization: 0.0,
             ..Default::default()
         };
