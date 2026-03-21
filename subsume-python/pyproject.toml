@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "subsumer"
-version = "0.7.1"
+version = "0.7.2"
 requires-python = ">=3.9"
 dependencies = ["numpy>=1.20"]
 description = "Geometric region embeddings for knowledge graph subsumption (Python bindings for the subsume Rust crate)"
