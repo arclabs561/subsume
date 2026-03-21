@@ -56,7 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Higher dim, more epochs, and lower lr would improve results but take longer.
     let config = TrainingConfig {
         learning_rate: 5e-4,
-        epochs: 50,
+        epochs: 20,
         batch_size: 512,
         negative_samples: 5,
         margin: 0.5,
@@ -96,19 +96,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let avg_loss = epoch_loss / batch_count as f32;
 
-        if epoch % 10 == 0 || epoch == config.epochs - 1 {
-            println!("  epoch {epoch:>3}/{}: avg_loss = {avg_loss:.6}", config.epochs);
-        }
+        // Print loss every epoch for live progress.
+        println!("  epoch {epoch:>3}/{}: avg_loss = {avg_loss:.6}", config.epochs);
 
-        // Evaluate on validation set every 10 epochs.
-        if (epoch + 1) % 10 == 0 || epoch == config.epochs - 1 {
-            let val_triples = &interned.valid;
+        // Quick validation on a small sample (first 50 triples) every 10 epochs.
+        // Full evaluation is too slow for 40K entities at every checkpoint.
+        if (epoch + 1) % 10 == 0 {
+            let sample_size = 50.min(interned.valid.len());
+            let val_sample = &interned.valid[..sample_size];
             let filter = FilteredTripleIndexIds::from_dataset(&interned);
-            match trainer.evaluate(val_triples, entities, Some(&filter)) {
+            match trainer.evaluate(val_sample, entities, Some(&filter)) {
                 Ok(results) => {
                     println!(
-                        "    val: MRR={:.4}, H@1={:.4}, H@10={:.4}, MR={:.1}",
-                        results.mrr, results.hits_at_1, results.hits_at_10, results.mean_rank
+                        "    val (sample {sample_size}): MRR={:.4}, H@10={:.4}, MR={:.1}",
+                        results.mrr, results.hits_at_10, results.mean_rank
                     );
                 }
                 Err(e) => println!("    val: error: {e}"),
