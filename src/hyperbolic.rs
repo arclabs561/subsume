@@ -8,12 +8,12 @@
 //! - Ontology embeddings (is-a relationships)
 //! - Taxonomic structures
 //!
-//! # Why Hyperbolic for NLP?
+//! # Why Hyperbolic for Knowledge Graphs?
 //!
-//! Many NLP structures are inherently hierarchical:
+//! Many KG structures are inherently hierarchical:
 //! - WordNet synsets
 //! - Named entity type ontologies
-//! - Coreference type constraints
+//! - Subsumption hierarchies
 //!
 //! Hyperbolic space grows exponentially with radius, allowing deep hierarchies
 //! to be embedded compactly near the boundary of the Poincaré ball.
