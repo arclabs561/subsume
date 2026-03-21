@@ -4,7 +4,7 @@
 
 | Example | What it demonstrates |
 |---------|---------------------|
-| `containment_hierarchy` | Hand-constructed box hierarchy; containment/overlap probabilities; temperature effects on sharpness |
+| `containment_hierarchy` | Hand-constructed box hierarchy; containment/overlap probabilities; volume ratios reflect concept generality |
 | `gumbel_box_exploration` | Gumbel box properties: soft containment, membership probability, temperature annealing (no training) |
 | `cone_training` | Training cone embeddings on an 18-entity taxonomy (3+ levels); aperture reflects generality |
 | `box_training` | Training box embeddings with direct coordinate updates on a 25-entity taxonomy; volume reflects generality |

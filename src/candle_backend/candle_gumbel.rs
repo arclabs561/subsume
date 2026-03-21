@@ -55,7 +55,7 @@ impl Box for CandleGumbelBox {
 
     /// Gumbel box volume using the Bessel/softplus approximation (Dasgupta et al., 2020).
     ///
-    /// Uses the stored temperature from construction; uses the stored temperature from construction.
+    /// Uses the stored temperature from construction.
     ///
     /// Per dimension: `softplus(Z - z - 2*gamma*T, beta=1/T)`
     fn volume(&self) -> std::result::Result<Self::Scalar, BoxError> {
@@ -132,7 +132,7 @@ impl Box for CandleGumbelBox {
 
     /// Containment probability using Gumbel volume and LSE intersection.
     ///
-    /// Uses the stored temperature from construction; uses the stored temperature from construction.
+    /// Uses the stored temperature from construction.
     ///
     /// `P(other inside self) = Vol(self cap other) / Vol(other)`
     fn containment_prob(&self, other: &Self) -> std::result::Result<Self::Scalar, BoxError> {
@@ -346,8 +346,8 @@ mod tests {
         let gb = CandleGumbelBox::new(min.clone(), max.clone(), 1.0).unwrap();
         let hb = CandleBox::new(min, max, 1.0).unwrap();
 
-        let gumbel_vol = gb.volume(1.0).unwrap();
-        let hard_vol = hb.volume(1.0).unwrap();
+        let gumbel_vol = gb.volume().unwrap();
+        let hard_vol = hb.volume().unwrap();
         // Bessel volume is smaller than hard volume due to 2*gamma*T offset
         assert!(
             gumbel_vol < hard_vol,
@@ -368,7 +368,7 @@ mod tests {
         let min = Tensor::new(&[0.0f32, 0.0], &device).unwrap();
         let max = Tensor::new(&[3.0f32, 4.0], &device).unwrap();
         let gb = CandleGumbelBox::new(min, max, 0.01).unwrap();
-        let vol = gb.volume(0.01).unwrap();
+        let vol = gb.volume().unwrap();
         let hard_vol = 3.0 * 4.0;
         assert!(
             (vol - hard_vol).abs() / hard_vol < 0.05,
@@ -400,9 +400,9 @@ mod tests {
         )
         .unwrap();
 
-        let p_b_in_a = a.containment_prob(&b, 1.0).unwrap();
-        let p_c_in_a = a.containment_prob(&c, 1.0).unwrap();
-        let p_c_in_b = b.containment_prob(&c, 1.0).unwrap();
+        let p_b_in_a = a.containment_prob(&b).unwrap();
+        let p_c_in_a = a.containment_prob(&c).unwrap();
+        let p_c_in_b = b.containment_prob(&c).unwrap();
 
         assert!(p_b_in_a > 0.7, "B should be inside A, got {}", p_b_in_a);
         assert!(p_c_in_a > 0.7, "C should be inside A, got {}", p_c_in_a);
@@ -424,7 +424,7 @@ mod tests {
             1.0,
         )
         .unwrap();
-        let p = a.containment_prob(&b, 1.0).unwrap();
+        let p = a.containment_prob(&b).unwrap();
         assert!(
             p < 0.01,
             "disjoint boxes should have near-zero containment, got {}",
@@ -447,7 +447,7 @@ mod tests {
             1.0,
         )
         .unwrap();
-        let p = a.overlap_prob(&b, 1.0).unwrap();
+        let p = a.overlap_prob(&b).unwrap();
         assert!(p > 0.0, "overlapping boxes should have positive overlap");
         assert!(p <= 1.0, "overlap should be <= 1.0");
     }
@@ -468,7 +468,7 @@ mod tests {
         )
         .unwrap();
         let inter = a.intersection(&b).unwrap();
-        let vol = inter.volume(1.0).unwrap();
+        let vol = inter.volume().unwrap();
         // LSE intersection volume should be positive but less than hard intersection (1.0)
         assert!(vol > 0.0, "LSE intersection should have positive vol");
         assert!(

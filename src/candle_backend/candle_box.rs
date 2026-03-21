@@ -431,8 +431,8 @@ mod tests {
         assert!((original.temperature - restored.temperature).abs() < 1e-7);
 
         // Verify volume is preserved.
-        let vol_orig = original.volume(1.0).unwrap();
-        let vol_rest = restored.volume(1.0).unwrap();
+        let vol_orig = original.volume().unwrap();
+        let vol_rest = restored.volume().unwrap();
         assert!((vol_orig - vol_rest).abs() < 1e-6);
     }
 }
