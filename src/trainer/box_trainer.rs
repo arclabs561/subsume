@@ -3,9 +3,9 @@ use crate::trainable::TrainableBox;
 use crate::BoxError;
 use std::collections::{HashMap, HashSet};
 
-use super::{NegativeSamplingStrategy, RelationTransform, TrainingConfig};
 #[cfg(feature = "ndarray-backend")]
 use super::{EvaluationResults, TrainingResult};
+use super::{NegativeSamplingStrategy, RelationTransform, TrainingConfig};
 #[cfg(feature = "ndarray-backend")]
 use crate::trainer::evaluation::evaluate_interned_with_transforms_inner;
 #[cfg(feature = "ndarray-backend")]
