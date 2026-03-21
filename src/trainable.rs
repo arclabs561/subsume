@@ -212,8 +212,11 @@ impl TrainableBox {
             let update = state.lr * m_hat / (state.v_hat[idx].sqrt() + state.epsilon);
             self.delta[i] -= update;
 
-            // Clamp delta to reasonable range (width between 0.01 and 10.0)
-            self.delta[i] = self.delta[i].clamp(0.01_f32.ln(), 10.0_f32.ln());
+            // Clamp delta to reasonable range (width between 0.05 and 10.0).
+            // The lower bound prevents volume collapse on intermediate nodes:
+            // at dim=16, min volume = 0.05^16 ~ 1.5e-21 (still small, but
+            // above the 1e-30 softplus threshold in compute_pair_loss).
+            self.delta[i] = self.delta[i].clamp(0.05_f32.ln(), 10.0_f32.ln());
 
             if !self.delta[i].is_finite() {
                 self.delta[i] = 0.5_f32.ln();
