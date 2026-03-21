@@ -11,19 +11,19 @@
 //! It does **not** implement learnable restriction maps or neural architectures --
 //! those would be built on top of these primitives.
 //!
-//! # Why Sheaves for Coreference?
+//! # Why Sheaves for Knowledge Graphs?
 //!
-//! Coreference requires transitivity: if A=B and B=C, then A=C.
-//! Traditional approaches enforce this post-hoc (transitive closure).
-//! A sheaf Laplacian can enforce it structurally: diffusion drives stalks toward
-//! consistency across the graph.
+//! Subsumption requires transitivity: if A ⊆ B and B ⊆ C, then A ⊆ C.
+//! A sheaf Laplacian enforces this structurally: diffusion drives entity
+//! embeddings toward consistency across the graph, so transitive containment
+//! holds without post-hoc closure.
 //!
 //! ```text
-//! Mention A ──[restriction]──> Mention B ──[restriction]──> Mention C
-//!     │                            │                            │
-//!   stalk_A                     stalk_B                      stalk_C
-//!     │                            │                            │
-//!     └── If A=B=C, stalks should be "compatible" under restrictions
+//! Entity A ──[restriction]──> Entity B ──[restriction]──> Entity C
+//!     │                           │                           │
+//!   stalk_A                    stalk_B                     stalk_C
+//!     │                           │                           │
+//!     └── If A⊆B⊆C, stalks should be "compatible" under restrictions
 //! ```
 //!
 //! # Mathematical Background
