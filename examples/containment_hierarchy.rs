@@ -120,7 +120,7 @@ fn main() -> Result<(), subsume::BoxError> {
 
     // For hard boxes (NdarrayBox), containment is binary: 1.0 if fully inside, 0.0 otherwise.
     // Temperature smoothing only affects Gumbel boxes (see gumbel_box_exploration example).
-    // The temperature sweep above (Part 4) shows this: P(dog|animal) is ~1.0 at all temps
+    // Hard boxes give binary containment: P(dog|animal) = 1.0 when dog is inside animal
     // because hard containment is exact. For probabilistic soft boundaries, use GumbelBox.
     let v_animal = animal.volume()?;
     let v_dog = dog.volume()?;
