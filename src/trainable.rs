@@ -38,12 +38,40 @@ impl DenseBox {
 /// - max = mu + exp(delta)/2
 ///
 /// This ensures boxes are always valid (min <= max).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// Custom deserialization validates that `mu` and `delta` have matching
+/// dimensions, preventing invalid state from checkpoint loading.
+#[derive(Debug, Clone, Serialize)]
 pub struct TrainableBox {
     /// Mean position in each dimension (d-dimensional vector).
     pub mu: Vec<f32>,
     /// Log-width in each dimension (width = exp(delta)).
     pub delta: Vec<f32>,
+}
+
+impl<'de> Deserialize<'de> for TrainableBox {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Raw {
+            mu: Vec<f32>,
+            delta: Vec<f32>,
+        }
+        let raw = Raw::deserialize(deserializer)?;
+        if raw.mu.len() != raw.delta.len() {
+            return Err(serde::de::Error::custom(format!(
+                "mu (len {}) and delta (len {}) must have same length",
+                raw.mu.len(),
+                raw.delta.len()
+            )));
+        }
+        Ok(Self {
+            mu: raw.mu,
+            delta: raw.delta,
+        })
+    }
 }
 
 impl TrainableBox {
@@ -420,9 +448,12 @@ impl TrainableCone {
         let t = state.t as f32;
 
         // Update moments.
+        // Sanitize non-finite gradients to zero to prevent NaN poisoning the
+        // optimizer state (v_hat accumulates via max, so one NaN is permanent).
         for (i, &g) in grads.iter().enumerate().take(n) {
-            state.m[i] = state.beta1 * state.m[i] + (1.0 - state.beta1) * g;
-            let v_new = state.beta2 * state.v[i] + (1.0 - state.beta2) * g * g;
+            let g_safe = if g.is_finite() { g } else { 0.0 };
+            state.m[i] = state.beta1 * state.m[i] + (1.0 - state.beta1) * g_safe;
+            let v_new = state.beta2 * state.v[i] + (1.0 - state.beta2) * g_safe * g_safe;
             state.v[i] = v_new;
             state.v_hat[i] = state.v_hat[i].max(v_new);
         }
