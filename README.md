@@ -4,7 +4,7 @@
 [![Documentation](https://docs.rs/subsume/badge.svg)](https://docs.rs/subsume)
 [![CI](https://github.com/arclabs561/subsume/actions/workflows/ci.yml/badge.svg)](https://github.com/arclabs561/subsume/actions/workflows/ci.yml)
 
-Geometric region embeddings for subsumption, entailment, and logical query answering. Boxes, cones, octagons, Gaussians, hyperbolic intervals, and sheaf networks. Ndarray and Candle backends. The only published Rust crate for geometric knowledge graph embeddings.
+Geometric region embeddings for subsumption, entailment, and logical query answering. Boxes, cones, octagons, Gaussians, hyperbolic intervals, and sheaf networks. Ndarray and Candle backends.
 
 ![Box embedding concepts](docs/box_concepts.png)
 
@@ -30,7 +30,7 @@ Geometric region embeddings for subsumption, entailment, and logical query answe
 |---|---|
 | `distance` | Query2Box alpha-weighted point-to-box distance (Ren et al., 2020); depth-based (RegD) and boundary distances in backend modules |
 | `fuzzy` | Fuzzy t-norms/t-conorms for logical query answering (FuzzQE, Chen et al., AAAI 2022) |
-| `el` | EL++ ontology embedding: inclusion loss, role translation/composition, existential boxes, disjointness (Box2EL/TransBox) |
+| `el` | EL++ ontology embedding: inclusion loss, role composition, existential boxes (Box2EL/TransBox) |
 
 ### Taxonomy and training
 
@@ -48,14 +48,14 @@ Geometric region embeddings for subsumption, entailment, and logical query answe
 | `NdarrayBox` / `NdarrayGumbelBox` / `NdarrayCone` / `NdarrayOctagon` | CPU backend using `ndarray::Array1<f32>` |
 | `CandleBox` / `CandleGumbelBox` | GPU/Metal backend using `candle_core::Tensor` |
 
-The ndarray backend is the primary workhorse with full geometry support. The candle
-backend provides GPU-accelerated box operations for training workflows.
+The ndarray backend has full geometry support. The candle backend provides
+GPU-accelerated box operations for training workflows.
 
 ## Usage
 
 ```toml
 [dependencies]
-subsume = { version = "0.6.0", features = ["ndarray-backend"] }
+subsume = { version = "0.7", features = ["ndarray-backend"] }
 ndarray = "0.16"
 ```
 
@@ -91,6 +91,7 @@ cargo run -p subsume --example dataset_training --release # full pipeline: WN18R
 cargo run -p subsume --example imagenet_hierarchy --release # 252 Tiny ImageNet synsets, volume-depth correlation
 cargo run -p subsume --example save_checkpoint --release           # generate pretrained/wordnet_subset.json checkpoint
 cargo run -p subsume --features hyperbolic --example hyperbolic_demo  # Poincare ball: hierarchy preservation, exponential capacity
+cargo run -p subsume --example wn18rr_training --release  # WN18RR benchmark: 40K entities, 20 epochs
 cargo run -p subsume --example el_training              # EL++ box embeddings on a biomedical-style ontology
 cargo run -p subsume --features candle-backend --example taxobell_training  # TaxoBell MLP encoder training (Candle)
 ```
@@ -129,7 +130,13 @@ Point embeddings (TransE, RotatE, ComplEx) represent entities as vectors. They w
 well for link prediction -- RotatE hits 0.476 MRR on WN18RR, BoxE hits 0.451.
 For standard triple scoring, points are simpler and equally accurate.
 
-Regions become necessary when the task requires structure that points cannot encode:
+Regions become necessary when the task requires structure that points cannot encode.
+The core operation is **containment probability**:
+
+$$P(B \subseteq A) = \frac{\text{Vol}(A \cap B)}{\text{Vol}(B)}$$
+
+If B fits inside A, $P = 1$. If disjoint, $P = 0$. This is the scoring
+function used for evaluation (`containment_prob`).
 
 | What you need | Points | Regions |
 |---|---|---|
@@ -144,7 +151,7 @@ Three tasks where point embeddings structurally fail:
 1. **Ontology completion (EL++)**: "Dog is-a Animal" requires representing one concept's
    extension as a subset of another's. Points have no containment. Box2EL, TransBox, and
    DELE use boxes for this and outperform point baselines on Gene Ontology, GALEN, and
-   Anatomy by wide margins.
+   Anatomy.
 
 2. **Logical query answering (∧, ∨, ¬)**: multi-hop KG queries with conjunction,
    disjunction, and negation need set operations. ConE handles all three (MRR 52.9 on
@@ -179,17 +186,6 @@ the boundary but sacrifice containment precision.
 ![Training convergence](docs/training_convergence.png)
 
 *25-entity taxonomy learned over 200 epochs. Left: total violation drops 3 orders of magnitude. Right: containment probabilities converge to 1.0 at different rates depending on hierarchy depth. Reproduce: `cargo run --example box_training` or `uv run scripts/plot_training.py`.*
-
-## WASM
-
-The core compiles to `wasm32-unknown-unknown` with no default features:
-
-```bash
-cargo check --target wasm32-unknown-unknown --no-default-features
-```
-
-This enables browser-side box intersection, containment checking, and volume
-computation. No Python KG embedding library supports WASM.
 
 ## Embedding export
 
