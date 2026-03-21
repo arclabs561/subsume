@@ -328,7 +328,6 @@ fn cone_training_convergence() {
 
     let config = TrainingConfig {
         learning_rate: 0.02,
-        temperature: 1.0,
         margin: 1.0,
         regularization: 0.0,
         negative_weight: 0.5,
