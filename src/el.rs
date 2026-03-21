@@ -73,34 +73,6 @@ pub fn el_inclusion_loss(
     Ok(sum_sq.sqrt())
 }
 
-/// Translate a box by a vector (shift center, keep offset).
-///
-/// This is the core operation in TransBox: roles act as translations
-/// on concept boxes. `translated_center[i] = center[i] + translation[i]`.
-///
-/// # Arguments
-///
-/// * `center` - Box center to translate
-/// * `translation` - Translation vector (role embedding)
-/// * `out` - Output buffer for translated center
-///
-/// # Errors
-///
-/// Returns [`BoxError::DimensionMismatch`] if vectors differ in length.
-pub fn translate(center: &[f32], translation: &[f32], out: &mut [f32]) -> Result<(), BoxError> {
-    let dim = center.len();
-    if translation.len() != dim || out.len() != dim {
-        return Err(BoxError::DimensionMismatch {
-            expected: dim,
-            actual: translation.len().max(out.len()),
-        });
-    }
-    for i in 0..dim {
-        out[i] = center[i] + translation[i];
-    }
-    Ok(())
-}
-
 /// Compose two role translations (TransBox: r o s).
 ///
 /// For `r ∘ s ⊑ t` (RI7 normal form), the composed role is:
@@ -211,82 +183,6 @@ pub fn existential_box(
     Ok(())
 }
 
-/// Disjointness loss for two boxes that should not overlap (Box2EL formula).
-///
-/// Computes per-dimension overlap, then takes the L2 norm:
-///
-/// ```text
-/// loss = ||relu(-|c_A - c_B| + o_A + o_B - margin)||_2
-/// ```
-///
-/// Each dimension contributes `relu(-|c_A_i - c_B_i| + o_A_i + o_B_i - margin)`,
-/// which is positive when the boxes overlap in that dimension (center distance
-/// is less than the sum of offsets minus margin). The L2 norm of this vector
-/// penalizes overlap proportionally across dimensions.
-///
-/// This scales correctly in high dimensions: both the per-dimension gaps and
-/// the norm grow consistently, unlike a scalar hinge on L2 distance vs offset
-/// sum (which would mix O(sqrt(d)) with O(d)).
-///
-/// # Arguments
-///
-/// * `center_a`, `offset_a` - First box
-/// * `center_b`, `offset_b` - Second box
-/// * `margin` - Per-dimension margin for required separation
-pub fn disjointness_loss(
-    center_a: &[f32],
-    offset_a: &[f32],
-    center_b: &[f32],
-    offset_b: &[f32],
-    margin: f32,
-) -> Result<f32, BoxError> {
-    let dim = center_a.len();
-    if offset_a.len() != dim || center_b.len() != dim || offset_b.len() != dim {
-        return Err(BoxError::DimensionMismatch {
-            expected: dim,
-            actual: offset_a.len().max(center_b.len()).max(offset_b.len()),
-        });
-    }
-
-    let mut sum_sq = 0.0f32;
-    for i in 0..dim {
-        let overlap =
-            (-(center_a[i] - center_b[i]).abs() + offset_a[i] + offset_b[i] - margin).max(0.0);
-        sum_sq += overlap * overlap;
-    }
-
-    Ok(sum_sq.sqrt())
-}
-
-/// Intersection non-emptiness loss: penalizes when two boxes that should
-/// intersect are disjoint.
-///
-/// Returns `||relu(|c_a - c_b| - o_a - o_b)||_2`.
-/// Zero when the boxes overlap in all dimensions.
-pub fn intersection_nonempty_loss(
-    center_a: &[f32],
-    offset_a: &[f32],
-    center_b: &[f32],
-    offset_b: &[f32],
-) -> Result<f32, BoxError> {
-    let dim = center_a.len();
-    if offset_a.len() != dim || center_b.len() != dim || offset_b.len() != dim {
-        return Err(BoxError::DimensionMismatch {
-            expected: dim,
-            actual: offset_a.len().max(center_b.len()).max(offset_b.len()),
-        });
-    }
-
-    let mut sum_sq = 0.0f32;
-    for i in 0..dim {
-        let gap = (center_a[i] - center_b[i]).abs() - offset_a[i] - offset_b[i];
-        let relu_gap = gap.max(0.0);
-        sum_sq += relu_gap * relu_gap;
-    }
-
-    Ok(sum_sq.sqrt())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -349,13 +245,6 @@ mod tests {
     }
 
     #[test]
-    fn test_translate() {
-        let mut out = [0.0f32; 3];
-        translate(&[1.0, 2.0, 3.0], &[0.5, -1.0, 0.0], &mut out).unwrap();
-        assert_eq!(out, [1.5, 1.0, 3.0]);
-    }
-
-    #[test]
     fn test_compose_roles() {
         let mut c_out = [0.0f32; 2];
         let mut o_out = [0.0f32; 2];
@@ -396,126 +285,8 @@ mod tests {
     }
 
     #[test]
-    fn test_disjointness_loss_far_apart() {
-        // centers 100 apart, offsets 0.1 each, margin 1.0
-        // per-dim: relu(-100 + 0.2 - 1.0) = relu(-100.8) = 0
-        let loss = disjointness_loss(&[0.0], &[0.1], &[100.0], &[0.1], 1.0).unwrap();
-        assert!(
-            loss < 1e-6,
-            "far-apart boxes should have disjointness loss ~0, got {loss}"
-        );
-    }
-
-    #[test]
-    fn test_disjointness_loss_overlapping() {
-        // centers 0.5 apart, offsets 1.0 each, margin 0.0
-        // per-dim: relu(-0.5 + 2.0 - 0.0) = 1.5
-        let loss = disjointness_loss(&[0.0], &[1.0], &[0.5], &[1.0], 0.0).unwrap();
-        assert!(
-            (loss - 1.5).abs() < 1e-6,
-            "overlapping boxes: expected 1.5, got {loss}"
-        );
-    }
-
-    #[test]
-    fn test_disjointness_loss_high_dim_scaling() {
-        // In high-d, the per-dimension formula scales correctly.
-        // 32-d boxes at same center, offset 1.0, margin 0.0:
-        // each dim contributes relu(-0 + 2.0) = 2.0
-        // L2 norm = sqrt(32 * 4.0) = sqrt(128)
-        let d = 32;
-        let loss = disjointness_loss(
-            &vec![0.0; d],
-            &vec![1.0; d],
-            &vec![0.0; d],
-            &vec![1.0; d],
-            0.0,
-        )
-        .unwrap();
-        let expected = (d as f32 * 4.0).sqrt();
-        assert!(
-            (loss - expected).abs() < 1e-4,
-            "high-d disjointness: expected {expected}, got {loss}"
-        );
-    }
-
-    #[test]
-    fn test_intersection_nonempty_overlapping() {
-        let loss =
-            intersection_nonempty_loss(&[0.0, 0.0], &[2.0, 2.0], &[1.0, 1.0], &[2.0, 2.0]).unwrap();
-        assert!(
-            loss < 1e-6,
-            "overlapping boxes should have loss ~0, got {loss}"
-        );
-    }
-
-    #[test]
-    fn test_intersection_nonempty_disjoint() {
-        let loss = intersection_nonempty_loss(&[0.0], &[0.5], &[5.0], &[0.5]).unwrap();
-        assert!(
-            loss > 0.0,
-            "disjoint boxes should have loss > 0, got {loss}"
-        );
-    }
-
-    #[test]
     fn test_dimension_mismatch() {
         assert!(el_inclusion_loss(&[0.0], &[1.0], &[0.0, 0.0], &[1.0, 1.0], 0.0).is_err());
-        assert!(translate(&[0.0], &[1.0, 2.0], &mut [0.0]).is_err());
-    }
-
-    // ---- audit-driven regression tests ----
-
-    /// Hand-computed 3D disjointness loss.
-    ///
-    /// A: center=[1, 2, 3], offset=[1.0, 0.5, 2.0]
-    /// B: center=[2, 3, 1], offset=[0.5, 1.0, 0.5]
-    /// margin = 0.0
-    ///
-    /// dim 0: relu(-|1-2| + 1.0 + 0.5) = relu(-1 + 1.5) = 0.5
-    /// dim 1: relu(-|2-3| + 0.5 + 1.0) = relu(-1 + 1.5) = 0.5
-    /// dim 2: relu(-|3-1| + 2.0 + 0.5) = relu(-2 + 2.5) = 0.5
-    /// L2 = sqrt(0.25 + 0.25 + 0.25) = sqrt(0.75)
-    #[test]
-    fn test_disjointness_loss_per_dimension() {
-        let loss = disjointness_loss(
-            &[1.0, 2.0, 3.0],
-            &[1.0, 0.5, 2.0],
-            &[2.0, 3.0, 1.0],
-            &[0.5, 1.0, 0.5],
-            0.0,
-        )
-        .unwrap();
-        let expected = 0.75_f32.sqrt();
-        assert!(
-            (loss - expected).abs() < 1e-6,
-            "per-dimension disjointness: expected {expected}, got {loss}"
-        );
-    }
-
-    /// Verify disjointness loss scales correctly in 32D and 128D.
-    /// Per-dimension formula with identical co-located boxes:
-    /// Each dim contributes relu(-0 + o_a + o_b) = 2*offset.
-    /// L2 = sqrt(d * (2*offset)^2) = 2*offset*sqrt(d).
-    /// This is O(sqrt(d)), NOT O(d) -- confirming no scaling mismatch.
-    #[test]
-    fn test_disjointness_loss_high_dim_scaling_128d() {
-        for d in [32, 128] {
-            let offset = 1.0_f32;
-            let loss = disjointness_loss(
-                &vec![0.0; d],
-                &vec![offset; d],
-                &vec![0.0; d],
-                &vec![offset; d],
-                0.0,
-            )
-            .unwrap();
-            let expected = 2.0 * offset * (d as f32).sqrt();
-            assert!(
-                (loss - expected).abs() < 1e-3,
-                "d={d}: expected {expected}, got {loss}"
-            );
-        }
     }
 
     // Existential box offset is always >= 0 (proptest, 8D).
@@ -636,48 +407,6 @@ mod tests {
         }
     }
 
-    /// intersection_nonempty_loss == 0 iff disjointness_loss > 0 for well-separated boxes.
-    /// When boxes are clearly separated, intersection_nonempty should be positive
-    /// and disjointness should be zero.
-    #[test]
-    fn test_intersection_nonempty_vs_disjointness_complement() {
-        // Clearly separated boxes
-        let ca = [0.0];
-        let oa = [1.0];
-        let cb = [10.0];
-        let ob = [1.0];
-
-        let disj = disjointness_loss(&ca, &oa, &cb, &ob, 0.0).unwrap();
-        let inter = intersection_nonempty_loss(&ca, &oa, &cb, &ob).unwrap();
-
-        assert!(
-            disj < 1e-6,
-            "separated boxes: disjointness should be 0, got {disj}"
-        );
-        assert!(
-            inter > 0.0,
-            "separated boxes: intersection_nonempty should be > 0, got {inter}"
-        );
-
-        // Fully overlapping boxes
-        let ca2 = [0.0];
-        let oa2 = [2.0];
-        let cb2 = [0.5];
-        let ob2 = [2.0];
-
-        let disj2 = disjointness_loss(&ca2, &oa2, &cb2, &ob2, 0.0).unwrap();
-        let inter2 = intersection_nonempty_loss(&ca2, &oa2, &cb2, &ob2).unwrap();
-
-        assert!(
-            disj2 > 0.0,
-            "overlapping boxes: disjointness should be > 0, got {disj2}"
-        );
-        assert!(
-            inter2 < 1e-6,
-            "overlapping boxes: intersection_nonempty should be 0, got {inter2}"
-        );
-    }
-
     // ---- cross-validation with known geometry ----
 
     #[test]
@@ -780,30 +509,6 @@ mod tests {
         }
 
         #[test]
-        fn prop_translate_additive(
-            center in vec_f32(4),
-            t1 in vec_f32(4),
-            t2 in vec_f32(4),
-        ) {
-            let dim = 4;
-            // translate(translate(c, t1), t2)
-            let mut mid = vec![0.0f32; dim];
-            let mut result_seq = vec![0.0f32; dim];
-            translate(&center, &t1, &mut mid).unwrap();
-            translate(&mid, &t2, &mut result_seq).unwrap();
-
-            // translate(c, t1 + t2)
-            let t_sum: Vec<f32> = t1.iter().zip(t2.iter()).map(|(a, b)| a + b).collect();
-            let mut result_sum = vec![0.0f32; dim];
-            translate(&center, &t_sum, &mut result_sum).unwrap();
-
-            for i in 0..dim {
-                prop_assert!((result_seq[i] - result_sum[i]).abs() < 1e-4,
-                    "translate should be additive: dim {i}: {} vs {}", result_seq[i], result_sum[i]);
-            }
-        }
-
-        #[test]
         fn prop_compose_roles_center_associative(
             ca in vec_f32(3),
             cb in vec_f32(3),
@@ -855,58 +560,12 @@ mod tests {
         }
 
         #[test]
-        fn prop_disjointness_loss_symmetric(
-            center_a in vec_f32(4),
-            offset_a in vec_f32_nonneg(4),
-            center_b in vec_f32(4),
-            offset_b in vec_f32_nonneg(4),
-            margin in 0.0f32..5.0,
-        ) {
-            let loss_ab = disjointness_loss(&center_a, &offset_a, &center_b, &offset_b, margin).unwrap();
-            let loss_ba = disjointness_loss(&center_b, &offset_b, &center_a, &offset_a, margin).unwrap();
-            prop_assert!((loss_ab - loss_ba).abs() < 1e-5,
-                "disjointness_loss should be symmetric: {loss_ab} vs {loss_ba}");
-        }
-
-        #[test]
-        fn prop_intersection_nonempty_loss_symmetric(
-            center_a in vec_f32(4),
-            offset_a in vec_f32_nonneg(4),
-            center_b in vec_f32(4),
-            offset_b in vec_f32_nonneg(4),
-        ) {
-            let loss_ab = intersection_nonempty_loss(&center_a, &offset_a, &center_b, &offset_b).unwrap();
-            let loss_ba = intersection_nonempty_loss(&center_b, &offset_b, &center_a, &offset_a).unwrap();
-            prop_assert!((loss_ab - loss_ba).abs() < 1e-5,
-                "intersection_nonempty_loss should be symmetric: {loss_ab} vs {loss_ba}");
-        }
-
-        #[test]
         fn prop_dimension_mismatch_errors(
             a in vec_f32(3),
             b in vec_f32(4),
         ) {
             prop_assert!(el_inclusion_loss(&a, &a, &b, &b, 0.0).is_err());
-            prop_assert!(translate(&a, &b, &mut [0.0; 3]).is_err());
-            prop_assert!(disjointness_loss(&a, &a, &b, &b, 0.0).is_err());
-            prop_assert!(intersection_nonempty_loss(&a, &a, &b, &b).is_err());
         }
-
-        // -- disjointness_loss >= 0 --
-
-        #[test]
-        fn prop_disjointness_loss_nonneg(
-            center_a in vec_f32(4),
-            offset_a in vec_f32_nonneg(4),
-            center_b in vec_f32(4),
-            offset_b in vec_f32_nonneg(4),
-            margin in 0.0f32..5.0,
-        ) {
-            let loss = disjointness_loss(&center_a, &offset_a, &center_b, &offset_b, margin).unwrap();
-            prop_assert!(loss >= 0.0, "disjointness_loss must be >= 0, got {loss}");
-        }
-
-        // -- el_inclusion_loss >= 0 --
 
         #[test]
         fn prop_el_inclusion_loss_nonneg_explicit(
@@ -917,19 +576,6 @@ mod tests {
         ) {
             let loss = el_inclusion_loss(&center_a, &offset_a, &center_b, &offset_b, 0.0).unwrap();
             prop_assert!(loss >= 0.0, "el_inclusion_loss must be >= 0, got {loss}");
-        }
-
-        // -- intersection_nonempty_loss >= 0 --
-
-        #[test]
-        fn prop_intersection_nonempty_loss_nonneg(
-            center_a in vec_f32(4),
-            offset_a in vec_f32_nonneg(4),
-            center_b in vec_f32(4),
-            offset_b in vec_f32_nonneg(4),
-        ) {
-            let loss = intersection_nonempty_loss(&center_a, &offset_a, &center_b, &offset_b).unwrap();
-            prop_assert!(loss >= 0.0, "intersection_nonempty_loss must be >= 0, got {loss}");
         }
 
         // -- compose_roles associativity (proptest variant) --

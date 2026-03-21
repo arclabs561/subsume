@@ -136,10 +136,6 @@ pub struct Dataset {
     pub valid: Vec<Triple>,
     /// Test triples
     pub test: Vec<Triple>,
-    /// Entity ID to name mapping (if available)
-    pub entity_map: Option<HashMap<String, String>>,
-    /// Relation ID to name mapping (if available)
-    pub relation_map: Option<HashMap<String, String>>,
 }
 
 impl Dataset {
@@ -149,17 +145,7 @@ impl Dataset {
             train,
             valid,
             test,
-            entity_map: None,
-            relation_map: None,
         }
-    }
-
-    /// Create a dataset from pre-built triple vectors (no file I/O).
-    ///
-    /// Equivalent to [`Dataset::new`] but named for discoverability alongside
-    /// [`load_dataset`].
-    pub fn from_triples(train: Vec<Triple>, valid: Vec<Triple>, test: Vec<Triple>) -> Self {
-        Self::new(train, valid, test)
     }
 
     /// Get all unique entities from the dataset.
@@ -281,15 +267,7 @@ pub fn load_dataset(path: &Path) -> Result<Dataset, DatasetError> {
     let valid_triples = load_triples(&valid_path)?;
     let test_triples = load_triples(&test_path)?;
 
-    // Try to load entity and relation maps if available
-    let entity_map = load_map(&path.join("entities.dict")).ok();
-    let relation_map = load_map(&path.join("relations.dict")).ok();
-
-    let mut dataset = Dataset::new(train_triples, valid_triples, test_triples);
-    dataset.entity_map = entity_map;
-    dataset.relation_map = relation_map;
-
-    Ok(dataset)
+    Ok(Dataset::new(train_triples, valid_triples, test_triples))
 }
 
 /// Loads triples from a single file.
@@ -336,51 +314,6 @@ fn load_triples(file_path: &Path) -> Result<Vec<Triple>, DatasetError> {
         }
     }
     Ok(triples)
-}
-
-/// Loads an entity or relation mapping file.
-///
-/// Expects a file where each line is `ID\tName` or `ID Name`.
-pub fn load_map(file_path: &Path) -> Result<HashMap<String, String>, DatasetError> {
-    if !file_path.exists() {
-        return Err(DatasetError::MissingFile(format!(
-            "Mapping file not found: {}",
-            file_path.display()
-        )));
-    }
-    let file = File::open(file_path)?;
-    let reader = io::BufReader::new(file);
-    let mut map = HashMap::new();
-
-    for (line_num, line_result) in reader.lines().enumerate() {
-        let line = line_result?;
-        let trimmed = line.trim();
-
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-
-        // Try tab-separated first, then whitespace
-        let parts: Vec<&str> = if trimmed.contains('\t') {
-            trimmed.split('\t').collect()
-        } else {
-            trimmed.split_whitespace().collect()
-        };
-
-        if parts.len() >= 2 {
-            // ID is first part, name is the rest (in case name contains spaces)
-            let id = parts[0].to_string();
-            let name = parts[1..].join(" ");
-            map.insert(id, name);
-        } else if !trimmed.is_empty() {
-            return Err(DatasetError::InvalidFormat(format!(
-                "Line {} has invalid format: '{}'. Expected 2 parts (ID, Name).",
-                line_num + 1,
-                trimmed
-            )));
-        }
-    }
-    Ok(map)
 }
 
 #[cfg(test)]
@@ -473,20 +406,6 @@ mod tests {
 
         let err = load_triples(&file_path).unwrap_err();
         assert!(matches!(err, DatasetError::InvalidFormat(_)));
-    }
-
-    #[test]
-    fn test_load_map_success() -> Result<(), DatasetError> {
-        let dir = tempdir()?;
-        let file_path = dir.path().join("map.txt");
-        let mut file = File::create(&file_path)?;
-        writeln!(file, "0 entity_0")?;
-        writeln!(file, "1 entity_1")?;
-
-        let map = load_map(&file_path)?;
-        assert_eq!(map.len(), 2);
-        assert_eq!(map["0"], "entity_0");
-        Ok(())
     }
 
     #[test]
