@@ -7,7 +7,7 @@ description = "Python bindings for subsume geometric KG embeddings"
 publish = false
 
 [lib]
-name = "subsume_python"
+name = "subsumer"
 crate-type = ["cdylib"]
 
 [dependencies]
