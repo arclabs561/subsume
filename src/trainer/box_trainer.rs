@@ -7,9 +7,10 @@ use super::{
     EvaluationResults, NegativeSamplingStrategy, RelationTransform, TrainingConfig, TrainingResult,
 };
 use crate::trainer::evaluation::{
-    evaluate_interned_with_transforms_inner, evaluate_link_prediction_interned_inner,
-    FilteredTripleIndexIds,
+    evaluate_link_prediction_interned_inner, FilteredTripleIndexIds,
 };
+#[cfg(feature = "ndarray-backend")]
+use crate::trainer::evaluation::evaluate_interned_with_transforms_inner;
 
 /// Compute loss for a pair of boxes.
 ///
