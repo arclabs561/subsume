@@ -158,9 +158,19 @@ fn containment_probability(
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
 }
 
-/// Python module for subsume geometric KG embeddings.
+/// Geometric region embeddings for knowledge graph subsumption.
+///
+/// Python bindings for the `subsume` Rust crate. Provides box embeddings,
+/// containment probability, and training utilities.
+///
+/// ```python
+/// import subsumer
+/// box_a = subsumer.NdarrayBox([0.0, 0.0], [1.0, 1.0], 1.0)
+/// box_b = subsumer.NdarrayBox([0.2, 0.2], [0.8, 0.8], 1.0)
+/// print(box_a.containment_prob(box_b))  # ~1.0
+/// ```
 #[pymodule]
-fn subsume_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn subsumer(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyNdarrayBox>()?;
     m.add_class::<PyBoxEmbeddingTrainer>()?;
     m.add_function(wrap_pyfunction!(containment_probability, m)?)?;
