@@ -268,7 +268,7 @@ capture "closed path rules" `r1(X,Y) AND r2(Y,Z) -> r3(X,Z)`. The geometric
 constraints directly encode which logical rules the model has learned, making
 them inspectable.
 
-**Results**: Near state-of-the-art on standard benchmarks. The value is not raw
+**Results**: Near competitive on standard benchmarks. The value is not raw
 MRR but rule transparency and composition support.
 
 **Limitation**: Constraint count grows quadratically with dimension pairs.
