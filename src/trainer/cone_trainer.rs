@@ -285,6 +285,227 @@ impl ConeEmbeddingTrainer {
             .collect()
     }
 
+    /// Evaluate link prediction on test triples using cone distance scoring.
+    ///
+    /// For each test triple `(h, r, t)`, ranks all entities by cone distance
+    /// to the head (for tail prediction) and to the tail (for head prediction).
+    /// Returns standard metrics: MRR, Hits@{1,3,10}, Mean Rank.
+    ///
+    /// # Arguments
+    ///
+    /// * `test_triples` - Triples to evaluate on (ID-based).
+    /// * `entities` - Entity vocabulary (for entity count).
+    /// * `filter` - Optional filter to exclude known-true triples from ranking.
+    #[cfg(feature = "ndarray-backend")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "ndarray-backend")))]
+    pub fn evaluate(
+        &self,
+        test_triples: &[crate::dataset::TripleIds],
+        entities: &crate::dataset::Vocab,
+        filter: Option<&super::evaluation::FilteredTripleIndexIds>,
+    ) -> Result<super::EvaluationResults, BoxError> {
+        let max_id = self.cones.keys().copied().max().unwrap_or(0);
+        let num_entities = entities.len().max(max_id + 1);
+
+        // Build dense cone vector indexed by entity ID.
+        let mut entity_cones: Vec<crate::ndarray_backend::NdarrayCone> =
+            Vec::with_capacity(num_entities);
+        for id in 0..num_entities {
+            let nc = if let Some(c) = self.cones.get(&id) {
+                c.to_ndarray_cone().map_err(|e| {
+                    BoxError::Internal(format!("Failed to convert entity {id}: {e}"))
+                })?
+            } else {
+                crate::ndarray_backend::NdarrayCone::full(self.dim)
+            };
+            entity_cones.push(nc);
+        }
+
+        let cen = CONE_CENTER_WEIGHT;
+        let mut tail_ranks = Vec::with_capacity(test_triples.len());
+        let mut head_ranks = Vec::with_capacity(test_triples.len());
+
+        for triple in test_triples {
+            let h = triple.head;
+            let t = triple.tail;
+            let r = triple.relation;
+
+            // Tail prediction: score all entities as tails for (h, r, ?).
+            // Distance from head cone to each candidate.
+            let head_cone = &entity_cones[h];
+            let mut tail_scores: Vec<f32> = entity_cones
+                .iter()
+                .map(|e| head_cone.cone_distance(e, cen).unwrap_or(f32::INFINITY))
+                .collect();
+
+            // Filter known true tails (set distance to infinity).
+            if let Some(f) = filter {
+                if let Some(known) = f.known_tails(h, r) {
+                    for &kt in known {
+                        if kt != t && kt < tail_scores.len() {
+                            tail_scores[kt] = f32::INFINITY;
+                        }
+                    }
+                }
+            }
+
+            // Rank: count how many entities have strictly lower distance.
+            let target_score = tail_scores[t];
+            let rank = tail_scores.iter().filter(|&&s| s < target_score).count() + 1;
+            tail_ranks.push(rank);
+
+            // Head prediction: score all entities as heads for (?, r, t).
+            let tail_cone = &entity_cones[t];
+            let mut head_scores: Vec<f32> = entity_cones
+                .iter()
+                .map(|e| e.cone_distance(tail_cone, cen).unwrap_or(f32::INFINITY))
+                .collect();
+
+            if let Some(f) = filter {
+                if let Some(known) = f.known_heads(t, r) {
+                    for &kh in known {
+                        if kh != h && kh < head_scores.len() {
+                            head_scores[kh] = f32::INFINITY;
+                        }
+                    }
+                }
+            }
+
+            let target_score = head_scores[h];
+            let rank = head_scores.iter().filter(|&&s| s < target_score).count() + 1;
+            head_ranks.push(rank);
+        }
+
+        // Compute metrics from ranks.
+        let n = test_triples.len() as f32;
+        if n < 1.0 {
+            return Ok(super::EvaluationResults {
+                mrr: 0.0,
+                head_mrr: 0.0,
+                tail_mrr: 0.0,
+                hits_at_1: 0.0,
+                hits_at_3: 0.0,
+                hits_at_10: 0.0,
+                mean_rank: 0.0,
+                per_relation: Vec::new(),
+            });
+        }
+
+        let tail_mrr: f32 = tail_ranks.iter().map(|&r| 1.0 / r as f32).sum::<f32>() / n;
+        let head_mrr: f32 = head_ranks.iter().map(|&r| 1.0 / r as f32).sum::<f32>() / n;
+        let mrr = (tail_mrr + head_mrr) / 2.0;
+
+        let all_ranks: Vec<usize> = tail_ranks
+            .iter()
+            .chain(head_ranks.iter())
+            .copied()
+            .collect();
+        let total = all_ranks.len() as f32;
+        let hits_at_1 = all_ranks.iter().filter(|&&r| r <= 1).count() as f32 / total;
+        let hits_at_3 = all_ranks.iter().filter(|&&r| r <= 3).count() as f32 / total;
+        let hits_at_10 = all_ranks.iter().filter(|&&r| r <= 10).count() as f32 / total;
+        let mean_rank = all_ranks.iter().sum::<usize>() as f32 / total;
+
+        Ok(super::EvaluationResults {
+            mrr,
+            head_mrr,
+            tail_mrr,
+            hits_at_1,
+            hits_at_3,
+            hits_at_10,
+            mean_rank,
+            per_relation: Vec::new(), // Per-relation breakdown not yet implemented for cones.
+        })
+    }
+
+    /// Train for multiple epochs with optional validation and early stopping.
+    ///
+    /// Mirrors [`BoxEmbeddingTrainer::fit`](super::BoxEmbeddingTrainer::fit):
+    /// learning rate warmup, temperature annealing (unused for cones currently),
+    /// and early stopping based on validation MRR.
+    ///
+    /// # Arguments
+    ///
+    /// * `train_triples` - Training triples as `(head_id, relation_id, tail_id)`.
+    /// * `validation` - Optional validation set and entity vocabulary for evaluation.
+    /// * `filter` - Optional filter index to exclude known-true triples from ranking.
+    #[cfg(feature = "ndarray-backend")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "ndarray-backend")))]
+    pub fn fit(
+        &mut self,
+        train_triples: &[(usize, usize, usize)],
+        validation: Option<(&[crate::dataset::TripleIds], &crate::dataset::Vocab)>,
+        filter: Option<&super::evaluation::FilteredTripleIndexIds>,
+    ) -> Result<super::TrainingResult, BoxError> {
+        self.config.validate()?;
+        let epochs = self.config.epochs;
+        let warmup = self.config.warmup_epochs;
+        let base_lr = self.config.learning_rate;
+        let patience = self.config.early_stopping_patience;
+        let min_delta = self.config.early_stopping_min_delta;
+
+        let mut loss_history = Vec::with_capacity(epochs);
+        let mut mrr_history = Vec::new();
+        let mut best_mrr = 0.0f32;
+        let mut best_epoch = 0;
+        let mut epochs_without_improvement = 0usize;
+
+        for epoch in 0..epochs {
+            // Learning rate scheduling.
+            let lr = crate::optimizer::get_learning_rate(epoch, epochs, base_lr, warmup);
+            for state in self.optimizer_states.values_mut() {
+                state.set_lr(lr);
+            }
+
+            let loss = self.train_step_batch(train_triples)?;
+            loss_history.push(loss);
+
+            // Validation.
+            if let Some((val_triples, entities)) = validation {
+                let results = self.evaluate(val_triples, entities, filter)?;
+                mrr_history.push(results.mrr);
+
+                if results.mrr > best_mrr + min_delta {
+                    best_mrr = results.mrr;
+                    best_epoch = epoch;
+                    epochs_without_improvement = 0;
+                } else {
+                    epochs_without_improvement += 1;
+                }
+
+                // Early stopping.
+                if let Some(p) = patience {
+                    if epochs_without_improvement >= p {
+                        break;
+                    }
+                }
+            }
+        }
+
+        let final_results = if let Some((val_triples, entities)) = validation {
+            self.evaluate(val_triples, entities, filter)?
+        } else {
+            super::EvaluationResults {
+                mrr: 0.0,
+                head_mrr: 0.0,
+                tail_mrr: 0.0,
+                hits_at_1: 0.0,
+                hits_at_3: 0.0,
+                hits_at_10: 0.0,
+                mean_rank: 0.0,
+                per_relation: Vec::new(),
+            }
+        };
+
+        Ok(super::TrainingResult {
+            final_results,
+            loss_history,
+            validation_mrr_history: mrr_history,
+            best_epoch,
+            training_time_seconds: None,
+        })
+    }
+
     /// Export all entity embeddings as flat `f32` vectors.
     ///
     /// Returns `(entity_ids, axes, apertures)` where vectors are
