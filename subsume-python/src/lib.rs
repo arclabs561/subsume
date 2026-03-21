@@ -130,6 +130,13 @@ impl PyNdarrayGumbelBox {
     }
 }
 
+/// Accept either a scalar float or a list of floats for cone apertures.
+#[derive(FromPyObject)]
+enum PyApertures {
+    Scalar(f32),
+    List(Vec<f32>),
+}
+
 /// Python wrapper around `subsume::ndarray_backend::NdarrayCone`.
 #[pyclass(name = "NdarrayCone")]
 #[derive(Clone)]
@@ -140,11 +147,18 @@ struct PyNdarrayCone {
 #[pymethods]
 impl PyNdarrayCone {
     /// Create a new cone embedding from axis angles and apertures.
+    ///
+    /// ``apertures`` may be a list of per-dimension values or a single float
+    /// that is broadcast to all dimensions.
     #[new]
-    fn new(axes: Vec<f32>, apertures: Vec<f32>) -> PyResult<Self> {
+    fn new(axes: Vec<f32>, apertures: PyApertures) -> PyResult<Self> {
+        let aperture_vec = match apertures {
+            PyApertures::Scalar(v) => vec![v; axes.len()],
+            PyApertures::List(v) => v,
+        };
         let inner = NdarrayCone::new(
             ndarray::Array1::from(axes),
-            ndarray::Array1::from(apertures),
+            ndarray::Array1::from(aperture_vec),
         )
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         Ok(Self { inner })
@@ -185,7 +199,32 @@ impl PyNdarrayCone {
 #[derive(Clone)]
 struct PyTrainingConfig {
     inner: TrainingConfig,
+    #[pyo3(get)]
     dim: usize,
+    #[pyo3(get)]
+    learning_rate: f32,
+    #[pyo3(get)]
+    epochs: usize,
+    #[pyo3(get)]
+    batch_size: usize,
+    #[pyo3(get)]
+    margin: f32,
+    #[pyo3(get)]
+    negative_samples: usize,
+    #[pyo3(get)]
+    negative_weight: f32,
+    #[pyo3(get)]
+    regularization: f32,
+    #[pyo3(get)]
+    gumbel_beta: f32,
+    #[pyo3(get)]
+    gumbel_beta_final: f32,
+    #[pyo3(get)]
+    warmup_epochs: usize,
+    #[pyo3(get)]
+    early_stopping_patience: Option<usize>,
+    #[pyo3(get)]
+    symmetric_loss: bool,
 }
 
 #[pymethods]
@@ -238,7 +277,41 @@ impl PyTrainingConfig {
             symmetric_loss,
             ..TrainingConfig::default()
         };
-        Self { inner, dim }
+        Self {
+            inner,
+            dim,
+            learning_rate,
+            epochs,
+            batch_size,
+            margin,
+            negative_samples,
+            negative_weight,
+            regularization,
+            gumbel_beta,
+            gumbel_beta_final,
+            warmup_epochs,
+            early_stopping_patience,
+            symmetric_loss,
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "TrainingConfig(dim={}, lr={}, epochs={}, batch_size={}, margin={}, neg_samples={}, neg_weight={}, reg={}, gumbel_beta={}, gumbel_beta_final={}, warmup={}, patience={:?}, symmetric={})",
+            self.dim,
+            self.learning_rate,
+            self.epochs,
+            self.batch_size,
+            self.margin,
+            self.negative_samples,
+            self.negative_weight,
+            self.regularization,
+            self.gumbel_beta,
+            self.gumbel_beta_final,
+            self.warmup_epochs,
+            self.early_stopping_patience,
+            self.symmetric_loss,
+        )
     }
 }
 
@@ -425,14 +498,17 @@ impl PyBoxEmbeddingTrainer {
     /// Args:
     ///     test_triples: List of (head_id, relation_id, tail_id) tuples.
     ///     num_entities: Total entity count (for ranking against all entities).
+    ///         If None, auto-computed as max(entity_id) + 1 from triples and
+    ///         trained boxes.
     ///
     /// Returns:
     ///     Dict with keys: mrr, head_mrr, tail_mrr, hits_at_1, hits_at_3,
     ///     hits_at_10, mean_rank.
+    #[pyo3(signature = (test_triples, num_entities=None))]
     fn evaluate(
         &self,
         test_triples: Vec<(usize, usize, usize)>,
-        num_entities: usize,
+        num_entities: Option<usize>,
     ) -> PyResult<PyObject> {
         use subsume::dataset::{TripleIds, Vocab};
 
@@ -445,8 +521,24 @@ impl PyBoxEmbeddingTrainer {
             })
             .collect();
 
+        let n = num_entities.unwrap_or_else(|| {
+            let max_from_triples = test_triples
+                .iter()
+                .flat_map(|&(h, _, t)| [h, t])
+                .max()
+                .unwrap_or(0);
+            let max_from_boxes = self
+                .inner
+                .boxes
+                .keys()
+                .copied()
+                .max()
+                .unwrap_or(0);
+            max_from_triples.max(max_from_boxes) + 1
+        });
+
         let mut vocab = Vocab::default();
-        for i in 0..num_entities {
+        for i in 0..n {
             vocab.intern(i.to_string());
         }
 
@@ -498,19 +590,63 @@ impl PyBoxEmbeddingTrainer {
     }
 
     /// Get all entity names (if loaded via from_triples or load_dataset).
-    fn entity_names(&self) -> Option<Vec<String>> {
+    #[getter]
+    fn get_entity_names(&self) -> Option<Vec<String>> {
         self.entity_names.clone()
     }
 
-    /// Serialize trainer state to JSON.
+    /// Serialize trainer state to JSON (includes entity/relation names).
     fn save_checkpoint(&self) -> PyResult<String> {
-        serde_json::to_string(&self.inner)
+        let trainer_json = serde_json::to_value(&self.inner)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+
+        let mut checkpoint = serde_json::Map::new();
+        checkpoint.insert("trainer".into(), trainer_json);
+        if let Some(ref names) = self.entity_names {
+            checkpoint.insert(
+                "entity_names".into(),
+                serde_json::to_value(names)
+                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?,
+            );
+        }
+        if let Some(ref names) = self.relation_names {
+            checkpoint.insert(
+                "relation_names".into(),
+                serde_json::to_value(names)
+                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?,
+            );
+        }
+
+        serde_json::to_string(&checkpoint)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
     }
 
     /// Deserialize trainer state from JSON.
+    ///
+    /// Accepts both the new envelope format (with entity_names) and the
+    /// legacy format (bare trainer JSON) for backward compatibility.
     #[staticmethod]
     fn load_checkpoint(json: &str) -> PyResult<Self> {
+        // Try new envelope format first.
+        if let Ok(map) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(json) {
+            if let Some(trainer_val) = map.get("trainer") {
+                let inner: BoxEmbeddingTrainer = serde_json::from_value(trainer_val.clone())
+                    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+                let entity_names: Option<Vec<String>> = map
+                    .get("entity_names")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok());
+                let relation_names: Option<Vec<String>> = map
+                    .get("relation_names")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok());
+                return Ok(Self {
+                    inner,
+                    entity_names,
+                    relation_names,
+                });
+            }
+        }
+
+        // Fall back to legacy bare-trainer format.
         let inner: BoxEmbeddingTrainer = serde_json::from_str(json)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         Ok(Self {
@@ -678,6 +814,7 @@ fn training_result_to_dict(result: TrainingResult) -> PyResult<PyObject> {
 ///     result = trainer.fit(train, val_triples=val, num_entities=len(ents))
 #[pymodule]
 fn subsumer(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add_class::<PyNdarrayBox>()?;
     m.add_class::<PyNdarrayGumbelBox>()?;
     m.add_class::<PyNdarrayCone>()?;
