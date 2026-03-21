@@ -1225,13 +1225,13 @@ mod tests {
         let eps = 1e-4_f32;
         let rel_tol = 2e-2;
 
-        // For the negative case, use partially overlapping boxes with clearly
-        // different volumes so max(P_AB, P_BA) has a definite winner, and
-        // max_prob is well above the margin to avoid the max(0, ...) kink.
+        // For the negative case, use boxes where the tail is fully inside the
+        // head, giving max_prob ~1.0 which is well above margin (0.2).
+        // This avoids the hinge boundary where gradients are discontinuous.
         let head_neg =
-            TrainableBox::new(vec![0.0, 0.1, -0.1, 0.2], vec![1.0, 0.8, 0.9, 1.1]).unwrap();
+            TrainableBox::new(vec![0.0, 0.0, 0.0, 0.0], vec![1.5, 1.5, 1.5, 1.5]).unwrap();
         let tail_neg =
-            TrainableBox::new(vec![0.3, -0.2, 0.15, 0.5], vec![0.4, 0.5, 0.3, 0.6]).unwrap();
+            TrainableBox::new(vec![0.5, 0.3, 0.4, 0.6], vec![0.3, 0.4, 0.2, 0.3]).unwrap();
 
         let test_cases: Vec<(bool, &TrainableBox, &TrainableBox)> =
             vec![(true, &head, &tail), (false, &head_neg, &tail_neg)];
