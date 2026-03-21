@@ -76,6 +76,43 @@ let p = premise.containment_prob(&hypothesis)?;
 assert!(p > 0.9);
 ```
 
+### Training (Rust)
+
+```rust,ignore
+use subsume::{BoxEmbeddingTrainer, TrainingConfig, Dataset};
+use subsume::dataset::load_dataset;
+use std::path::Path;
+
+let dataset = load_dataset(Path::new("data/wn18rr"))?;
+let interned = dataset.into_interned();
+let train: Vec<_> = interned.train.iter().map(|t| (t.head, t.relation, t.tail)).collect();
+
+let config = TrainingConfig { learning_rate: 0.01, epochs: 50, ..Default::default() };
+let mut trainer = BoxEmbeddingTrainer::new(config, 32);
+let result = trainer.fit(&train, None, None)?;
+println!("MRR: {:.3}", result.final_results.mrr);
+```
+
+### Training (Python)
+
+```bash
+pip install subsumer
+```
+
+```python
+import subsumer
+
+triples = [("animal", "hypernym", "dog"), ("animal", "hypernym", "cat"), ...]
+config = subsumer.TrainingConfig(dim=32, epochs=50, learning_rate=0.01)
+trainer, ids = subsumer.BoxEmbeddingTrainer.from_triples(triples, config=config)
+result = trainer.fit(ids)
+print(f"MRR: {result['mrr']:.3f}")
+```
+
+Triple convention: head box **contains** tail box. For datasets where triples
+are `(child, hypernym, parent)`, pass `reverse=True` to `from_triples` or
+`load_dataset`.
+
 ## Examples
 
 ```bash
