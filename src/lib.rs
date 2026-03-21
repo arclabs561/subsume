@@ -264,6 +264,16 @@ pub use el_training::{
     evaluate_subsumption, train_el_embeddings, Axiom, ElTrainingConfig, ElTrainingResult, Ontology,
 };
 
+// Re-exports: cone EL++ primitives
+pub use cone_el::{
+    compose_cone_roles, cone_disjointness_loss, cone_existential, cone_inclusion_loss,
+};
+
+// Re-exports: cone query operators
+#[cfg(feature = "ndarray-backend")]
+#[cfg_attr(docsrs, doc(cfg(feature = "ndarray-backend")))]
+pub use cone_query::{cone_containment_score, ConeQuery, NeuralIntersection, NeuralProjection};
+
 // ---------------------------------------------------------------------------
 // Feature-gated backends
 // ---------------------------------------------------------------------------
