@@ -1,8 +1,11 @@
+#[cfg(feature = "rand")]
 use crate::dataset::Triple;
 #[cfg(feature = "rand")]
 use rand::Rng;
+#[cfg(feature = "rand")]
 use std::collections::{HashMap, HashSet};
 
+#[cfg(feature = "rand")]
 use super::NegativeSamplingStrategy;
 
 /// Generate negative samples for a triple.

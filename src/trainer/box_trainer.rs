@@ -3,11 +3,12 @@ use crate::trainable::TrainableBox;
 use crate::BoxError;
 use std::collections::{HashMap, HashSet};
 
-use super::{
-    EvaluationResults, NegativeSamplingStrategy, RelationTransform, TrainingConfig, TrainingResult,
-};
+use super::{NegativeSamplingStrategy, RelationTransform, TrainingConfig};
+#[cfg(feature = "ndarray-backend")]
+use super::{EvaluationResults, TrainingResult};
 #[cfg(feature = "ndarray-backend")]
 use crate::trainer::evaluation::evaluate_interned_with_transforms_inner;
+#[cfg(feature = "ndarray-backend")]
 use crate::trainer::evaluation::{evaluate_link_prediction_interned_inner, FilteredTripleIndexIds};
 
 /// Compute loss for a pair of boxes.

@@ -14,14 +14,14 @@
 //!   tie-break so `same model + same data => same metrics`.
 //! - **NaNs are treated as hard errors** in evaluation: silently propagating NaNs yields meaningless metrics.
 
-/// Negative sampling functions for knowledge graph training.
-pub mod negative_sampling;
-/// Filtered indices and link prediction evaluation functions.
-pub mod evaluation;
 /// Box embedding trainer, loss computation, and analytical gradients.
 pub mod box_trainer;
 /// Cone embedding trainer, loss computation, and analytical gradients.
 pub mod cone_trainer;
+/// Filtered indices and link prediction evaluation functions.
+pub mod evaluation;
+/// Negative sampling functions for knowledge graph training.
+pub mod negative_sampling;
 
 use crate::BoxError;
 
@@ -432,9 +432,8 @@ pub use negative_sampling::{
 
 // Evaluation
 pub use evaluation::{
-    evaluate_link_prediction, evaluate_link_prediction_filtered,
-    evaluate_link_prediction_interned, evaluate_link_prediction_interned_filtered,
-    FilteredTripleIndex, FilteredTripleIndexIds,
+    evaluate_link_prediction, evaluate_link_prediction_filtered, evaluate_link_prediction_interned,
+    evaluate_link_prediction_interned_filtered, FilteredTripleIndex, FilteredTripleIndexIds,
 };
 
 #[cfg(feature = "ndarray-backend")]
@@ -442,9 +441,7 @@ pub use evaluation::{
 pub use evaluation::evaluate_link_prediction_interned_with_transforms;
 
 // Box trainer
-pub use box_trainer::{
-    compute_analytical_gradients, compute_pair_loss, BoxEmbeddingTrainer,
-};
+pub use box_trainer::{compute_analytical_gradients, compute_pair_loss, BoxEmbeddingTrainer};
 
 // Cone trainer
 pub use cone_trainer::{

@@ -141,11 +141,7 @@ pub struct Dataset {
 impl Dataset {
     /// Create a new dataset from triples.
     pub fn new(train: Vec<Triple>, valid: Vec<Triple>, test: Vec<Triple>) -> Self {
-        Self {
-            train,
-            valid,
-            test,
-        }
+        Self { train, valid, test }
     }
 
     /// Get all unique entities from the dataset.

@@ -774,7 +774,10 @@ fn trained_beats_random_baseline() {
     let trainer: BoxEmbeddingTrainer = serde_json::from_str(checkpoint).unwrap();
 
     let n_entities = trainer.export_embeddings().0.len();
-    assert_eq!(n_entities, 47, "expected 47 entities in pretrained checkpoint");
+    assert_eq!(
+        n_entities, 47,
+        "expected 47 entities in pretrained checkpoint"
+    );
 
     // Theoretical random MRR: for uniform random ranking of n items,
     // expected reciprocal rank = H(n)/n where H(n) = sum(1/k, k=1..n).
