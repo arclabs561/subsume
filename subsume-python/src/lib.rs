@@ -3,7 +3,7 @@
 use numpy::{IntoPyArray, PyArray1, PyArray2};
 use pyo3::prelude::*;
 use subsume::dataset::{Dataset, Triple};
-use subsume::ndarray_backend::NdarrayBox;
+use subsume::ndarray_backend::{NdarrayBox, NdarrayCone, NdarrayGumbelBox};
 use subsume::trainer::{BoxEmbeddingTrainer, EvaluationResults, TrainingConfig, TrainingResult};
 use subsume::Box as BoxTrait;
 
@@ -55,6 +55,123 @@ impl PyNdarrayBox {
     fn max_array<'py>(&self, py: Python<'py>) -> PyResult<Py<PyArray1<f32>>> {
         let max = self.inner.max().clone();
         Ok(max.into_pyarray(py).into())
+    }
+}
+
+/// Python wrapper around `subsume::ndarray_backend::NdarrayGumbelBox`.
+#[pyclass(name = "NdarrayGumbelBox")]
+#[derive(Clone)]
+struct PyNdarrayGumbelBox {
+    inner: NdarrayGumbelBox,
+}
+
+#[pymethods]
+impl PyNdarrayGumbelBox {
+    /// Create a new Gumbel box embedding from min/max bounds and temperature.
+    #[new]
+    fn new(min: Vec<f32>, max: Vec<f32>, temperature: f32) -> PyResult<Self> {
+        let inner = NdarrayGumbelBox::new(
+            ndarray::Array1::from(min),
+            ndarray::Array1::from(max),
+            temperature,
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        Ok(Self { inner })
+    }
+
+    /// Compute the Gumbel-softplus volume of this box.
+    fn volume(&self) -> PyResult<f32> {
+        self.inner
+            .volume()
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+    }
+
+    /// Compute containment probability P(other inside self).
+    fn containment_prob(&self, other: &PyNdarrayGumbelBox) -> PyResult<f32> {
+        self.inner
+            .containment_prob(&other.inner)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+    }
+
+    /// Compute overlap probability between this box and another.
+    fn overlap_prob(&self, other: &PyNdarrayGumbelBox) -> PyResult<f32> {
+        self.inner
+            .overlap_prob(&other.inner)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+    }
+
+    /// Number of dimensions.
+    fn dim(&self) -> usize {
+        self.inner.dim()
+    }
+
+    /// Return min bounds as a numpy array.
+    fn min_array<'py>(&self, py: Python<'py>) -> PyResult<Py<PyArray1<f32>>> {
+        let min = self.inner.min().clone();
+        Ok(min.into_pyarray(py).into())
+    }
+
+    /// Return max bounds as a numpy array.
+    fn max_array<'py>(&self, py: Python<'py>) -> PyResult<Py<PyArray1<f32>>> {
+        let max = self.inner.max().clone();
+        Ok(max.into_pyarray(py).into())
+    }
+
+    /// Get the temperature parameter.
+    fn temperature(&self) -> f32 {
+        self.inner.temperature()
+    }
+
+    /// Compute the membership probability for a point.
+    fn membership_probability(&self, point: Vec<f32>) -> PyResult<f32> {
+        self.inner
+            .membership_probability(&ndarray::Array1::from(point))
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+    }
+}
+
+/// Python wrapper around `subsume::ndarray_backend::NdarrayCone`.
+#[pyclass(name = "NdarrayCone")]
+#[derive(Clone)]
+struct PyNdarrayCone {
+    inner: NdarrayCone,
+}
+
+#[pymethods]
+impl PyNdarrayCone {
+    /// Create a new cone embedding from axis angles and apertures.
+    #[new]
+    fn new(axes: Vec<f32>, apertures: Vec<f32>) -> PyResult<Self> {
+        let inner = NdarrayCone::new(
+            ndarray::Array1::from(axes),
+            ndarray::Array1::from(apertures),
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        Ok(Self { inner })
+    }
+
+    /// Number of dimensions.
+    fn dim(&self) -> usize {
+        self.inner.dim()
+    }
+
+    /// Return axis angles as a numpy array.
+    fn axes<'py>(&self, py: Python<'py>) -> PyResult<Py<PyArray1<f32>>> {
+        let axes = self.inner.axes().clone();
+        Ok(axes.into_pyarray(py).into())
+    }
+
+    /// Return apertures as a numpy array.
+    fn apertures<'py>(&self, py: Python<'py>) -> PyResult<Py<PyArray1<f32>>> {
+        let apertures = self.inner.apertures().clone();
+        Ok(apertures.into_pyarray(py).into())
+    }
+
+    /// Compute the ConE distance between self (query) and another cone (entity).
+    fn cone_distance(&self, other: &PyNdarrayCone, cen: f32) -> PyResult<f32> {
+        self.inner
+            .cone_distance(&other.inner, cen)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
     }
 }
 
@@ -562,6 +679,8 @@ fn training_result_to_dict(result: TrainingResult) -> PyResult<PyObject> {
 #[pymodule]
 fn subsumer(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyNdarrayBox>()?;
+    m.add_class::<PyNdarrayGumbelBox>()?;
+    m.add_class::<PyNdarrayCone>()?;
     m.add_class::<PyBoxEmbeddingTrainer>()?;
     m.add_class::<PyTrainingConfig>()?;
     m.add_function(wrap_pyfunction!(containment_probability, m)?)?;
