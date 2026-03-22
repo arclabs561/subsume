@@ -207,7 +207,8 @@ pub enum NegativeSamplingStrategy {
 ///
 /// Fields consumed by [`BoxEmbeddingTrainer::train_step`]: `learning_rate`, `margin`,
 /// `regularization`, `negative_weight`, `negative_samples`, `negative_strategy`,
-/// `gumbel_beta`, `max_grad_norm`, `adversarial_temperature`, `use_infonce`.
+/// `gumbel_beta`, `max_grad_norm`, `adversarial_temperature`, `self_adversarial`,
+/// `use_infonce`.
 ///
 /// The remaining fields (`epochs`, `batch_size`,
 /// `early_stopping_*`, `warmup_epochs`, `gumbel_beta_final`) are configuration
@@ -301,6 +302,25 @@ pub struct TrainingConfig {
     #[serde(default)]
     pub symmetric_loss: bool,
 
+    /// Enable self-adversarial negative sampling (Sun et al., RotatE ICLR 2019).
+    ///
+    /// When true, negative samples are weighted by softmax of their current
+    /// model score scaled by `adversarial_temperature`:
+    ///
+    /// $$
+    /// w_i = \frac{\exp(\alpha \cdot s_i)}{\sum_j \exp(\alpha \cdot s_j)}
+    /// $$
+    ///
+    /// where `s_i` is the model's containment score for negative `i` and
+    /// `alpha` is `adversarial_temperature`. This focuses gradient signal
+    /// on "hard" negatives that the model currently scores highly.
+    ///
+    /// When false, all negatives are weighted uniformly.
+    ///
+    /// Default: `false`.
+    #[serde(default)]
+    pub self_adversarial: bool,
+
     /// Use Bernoulli negative sampling (Wang et al., 2014).
     ///
     /// When enabled, the probability of corrupting head vs tail is adjusted
@@ -338,6 +358,7 @@ impl Default for TrainingConfig {
             adversarial_temperature: 1.0,
             use_infonce: false,
             symmetric_loss: false,
+            self_adversarial: false,
             bernoulli_sampling: false,
         }
     }
