@@ -667,6 +667,16 @@ impl BoxEmbeddingTrainer {
             rel_entry.1 += 1;
 
             // Negative samples: random from full entity pool.
+            // Collect all negatives first (needed for softmax weighting).
+            let mut neg_data: Vec<(
+                usize,
+                usize,
+                TrainableBox,
+                TrainableBox,
+                f32,
+                (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>),
+            )> = Vec::with_capacity(n_neg);
+
             for _ in 0..n_neg {
                 let (neg_h, neg_t) = self.sample_negative(h, r, t, all_entities, &step_config, rng);
                 self.ensure_entity(neg_h);
@@ -701,27 +711,55 @@ impl BoxEmbeddingTrainer {
                 total_loss += neg_loss;
                 n_pairs += 1;
 
-                let (gmh, gdh, gmt, gdt) = compute_analytical_gradients(
+                let grads = compute_analytical_gradients(
                     &box_neg_h_translated,
                     &box_neg_t,
                     false,
                     &step_config,
                 );
 
-                // Self-adversarial weighting.
-                let adv_temp = step_config.adversarial_temperature;
-                let neg_as_pos =
-                    compute_pair_loss(&box_neg_h_translated, &box_neg_t, true, &step_config);
-                let adv_weight = (-neg_as_pos / adv_temp).exp().min(10.0);
+                // Score for adversarial weighting: positive-side loss (lower = model thinks it's true).
+                let score = if step_config.self_adversarial {
+                    compute_pair_loss(&box_neg_h_translated, &box_neg_t, true, &step_config)
+                } else {
+                    0.0 // unused
+                };
+
+                neg_data.push((neg_h, neg_t, box_neg_h_translated, box_neg_t, score, grads));
+            }
+
+            // Compute per-negative weights.
+            let weights: Vec<f32> = if step_config.self_adversarial && !neg_data.is_empty() {
+                // Softmax over -score/temp (lower positive loss = higher containment = harder negative).
+                let alpha = step_config.adversarial_temperature;
+                let logits: Vec<f32> = neg_data
+                    .iter()
+                    .map(|(_, _, _, _, s, _)| -s * alpha)
+                    .collect();
+                let max_logit = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+                let exps: Vec<f32> = logits.iter().map(|l| (l - max_logit).exp()).collect();
+                let sum: f32 = exps.iter().sum();
+                let n = neg_data.len() as f32;
+                // Scale by N so the total gradient magnitude is comparable to uniform weighting.
+                exps.iter().map(|e| e / sum * n).collect()
+            } else {
+                vec![1.0; neg_data.len()]
+            };
+
+            // Accumulate weighted negative gradients.
+            for (i, (neg_h, neg_t, _, _, _, (gmh, gdh, gmt, gdt))) in
+                neg_data.into_iter().enumerate()
+            {
+                let w = weights[i];
 
                 let entry = grad_accum
                     .entry(neg_h)
                     .or_insert_with(|| (vec![0.0; self.dim], vec![0.0; self.dim], 0));
                 for (acc, g) in entry.0.iter_mut().zip(&gmh) {
-                    *acc += g * adv_weight;
+                    *acc += g * w;
                 }
                 for (acc, g) in entry.1.iter_mut().zip(&gdh) {
-                    *acc += g * adv_weight;
+                    *acc += g * w;
                 }
                 entry.2 += 1;
 
@@ -729,10 +767,10 @@ impl BoxEmbeddingTrainer {
                     .entry(neg_t)
                     .or_insert_with(|| (vec![0.0; self.dim], vec![0.0; self.dim], 0));
                 for (acc, g) in entry.0.iter_mut().zip(&gmt) {
-                    *acc += g * adv_weight;
+                    *acc += g * w;
                 }
                 for (acc, g) in entry.1.iter_mut().zip(&gdt) {
-                    *acc += g * adv_weight;
+                    *acc += g * w;
                 }
                 entry.2 += 1;
             }
@@ -778,9 +816,10 @@ impl BoxEmbeddingTrainer {
     /// 4. Compute analytical gradients and apply AMSGrad updates.
     ///
     /// When `config.use_infonce` is true, uses InfoNCE-style contrastive loss
-    /// instead of separate margin-based losses. When `config.adversarial_temperature`
-    /// is finite, negative gradients are weighted by the model's current positive
-    /// score for the negative triple (self-adversarial weighting).
+    /// instead of separate margin-based losses. When `config.self_adversarial`
+    /// is true, negative gradients are weighted by softmax of the model's current
+    /// containment score scaled by `adversarial_temperature` (Sun et al., RotatE
+    /// ICLR 2019).
     ///
     /// Uses `self.current_beta` as the effective `gumbel_beta` for this step.
     ///
@@ -840,13 +879,54 @@ impl BoxEmbeddingTrainer {
             }
             let n_neg = step_config.negative_samples.max(1);
 
+            // Generate all negative samples for this triple first.
+            // Needed for softmax weighting when self_adversarial is enabled.
+            let mut neg_pairs: Vec<(usize, usize)> = Vec::with_capacity(n_neg);
             for neg_idx in 0..n_neg {
-                // Deterministic hash-based selection, varied by neg_idx.
-                let (neg_h, neg_t) = {
-                    let idx = (h.wrapping_mul(31).wrapping_add(t).wrapping_add(7 + neg_idx))
-                        % entity_ids.len();
-                    match &step_config.negative_strategy {
-                        NegativeSamplingStrategy::CorruptTail => {
+                let idx = (h.wrapping_mul(31).wrapping_add(t).wrapping_add(7 + neg_idx))
+                    % entity_ids.len();
+                let pair = match &step_config.negative_strategy {
+                    NegativeSamplingStrategy::CorruptTail => {
+                        let candidate = entity_ids[idx];
+                        let nt = if candidate == t {
+                            entity_ids[(idx + 1) % entity_ids.len()]
+                        } else {
+                            candidate
+                        };
+                        (h, nt)
+                    }
+                    NegativeSamplingStrategy::CorruptHead => {
+                        let candidate = entity_ids[idx];
+                        let nh = if candidate == h {
+                            entity_ids[(idx + 1) % entity_ids.len()]
+                        } else {
+                            candidate
+                        };
+                        (nh, t)
+                    }
+                    NegativeSamplingStrategy::CorruptBoth => {
+                        let nh_idx = idx;
+                        let nt_idx = (idx.wrapping_add(3)) % entity_ids.len();
+                        let nh = {
+                            let c = entity_ids[nh_idx];
+                            if c == h {
+                                entity_ids[(nh_idx + 1) % entity_ids.len()]
+                            } else {
+                                c
+                            }
+                        };
+                        let nt = {
+                            let c = entity_ids[nt_idx];
+                            if c == t {
+                                entity_ids[(nt_idx + 1) % entity_ids.len()]
+                            } else {
+                                c
+                            }
+                        };
+                        (nh, nt)
+                    }
+                    NegativeSamplingStrategy::Uniform => {
+                        if neg_idx % 2 == 0 {
                             let candidate = entity_ids[idx];
                             let nt = if candidate == t {
                                 entity_ids[(idx + 1) % entity_ids.len()]
@@ -854,8 +934,7 @@ impl BoxEmbeddingTrainer {
                                 candidate
                             };
                             (h, nt)
-                        }
-                        NegativeSamplingStrategy::CorruptHead => {
+                        } else {
                             let candidate = entity_ids[idx];
                             let nh = if candidate == h {
                                 entity_ids[(idx + 1) % entity_ids.len()]
@@ -864,57 +943,25 @@ impl BoxEmbeddingTrainer {
                             };
                             (nh, t)
                         }
-                        NegativeSamplingStrategy::CorruptBoth => {
-                            let nh_idx = idx;
-                            let nt_idx = (idx.wrapping_add(3)) % entity_ids.len();
-                            let nh = {
-                                let c = entity_ids[nh_idx];
-                                if c == h {
-                                    entity_ids[(nh_idx + 1) % entity_ids.len()]
-                                } else {
-                                    c
-                                }
-                            };
-                            let nt = {
-                                let c = entity_ids[nt_idx];
-                                if c == t {
-                                    entity_ids[(nt_idx + 1) % entity_ids.len()]
-                                } else {
-                                    c
-                                }
-                            };
-                            (nh, nt)
-                        }
-                        NegativeSamplingStrategy::Uniform => {
-                            // Alternate between head and tail corruption.
-                            if neg_idx % 2 == 0 {
-                                let candidate = entity_ids[idx];
-                                let nt = if candidate == t {
-                                    entity_ids[(idx + 1) % entity_ids.len()]
-                                } else {
-                                    candidate
-                                };
-                                (h, nt)
-                            } else {
-                                let candidate = entity_ids[idx];
-                                let nh = if candidate == h {
-                                    entity_ids[(idx + 1) % entity_ids.len()]
-                                } else {
-                                    candidate
-                                };
-                                (nh, t)
-                            }
-                        }
                     }
                 };
+                neg_pairs.push(pair);
+            }
 
-                let box_neg_h = self.snapshot_box(neg_h);
-                let box_neg = self.snapshot_box(neg_t);
+            // Snapshot negative boxes.
+            let neg_boxes: Vec<(TrainableBox, TrainableBox)> = neg_pairs
+                .iter()
+                .map(|&(nh, nt)| (self.snapshot_box(nh), self.snapshot_box(nt)))
+                .collect();
 
-                if step_config.use_infonce {
+            if step_config.use_infonce {
+                // InfoNCE path: process each negative independently.
+                for (i, &(neg_h, neg_t)) in neg_pairs.iter().enumerate() {
+                    let (ref box_neg_h, ref box_neg) = neg_boxes[i];
+
                     let pos_score =
                         compute_pair_loss(&box_h_transformed, &box_t, true, &step_config);
-                    let neg_score = compute_pair_loss(&box_neg_h, &box_neg, true, &step_config);
+                    let neg_score = compute_pair_loss(box_neg_h, box_neg, true, &step_config);
                     let tau = step_config.margin.max(1e-6);
                     let infonce_loss = crate::utils::softplus((pos_score - neg_score) / tau, 1.0);
                     total_loss += infonce_loss;
@@ -923,7 +970,6 @@ impl BoxEmbeddingTrainer {
                     let dldpos = sig / tau;
                     let dldneg = -sig / tau;
 
-                    // Positive pair gradients (scaled by dldpos).
                     let (grad_mu_h, grad_delta_h, grad_mu_t, grad_delta_t) =
                         compute_analytical_gradients(&box_h, &box_t, true, &step_config);
                     if let (Some(b), Some(s)) =
@@ -943,10 +989,9 @@ impl BoxEmbeddingTrainer {
                         b.update_amsgrad(&scaled_mu, &scaled_delta, s);
                     }
 
-                    // Negative pair gradients -- applied to neg_h and neg_t.
                     let bnh = self.snapshot_box(neg_h);
                     let (gmnh, gdnh, gmnt, gdnt) =
-                        compute_analytical_gradients(&bnh, &box_neg, true, &step_config);
+                        compute_analytical_gradients(&bnh, box_neg, true, &step_config);
                     if let (Some(b), Some(s)) = (
                         self.boxes.get_mut(&neg_h),
                         self.optimizer_states.get_mut(&neg_h),
@@ -963,70 +1008,97 @@ impl BoxEmbeddingTrainer {
                         let sd: Vec<f32> = gdnt.iter().map(|g| g * dldneg).collect();
                         b.update_amsgrad(&sm, &sd, s);
                     }
-                } else {
-                    // Standard margin-based loss path.
+                }
+            } else {
+                // Standard margin-based loss path.
 
-                    // Positive loss: head should contain tail.
-                    let pos_loss =
-                        compute_pair_loss(&box_h_transformed, &box_t, true, &step_config);
-                    total_loss += pos_loss;
+                // Positive loss (computed once per positive triple).
+                let pos_loss = compute_pair_loss(&box_h_transformed, &box_t, true, &step_config);
+                total_loss += pos_loss;
 
-                    // Positive gradients.
-                    let (grad_mu_h, grad_delta_h, grad_mu_t, grad_delta_t) =
-                        compute_analytical_gradients(&box_h, &box_t, true, &step_config);
+                let (grad_mu_h, grad_delta_h, grad_mu_t, grad_delta_t) =
+                    compute_analytical_gradients(&box_h, &box_t, true, &step_config);
 
-                    // Apply positive gradients.
-                    if let (Some(b), Some(s)) =
-                        (self.boxes.get_mut(&h), self.optimizer_states.get_mut(&h))
-                    {
-                        b.update_amsgrad(&grad_mu_h, &grad_delta_h, s);
-                    }
-                    if let (Some(b), Some(s)) =
-                        (self.boxes.get_mut(&t), self.optimizer_states.get_mut(&t))
-                    {
-                        b.update_amsgrad(&grad_mu_t, &grad_delta_t, s);
-                    }
+                if let (Some(b), Some(s)) =
+                    (self.boxes.get_mut(&h), self.optimizer_states.get_mut(&h))
+                {
+                    b.update_amsgrad(&grad_mu_h, &grad_delta_h, s);
+                }
+                if let (Some(b), Some(s)) =
+                    (self.boxes.get_mut(&t), self.optimizer_states.get_mut(&t))
+                {
+                    b.update_amsgrad(&grad_mu_t, &grad_delta_t, s);
+                }
 
-                    // Negative loss -- applied to neg_h and neg_t.
-                    let bnh = self.snapshot_box(neg_h);
-                    let neg_loss = compute_pair_loss(&bnh, &box_neg, false, &step_config);
+                // Compute negative losses and gradients, collecting scores for adversarial weighting.
+                let mut neg_grads: Vec<(
+                    usize,
+                    usize,
+                    f32,
+                    Vec<f32>,
+                    Vec<f32>,
+                    Vec<f32>,
+                    Vec<f32>,
+                )> = Vec::with_capacity(neg_pairs.len());
+
+                for (i, &(neg_h, neg_t)) in neg_pairs.iter().enumerate() {
+                    let (ref bnh, ref bnt) = neg_boxes[i];
+                    let neg_loss = compute_pair_loss(bnh, bnt, false, &step_config);
                     total_loss += neg_loss;
 
-                    // Negative gradients.
-                    let (mut gmnh, mut gdnh, mut gmnt, mut gdnt) =
-                        compute_analytical_gradients(&bnh, &box_neg, false, &step_config);
+                    let (gmnh, gdnh, gmnt, gdnt) =
+                        compute_analytical_gradients(bnh, bnt, false, &step_config);
 
-                    // Self-adversarial weighting.
-                    let adv_temp = step_config.adversarial_temperature;
-                    let neg_as_pos = compute_pair_loss(&bnh, &box_neg, true, &step_config);
-                    let adv_weight = (-neg_as_pos / adv_temp).exp().min(10.0);
-                    for g in gmnh.iter_mut() {
-                        *g *= adv_weight;
-                    }
-                    for g in gdnh.iter_mut() {
-                        *g *= adv_weight;
-                    }
-                    for g in gmnt.iter_mut() {
-                        *g *= adv_weight;
-                    }
-                    for g in gdnt.iter_mut() {
-                        *g *= adv_weight;
-                    }
+                    let score = if step_config.self_adversarial {
+                        compute_pair_loss(bnh, bnt, true, &step_config)
+                    } else {
+                        0.0
+                    };
+
+                    neg_grads.push((neg_h, neg_t, score, gmnh, gdnh, gmnt, gdnt));
+                }
+
+                // Compute weights: softmax when self_adversarial, uniform otherwise.
+                let weights: Vec<f32> = if step_config.self_adversarial && !neg_grads.is_empty() {
+                    let alpha = step_config.adversarial_temperature;
+                    let logits: Vec<f32> = neg_grads
+                        .iter()
+                        .map(|(_, _, s, _, _, _, _)| -s * alpha)
+                        .collect();
+                    let max_logit = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+                    let exps: Vec<f32> = logits.iter().map(|l| (l - max_logit).exp()).collect();
+                    let sum: f32 = exps.iter().sum();
+                    let n = neg_grads.len() as f32;
+                    // Scale by N so total gradient magnitude matches uniform weighting.
+                    exps.iter().map(|e| e / sum * n).collect()
+                } else {
+                    vec![1.0; neg_grads.len()]
+                };
+
+                // Apply weighted negative gradients.
+                for (i, (neg_h, neg_t, _, gmnh, gdnh, gmnt, gdnt)) in
+                    neg_grads.into_iter().enumerate()
+                {
+                    let w = weights[i];
+                    let scaled_gmnh: Vec<f32> = gmnh.iter().map(|g| g * w).collect();
+                    let scaled_gdnh: Vec<f32> = gdnh.iter().map(|g| g * w).collect();
+                    let scaled_gmnt: Vec<f32> = gmnt.iter().map(|g| g * w).collect();
+                    let scaled_gdnt: Vec<f32> = gdnt.iter().map(|g| g * w).collect();
 
                     if let (Some(b), Some(s)) = (
                         self.boxes.get_mut(&neg_h),
                         self.optimizer_states.get_mut(&neg_h),
                     ) {
-                        b.update_amsgrad(&gmnh, &gdnh, s);
+                        b.update_amsgrad(&scaled_gmnh, &scaled_gdnh, s);
                     }
                     if let (Some(b), Some(s)) = (
                         self.boxes.get_mut(&neg_t),
                         self.optimizer_states.get_mut(&neg_t),
                     ) {
-                        b.update_amsgrad(&gmnt, &gdnt, s);
+                        b.update_amsgrad(&scaled_gmnt, &scaled_gdnt, s);
                     }
                 }
-            } // end for neg_idx
+            }
         }
 
         // Average over triples and negatives per triple.
@@ -1762,5 +1834,111 @@ mod tests {
             let loss = compute_pair_loss(&box_a, &box_b, is_positive, &config);
             prop_assert!(loss.is_finite(), "compute_pair_loss returned non-finite: {loss}");
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Self-adversarial negative sampling tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn self_adversarial_config_default_is_off() {
+        let cfg = TrainingConfig::default();
+        assert!(!cfg.self_adversarial);
+        assert!((cfg.adversarial_temperature - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn self_adversarial_serde_roundtrip() {
+        let cfg = TrainingConfig {
+            self_adversarial: true,
+            adversarial_temperature: 0.5,
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&cfg).unwrap();
+        let restored: TrainingConfig = serde_json::from_str(&json).unwrap();
+        assert!(restored.self_adversarial);
+        assert!((restored.adversarial_temperature - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn self_adversarial_serde_missing_field_defaults_to_false() {
+        // Backward compat: old JSON without self_adversarial should deserialize fine.
+        let json = r#"{"learning_rate":0.001,"epochs":100,"batch_size":512,"negative_samples":1,"negative_strategy":"CorruptTail","margin":1.0,"early_stopping_patience":10,"early_stopping_min_delta":0.001,"regularization":0.0001,"warmup_epochs":10,"negative_weight":1.0,"gumbel_beta":10.0,"gumbel_beta_final":50.0,"max_grad_norm":10.0,"adversarial_temperature":1.0,"use_infonce":false}"#;
+        let cfg: TrainingConfig = serde_json::from_str(json).unwrap();
+        assert!(!cfg.self_adversarial);
+    }
+
+    #[test]
+    fn train_step_self_adversarial_produces_different_loss() {
+        // With self_adversarial on vs off, training should produce different
+        // parameter updates (and therefore different final losses).
+        let triples = vec![(0, 0, 1), (0, 0, 2), (1, 0, 3), (2, 0, 3)];
+
+        let run = |self_adv: bool| -> f32 {
+            let config = TrainingConfig {
+                negative_samples: 3,
+                self_adversarial: self_adv,
+                adversarial_temperature: 2.0,
+                ..Default::default()
+            };
+            let mut trainer = BoxEmbeddingTrainer::new(config, 4);
+            let mut total_loss = 0.0;
+            for _ in 0..5 {
+                total_loss = trainer.train_step(&triples).unwrap();
+            }
+            total_loss
+        };
+
+        let loss_off = run(false);
+        let loss_on = run(true);
+
+        assert!(loss_off.is_finite(), "loss_off should be finite");
+        assert!(loss_on.is_finite(), "loss_on should be finite");
+        // The losses should differ because adversarial weighting changes gradient distribution.
+        // (They could theoretically be equal if all negatives score identically, but with
+        // 4 entities and 3 negatives per positive this is unlikely after 5 steps.)
+        assert!(
+            (loss_off - loss_on).abs() > 1e-8,
+            "self_adversarial should change training dynamics: loss_off={loss_off}, loss_on={loss_on}"
+        );
+    }
+
+    #[test]
+    fn self_adversarial_softmax_weights_sum_to_n() {
+        // Verify the softmax weighting logic directly: weights should sum to N
+        // (so total gradient magnitude matches uniform weighting).
+        let scores: Vec<f32> = vec![0.5, 1.0, 2.0, 0.1, 3.0];
+        let alpha = 2.0_f32;
+        let logits: Vec<f32> = scores.iter().map(|s| -s * alpha).collect();
+        let max_logit = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let exps: Vec<f32> = logits.iter().map(|l| (l - max_logit).exp()).collect();
+        let sum: f32 = exps.iter().sum();
+        let n = scores.len() as f32;
+        let weights: Vec<f32> = exps.iter().map(|e| e / sum * n).collect();
+
+        let weight_sum: f32 = weights.iter().sum();
+        assert!(
+            (weight_sum - n).abs() < 1e-5,
+            "weights should sum to N={n}, got {weight_sum}"
+        );
+
+        // Lower scores (harder negatives) should get higher weights.
+        // score[3]=0.1 is the lowest (hardest negative) -> highest weight.
+        let max_weight_idx = weights
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+            .unwrap()
+            .0;
+        let min_score_idx = scores
+            .iter()
+            .enumerate()
+            .min_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+            .unwrap()
+            .0;
+        assert_eq!(
+            max_weight_idx, min_score_idx,
+            "hardest negative (lowest positive-side loss) should get highest weight"
+        );
     }
 }
