@@ -6,6 +6,7 @@
 
 Loads the Nations dataset (~200 triples) from PyKEEN, trains box embeddings
 with subsumer, then trains PyKEEN's BoxE on the same data for comparison.
+Also demonstrates exporting trained embeddings as numpy arrays.
 
 Usage:
     uv run subsume-python/examples/pykeen_interop.py
@@ -30,20 +31,16 @@ def extract_triples_from_pykeen(
 def train_subsumer(
     train_triples: list[tuple[str, str, str]],
     test_triples: list[tuple[str, str, str]],
-) -> dict:
-    """Train subsumer box embeddings and evaluate."""
+) -> tuple[dict, object]:
+    """Train subsumer box embeddings and evaluate.
+
+    Returns (metrics_dict, trainer) so the caller can inspect embeddings.
+    """
     import subsumer
 
     # Merge all triples to build a shared vocabulary, then split back.
     all_triples = train_triples + test_triples
-    trainer, all_ids = subsumer.BoxEmbeddingTrainer.from_triples(all_triples)
 
-    train_ids = all_ids[: len(train_triples)]
-    test_ids = all_ids[len(train_triples) :]
-
-    num_entities = max(max(h, t) for h, _, t in all_ids) + 1
-
-    # Reconfigure with a custom config for better training.
     config = subsumer.TrainingConfig(
         dim=32,
         learning_rate=0.01,
@@ -61,6 +58,7 @@ def train_subsumer(
     )
     train_ids = all_ids[: len(train_triples)]
     test_ids = all_ids[len(train_triples) :]
+    num_entities = max(max(h, t) for h, _, t in all_ids) + 1
 
     # Train
     t0 = time.time()
@@ -70,7 +68,7 @@ def train_subsumer(
     # Evaluate on test set
     eval_result = trainer.evaluate(test_ids, num_entities)
 
-    return {
+    metrics = {
         "mrr": eval_result["mrr"],
         "hits_at_1": eval_result["hits_at_1"],
         "hits_at_3": eval_result["hits_at_3"],
@@ -79,6 +77,7 @@ def train_subsumer(
         "train_time_s": train_time,
         "final_loss": result["loss_history"][-1] if result["loss_history"] else None,
     }
+    return metrics, trainer
 
 
 def train_pykeen_boxe(training, testing) -> dict:
@@ -136,7 +135,7 @@ def main():
 
     # -- Train subsumer --
     print("\n--- subsumer (Rust box embeddings) ---")
-    subsumer_results = train_subsumer(train_triples, test_triples)
+    subsumer_results, trainer = train_subsumer(train_triples, test_triples)
     print(f"  MRR:       {subsumer_results['mrr']:.4f}")
     print(f"  Hits@1:    {subsumer_results['hits_at_1']:.4f}")
     print(f"  Hits@3:    {subsumer_results['hits_at_3']:.4f}")
@@ -176,6 +175,46 @@ def main():
             f"{pykeen_results['train_time_s']:>12.2f}"
         )
 
+    # -- Export embeddings as numpy arrays --
+    show_numpy_export(trainer)
+
+
+def show_numpy_export(trainer) -> None:
+    """Demonstrate exporting subsumer embeddings as numpy arrays."""
+    import numpy as np
+
+    print("\n--- Embedding export (numpy arrays) ---")
+
+    # export_embeddings returns (entity_ids, min_coords, max_coords)
+    # where min_coords and max_coords are float32 arrays of shape (n_entities, dim).
+    entity_ids, mins, maxs = trainer.export_embeddings()
+    print(f"  Exported {len(entity_ids)} entity embeddings")
+    print(f"  min_coords shape: {mins.shape}, dtype: {mins.dtype}")
+    print(f"  max_coords shape: {maxs.shape}, dtype: {maxs.dtype}")
+
+    # Show a few named entities and their box dimensions.
+    print("\n  Sample boxes (first 5 entities):")
+    for eid in entity_ids[:5]:
+        name = trainer.entity_name(eid) or f"entity_{eid}"
+        box = trainer.get_box(eid)
+        if box is not None:
+            vol = box.volume()
+            print(f"    {name:<20s}  dim={box.dim()}  volume={vol:.4f}")
+
+    # The arrays are standard numpy -- compute widths, save to disk, etc.
+    widths = maxs - mins
+    mean_width = np.mean(widths, axis=1)
+    narrowest = entity_ids[int(np.argmin(mean_width))]
+    widest = entity_ids[int(np.argmax(mean_width))]
+    print(
+        f"\n  Narrowest box: {trainer.entity_name(narrowest)} "
+        f"(mean width {mean_width[np.argmin(mean_width)]:.4f})"
+    )
+    print(
+        f"  Widest box:    {trainer.entity_name(widest)} "
+        f"(mean width {mean_width[np.argmax(mean_width)]:.4f})"
+    )
+
 
 def run_subsumer_only():
     """Fallback: demonstrate subsumer without PyKEEN."""
@@ -203,6 +242,8 @@ def run_subsumer_only():
     print(f"  Hits@10:   {eval_result['hits_at_10']:.4f}")
     print(f"  Mean Rank: {eval_result['mean_rank']:.1f}")
     print(f"  Final loss: {result['loss_history'][-1]:.4f}")
+
+    show_numpy_export(trainer)
 
 
 if __name__ == "__main__":
