@@ -3,6 +3,9 @@
 //! These metrics are the standard evaluation suite for knowledge graph embedding
 //! quality on downstream tasks like knowledge graph completion, where we need to
 //! rank candidate entities.
+//!
+//! For a richer evaluation suite (nDCG, MAP, recall, precision, rank fusion),
+//! enable the `rankops` feature which re-exports the [`rankops`] crate.
 
 /// Compute Mean Reciprocal Rank (MRR) for a set of queries.
 ///
