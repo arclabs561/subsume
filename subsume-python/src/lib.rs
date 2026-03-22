@@ -246,6 +246,10 @@ struct PyTrainingConfig {
     early_stopping_patience: Option<usize>,
     #[pyo3(get)]
     symmetric_loss: bool,
+    #[pyo3(get)]
+    self_adversarial: bool,
+    #[pyo3(get)]
+    adversarial_temperature: f32,
 }
 
 #[pymethods]
@@ -266,8 +270,10 @@ impl PyTrainingConfig {
     ///     warmup_epochs: LR warmup epochs (default: 10).
     ///     early_stopping_patience: Stop after N epochs without improvement (default: 10, None to disable).
     ///     symmetric_loss: Use symmetric min(P(A|B), P(B|A)) loss (default: False).
+    ///     self_adversarial: Weight negatives by softmax of model score (default: False).
+    ///     adversarial_temperature: Temperature for self-adversarial weighting (default: 1.0).
     #[new]
-    #[pyo3(signature = (dim, learning_rate=0.001, epochs=100, batch_size=512, margin=1.0, negative_samples=1, negative_weight=1.0, regularization=0.0001, gumbel_beta=10.0, gumbel_beta_final=50.0, warmup_epochs=10, early_stopping_patience=Some(10), symmetric_loss=false))]
+    #[pyo3(signature = (dim, learning_rate=0.001, epochs=100, batch_size=512, margin=1.0, negative_samples=1, negative_weight=1.0, regularization=0.0001, gumbel_beta=10.0, gumbel_beta_final=50.0, warmup_epochs=10, early_stopping_patience=Some(10), symmetric_loss=false, self_adversarial=false, adversarial_temperature=1.0))]
     fn new(
         dim: usize,
         learning_rate: f32,
@@ -282,6 +288,8 @@ impl PyTrainingConfig {
         warmup_epochs: usize,
         early_stopping_patience: Option<usize>,
         symmetric_loss: bool,
+        self_adversarial: bool,
+        adversarial_temperature: f32,
     ) -> PyResult<Self> {
         if dim == 0 {
             return Err(pyo3::exceptions::PyValueError::new_err("dim must be > 0"));
@@ -314,6 +322,8 @@ impl PyTrainingConfig {
             warmup_epochs,
             early_stopping_patience,
             symmetric_loss,
+            self_adversarial,
+            adversarial_temperature,
             ..TrainingConfig::default()
         };
         Ok(Self {
@@ -331,12 +341,14 @@ impl PyTrainingConfig {
             warmup_epochs,
             early_stopping_patience,
             symmetric_loss,
+            self_adversarial,
+            adversarial_temperature,
         })
     }
 
     fn __repr__(&self) -> String {
         format!(
-            "TrainingConfig(dim={}, lr={}, epochs={}, batch_size={}, margin={}, neg_samples={}, neg_weight={}, reg={}, gumbel_beta={}, gumbel_beta_final={}, warmup={}, patience={:?}, symmetric={})",
+            "TrainingConfig(dim={}, lr={}, epochs={}, batch_size={}, margin={}, neg_samples={}, neg_weight={}, reg={}, gumbel_beta={}, gumbel_beta_final={}, warmup={}, patience={:?}, symmetric={}, self_adversarial={}, adv_temp={})",
             self.dim,
             self.learning_rate,
             self.epochs,
@@ -350,6 +362,8 @@ impl PyTrainingConfig {
             self.warmup_epochs,
             self.early_stopping_patience,
             self.symmetric_loss,
+            self.self_adversarial,
+            self.adversarial_temperature,
         )
     }
 }
@@ -1390,6 +1404,75 @@ fn el_intersection_loss(
     .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e}")))
 }
 
+/// Train EL++ box embeddings on normalized axioms.
+///
+/// Args:
+///     axiom_path: Path to TSV file with normalized EL++ axioms
+///     dim: Embedding dimension (default 30)
+///     epochs: Training epochs (default 200)
+///     learning_rate: Learning rate (default 0.005)
+///     margin: Inclusion margin (default 0.1)
+///     negative_samples: Negatives per axiom (default 2)
+///     log_interval: Print every N epochs, 0 = silent (default 0)
+///
+/// Returns dict with:
+///     concept_names: list of concept names
+///     role_names: list of role names
+///     concept_centers: 2D numpy array (num_concepts x dim)
+///     concept_offsets: 2D numpy array (num_concepts x dim)
+///     role_centers: 2D numpy array (num_roles x dim)
+///     role_offsets: 2D numpy array (num_roles x dim)
+///     epoch_losses: list of per-epoch losses
+#[pyfunction]
+#[pyo3(signature = (axiom_path, dim = 30, epochs = 200, learning_rate = 0.005, margin = 0.1, negative_samples = 2, log_interval = 0))]
+fn train_el_embeddings(
+    py: Python<'_>,
+    axiom_path: &str,
+    dim: usize,
+    epochs: usize,
+    learning_rate: f32,
+    margin: f32,
+    negative_samples: usize,
+    log_interval: usize,
+) -> PyResult<PyObject> {
+    let dataset = subsume::el_dataset::load_el_axioms(axiom_path)
+        .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("{e}")))?;
+
+    let ontology = subsume::el_training::Ontology::from_el_dataset(&dataset);
+
+    let config = subsume::el_training::ElTrainingConfig {
+        dim,
+        epochs,
+        learning_rate,
+        margin,
+        negative_samples,
+        log_interval,
+        ..Default::default()
+    };
+
+    let result = subsume::el_training::train_el_embeddings(&ontology, &config);
+
+    let dict = pyo3::types::PyDict::new(py);
+
+    dict.set_item("concept_names", ontology.concept_names.clone())?;
+    dict.set_item("role_names", ontology.role_names.clone())?;
+
+    let nc = result.concept_centers.len();
+    let nr = result.role_centers.len();
+
+    // Return embeddings as nested lists (caller can convert to numpy).
+    dict.set_item("concept_centers", &result.concept_centers)?;
+    dict.set_item("concept_offsets", &result.concept_offsets)?;
+    dict.set_item("role_centers", &result.role_centers)?;
+    dict.set_item("role_offsets", &result.role_offsets)?;
+
+    dict.set_item("epoch_losses", result.epoch_losses)?;
+    dict.set_item("num_concepts", nc)?;
+    dict.set_item("num_roles", nr)?;
+
+    Ok(dict.into())
+}
+
 /// Geometric region embeddings for knowledge graph subsumption.
 ///
 /// Python bindings for the ``subsume`` Rust crate.
@@ -1430,5 +1513,6 @@ fn subsumer(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(load_el_axioms, m)?)?;
     m.add_function(wrap_pyfunction!(el_inclusion_loss, m)?)?;
     m.add_function(wrap_pyfunction!(el_intersection_loss, m)?)?;
+    m.add_function(wrap_pyfunction!(train_el_embeddings, m)?)?;
     Ok(())
 }
