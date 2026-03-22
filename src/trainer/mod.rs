@@ -300,6 +300,22 @@ pub struct TrainingConfig {
     /// Default: `false` (directed loss).
     #[serde(default)]
     pub symmetric_loss: bool,
+
+    /// Use Bernoulli negative sampling (Wang et al., 2014).
+    ///
+    /// When enabled, the probability of corrupting head vs tail is adjusted
+    /// per relation based on cardinality statistics computed from training data:
+    /// - `P(corrupt_head) = tph / (tph + hpt)` where `tph` = avg tails per head,
+    ///   `hpt` = avg heads per tail.
+    /// - For 1-to-N relations (many tails per head), this increases the probability
+    ///   of corrupting the head, producing harder negatives.
+    ///
+    /// Only affects sampling when `negative_strategy` is `Uniform`.
+    /// Ignored for `CorruptHead`, `CorruptTail`, and `CorruptBoth`.
+    ///
+    /// Default: `false` (uniform 50/50 head/tail corruption).
+    #[serde(default)]
+    pub bernoulli_sampling: bool,
 }
 
 impl Default for TrainingConfig {
@@ -322,6 +338,7 @@ impl Default for TrainingConfig {
             adversarial_temperature: 1.0,
             use_infonce: false,
             symmetric_loss: false,
+            bernoulli_sampling: false,
         }
     }
 }
@@ -428,6 +445,7 @@ pub use negative_sampling::{
     generate_negative_samples, generate_negative_samples_from_sorted_pool_with_rng,
     generate_negative_samples_with_rng, SortedEntityPool,
 };
+pub use negative_sampling::{compute_relation_cardinalities, RelationCardinality};
 
 // Evaluation
 pub use evaluation::{
