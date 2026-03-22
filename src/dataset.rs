@@ -194,6 +194,65 @@ impl Dataset {
         Self { train, valid, test }
     }
 
+    /// Create a dataset from a flat list of triples, splitting into train/valid/test.
+    ///
+    /// Shuffles the triples deterministically using the given seed, then splits
+    /// by the given ratios. Ratios are normalized to sum to 1.0.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use subsume::dataset::{Dataset, Triple};
+    ///
+    /// let triples = vec![
+    ///     Triple::new("Dog", "is_a", "Animal"),
+    ///     Triple::new("Cat", "is_a", "Animal"),
+    ///     Triple::new("Bird", "is_a", "Animal"),
+    ///     Triple::new("Fish", "is_a", "Animal"),
+    ///     Triple::new("Dog", "has", "Tail"),
+    /// ];
+    /// let ds = Dataset::from_all_triples(triples, 0.8, 0.1, 0.1, 42);
+    /// assert_eq!(ds.train.len() + ds.valid.len() + ds.test.len(), 5);
+    /// ```
+    pub fn from_all_triples(
+        mut triples: Vec<Triple>,
+        train_ratio: f64,
+        valid_ratio: f64,
+        test_ratio: f64,
+        seed: u64,
+    ) -> Self {
+        // Deterministic shuffle using a simple LCG.
+        let n = triples.len();
+        if n == 0 {
+            return Self::new(Vec::new(), Vec::new(), Vec::new());
+        }
+
+        let mut rng = seed;
+        let lcg = |s: &mut u64| -> usize {
+            *s = s
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (*s >> 33) as usize
+        };
+
+        // Fisher-Yates shuffle.
+        for i in (1..n).rev() {
+            let j = lcg(&mut rng) % (i + 1);
+            triples.swap(i, j);
+        }
+
+        // Normalize ratios.
+        let total = train_ratio + valid_ratio + test_ratio;
+        let train_end = ((train_ratio / total) * n as f64).round() as usize;
+        let valid_end = train_end + ((valid_ratio / total) * n as f64).round() as usize;
+
+        let test = triples.split_off(valid_end.min(n));
+        let valid = triples.split_off(train_end.min(triples.len()));
+        let train = triples;
+
+        Self::new(train, valid, test)
+    }
+
     /// Get all unique entities from the dataset.
     pub fn entities(&self) -> std::collections::HashSet<String> {
         let mut entities = std::collections::HashSet::new();
