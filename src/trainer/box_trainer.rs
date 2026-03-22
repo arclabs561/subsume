@@ -3,6 +3,11 @@ use crate::trainable::TrainableBox;
 use crate::BoxError;
 use std::collections::{HashMap, HashSet};
 
+#[cfg(feature = "rand")]
+use rand::seq::SliceRandom;
+#[cfg(feature = "rand")]
+use rand::{Rng, SeedableRng};
+
 #[cfg(feature = "ndarray-backend")]
 use super::{EvaluationResults, TrainingResult};
 use super::{NegativeSamplingStrategy, RelationTransform, TrainingConfig};
@@ -401,6 +406,13 @@ pub struct BoxEmbeddingTrainer {
     /// Current Gumbel beta, annealed from `config.gumbel_beta` to
     /// `config.gumbel_beta_final` across epochs in `fit()`.
     pub current_beta: f32,
+    /// Learned per-relation translation vectors (relation_id -> Vec<f32> of length `dim`).
+    /// Applied to head box before containment scoring. Initialized to zeros.
+    #[serde(default)]
+    pub relation_translations: HashMap<usize, Vec<f32>>,
+    /// AMSGrad optimizer state for per-relation translation vectors.
+    #[serde(default)]
+    pub relation_optimizer_states: HashMap<usize, AMSGradState>,
 }
 
 impl BoxEmbeddingTrainer {
@@ -419,6 +431,8 @@ impl BoxEmbeddingTrainer {
             dim,
             relation_transforms: HashMap::new(),
             current_beta,
+            relation_translations: HashMap::new(),
+            relation_optimizer_states: HashMap::new(),
         }
     }
 
@@ -448,6 +462,218 @@ impl BoxEmbeddingTrainer {
             .get(&id)
             .cloned()
             .expect("ensure_entity guarantees key exists")
+    }
+
+    /// Ensure a relation translation vector exists; initialize to zeros if missing.
+    fn ensure_relation(&mut self, rel_id: usize) {
+        if !self.relation_translations.contains_key(&rel_id) {
+            self.relation_translations
+                .insert(rel_id, vec![0.0f32; self.dim]);
+            self.relation_optimizer_states.insert(
+                rel_id,
+                AMSGradState::new(self.dim, self.config.learning_rate),
+            );
+        }
+    }
+
+    /// Get all known entity IDs (for full-pool negative sampling).
+    fn all_entity_ids(&self) -> Vec<usize> {
+        self.boxes.keys().copied().collect()
+    }
+
+    /// Train one mini-batch with gradient accumulation.
+    ///
+    /// Unlike `train_step` (which applies updates per-triple), this method
+    /// accumulates gradients across all triples in the batch and applies
+    /// a single averaged update per entity. This produces more stable
+    /// learning dynamics.
+    ///
+    /// When `rng` is provided, negatives are sampled randomly from the
+    /// full entity pool. Otherwise falls back to deterministic hash-based sampling.
+    #[cfg(feature = "rand")]
+    fn train_step_minibatch(
+        &mut self,
+        triples: &[(usize, usize, usize)],
+        all_entities: &[usize],
+        rng: &mut impl Rng,
+    ) -> Result<f32, BoxError> {
+        if triples.is_empty() {
+            return Ok(0.0);
+        }
+
+        let mut step_config = self.config.clone();
+        step_config.gumbel_beta = self.current_beta;
+
+        let n_neg = step_config.negative_samples.max(1);
+        let mut total_loss = 0.0f32;
+        let mut n_pairs = 0usize;
+
+        // Gradient accumulators: entity_id -> (grad_mu_sum, grad_delta_sum, count)
+        let mut grad_accum: HashMap<usize, (Vec<f32>, Vec<f32>, usize)> = HashMap::new();
+        // Relation translation gradient accumulators: rel_id -> (grad_sum, count)
+        let mut rel_grad_accum: HashMap<usize, (Vec<f32>, usize)> = HashMap::new();
+
+        // Ensure all entities and relations exist before the batch.
+        for &(h, r, t) in triples {
+            self.ensure_entity(h);
+            self.ensure_entity(t);
+            self.ensure_relation(r);
+        }
+
+        for &(h, r, t) in triples {
+            let box_h = self.boxes.get(&h).cloned().unwrap();
+            let box_t = self.boxes.get(&t).cloned().unwrap();
+
+            // Apply learned relation translation to head.
+            let translation = self.relation_translations.get(&r).cloned();
+            let box_h_translated = if let Some(ref trans) = translation {
+                let dense = box_h.to_box();
+                let new_min: Vec<f32> = dense.min.iter().zip(trans).map(|(m, t)| m + t).collect();
+                let new_max: Vec<f32> = dense.max.iter().zip(trans).map(|(m, t)| m + t).collect();
+                let mu: Vec<f32> = new_min
+                    .iter()
+                    .zip(&new_max)
+                    .map(|(lo, hi)| (lo + hi) / 2.0)
+                    .collect();
+                let delta: Vec<f32> = new_min
+                    .iter()
+                    .zip(&new_max)
+                    .map(|(lo, hi)| ((hi - lo).max(1e-6)).ln())
+                    .collect();
+                TrainableBox::new(mu, delta).unwrap_or_else(|_| box_h.clone())
+            } else {
+                box_h.clone()
+            };
+
+            // Positive loss.
+            let pos_loss = compute_pair_loss(&box_h_translated, &box_t, true, &step_config);
+            total_loss += pos_loss;
+            n_pairs += 1;
+
+            // Positive gradients (w.r.t. untranslated head params -- translation is additive).
+            let (grad_mu_h, grad_delta_h, grad_mu_t, grad_delta_t) =
+                compute_analytical_gradients(&box_h_translated, &box_t, true, &step_config);
+
+            // Accumulate head gradients.
+            let entry = grad_accum
+                .entry(h)
+                .or_insert_with(|| (vec![0.0; self.dim], vec![0.0; self.dim], 0));
+            for (acc, g) in entry.0.iter_mut().zip(&grad_mu_h) {
+                *acc += g;
+            }
+            for (acc, g) in entry.1.iter_mut().zip(&grad_delta_h) {
+                *acc += g;
+            }
+            entry.2 += 1;
+
+            // Accumulate tail gradients.
+            let entry = grad_accum
+                .entry(t)
+                .or_insert_with(|| (vec![0.0; self.dim], vec![0.0; self.dim], 0));
+            for (acc, g) in entry.0.iter_mut().zip(&grad_mu_t) {
+                *acc += g;
+            }
+            for (acc, g) in entry.1.iter_mut().zip(&grad_delta_t) {
+                *acc += g;
+            }
+            entry.2 += 1;
+
+            // Accumulate relation translation gradients.
+            // d_loss/d_translation[i] = d_loss/d_min_h[i] + d_loss/d_max_h[i]
+            // Since min = mu - exp(delta)/2 and max = mu + exp(delta)/2,
+            // d_loss/d_min = d_loss/d_mu * d_mu/d_min + d_loss/d_delta * d_delta/d_min
+            // But for translation: translated_min = min + t, so d_loss/d_t = d_loss/d_translated_min
+            // The gradient w.r.t. translation is the same as w.r.t. the mu of the head (since translation shifts mu).
+            let rel_entry = rel_grad_accum
+                .entry(r)
+                .or_insert_with(|| (vec![0.0; self.dim], 0));
+            for (acc, g) in rel_entry.0.iter_mut().zip(&grad_mu_h) {
+                *acc += g;
+            }
+            rel_entry.1 += 1;
+
+            // Negative samples: random from full entity pool.
+            for _ in 0..n_neg {
+                let neg_t = loop {
+                    let candidate = all_entities[rng.random_range(0..all_entities.len())];
+                    if candidate != t {
+                        break candidate;
+                    }
+                };
+                self.ensure_entity(neg_t);
+                let box_neg_t = self.boxes.get(&neg_t).cloned().unwrap();
+
+                let neg_loss =
+                    compute_pair_loss(&box_h_translated, &box_neg_t, false, &step_config);
+                total_loss += neg_loss;
+                n_pairs += 1;
+
+                let (gmh, gdh, gmt, gdt) = compute_analytical_gradients(
+                    &box_h_translated,
+                    &box_neg_t,
+                    false,
+                    &step_config,
+                );
+
+                // Self-adversarial weighting.
+                let adv_temp = step_config.adversarial_temperature;
+                let neg_as_pos =
+                    compute_pair_loss(&box_h_translated, &box_neg_t, true, &step_config);
+                let adv_weight = (-neg_as_pos / adv_temp).exp().min(10.0);
+
+                let entry = grad_accum
+                    .entry(h)
+                    .or_insert_with(|| (vec![0.0; self.dim], vec![0.0; self.dim], 0));
+                for (acc, g) in entry.0.iter_mut().zip(&gmh) {
+                    *acc += g * adv_weight;
+                }
+                for (acc, g) in entry.1.iter_mut().zip(&gdh) {
+                    *acc += g * adv_weight;
+                }
+                entry.2 += 1;
+
+                let entry = grad_accum
+                    .entry(neg_t)
+                    .or_insert_with(|| (vec![0.0; self.dim], vec![0.0; self.dim], 0));
+                for (acc, g) in entry.0.iter_mut().zip(&gmt) {
+                    *acc += g * adv_weight;
+                }
+                for (acc, g) in entry.1.iter_mut().zip(&gdt) {
+                    *acc += g * adv_weight;
+                }
+                entry.2 += 1;
+            }
+        }
+
+        // Apply accumulated gradients (averaged per entity).
+        for (entity_id, (grad_mu_sum, grad_delta_sum, count)) in &grad_accum {
+            let scale = 1.0 / (*count as f32);
+            let avg_mu: Vec<f32> = grad_mu_sum.iter().map(|g| g * scale).collect();
+            let avg_delta: Vec<f32> = grad_delta_sum.iter().map(|g| g * scale).collect();
+            if let (Some(b), Some(s)) = (
+                self.boxes.get_mut(entity_id),
+                self.optimizer_states.get_mut(entity_id),
+            ) {
+                b.update_amsgrad(&avg_mu, &avg_delta, s);
+            }
+        }
+
+        // Apply accumulated relation translation gradients.
+        for (rel_id, (grad_sum, count)) in &rel_grad_accum {
+            let scale = 1.0 / (*count as f32);
+            if let (Some(trans), Some(state)) = (
+                self.relation_translations.get_mut(rel_id),
+                self.relation_optimizer_states.get_mut(rel_id),
+            ) {
+                // Simple SGD with learning rate from optimizer state.
+                let lr = state.lr;
+                for (t, g) in trans.iter_mut().zip(grad_sum) {
+                    *t -= lr * g * scale;
+                }
+            }
+        }
+
+        Ok(total_loss / n_pairs.max(1) as f32)
     }
 
     /// Run one training epoch over the given triples.
@@ -799,15 +1025,23 @@ impl BoxEmbeddingTrainer {
             entity_vec.push(nb);
         }
 
-        // Use transform-aware eval if any non-identity transforms exist.
-        let has_transforms = !self.relation_transforms.is_empty()
-            && self.relation_transforms.values().any(|t| !t.is_identity());
+        // Build transforms from learned translations + explicit transforms.
+        let mut combined_transforms: HashMap<usize, RelationTransform> =
+            self.relation_transforms.clone();
+        for (&rel_id, trans) in &self.relation_translations {
+            // Only add if not already an explicit transform and translation is non-zero.
+            if !combined_transforms.contains_key(&rel_id) && trans.iter().any(|&v| v.abs() > 1e-8) {
+                combined_transforms.insert(rel_id, RelationTransform::Translation(trans.clone()));
+            }
+        }
+
+        let has_transforms = !combined_transforms.is_empty()
+            && combined_transforms.values().any(|t| !t.is_identity());
 
         if has_transforms {
-            // Build a dense relation transform vector.
-            let max_rel = self.relation_transforms.keys().copied().max().unwrap_or(0);
+            let max_rel = combined_transforms.keys().copied().max().unwrap_or(0);
             let mut transforms = vec![RelationTransform::Identity; max_rel + 1];
-            for (&rel_id, t) in &self.relation_transforms {
+            for (&rel_id, t) in &combined_transforms {
                 transforms[rel_id] = t.clone();
             }
             evaluate_interned_with_transforms_inner(
@@ -855,10 +1089,25 @@ impl BoxEmbeddingTrainer {
         let mut best_epoch = 0;
         let mut epochs_without_improvement = 0usize;
 
+        // Pre-ensure all entities so all_entity_ids() is complete.
+        for &(h, _r, t) in train_triples {
+            self.ensure_entity(h);
+            self.ensure_entity(t);
+        }
+
+        // Shuffled copy of triples for mini-batch training.
+        #[cfg(feature = "rand")]
+        let mut shuffled_triples: Vec<(usize, usize, usize)> = train_triples.to_vec();
+        #[cfg(feature = "rand")]
+        let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+
         for epoch in 0..epochs {
             // Learning rate scheduling.
             let lr = crate::optimizer::get_learning_rate(epoch, epochs, base_lr, warmup);
             for state in self.optimizer_states.values_mut() {
+                state.set_lr(lr);
+            }
+            for state in self.relation_optimizer_states.values_mut() {
                 state.set_lr(lr);
             }
 
@@ -870,7 +1119,24 @@ impl BoxEmbeddingTrainer {
             };
             self.current_beta = beta_start + (beta_end - beta_start) * progress;
 
+            // Mini-batch training with shuffling and gradient accumulation.
+            #[cfg(feature = "rand")]
+            let loss = {
+                shuffled_triples.shuffle(&mut rng);
+                let all_entities = self.all_entity_ids();
+                let batch_size = self.config.batch_size.max(1);
+                let mut epoch_loss = 0.0f32;
+                let mut n_batches = 0usize;
+                for chunk in shuffled_triples.chunks(batch_size) {
+                    let batch_loss = self.train_step_minibatch(chunk, &all_entities, &mut rng)?;
+                    epoch_loss += batch_loss;
+                    n_batches += 1;
+                }
+                epoch_loss / n_batches.max(1) as f32
+            };
+            #[cfg(not(feature = "rand"))]
             let loss = self.train_step(train_triples)?;
+
             loss_history.push(loss);
 
             // Validation.

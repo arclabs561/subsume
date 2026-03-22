@@ -76,7 +76,7 @@
 //! - [`dataset`] -- load WN18RR, FB15k-237, YAGO3-10, and similar KG datasets
 //! - [`trainable`] -- [`trainable::TrainableBox`] and [`trainable::TrainableCone`] with learnable parameters
 //! - [`trainer`] -- negative sampling, loss computation, link prediction evaluation
-//! - [`metrics`] -- rank-based metrics (MRR, Hits@k, Mean Rank, nDCG)
+//! - [`metrics`] -- rank-based metrics (MRR, Hits@k, Mean Rank)
 //! - [`optimizer`] -- AMSGrad state management
 //! - [`utils`] -- numerical stability (log-space volume, stable sigmoid, Gumbel operations)
 //!
@@ -162,6 +162,8 @@ pub mod hyperbolic;
 pub mod optimizer;
 
 /// Sheaf neural networks: algebraic consistency enforcement on graphs.
+#[cfg(feature = "sheaf")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sheaf")))]
 pub mod sheaf;
 
 /// Learnable box and cone representations with gradient-compatible parameters.
@@ -170,7 +172,7 @@ pub mod trainable;
 /// Training loop utilities: negative sampling, loss kernels, link prediction evaluation.
 pub mod trainer;
 
-/// Rank-based evaluation metrics (MRR, Hits@k, Mean Rank, nDCG).
+/// Rank-based evaluation metrics (MRR, Hits@k, Mean Rank).
 pub mod metrics;
 
 /// Numerical stability: log-space volume, stable sigmoid, Gumbel operations.
@@ -235,6 +237,8 @@ pub use hyperbolic::{
     hierarchy_preserved, pairwise_distances, Curvature, HyperbolicError, PoincareBallPoint,
 };
 pub use octagon::OctagonError;
+#[cfg(feature = "sheaf")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sheaf")))]
 pub use sheaf::SheafError;
 
 // Re-exports: data loading
@@ -252,7 +256,7 @@ pub use trainer::{
 pub use ndarray;
 
 // Re-exports: evaluation metrics
-pub use metrics::{hits_at_k, mean_rank, mean_reciprocal_rank, ndcg};
+pub use metrics::{hits_at_k, mean_rank, mean_reciprocal_rank};
 
 // Re-exports: Gaussian boxes
 pub use gaussian::GaussianBox;
@@ -272,7 +276,7 @@ pub use cone_el::{
 // Re-exports: cone query operators
 #[cfg(feature = "ndarray-backend")]
 #[cfg_attr(docsrs, doc(cfg(feature = "ndarray-backend")))]
-pub use cone_query::{cone_containment_score, ConeQuery, NeuralIntersection, NeuralProjection};
+pub use cone_query::{cone_containment_score, ConeQuery};
 
 // ---------------------------------------------------------------------------
 // Feature-gated backends

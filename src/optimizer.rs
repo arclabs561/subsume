@@ -51,30 +51,6 @@ impl AMSGradState {
     pub fn set_lr(&mut self, lr: f32) {
         self.lr = lr;
     }
-
-    /// First moment estimates (read-only).
-    #[must_use]
-    pub fn m(&self) -> &[f32] {
-        &self.m
-    }
-
-    /// Second moment estimates (read-only).
-    #[must_use]
-    pub fn v(&self) -> &[f32] {
-        &self.v
-    }
-
-    /// Max second moment estimates (read-only).
-    #[must_use]
-    pub fn v_hat(&self) -> &[f32] {
-        &self.v_hat
-    }
-
-    /// Iteration counter (read-only).
-    #[must_use]
-    pub fn t(&self) -> usize {
-        self.t
-    }
 }
 
 /// Get learning rate with warmup and cosine decay.
