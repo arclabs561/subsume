@@ -189,6 +189,9 @@ pub mod gaussian;
 /// EL++ ontology embedding primitives (Box2EL / TransBox).
 pub mod el;
 
+/// EL++ normalized axiom dataset loader (GALEN, GO, Anatomy formats).
+pub mod el_dataset;
+
 /// EL++ ontology embedding primitives for cones (angular containment).
 pub mod cone_el;
 
@@ -251,8 +254,9 @@ pub use dataset::{Dataset, DatasetError, Triple};
 
 // Re-exports: training
 pub use trainer::{
-    evaluate_link_prediction, BoxEmbeddingTrainer, ConeEmbeddingTrainer, EvaluationResults,
-    RelationTransform, TrainingConfig, TrainingResult,
+    compute_relation_cardinalities, evaluate_link_prediction, BoxEmbeddingTrainer,
+    ConeEmbeddingTrainer, EvaluationResults, RelationCardinality, RelationTransform,
+    TrainingConfig, TrainingResult,
 };
 
 // Re-export: ndarray (public dependency -- appears in NdarrayBox/NdarrayGumbelBox/NdarrayCone API)

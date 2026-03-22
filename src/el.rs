@@ -183,6 +183,125 @@ pub fn existential_box(
     Ok(())
 }
 
+/// Compute NF1 intersection loss: `C1 ⊓ C2 ⊑ D`.
+///
+/// The intersection of boxes C1 and C2 should be contained in box D.
+/// Box intersection is computed element-wise: `max(min)` for lower bounds,
+/// `min(max)` for upper bounds (using center/offset representation).
+///
+/// If C1 and C2 don't overlap (empty intersection), the loss is zero
+/// because the empty set is trivially a subset of anything.
+///
+/// # Arguments
+///
+/// * `center_c1`, `offset_c1` - First conjunct box (center/offset)
+/// * `center_c2`, `offset_c2` - Second conjunct box (center/offset)
+/// * `center_d`, `offset_d` - Target box that should contain the intersection
+/// * `margin` - Margin for containment
+///
+/// # Errors
+///
+/// Returns [`BoxError::DimensionMismatch`] if vectors differ in length.
+pub fn el_intersection_loss(
+    center_c1: &[f32],
+    offset_c1: &[f32],
+    center_c2: &[f32],
+    offset_c2: &[f32],
+    center_d: &[f32],
+    offset_d: &[f32],
+    margin: f32,
+) -> Result<f32, BoxError> {
+    let dim = center_c1.len();
+    if offset_c1.len() != dim
+        || center_c2.len() != dim
+        || offset_c2.len() != dim
+        || center_d.len() != dim
+        || offset_d.len() != dim
+    {
+        return Err(BoxError::DimensionMismatch {
+            expected: dim,
+            actual: offset_c1
+                .len()
+                .max(center_c2.len())
+                .max(offset_c2.len())
+                .max(center_d.len())
+                .max(offset_d.len()),
+        });
+    }
+
+    // Compute intersection of C1 and C2 in center/offset form.
+    // min/max of C1: [center - offset, center + offset]
+    // Intersection lower = max(lower_c1, lower_c2), upper = min(upper_c1, upper_c2)
+    let mut inter_center = vec![0.0f32; dim];
+    let mut inter_offset = vec![0.0f32; dim];
+    let mut empty = false;
+
+    for i in 0..dim {
+        let lo_c1 = center_c1[i] - offset_c1[i];
+        let hi_c1 = center_c1[i] + offset_c1[i];
+        let lo_c2 = center_c2[i] - offset_c2[i];
+        let hi_c2 = center_c2[i] + offset_c2[i];
+
+        let lo = lo_c1.max(lo_c2);
+        let hi = hi_c1.min(hi_c2);
+
+        if lo > hi {
+            empty = true;
+            break;
+        }
+
+        inter_center[i] = (lo + hi) / 2.0;
+        inter_offset[i] = (hi - lo) / 2.0;
+    }
+
+    // Empty intersection is trivially contained in anything.
+    if empty {
+        return Ok(0.0);
+    }
+
+    el_inclusion_loss(&inter_center, &inter_offset, center_d, offset_d, margin)
+}
+
+/// Compute role inclusion loss: `r ⊑ s` (RI6).
+///
+/// The role box for r should be contained in the role box for s.
+/// This delegates to [`el_inclusion_loss`] on the role boxes.
+pub fn el_role_inclusion_loss(
+    center_r: &[f32],
+    offset_r: &[f32],
+    center_s: &[f32],
+    offset_s: &[f32],
+    margin: f32,
+) -> Result<f32, BoxError> {
+    el_inclusion_loss(center_r, offset_r, center_s, offset_s, margin)
+}
+
+/// Compute role chain loss: `r ∘ s ⊑ t` (RI7).
+///
+/// The composed role (r ∘ s) should be contained in role t.
+pub fn el_role_chain_loss(
+    center_r: &[f32],
+    offset_r: &[f32],
+    center_s: &[f32],
+    offset_s: &[f32],
+    center_t: &[f32],
+    offset_t: &[f32],
+    margin: f32,
+) -> Result<f32, BoxError> {
+    let dim = center_r.len();
+    let mut composed_center = vec![0.0f32; dim];
+    let mut composed_offset = vec![0.0f32; dim];
+    compose_roles(
+        center_r,
+        offset_r,
+        center_s,
+        offset_s,
+        &mut composed_center,
+        &mut composed_offset,
+    )?;
+    el_inclusion_loss(&composed_center, &composed_offset, center_t, offset_t, margin)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -613,5 +732,95 @@ mod tests {
                 );
             }
         }
+
+        // -- NF1 intersection tests --
+
+        #[test]
+        fn prop_intersection_loss_nonneg(
+            c1 in vec_f32(4),
+            o1 in vec_f32_nonneg(4),
+            c2 in vec_f32(4),
+            o2 in vec_f32_nonneg(4),
+            cd in vec_f32(4),
+            od in vec_f32_nonneg(4),
+        ) {
+            let loss = el_intersection_loss(&c1, &o1, &c2, &o2, &cd, &od, 0.0).unwrap();
+            prop_assert!(loss >= 0.0, "intersection loss must be >= 0, got {loss}");
+        }
+
+        #[test]
+        fn prop_intersection_loss_zero_when_d_is_universe(
+            c1 in vec_f32(4),
+            o1 in vec_f32_nonneg(4),
+            c2 in vec_f32(4),
+            o2 in vec_f32_nonneg(4),
+        ) {
+            // If D covers [-100, 100]^d, any intersection fits inside it.
+            let cd = vec![0.0f32; 4];
+            let od = vec![100.0f32; 4];
+            let loss = el_intersection_loss(&c1, &o1, &c2, &o2, &cd, &od, 0.0).unwrap();
+            prop_assert!(loss < 1e-4, "universal D should contain any intersection, got {loss}");
+        }
+
+        #[test]
+        fn prop_role_chain_loss_nonneg(
+            cr in vec_f32(3),
+            or_ in vec_f32_nonneg(3),
+            cs in vec_f32(3),
+            os in vec_f32_nonneg(3),
+            ct in vec_f32(3),
+            ot in vec_f32_nonneg(3),
+        ) {
+            let loss = el_role_chain_loss(&cr, &or_, &cs, &os, &ct, &ot, 0.0).unwrap();
+            prop_assert!(loss >= 0.0, "role chain loss must be >= 0, got {loss}");
+        }
+    }
+
+    #[test]
+    fn test_intersection_loss_overlapping() {
+        // C1: center=[0], offset=[2] => [-2, 2]
+        // C2: center=[1], offset=[2] => [-1, 3]
+        // Intersection: [-1, 2] => center=0.5, offset=1.5
+        // D: center=[0.5], offset=[2] => [-1.5, 2.5]
+        // Intersection fits inside D => loss = 0
+        let loss =
+            el_intersection_loss(&[0.0], &[2.0], &[1.0], &[2.0], &[0.5], &[2.0], 0.0).unwrap();
+        assert!(loss < 1e-6, "intersection inside D should have ~0 loss, got {loss}");
+    }
+
+    #[test]
+    fn test_intersection_loss_disjoint() {
+        // C1: center=[0], offset=[1] => [-1, 1]
+        // C2: center=[5], offset=[1] => [4, 6]
+        // Disjoint => empty intersection => loss = 0 trivially
+        let loss =
+            el_intersection_loss(&[0.0], &[1.0], &[5.0], &[1.0], &[0.0], &[0.1], 0.0).unwrap();
+        assert!(
+            loss < 1e-6,
+            "disjoint boxes have empty intersection => loss 0, got {loss}"
+        );
+    }
+
+    #[test]
+    fn test_intersection_loss_not_contained() {
+        // C1: center=[0], offset=[3] => [-3, 3]
+        // C2: center=[0], offset=[3] => [-3, 3]
+        // Intersection: [-3, 3] => center=0, offset=3
+        // D: center=[0], offset=[1] => [-1, 1]
+        // Intersection does NOT fit => loss > 0
+        let loss =
+            el_intersection_loss(&[0.0], &[3.0], &[0.0], &[3.0], &[0.0], &[1.0], 0.0).unwrap();
+        assert!(loss > 0.0, "intersection overflows D => loss > 0, got {loss}");
+    }
+
+    #[test]
+    fn test_role_chain_loss() {
+        // r: center=[1], offset=[0.5] => [0.5, 1.5]
+        // s: center=[0.5], offset=[0.3] => [0.2, 0.8]
+        // composed: center=[1.5], offset=[0.8] => [0.7, 2.3]
+        // t: center=[1.5], offset=[1.0] => [0.5, 2.5] -- contains composed
+        let loss =
+            el_role_chain_loss(&[1.0], &[0.5], &[0.5], &[0.3], &[1.5], &[1.0], 0.0).unwrap();
+        assert!(loss < 1e-6, "composed fits in t => loss 0, got {loss}");
     }
 }
