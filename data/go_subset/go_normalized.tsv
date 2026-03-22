@@ -1,0 +1,134 @@
+# Gene Ontology subset -- EL++ normalized axioms
+# Based on the three GO root classes and a selection of mid-level terms.
+# Format: one axiom per line, tab-separated, type-tagged.
+#
+# Concept naming follows GO convention (underscores for spaces).
+# Roles follow OBO relation ontology names.
+
+# ============================================================
+# NF2: C ⊑ D  (atomic subsumption)
+# ============================================================
+
+# Top-level structure
+NF2	biological_process	GO_root
+NF2	cellular_component	GO_root
+NF2	molecular_function	GO_root
+
+# Biological process hierarchy
+NF2	cellular_process	biological_process
+NF2	metabolic_process	biological_process
+NF2	developmental_process	biological_process
+NF2	signaling	biological_process
+NF2	response_to_stimulus	biological_process
+NF2	cell_cycle	cellular_process
+NF2	cell_division	cellular_process
+NF2	mitosis	cell_division
+NF2	cytokinesis	cell_division
+NF2	apoptosis	cellular_process
+NF2	DNA_repair	cellular_process
+NF2	DNA_replication	metabolic_process
+NF2	transcription	metabolic_process
+NF2	translation	metabolic_process
+NF2	protein_folding	metabolic_process
+NF2	cell_differentiation	developmental_process
+NF2	morphogenesis	developmental_process
+NF2	signal_transduction	signaling
+NF2	immune_response	response_to_stimulus
+
+# Molecular function hierarchy
+NF2	binding	molecular_function
+NF2	catalytic_activity	molecular_function
+NF2	transporter_activity	molecular_function
+NF2	protein_binding	binding
+NF2	DNA_binding	binding
+NF2	RNA_binding	binding
+NF2	kinase_activity	catalytic_activity
+NF2	phosphatase_activity	catalytic_activity
+NF2	helicase_activity	catalytic_activity
+NF2	ligase_activity	catalytic_activity
+NF2	ion_channel_activity	transporter_activity
+
+# Cellular component hierarchy
+NF2	cell	cellular_component
+NF2	membrane	cellular_component
+NF2	organelle	cellular_component
+NF2	nucleus	organelle
+NF2	mitochondrion	organelle
+NF2	endoplasmic_reticulum	organelle
+NF2	cytoplasm	cell
+NF2	plasma_membrane	membrane
+NF2	chromosome	organelle
+NF2	ribosome	organelle
+
+# ============================================================
+# NF1: C1 ⊓ C2 ⊑ D  (conjunction subsumption)
+# ============================================================
+
+# DNA_binding ⊓ catalytic_activity ⊑ helicase_activity
+NF1	DNA_binding	catalytic_activity	helicase_activity
+# protein_binding ⊓ kinase_activity ⊑ signal_transduction
+NF1	protein_binding	kinase_activity	signal_transduction
+# cell_cycle ⊓ apoptosis ⊑ cell_division
+NF1	cell_division	DNA_replication	mitosis
+
+# ============================================================
+# NF3: C ⊑ ∃r.D  (existential restriction)
+# ============================================================
+
+# mitosis ⊑ ∃part_of.cell_cycle
+NF3	mitosis	part_of	cell_cycle
+# cytokinesis ⊑ ∃part_of.cell_division
+NF3	cytokinesis	part_of	cell_division
+# DNA_repair ⊑ ∃has_part.DNA_binding
+NF3	DNA_repair	has_part	DNA_binding
+# transcription ⊑ ∃has_part.DNA_binding
+NF3	transcription	has_part	DNA_binding
+# translation ⊑ ∃has_part.RNA_binding
+NF3	translation	has_part	RNA_binding
+# signal_transduction ⊑ ∃regulates.cellular_process
+NF3	signal_transduction	regulates	cellular_process
+# immune_response ⊑ ∃regulates.apoptosis
+NF3	immune_response	regulates	apoptosis
+# kinase_activity ⊑ ∃regulates.signal_transduction
+NF3	kinase_activity	regulates	signal_transduction
+
+# ============================================================
+# NF4: ∃r.C ⊑ D  (inverse existential)
+# ============================================================
+
+# ∃has_part.chromosome ⊑ nucleus
+NF4	has_part	chromosome	nucleus
+# ∃regulates.apoptosis ⊑ signaling
+NF4	regulates	apoptosis	signaling
+# ∃has_part.ribosome ⊑ cytoplasm
+NF4	has_part	ribosome	cytoplasm
+
+# ============================================================
+# RI6: r ⊑ s  (role inclusion)
+# ============================================================
+
+# positively_regulates ⊑ regulates
+RI6	positively_regulates	regulates
+# negatively_regulates ⊑ regulates
+RI6	negatively_regulates	regulates
+# part_of ⊑ has_part  (not true in general, but included for demonstration)
+
+# ============================================================
+# RI7: r ∘ s ⊑ t  (role chain)
+# ============================================================
+
+# part_of ∘ part_of ⊑ part_of  (transitivity)
+RI7	part_of	part_of	part_of
+# regulates ∘ part_of ⊑ regulates
+RI7	regulates	part_of	regulates
+
+# ============================================================
+# DISJ: C ⊓ D ⊑ ⊥  (disjointness)
+# ============================================================
+
+DISJ	biological_process	molecular_function
+DISJ	biological_process	cellular_component
+DISJ	molecular_function	cellular_component
+DISJ	nucleus	mitochondrion
+DISJ	apoptosis	cell_division
+DISJ	kinase_activity	phosphatase_activity
