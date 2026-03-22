@@ -38,10 +38,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         dataset.test.len()
     );
 
-    let stats = dataset.stats();
     println!(
         "Entities: {}, Relations: {}",
-        stats.num_entities, stats.num_relations
+        dataset.entities().len(),
+        dataset.relations().len()
     );
 
     // Intern the dataset for efficient training.

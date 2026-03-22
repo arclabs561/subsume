@@ -425,9 +425,8 @@ pub struct TrainingResult {
 #[cfg(feature = "rand")]
 #[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
 pub use negative_sampling::{
-    generate_degree_weighted_negatives, generate_negative_samples,
-    generate_negative_samples_from_sorted_pool_with_rng, generate_negative_samples_with_rng,
-    generate_self_adversarial_negatives, SortedEntityPool,
+    generate_negative_samples, generate_negative_samples_from_sorted_pool_with_rng,
+    generate_negative_samples_with_rng, SortedEntityPool,
 };
 
 // Evaluation

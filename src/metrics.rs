@@ -133,60 +133,6 @@ where
     }
 }
 
-/// Compute Normalized Discounted Cumulative Gain (nDCG) for ranking.
-///
-/// nDCG measures ranking quality by considering both relevance and position.
-/// Higher positions contribute more to the score via logarithmic discounting.
-///
-/// # Parameters
-///
-/// - `relevance_scores`: Iterator of relevance scores for items in ranked order
-/// - `ideal_relevance`: Iterator of ideal relevance scores (sorted descending)
-///
-/// # Returns
-///
-/// nDCG value in \[0, 1\], where higher is better. Returns 0.0 when ideal DCG is zero.
-///
-/// # Example
-///
-/// ```rust
-/// use subsume::metrics::ndcg;
-///
-/// let ranked = vec![0.9, 0.5, 0.8, 0.2]; // Actual ranking
-/// let ideal = vec![0.9, 0.8, 0.5, 0.2];  // Ideal ranking
-/// let score = ndcg(ranked.iter().copied(), ideal.iter().copied());
-/// assert!(score > 0.9); // Good ranking quality
-/// ```
-pub fn ndcg<I, J>(relevance_scores: I, ideal_relevance: J) -> f32
-where
-    I: Iterator<Item = f32>,
-    J: Iterator<Item = f32>,
-{
-    let mut dcg = 0.0;
-    let mut idcg = 0.0;
-    let mut position = 1;
-
-    let mut relevance_iter = relevance_scores.peekable();
-    let mut ideal_iter = ideal_relevance.peekable();
-
-    while relevance_iter.peek().is_some() && ideal_iter.peek().is_some() {
-        let rel = relevance_iter.next().unwrap_or(0.0);
-        let ideal_rel = ideal_iter.next().unwrap_or(0.0);
-
-        // DCG: sum of (relevance / log2(position + 1))
-        dcg += rel / ((position + 1) as f32).log2();
-        idcg += ideal_rel / ((position + 1) as f32).log2();
-
-        position += 1;
-    }
-
-    if idcg > 0.0 {
-        dcg / idcg
-    } else {
-        0.0
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -211,14 +157,6 @@ mod tests {
         let ranks = [1, 3, 2, 5];
         let mr = mean_rank(ranks.iter().copied());
         assert_eq!(mr, 2.75);
-    }
-
-    #[test]
-    fn test_ndcg() {
-        let ranked = [0.9, 0.5, 0.8, 0.2];
-        let ideal = [0.9, 0.8, 0.5, 0.2];
-        let score = ndcg(ranked.iter().copied(), ideal.iter().copied());
-        assert!(score > 0.9);
     }
 
     #[test]
@@ -298,45 +236,5 @@ mod tests {
     fn test_hits_at_1() {
         let h = hits_at_k([1, 2, 1, 3].iter().copied(), 1);
         assert_eq!(h, 0.5);
-    }
-
-    #[test]
-    fn test_ndcg_perfect_ranking() {
-        let ideal = [3.0, 2.0, 1.0, 0.0];
-        let score = ndcg(ideal.iter().copied(), ideal.iter().copied());
-        assert!((score - 1.0).abs() < 1e-6);
-    }
-
-    #[test]
-    fn test_ndcg_reversed_ranking() {
-        let ranked = [0.0, 1.0, 2.0, 3.0];
-        let ideal = [3.0, 2.0, 1.0, 0.0];
-        let score = ndcg(ranked.iter().copied(), ideal.iter().copied());
-        assert!(score < 1.0);
-        assert!(score > 0.0);
-    }
-
-    #[test]
-    fn test_ndcg_all_zero_relevance() {
-        let ranked = [0.0, 0.0, 0.0];
-        let ideal = [0.0, 0.0, 0.0];
-        let score = ndcg(ranked.iter().copied(), ideal.iter().copied());
-        assert_eq!(score, 0.0);
-    }
-
-    #[test]
-    fn test_ndcg_single_element() {
-        let score = ndcg([1.0].iter().copied(), [1.0].iter().copied());
-        assert!((score - 1.0).abs() < 1e-6);
-    }
-
-    #[test]
-    fn test_ndcg_exact_computation() {
-        // Two items: ranked [1.0, 3.0], ideal [3.0, 1.0]
-        // DCG  = 1.0/log2(2) + 3.0/log2(3) = 1.0 + 1.8928 = 2.8928
-        // iDCG = 3.0/log2(2) + 1.0/log2(3) = 3.0 + 0.6309 = 3.6309
-        // nDCG = 2.8928 / 3.6309 = 0.7967
-        let score = ndcg([1.0, 3.0].iter().copied(), [3.0, 1.0].iter().copied());
-        assert!((score - 0.7967).abs() < 0.01);
     }
 }

@@ -173,17 +173,6 @@ impl Dataset {
         relations
     }
 
-    /// Get statistics about the dataset.
-    pub fn stats(&self) -> DatasetStats {
-        DatasetStats {
-            num_entities: self.entities().len(),
-            num_relations: self.relations().len(),
-            num_train: self.train.len(),
-            num_valid: self.valid.len(),
-            num_test: self.test.len(),
-        }
-    }
-
     /// Convert this dataset into an interned representation (consumes `self`).
     ///
     /// This is the recommended form for high-performance training/evaluation loops.
@@ -214,21 +203,6 @@ impl Dataset {
             relations,
         }
     }
-}
-
-/// Dataset statistics.
-#[derive(Debug, Clone)]
-pub struct DatasetStats {
-    /// Number of unique entities
-    pub num_entities: usize,
-    /// Number of unique relations
-    pub num_relations: usize,
-    /// Number of training triples
-    pub num_train: usize,
-    /// Number of validation triples
-    pub num_valid: usize,
-    /// Number of test triples
-    pub num_test: usize,
 }
 
 /// Loads a knowledge graph dataset from a specified directory.
@@ -445,32 +419,5 @@ mod tests {
         assert!(entities.contains("e1"));
         assert!(entities.contains("e2"));
         assert!(entities.contains("e3"));
-    }
-
-    #[test]
-    fn test_dataset_stats() {
-        let dataset = Dataset::new(
-            vec![Triple {
-                head: "e1".to_string(),
-                relation: "r1".to_string(),
-                tail: "e2".to_string(),
-            }],
-            vec![Triple {
-                head: "e2".to_string(),
-                relation: "r1".to_string(),
-                tail: "e3".to_string(),
-            }],
-            vec![Triple {
-                head: "e3".to_string(),
-                relation: "r1".to_string(),
-                tail: "e4".to_string(),
-            }],
-        );
-        let stats = dataset.stats();
-        assert_eq!(stats.num_train, 1);
-        assert_eq!(stats.num_valid, 1);
-        assert_eq!(stats.num_test, 1);
-        assert_eq!(stats.num_entities, 4);
-        assert_eq!(stats.num_relations, 1);
     }
 }

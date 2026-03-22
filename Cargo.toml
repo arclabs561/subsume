@@ -6,20 +6,26 @@ rust-version = "1.75"
 license = "MIT OR Apache-2.0"
 authors = ["Arc <attobop@gmail.com>"]
 description = "Geometric region embeddings (boxes, cones, octagons, Gaussians, hyperbolic intervals, sheaf networks) for subsumption, entailment, and logical query answering"
-keywords = ["embeddings", "box-embeddings", "geometric", "subsumption", "ontology"]
+keywords = [
+  "embeddings",
+  "box-embeddings",
+  "geometric",
+  "subsumption",
+  "ontology",
+]
 categories = ["science", "algorithms"]
 repository = "https://github.com/arclabs561/subsume"
 documentation = "https://docs.rs/subsume"
 readme = "README.md"
 publish = true
 include = [
-    "/src/**/*.rs",
-    "/examples/**/*.rs",
-    "/docs/katex-header.html",
-    "/Cargo.toml",
-    "/LICENSE-*",
-    "/README.md",
-    "/pretrained/*.json",
+  "/src/**/*.rs",
+  "/examples/**/*.rs",
+  "/docs/katex-header.html",
+  "/Cargo.toml",
+  "/LICENSE-*",
+  "/README.md",
+  "/pretrained/*.json",
 ]
 
 [dependencies]
@@ -39,6 +45,7 @@ ndarray-backend = ["dep:ndarray", "dep:serde_json", "rand"]
 candle-backend = ["dep:candle-core"]
 rand = ["dep:rand"]
 petgraph = ["dep:petgraph"]
+sheaf = []
 hyperbolic = ["dep:hyperball", "dep:skel", "dep:ndarray"]
 
 [dev-dependencies]

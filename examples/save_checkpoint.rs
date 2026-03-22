@@ -91,10 +91,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     write!(test_file, "{TEST_DATA}")?;
 
     let dataset = load_dataset(dir.path())?;
-    let stats = dataset.stats();
     println!(
         "Dataset: {} entities, {} relations, {} train / {} valid / {} test triples",
-        stats.num_entities, stats.num_relations, stats.num_train, stats.num_valid, stats.num_test
+        dataset.entities().len(),
+        dataset.relations().len(),
+        dataset.train.len(),
+        dataset.valid.len(),
+        dataset.test.len()
     );
 
     let interned = dataset.into_interned();

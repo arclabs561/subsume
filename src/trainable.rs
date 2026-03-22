@@ -44,9 +44,9 @@ impl DenseBox {
 #[derive(Debug, Clone, Serialize)]
 pub struct TrainableBox {
     /// Mean position in each dimension (d-dimensional vector).
-    pub mu: Vec<f32>,
+    pub(crate) mu: Vec<f32>,
     /// Log-width in each dimension (width = exp(delta)).
-    pub delta: Vec<f32>,
+    pub(crate) delta: Vec<f32>,
 }
 
 impl<'de> Deserialize<'de> for TrainableBox {
@@ -109,6 +109,18 @@ impl TrainableBox {
         let mu = vector.to_vec();
         let delta: Vec<f32> = vec![init_width.ln(); mu.len()];
         Self::new(mu, delta).expect("from_vector: mu and delta have same length by construction")
+    }
+
+    /// Mean position parameters (read-only).
+    #[must_use]
+    pub fn mu(&self) -> &[f32] {
+        &self.mu
+    }
+
+    /// Log-width parameters (read-only).
+    #[must_use]
+    pub fn delta(&self) -> &[f32] {
+        &self.delta
     }
 
     /// Embedding dimension.
@@ -302,14 +314,39 @@ impl DenseCone {
 ///   maps to `(0, pi)`
 ///
 /// This ensures all parameters receive gradients regardless of the current geometry.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct TrainableCone {
     /// Raw (unconstrained) per-dimension axis angles.
     /// Actual axes = tanh(raw_axes) * pi.
-    pub raw_axes: Vec<f32>,
+    pub(crate) raw_axes: Vec<f32>,
     /// Raw (unconstrained) per-dimension apertures.
     /// Actual apertures = tanh(2 * raw_apertures) * pi/2 + pi/2.
-    pub raw_apertures: Vec<f32>,
+    pub(crate) raw_apertures: Vec<f32>,
+}
+
+impl<'de> Deserialize<'de> for TrainableCone {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Raw {
+            raw_axes: Vec<f32>,
+            raw_apertures: Vec<f32>,
+        }
+        let raw = Raw::deserialize(deserializer)?;
+        if raw.raw_axes.len() != raw.raw_apertures.len() {
+            return Err(serde::de::Error::custom(format!(
+                "raw_axes (len {}) and raw_apertures (len {}) must have same length",
+                raw.raw_axes.len(),
+                raw.raw_apertures.len()
+            )));
+        }
+        Ok(Self {
+            raw_axes: raw.raw_axes,
+            raw_apertures: raw.raw_apertures,
+        })
+    }
 }
 
 impl TrainableCone {
@@ -358,6 +395,18 @@ impl TrainableCone {
         let raw_apertures = vec![raw_aper; vector.len()];
         Self::new(raw_axes, raw_apertures)
             .expect("from_vector: raw_axes and raw_apertures have same length by construction")
+    }
+
+    /// Raw axis parameters (read-only).
+    #[must_use]
+    pub fn raw_axes(&self) -> &[f32] {
+        &self.raw_axes
+    }
+
+    /// Raw aperture parameters (read-only).
+    #[must_use]
+    pub fn raw_apertures(&self) -> &[f32] {
+        &self.raw_apertures
     }
 
     /// Embedding dimension (number of angular sectors).
@@ -701,5 +750,13 @@ mod tests {
             ),
             "expected DimensionMismatch, got {result:?}"
         );
+    }
+
+    #[test]
+    #[cfg(feature = "ndarray-backend")]
+    fn trainable_cone_deserialize_rejects_length_mismatch() {
+        let json = r#"{"raw_axes":[1.0,2.0,3.0],"raw_apertures":[1.0]}"#;
+        let result: Result<TrainableCone, _> = serde_json::from_str(json);
+        assert!(result.is_err(), "should reject mismatched lengths");
     }
 }
