@@ -32,4 +32,4 @@ Documentation = "https://github.com/arclabs561/subsume/tree/main/subsume-python"
 Repository = "https://github.com/arclabs561/subsume"
 
 [tool.maturin]
-features = ["pyo3/extension-module"]
+features = ["pyo3/extension-module", "pyo3/abi3-py39"]
