@@ -4,7 +4,9 @@ use numpy::{IntoPyArray, PyArray1, PyArray2};
 use pyo3::prelude::*;
 use subsume::dataset::{Dataset, Triple};
 use subsume::ndarray_backend::{NdarrayBox, NdarrayCone, NdarrayGumbelBox};
-use subsume::trainer::{BoxEmbeddingTrainer, EvaluationResults, TrainingConfig, TrainingResult};
+use subsume::trainer::{
+    BoxEmbeddingTrainer, ConeEmbeddingTrainer, EvaluationResults, TrainingConfig, TrainingResult,
+};
 use subsume::Box as BoxTrait;
 
 /// Python wrapper around `subsume::ndarray_backend::NdarrayBox`.
@@ -657,6 +659,275 @@ impl PyBoxEmbeddingTrainer {
     }
 }
 
+/// Python wrapper around `subsume::trainer::ConeEmbeddingTrainer`.
+///
+/// Same triple convention as `BoxEmbeddingTrainer`: head **contains** tail.
+/// Each entity is a cone (axis angles + apertures) instead of a box.
+/// Cones are better suited for DAG/partial-order relationships.
+#[pyclass(name = "ConeEmbeddingTrainer")]
+struct PyConeEmbeddingTrainer {
+    inner: ConeEmbeddingTrainer,
+    /// Entity names by ID (populated by from_triples).
+    entity_names: Option<Vec<String>>,
+    /// Relation names by ID.
+    #[allow(dead_code)]
+    relation_names: Option<Vec<String>>,
+}
+
+#[pymethods]
+impl PyConeEmbeddingTrainer {
+    /// Create a new cone trainer with given learning rate and embedding dimension.
+    ///
+    /// For full configuration control, use ``from_config`` instead.
+    #[new]
+    fn new(learning_rate: f32, dim: usize) -> Self {
+        let config = TrainingConfig {
+            learning_rate,
+            ..TrainingConfig::default()
+        };
+        Self {
+            inner: ConeEmbeddingTrainer::new(config, dim, None),
+            entity_names: None,
+            relation_names: None,
+        }
+    }
+
+    /// Create a cone trainer from a TrainingConfig.
+    #[staticmethod]
+    fn from_config(config: &PyTrainingConfig) -> Self {
+        Self {
+            inner: ConeEmbeddingTrainer::new(config.inner.clone(), config.dim, None),
+            entity_names: None,
+            relation_names: None,
+        }
+    }
+
+    /// Create a cone trainer from string triples, handling interning automatically.
+    ///
+    /// Args:
+    ///     triples: List of (head, relation, tail) string triples.
+    ///     config: Training configuration (optional, uses defaults if None).
+    ///     reverse: If True, swap head and tail (use for "child hypernym parent" data).
+    ///
+    /// Returns:
+    ///     Tuple of (trainer, train_triple_ids) where train_triple_ids is a
+    ///     list of (head_id, relation_id, tail_id) tuples ready for train_step/fit.
+    #[staticmethod]
+    #[pyo3(signature = (triples, config=None, reverse=false))]
+    fn from_triples(
+        triples: Vec<(String, String, String)>,
+        config: Option<&PyTrainingConfig>,
+        reverse: bool,
+    ) -> PyResult<(Self, Vec<(usize, usize, usize)>)> {
+        let string_triples: Vec<Triple> = triples
+            .into_iter()
+            .map(|(h, r, t)| {
+                if reverse {
+                    Triple::new(t, r, h)
+                } else {
+                    Triple::new(h, r, t)
+                }
+            })
+            .collect();
+
+        let dataset = Dataset::new(string_triples, vec![], vec![]);
+        let interned = dataset.into_interned();
+
+        let train_ids: Vec<(usize, usize, usize)> = interned
+            .train
+            .iter()
+            .map(|t| (t.head, t.relation, t.tail))
+            .collect();
+
+        let entity_names: Vec<String> = (0..interned.entities.len())
+            .map(|i| interned.entities.get(i).unwrap_or("?").to_string())
+            .collect();
+        let relation_names: Vec<String> = (0..interned.relations.len())
+            .map(|i| interned.relations.get(i).unwrap_or("?").to_string())
+            .collect();
+
+        let (cfg, dim) = if let Some(c) = config {
+            (c.inner.clone(), c.dim)
+        } else {
+            (TrainingConfig::default(), 16)
+        };
+
+        let trainer = Self {
+            inner: ConeEmbeddingTrainer::new(cfg, dim, None),
+            entity_names: Some(entity_names),
+            relation_names: Some(relation_names),
+        };
+
+        Ok((trainer, train_ids))
+    }
+
+    /// Run one training step over the given triples.
+    ///
+    /// Each triple is ``(head_id, relation_id, tail_id)`` where the head cone
+    /// should contain the tail cone. Returns the average loss.
+    fn train_step(&mut self, triples: Vec<(usize, usize, usize)>) -> PyResult<f32> {
+        self.inner
+            .train_step_batch(&triples)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+    }
+
+    /// Train for multiple epochs with optional validation and early stopping.
+    ///
+    /// Args:
+    ///     train_triples: List of (head_id, relation_id, tail_id) tuples.
+    ///     val_triples: Optional validation triples for MRR tracking.
+    ///     num_entities: Total entity count (required if val_triples provided).
+    ///
+    /// Returns:
+    ///     Dict with keys: mrr, hits_at_1, hits_at_3, hits_at_10, mean_rank,
+    ///     loss_history, validation_mrr_history, best_epoch.
+    #[pyo3(signature = (train_triples, val_triples=None, num_entities=None))]
+    fn fit(
+        &mut self,
+        train_triples: Vec<(usize, usize, usize)>,
+        val_triples: Option<Vec<(usize, usize, usize)>>,
+        num_entities: Option<usize>,
+    ) -> PyResult<PyObject> {
+        use subsume::dataset::{TripleIds, Vocab};
+
+        let val_data = if let Some(vt) = &val_triples {
+            let val_triple_ids: Vec<TripleIds> = vt
+                .iter()
+                .map(|&(h, r, t)| TripleIds {
+                    head: h,
+                    relation: r,
+                    tail: t,
+                })
+                .collect();
+            let n = num_entities.unwrap_or_else(|| {
+                let max_id = train_triples
+                    .iter()
+                    .chain(vt.iter())
+                    .flat_map(|&(h, _, t)| [h, t])
+                    .max()
+                    .unwrap_or(0);
+                max_id + 1
+            });
+            let mut vocab = Vocab::default();
+            for i in 0..n {
+                vocab.intern(i.to_string());
+            }
+            Some((val_triple_ids, vocab))
+        } else {
+            None
+        };
+
+        let validation = val_data
+            .as_ref()
+            .map(|(triples, vocab)| (triples.as_slice(), vocab));
+
+        let result = self
+            .inner
+            .fit(&train_triples, validation, None)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+
+        training_result_to_dict(result)
+    }
+
+    /// Export all cone embeddings as ``(entity_ids, axes_2d, apertures_2d)``.
+    ///
+    /// ``axes_2d`` and ``apertures_2d`` are numpy arrays of shape ``(n_entities, dim)``.
+    #[allow(clippy::type_complexity)]
+    fn export_embeddings<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> PyResult<(Vec<usize>, Py<PyArray2<f32>>, Py<PyArray2<f32>>)> {
+        let (ids, axes_flat, apertures_flat) = self.inner.export_embeddings();
+        let n = ids.len();
+        let dim = self.inner.dim;
+
+        let axes_nd = ndarray::Array2::from_shape_vec((n, dim), axes_flat)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let apertures_nd = ndarray::Array2::from_shape_vec((n, dim), apertures_flat)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+        Ok((
+            ids,
+            axes_nd.into_pyarray(py).into(),
+            apertures_nd.into_pyarray(py).into(),
+        ))
+    }
+
+    /// Get entity name for an ID (if loaded via from_triples).
+    fn entity_name(&self, entity_id: usize) -> Option<String> {
+        self.entity_names
+            .as_ref()
+            .and_then(|names| names.get(entity_id).cloned())
+    }
+
+    /// Get all entity names (if loaded via from_triples).
+    #[getter]
+    fn get_entity_names(&self) -> Option<Vec<String>> {
+        self.entity_names.clone()
+    }
+
+    /// Serialize trainer state to JSON (includes entity/relation names).
+    fn save_checkpoint(&self) -> PyResult<String> {
+        let trainer_json = serde_json::to_value(&self.inner)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+
+        let mut checkpoint = serde_json::Map::new();
+        checkpoint.insert("trainer".into(), trainer_json);
+        if let Some(ref names) = self.entity_names {
+            checkpoint.insert(
+                "entity_names".into(),
+                serde_json::to_value(names)
+                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?,
+            );
+        }
+        if let Some(ref names) = self.relation_names {
+            checkpoint.insert(
+                "relation_names".into(),
+                serde_json::to_value(names)
+                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?,
+            );
+        }
+
+        serde_json::to_string(&checkpoint)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+    }
+
+    /// Deserialize trainer state from JSON.
+    ///
+    /// Accepts both the new envelope format (with entity_names) and the
+    /// legacy format (bare trainer JSON) for backward compatibility.
+    #[staticmethod]
+    fn load_checkpoint(json: &str) -> PyResult<Self> {
+        // Try new envelope format first.
+        if let Ok(map) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(json) {
+            if let Some(trainer_val) = map.get("trainer") {
+                let inner: ConeEmbeddingTrainer = serde_json::from_value(trainer_val.clone())
+                    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+                let entity_names: Option<Vec<String>> = map
+                    .get("entity_names")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok());
+                let relation_names: Option<Vec<String>> = map
+                    .get("relation_names")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok());
+                return Ok(Self {
+                    inner,
+                    entity_names,
+                    relation_names,
+                });
+            }
+        }
+
+        // Fall back to legacy bare-trainer format.
+        let inner: ConeEmbeddingTrainer = serde_json::from_str(json)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        Ok(Self {
+            inner,
+            entity_names: None,
+            relation_names: None,
+        })
+    }
+}
+
 /// Compute containment probability between two boxes specified by flat coordinate vectors.
 ///
 /// P(box_b inside box_a) using the given temperature.
@@ -682,6 +953,94 @@ fn containment_probability(
     .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
     a.containment_prob(&b)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+}
+
+/// Compute distance from a point (vector) to a box.
+///
+/// Returns 0.0 if the point is inside the box. Otherwise returns the
+/// Euclidean distance to the nearest point on the box boundary.
+#[pyfunction]
+fn vector_to_box_distance(
+    point: Vec<f32>,
+    min_bounds: Vec<f32>,
+    max_bounds: Vec<f32>,
+    temperature: f32,
+) -> PyResult<f32> {
+    let box_ = NdarrayBox::new(
+        ndarray::Array1::from(min_bounds),
+        ndarray::Array1::from(max_bounds),
+        temperature,
+    )
+    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    subsume::ndarray_backend::distance::vector_to_box_distance(
+        &ndarray::Array1::from(point),
+        &box_,
+    )
+    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+}
+
+/// Compute boundary distance between an outer and inner box.
+///
+/// Returns the minimum gap between the inner box and the outer box's
+/// boundary, or None if the inner box is not fully contained in the outer.
+#[pyfunction]
+fn boundary_distance(
+    outer_min: Vec<f32>,
+    outer_max: Vec<f32>,
+    inner_min: Vec<f32>,
+    inner_max: Vec<f32>,
+    temperature: f32,
+) -> PyResult<Option<f32>> {
+    let outer = NdarrayBox::new(
+        ndarray::Array1::from(outer_min),
+        ndarray::Array1::from(outer_max),
+        temperature,
+    )
+    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    let inner = NdarrayBox::new(
+        ndarray::Array1::from(inner_min),
+        ndarray::Array1::from(inner_max),
+        temperature,
+    )
+    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    subsume::ndarray_backend::distance::boundary_distance(&outer, &inner)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+}
+
+/// Compute fuzzy containment score between two cones.
+///
+/// Returns a score in [0, 1] using sigmoid: ``1 / (1 + exp(gamma * distance))``.
+/// Higher scores mean stronger containment of ``entity`` within ``query``.
+///
+/// Args:
+///     query_axes: Axis angles for the query cone.
+///     query_apertures: Apertures for the query cone.
+///     entity_axes: Axis angles for the entity cone.
+///     entity_apertures: Apertures for the entity cone.
+///     cen: Center weight for ConE distance (default: 0.02).
+///     gamma: Sigmoid steepness (default: 10.0).
+#[pyfunction]
+#[pyo3(signature = (query_axes, query_apertures, entity_axes, entity_apertures, cen=0.02, gamma=10.0))]
+fn cone_containment_score(
+    query_axes: Vec<f32>,
+    query_apertures: Vec<f32>,
+    entity_axes: Vec<f32>,
+    entity_apertures: Vec<f32>,
+    cen: f32,
+    gamma: f32,
+) -> PyResult<f32> {
+    let query = NdarrayCone::new(
+        ndarray::Array1::from(query_axes),
+        ndarray::Array1::from(query_apertures),
+    )
+    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    let entity = NdarrayCone::new(
+        ndarray::Array1::from(entity_axes),
+        ndarray::Array1::from(entity_apertures),
+    )
+    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    subsume::cone_query::cone_containment_score(&query, &entity, cen, gamma)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
 }
 
@@ -819,8 +1178,12 @@ fn subsumer(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyNdarrayGumbelBox>()?;
     m.add_class::<PyNdarrayCone>()?;
     m.add_class::<PyBoxEmbeddingTrainer>()?;
+    m.add_class::<PyConeEmbeddingTrainer>()?;
     m.add_class::<PyTrainingConfig>()?;
     m.add_function(wrap_pyfunction!(containment_probability, m)?)?;
+    m.add_function(wrap_pyfunction!(vector_to_box_distance, m)?)?;
+    m.add_function(wrap_pyfunction!(boundary_distance, m)?)?;
+    m.add_function(wrap_pyfunction!(cone_containment_score, m)?)?;
     m.add_function(wrap_pyfunction!(load_dataset, m)?)?;
     Ok(())
 }

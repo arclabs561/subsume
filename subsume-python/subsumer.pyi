@@ -73,25 +73,6 @@ class NdarrayBox:
         """
         ...
 
-    def temperature(self) -> float:
-        """Get the temperature parameter.
-
-        Returns:
-            Softplus temperature value.
-        """
-        ...
-
-    def membership_probability(self, point: List[float]) -> float:
-        """Compute the membership probability for a point.
-
-        Args:
-            point: Coordinates of the point (length must equal dim).
-
-        Returns:
-            Membership probability in [0.0, 1.0].
-        """
-        ...
-
 class NdarrayGumbelBox:
     """Gumbel box embedding with softplus-based intersection volumes."""
 
@@ -167,6 +148,17 @@ class NdarrayGumbelBox:
 
         Returns:
             Softplus temperature value.
+        """
+        ...
+
+    def membership_probability(self, point: List[float]) -> float:
+        """Compute the membership probability for a point.
+
+        Args:
+            point: Coordinates of the point (length must equal dim).
+
+        Returns:
+            Membership probability in [0.0, 1.0].
         """
         ...
 
