@@ -8,11 +8,28 @@ version = "0.7.3"
 requires-python = ">=3.9"
 dependencies = ["numpy>=1.20"]
 description = "Geometric region embeddings for knowledge graph subsumption (Python bindings for the subsume Rust crate)"
+license = "MIT OR Apache-2.0"
+authors = [{ name = "Arc", email = "attobop@gmail.com" }]
+readme = "README.md"
 classifiers = [
   "Programming Language :: Rust",
   "Programming Language :: Python :: Implementation :: CPython",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "License :: OSI Approved :: MIT License",
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
+
+[project.urls]
+Homepage = "https://github.com/arclabs561/subsume"
+Documentation = "https://github.com/arclabs561/subsume/tree/main/subsume-python"
+Repository = "https://github.com/arclabs561/subsume"
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
