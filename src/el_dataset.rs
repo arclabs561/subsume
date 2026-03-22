@@ -199,12 +199,12 @@ impl ElDataset {
 ///
 /// See [module docs](self) for the file format.
 pub fn load_el_axioms<P: AsRef<Path>>(path: P) -> Result<ElDataset, BoxError> {
-    let file = File::open(path.as_ref()).map_err(|e| BoxError::Internal(format!("IO error: {e}")))?;
+    let file = File::open(path.as_ref()).map_err(|e| BoxError::Io(format!("{e}")))?;
     let reader = io::BufReader::new(file);
     let mut dataset = ElDataset::default();
 
     for (line_num, line) in reader.lines().enumerate() {
-        let line = line.map_err(|e| BoxError::Internal(format!("IO error: {e}")))?;
+        let line = line.map_err(|e| BoxError::Io(format!("{e}")))?;
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
             continue;
