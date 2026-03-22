@@ -10,6 +10,7 @@ use rand::{Rng, SeedableRng};
 
 #[cfg(feature = "ndarray-backend")]
 use super::{EvaluationResults, TrainingResult};
+use super::negative_sampling::RelationCardinality;
 use super::{NegativeSamplingStrategy, RelationTransform, TrainingConfig};
 #[cfg(feature = "ndarray-backend")]
 use crate::trainer::evaluation::evaluate_interned_with_transforms_inner;
@@ -413,6 +414,10 @@ pub struct BoxEmbeddingTrainer {
     /// AMSGrad optimizer state for per-relation translation vectors.
     #[serde(default)]
     pub relation_optimizer_states: HashMap<usize, AMSGradState>,
+    /// Cached per-relation cardinality statistics for Bernoulli negative sampling.
+    /// Computed from training triples when `config.bernoulli_sampling` is true.
+    #[serde(skip)]
+    pub(crate) relation_cardinalities: HashMap<usize, RelationCardinality>,
 }
 
 impl BoxEmbeddingTrainer {
@@ -433,6 +438,7 @@ impl BoxEmbeddingTrainer {
             current_beta,
             relation_translations: HashMap::new(),
             relation_optimizer_states: HashMap::new(),
+            relation_cardinalities: HashMap::new(),
         }
     }
 
@@ -479,6 +485,66 @@ impl BoxEmbeddingTrainer {
     /// Get all known entity IDs (for full-pool negative sampling).
     fn all_entity_ids(&self) -> Vec<usize> {
         self.boxes.keys().copied().collect()
+    }
+
+    /// Sample a negative (head, tail) pair for a given positive triple.
+    ///
+    /// Respects `config.negative_strategy` and `config.bernoulli_sampling`.
+    /// When Bernoulli sampling is enabled and strategy is `Uniform`, the
+    /// head/tail corruption probability is adjusted by relation cardinality.
+    #[cfg(feature = "rand")]
+    fn sample_negative(
+        &self,
+        h: usize,
+        r: usize,
+        t: usize,
+        all_entities: &[usize],
+        config: &TrainingConfig,
+        rng: &mut impl Rng,
+    ) -> (usize, usize) {
+        let corrupt_head = match &config.negative_strategy {
+            NegativeSamplingStrategy::CorruptHead => true,
+            NegativeSamplingStrategy::CorruptTail => false,
+            NegativeSamplingStrategy::CorruptBoth => {
+                // Corrupt both: pick two independent replacements.
+                let nh = loop {
+                    let c = all_entities[rng.random_range(0..all_entities.len())];
+                    if c != h { break c; }
+                };
+                let nt = loop {
+                    let c = all_entities[rng.random_range(0..all_entities.len())];
+                    if c != t { break c; }
+                };
+                return (nh, nt);
+            }
+            NegativeSamplingStrategy::Uniform => {
+                if config.bernoulli_sampling {
+                    // Bernoulli: P(corrupt_head) = tph / (tph + hpt).
+                    let p_head = self
+                        .relation_cardinalities
+                        .get(&r)
+                        .map(|c| c.head_corrupt_prob())
+                        .unwrap_or(0.5);
+                    rng.random::<f32>() < p_head
+                } else {
+                    rng.random::<bool>()
+                }
+            }
+        };
+
+        if corrupt_head {
+            let nh = loop {
+                let c = all_entities[rng.random_range(0..all_entities.len())];
+                if c != h { break c; }
+            };
+            (nh, t)
+        } else {
+            let nt = loop {
+                let c = all_entities[rng.random_range(0..all_entities.len())];
+                if c != t { break c; }
+            };
+            (h, nt)
+        }
     }
 
     /// Train one mini-batch with gradient accumulation.
@@ -594,22 +660,31 @@ impl BoxEmbeddingTrainer {
 
             // Negative samples: random from full entity pool.
             for _ in 0..n_neg {
-                let neg_t = loop {
-                    let candidate = all_entities[rng.random_range(0..all_entities.len())];
-                    if candidate != t {
-                        break candidate;
-                    }
-                };
+                let (neg_h, neg_t) = self.sample_negative(h, r, t, all_entities, &step_config, rng);
+                self.ensure_entity(neg_h);
                 self.ensure_entity(neg_t);
+                let box_neg_h = self.boxes.get(&neg_h).cloned().unwrap();
                 let box_neg_t = self.boxes.get(&neg_t).cloned().unwrap();
 
+                // Apply relation translation to negative head.
+                let box_neg_h_translated = if let Some(ref trans) = translation {
+                    let dense = box_neg_h.to_box();
+                    let new_min: Vec<f32> = dense.min.iter().zip(trans).map(|(m, t)| m + t).collect();
+                    let new_max: Vec<f32> = dense.max.iter().zip(trans).map(|(m, t)| m + t).collect();
+                    let mu: Vec<f32> = new_min.iter().zip(&new_max).map(|(lo, hi)| (lo + hi) / 2.0).collect();
+                    let delta: Vec<f32> = new_min.iter().zip(&new_max).map(|(lo, hi)| ((hi - lo).max(1e-6)).ln()).collect();
+                    TrainableBox::new(mu, delta).unwrap_or_else(|_| box_neg_h.clone())
+                } else {
+                    box_neg_h.clone()
+                };
+
                 let neg_loss =
-                    compute_pair_loss(&box_h_translated, &box_neg_t, false, &step_config);
+                    compute_pair_loss(&box_neg_h_translated, &box_neg_t, false, &step_config);
                 total_loss += neg_loss;
                 n_pairs += 1;
 
                 let (gmh, gdh, gmt, gdt) = compute_analytical_gradients(
-                    &box_h_translated,
+                    &box_neg_h_translated,
                     &box_neg_t,
                     false,
                     &step_config,
@@ -618,11 +693,11 @@ impl BoxEmbeddingTrainer {
                 // Self-adversarial weighting.
                 let adv_temp = step_config.adversarial_temperature;
                 let neg_as_pos =
-                    compute_pair_loss(&box_h_translated, &box_neg_t, true, &step_config);
+                    compute_pair_loss(&box_neg_h_translated, &box_neg_t, true, &step_config);
                 let adv_weight = (-neg_as_pos / adv_temp).exp().min(10.0);
 
                 let entry = grad_accum
-                    .entry(h)
+                    .entry(neg_h)
                     .or_insert_with(|| (vec![0.0; self.dim], vec![0.0; self.dim], 0));
                 for (acc, g) in entry.0.iter_mut().zip(&gmh) {
                     *acc += g * adv_weight;
@@ -1093,6 +1168,12 @@ impl BoxEmbeddingTrainer {
         for &(h, _r, t) in train_triples {
             self.ensure_entity(h);
             self.ensure_entity(t);
+        }
+
+        // Compute relation cardinalities for Bernoulli negative sampling.
+        if self.config.bernoulli_sampling {
+            self.relation_cardinalities =
+                super::negative_sampling::compute_relation_cardinalities(train_triples);
         }
 
         // Shuffled copy of triples for mini-batch training.
