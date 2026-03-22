@@ -135,6 +135,84 @@ impl CandleBoxTrainer {
         let violation = diff.add(&delta_h)?.sub(&delta_t)?.relu()?;
         violation.sqr()?.sum(1)?.sqrt()
     }
+
+    /// Train on triples with AdamW optimizer.
+    ///
+    /// Returns per-epoch average losses.
+    pub fn fit(
+        &self,
+        train_triples: &[(usize, usize, usize)],
+        epochs: usize,
+        lr: f64,
+        batch_size: usize,
+        margin: f32,
+        negative_samples: usize,
+    ) -> Result<Vec<f32>> {
+        use candle_nn::{AdamW, Optimizer, ParamsAdamW};
+
+        let params = ParamsAdamW {
+            lr,
+            weight_decay: 1e-4,
+            ..Default::default()
+        };
+        let mut opt = AdamW::new(vec![self.mu.clone(), self.log_delta.clone()], params)?;
+        let n = train_triples.len();
+        let mut epoch_losses = Vec::with_capacity(epochs);
+        let mut rng: u64 = 42;
+
+        let lcg = |s: &mut u64| -> usize {
+            *s = s
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (*s >> 33) as usize
+        };
+
+        for epoch in 0..epochs {
+            let mut total_loss = 0.0f32;
+            let mut batch_count = 0usize;
+
+            for batch_start in (0..n).step_by(batch_size) {
+                let batch_end = (batch_start + batch_size).min(n);
+                let batch = &train_triples[batch_start..batch_end];
+                let bs = batch.len();
+
+                let heads: Vec<u32> = batch.iter().map(|&(h, _, _)| h as u32).collect();
+                let tails: Vec<u32> = batch.iter().map(|&(_, _, t)| t as u32).collect();
+
+                let h_t = Tensor::from_vec(heads, (bs,), &self.device)?;
+                let t_t = Tensor::from_vec(tails, (bs,), &self.device)?;
+
+                // Positive loss
+                let pos_loss = self.containment_loss(&h_t, &t_t, 0.0)?;
+
+                // Negative samples
+                let mut neg_loss_total = Tensor::zeros((), candle_core::DType::F32, &self.device)?;
+                for _ in 0..negative_samples {
+                    let neg_tails: Vec<u32> = (0..bs)
+                        .map(|_| (lcg(&mut rng) % self.num_entities) as u32)
+                        .collect();
+                    let nt_t = Tensor::from_vec(neg_tails, (bs,), &self.device)?;
+                    let nl = self.negative_loss(&h_t, &nt_t, margin)?;
+                    neg_loss_total = neg_loss_total.add(&nl)?;
+                }
+
+                let loss = pos_loss.add(&neg_loss_total)?;
+                opt.backward_step(&loss)?;
+
+                total_loss += loss.to_scalar::<f32>()?;
+                batch_count += 1;
+            }
+
+            let avg = total_loss / batch_count.max(1) as f32;
+            epoch_losses.push(avg);
+
+            if (epoch + 1) % 50 == 0 || epoch == 0 {
+                eprintln!("  epoch {:>4}/{epochs}: avg_loss = {avg:.6}", epoch + 1);
+            }
+        }
+
+        Ok(epoch_losses)
+    }
 }
 
 /// Softplus: log(1 + exp(x/beta)) * beta, numerically stable.
