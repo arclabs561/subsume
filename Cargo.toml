@@ -39,6 +39,7 @@ serde_json = { version = "1.0", optional = true }
 candle-core = { version = "0.9", optional = true }
 petgraph = { version = "0.7", optional = true }
 rankops = { version = "0.1.4", optional = true }
+lattix = { version = "0.5.4", optional = true, features = ["formats"] }
 
 [features]
 default = ["ndarray-backend"]
@@ -47,6 +48,7 @@ candle-backend = ["dep:candle-core"]
 rand = ["dep:rand"]
 petgraph = ["dep:petgraph"]
 rankops = ["dep:rankops"]
+lattix = ["dep:lattix"]
 sheaf = []
 hyperbolic = ["dep:hyperball", "dep:skel", "dep:ndarray"]
 
