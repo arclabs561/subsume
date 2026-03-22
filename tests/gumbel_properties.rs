@@ -286,7 +286,7 @@ fn softplus_branch_boundaries() {
 
     let at_zero = softplus(0.0, 1.0);
     assert!(
-        (at_zero - 0.6931).abs() < 0.01,
+        (at_zero - std::f32::consts::LN_2).abs() < 0.01,
         "softplus(0) should be ln(2) ~ 0.693, got {at_zero}"
     );
 }
