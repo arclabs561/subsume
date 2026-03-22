@@ -10,21 +10,32 @@ permissions:
 
 jobs:
   build:
-    name: Build wheels
+    name: Build wheels (${{ matrix.target }} on ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            target: x86_64
+          - os: ubuntu-latest
+            target: aarch64
+          - os: macos-latest
+            target: aarch64
+          - os: macos-13
+            target: x86_64
+          - os: windows-latest
+            target: x64
     steps:
       - uses: actions/checkout@v4
       - uses: PyO3/maturin-action@v1
         with:
           working-directory: subsume-python
+          target: ${{ matrix.target }}
           command: build
           args: --release --out dist
       - uses: actions/upload-artifact@v4
         with:
-          name: wheels-${{ matrix.os }}
+          name: wheels-${{ matrix.os }}-${{ matrix.target }}
           path: subsume-python/dist/
 
   sdist:
