@@ -37,6 +37,7 @@ skel = { version = "0.1.1", optional = true }
 ndarray = { version = "0.16", features = ["serde-1"], optional = true }
 serde_json = { version = "1.0", optional = true }
 candle-core = { version = "0.9", optional = true }
+candle-nn = { version = "0.9", optional = true }
 petgraph = { version = "0.7", optional = true }
 rankops = { version = "0.1.4", optional = true }
 lattix = { version = "0.5.4", optional = true, features = ["formats"] }
@@ -44,7 +45,7 @@ lattix = { version = "0.5.4", optional = true, features = ["formats"] }
 [features]
 default = ["ndarray-backend"]
 ndarray-backend = ["dep:ndarray", "dep:serde_json", "rand"]
-candle-backend = ["dep:candle-core"]
+candle-backend = ["dep:candle-core", "dep:candle-nn"]
 rand = ["dep:rand"]
 petgraph = ["dep:petgraph"]
 rankops = ["dep:rankops"]
