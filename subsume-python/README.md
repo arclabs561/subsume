@@ -23,8 +23,8 @@ maturin develop
 ```python
 import subsumer
 
-box_a = subsumer.NdarrayBox([0.0, 0.0], [1.0, 1.0], 1.0)
-box_b = subsumer.NdarrayBox([0.2, 0.2], [0.8, 0.8], 1.0)
+box_a = subsumer.BoxEmbedding([0.0, 0.0], [1.0, 1.0], 1.0)
+box_b = subsumer.BoxEmbedding([0.2, 0.2], [0.8, 0.8], 1.0)
 prob = box_a.containment_prob(box_b)
 print(f"P(B inside A) = {prob:.4f}")
 ```
@@ -52,6 +52,12 @@ trainer = subsumer.BoxEmbeddingTrainer.from_config(config)
 result = trainer.fit(train, val_triples=val, num_entities=len(ents))
 print(f"MRR: {result['mrr']:.3f}, Hits@10: {result['hits_at_10']:.3f}")
 
+# Score individual triples after training
+score = trainer.predict(head_id=0, relation_id=0, tail_id=1)
+
+# Score all entities as tails
+scores = trainer.score_tails(head_id=0, relation_id=0)
+
 # Export learned embeddings as numpy arrays
 entity_ids, min_bounds, max_bounds = trainer.export_embeddings()
 # min_bounds and max_bounds are (n_entities, dim) numpy arrays
@@ -67,6 +73,9 @@ triples = [("animal", "hypernym", "dog"), ("animal", "hypernym", "cat")]
 trainer, ids = subsumer.ConeEmbeddingTrainer.from_triples(triples)
 result = trainer.fit(ids)
 print(f"MRR: {result['mrr']:.3f}")
+
+# Evaluate on separate test set
+test_result = trainer.evaluate(test_triples)
 
 # Export learned cones (axes + apertures) as numpy arrays
 entity_ids, axes, apertures = trainer.export_embeddings()
