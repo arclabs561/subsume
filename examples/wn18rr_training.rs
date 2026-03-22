@@ -85,7 +85,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Train in batches.
-    let _n_batches = (train_triples.len() + config.batch_size - 1) / config.batch_size;
+    let _n_batches = train_triples.len().div_ceil(config.batch_size);
     for epoch in 0..config.epochs {
         let mut epoch_loss = 0.0;
         let mut batch_count = 0;
