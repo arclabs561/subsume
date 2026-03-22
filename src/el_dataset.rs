@@ -430,7 +430,9 @@ DISJ\tCat\tDog
         let axioms: Vec<Axiom> = ds.iter().collect();
         assert_eq!(axioms.len(), 3);
         assert!(matches!(&axioms[0], Axiom::Subsumption(a, b) if a == "A" && b == "B"));
-        assert!(matches!(&axioms[1], Axiom::Existential(c, r, d) if c == "C" && r == "r" && d == "D"));
+        assert!(
+            matches!(&axioms[1], Axiom::Existential(c, r, d) if c == "C" && r == "r" && d == "D")
+        );
         assert!(matches!(&axioms[2], Axiom::Disjointness(e, f) if e == "E" && f == "F"));
     }
 }
