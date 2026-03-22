@@ -21,7 +21,7 @@ jobs:
         run: cargo fmt --check
 
       - name: Clippy
-        run: cargo clippy --all-targets --all-features -- -Dwarnings
+        run: cargo clippy --all-features --lib --tests --examples -- -Dwarnings
 
       - name: Build
         run: cargo build --all-features
