@@ -82,6 +82,32 @@ entity_ids, axes, apertures = trainer.export_embeddings()
 # axes and apertures are (n_entities, dim) numpy arrays
 ```
 
+### EL++ ontology embedding
+
+```python
+import subsumer
+
+# Load normalized EL++ axioms (GALEN, Gene Ontology, Anatomy formats)
+axioms = subsumer.load_el_axioms("data/go_normalized.tsv")
+print(f"Classes: {axioms['num_classes']}, Roles: {axioms['num_roles']}")
+print(f"NF2 (C ⊑ D): {len(axioms['nf2'])} axioms")
+
+# Compute inclusion loss: how much box A fails to fit inside box B
+loss = subsumer.el_inclusion_loss(
+    center_a=[0.0, 0.0], offset_a=[0.5, 0.5],
+    center_b=[0.0, 0.0], offset_b=[2.0, 2.0],
+)
+print(f"Inclusion loss: {loss:.4f}")  # 0.0 (A inside B)
+
+# Compute intersection loss: C1 AND C2 should be inside D
+loss = subsumer.el_intersection_loss(
+    center_c1=[0.0], offset_c1=[2.0],
+    center_c2=[1.0], offset_c2=[2.0],
+    center_d=[0.5], offset_d=[2.0],
+)
+print(f"Intersection loss: {loss:.4f}")  # 0.0 (intersection fits)
+```
+
 ## License
 
 MIT OR Apache-2.0
