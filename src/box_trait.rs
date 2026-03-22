@@ -422,4 +422,8 @@ pub enum BoxError {
     /// Internal error from tensor/array operations.
     #[error("Internal error: {0}")]
     Internal(String),
+
+    /// I/O error (file not found, read failure, etc.).
+    #[error("IO error: {0}")]
+    Io(String),
 }
