@@ -112,6 +112,56 @@ pub struct InternedDataset {
     pub relations: Vocab,
 }
 
+impl InternedDataset {
+    /// Create an interned dataset from pre-mapped integer triple arrays.
+    ///
+    /// For use with OGB or other pipelines that already have integer-mapped triples.
+    /// Entity and relation names are auto-generated as "e0", "e1", ... and "r0", "r1", ...
+    ///
+    /// # Arguments
+    ///
+    /// * `train` - Training triples as `(head, relation, tail)` tuples
+    /// * `valid` - Validation triples
+    /// * `test` - Test triples
+    /// * `num_entities` - Total entity count (for vocabulary size)
+    /// * `num_relations` - Total relation count (for vocabulary size)
+    pub fn from_arrays(
+        train: &[(usize, usize, usize)],
+        valid: &[(usize, usize, usize)],
+        test: &[(usize, usize, usize)],
+        num_entities: usize,
+        num_relations: usize,
+    ) -> Self {
+        let to_ids = |triples: &[(usize, usize, usize)]| -> Vec<TripleIds> {
+            triples
+                .iter()
+                .map(|&(h, r, t)| TripleIds {
+                    head: h,
+                    relation: r,
+                    tail: t,
+                })
+                .collect()
+        };
+
+        let mut entities = Vocab::default();
+        for i in 0..num_entities {
+            entities.intern(format!("e{i}"));
+        }
+        let mut relations = Vocab::default();
+        for i in 0..num_relations {
+            relations.intern(format!("r{i}"));
+        }
+
+        Self {
+            train: to_ids(train),
+            valid: to_ids(valid),
+            test: to_ids(test),
+            entities,
+            relations,
+        }
+    }
+}
+
 /// Errors that can occur during dataset operations.
 #[non_exhaustive]
 #[derive(Debug, thiserror::Error)]
@@ -419,5 +469,23 @@ mod tests {
         assert!(entities.contains("e1"));
         assert!(entities.contains("e2"));
         assert!(entities.contains("e3"));
+    }
+
+    #[test]
+    fn test_interned_from_arrays() {
+        let train = vec![(0, 0, 1), (1, 0, 2)];
+        let valid = vec![(0, 0, 2)];
+        let test = vec![(2, 0, 0)];
+        let ds = InternedDataset::from_arrays(&train, &valid, &test, 3, 1);
+
+        assert_eq!(ds.train.len(), 2);
+        assert_eq!(ds.valid.len(), 1);
+        assert_eq!(ds.test.len(), 1);
+        assert_eq!(ds.entities.len(), 3);
+        assert_eq!(ds.relations.len(), 1);
+        assert_eq!(ds.train[0].head, 0);
+        assert_eq!(ds.train[0].tail, 1);
+        assert_eq!(ds.entities.get(0), Some("e0"));
+        assert_eq!(ds.relations.get(0), Some("r0"));
     }
 }
