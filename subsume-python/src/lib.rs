@@ -1282,6 +1282,114 @@ fn training_result_to_dict(result: TrainingResult) -> PyResult<PyObject> {
     })
 }
 
+/// Load EL++ normalized axioms from a TSV file.
+///
+/// Returns a dict with keys: nf1, nf2, nf3, nf4, ri6, ri7, disj.
+/// Each value is a list of tuples (matching the axiom fields).
+///
+/// File format: one axiom per line, tab-separated, type-tagged.
+/// See ``subsume::el_dataset`` for format details.
+#[pyfunction]
+fn load_el_axioms(path: &str) -> PyResult<PyObject> {
+    let ds = subsume::el_dataset::load_el_axioms(path)
+        .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("{e}")))?;
+
+    Python::with_gil(|py| {
+        let dict = pyo3::types::PyDict::new(py);
+        let nf1: Vec<(&str, &str, &str)> = ds
+            .nf1
+            .iter()
+            .map(|(a, b, c)| (a.as_str(), b.as_str(), c.as_str()))
+            .collect();
+        let nf2: Vec<(&str, &str)> = ds
+            .nf2
+            .iter()
+            .map(|(a, b)| (a.as_str(), b.as_str()))
+            .collect();
+        let nf3: Vec<(&str, &str, &str)> = ds
+            .nf3
+            .iter()
+            .map(|(a, b, c)| (a.as_str(), b.as_str(), c.as_str()))
+            .collect();
+        let nf4: Vec<(&str, &str, &str)> = ds
+            .nf4
+            .iter()
+            .map(|(a, b, c)| (a.as_str(), b.as_str(), c.as_str()))
+            .collect();
+        let ri6: Vec<(&str, &str)> = ds
+            .ri6
+            .iter()
+            .map(|(a, b)| (a.as_str(), b.as_str()))
+            .collect();
+        let ri7: Vec<(&str, &str, &str)> = ds
+            .ri7
+            .iter()
+            .map(|(a, b, c)| (a.as_str(), b.as_str(), c.as_str()))
+            .collect();
+        let disj: Vec<(&str, &str)> = ds
+            .disj
+            .iter()
+            .map(|(a, b)| (a.as_str(), b.as_str()))
+            .collect();
+        dict.set_item("nf1", nf1)?;
+        dict.set_item("nf2", nf2)?;
+        dict.set_item("nf3", nf3)?;
+        dict.set_item("nf4", nf4)?;
+        dict.set_item("ri6", ri6)?;
+        dict.set_item("ri7", ri7)?;
+        dict.set_item("disj", disj)?;
+        dict.set_item("num_classes", ds.classes().len())?;
+        dict.set_item("num_roles", ds.roles().len())?;
+        dict.set_item("total_axioms", ds.len())?;
+        Ok(dict.into())
+    })
+}
+
+/// Compute EL++ inclusion loss: how much box A fails to be contained in box B.
+///
+/// Args:
+///     center_a: Center of box A (subsumed concept)
+///     offset_a: Half-width of box A
+///     center_b: Center of box B (subsuming concept)
+///     offset_b: Half-width of box B
+///     margin: Containment margin (default 0.0)
+///
+/// Returns:
+///     Loss value (0.0 when A is inside B).
+#[pyfunction]
+#[pyo3(signature = (center_a, offset_a, center_b, offset_b, margin = 0.0))]
+fn el_inclusion_loss(
+    center_a: Vec<f32>,
+    offset_a: Vec<f32>,
+    center_b: Vec<f32>,
+    offset_b: Vec<f32>,
+    margin: f32,
+) -> PyResult<f32> {
+    subsume::el::el_inclusion_loss(&center_a, &offset_a, &center_b, &offset_b, margin)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e}")))
+}
+
+/// Compute NF1 intersection loss: C1 ⊓ C2 ⊑ D.
+///
+/// The intersection of boxes C1 and C2 should be contained in box D.
+/// Returns 0.0 if C1 and C2 don't overlap (empty intersection is trivially contained).
+#[pyfunction]
+#[pyo3(signature = (center_c1, offset_c1, center_c2, offset_c2, center_d, offset_d, margin = 0.0))]
+fn el_intersection_loss(
+    center_c1: Vec<f32>,
+    offset_c1: Vec<f32>,
+    center_c2: Vec<f32>,
+    offset_c2: Vec<f32>,
+    center_d: Vec<f32>,
+    offset_d: Vec<f32>,
+    margin: f32,
+) -> PyResult<f32> {
+    subsume::el::el_intersection_loss(
+        &center_c1, &offset_c1, &center_c2, &offset_c2, &center_d, &offset_d, margin,
+    )
+    .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e}")))
+}
+
 /// Geometric region embeddings for knowledge graph subsumption.
 ///
 /// Python bindings for the ``subsume`` Rust crate.
@@ -1319,5 +1427,8 @@ fn subsumer(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(boundary_distance, m)?)?;
     m.add_function(wrap_pyfunction!(cone_containment_score, m)?)?;
     m.add_function(wrap_pyfunction!(load_dataset, m)?)?;
+    m.add_function(wrap_pyfunction!(load_el_axioms, m)?)?;
+    m.add_function(wrap_pyfunction!(el_inclusion_loss, m)?)?;
+    m.add_function(wrap_pyfunction!(el_intersection_loss, m)?)?;
     Ok(())
 }

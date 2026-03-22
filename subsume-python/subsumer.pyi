@@ -226,3 +226,33 @@ def load_dataset(
 ]:
     """Load a KG dataset from a directory with train.txt, valid.txt, test.txt."""
     ...
+
+def load_el_axioms(path: str) -> Dict[str, object]:
+    """Load EL++ normalized axioms from a TSV file.
+
+    Returns a dict with keys: nf1, nf2, nf3, nf4, ri6, ri7, disj,
+    num_classes, num_roles, total_axioms.
+    """
+    ...
+
+def el_inclusion_loss(
+    center_a: List[float],
+    offset_a: List[float],
+    center_b: List[float],
+    offset_b: List[float],
+    margin: float = 0.0,
+) -> float:
+    """Compute EL++ inclusion loss: how much box A fails to be contained in box B."""
+    ...
+
+def el_intersection_loss(
+    center_c1: List[float],
+    offset_c1: List[float],
+    center_c2: List[float],
+    offset_c2: List[float],
+    center_d: List[float],
+    offset_d: List[float],
+    margin: float = 0.0,
+) -> float:
+    """Compute NF1 intersection loss: C1 AND C2 should be contained in D."""
+    ...
