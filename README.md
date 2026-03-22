@@ -154,7 +154,7 @@ Unit, property, and doc tests covering:
 - Octagon: intersection closure, containment, Sutherland-Hodgman volume
 - Fuzzy: t-norm/t-conorm commutativity, associativity, De Morgan duality
 - Gaussian boxes, EL++ ontology losses, sheaf networks, hyperbolic geometry
-- Training: MRR, Hits@k, Mean Rank, nDCG, negative sampling, AMSGrad
+- Training: MRR, Hits@k, Mean Rank, negative sampling (uniform, Bernoulli), AMSGrad
 
 ## Choosing a geometry
 
