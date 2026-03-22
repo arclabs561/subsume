@@ -57,6 +57,22 @@ entity_ids, min_bounds, max_bounds = trainer.export_embeddings()
 # min_bounds and max_bounds are (n_entities, dim) numpy arrays
 ```
 
+### Cone embeddings
+
+```python
+import subsumer
+
+# ConE-style cone embeddings for DAG / partial-order relations
+triples = [("animal", "hypernym", "dog"), ("animal", "hypernym", "cat")]
+trainer, ids = subsumer.ConeEmbeddingTrainer.from_triples(triples)
+result = trainer.fit(ids)
+print(f"MRR: {result['mrr']:.3f}")
+
+# Export learned cones (axes + apertures) as numpy arrays
+entity_ids, axes, apertures = trainer.export_embeddings()
+# axes and apertures are (n_entities, dim) numpy arrays
+```
+
 ## License
 
 MIT OR Apache-2.0

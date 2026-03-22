@@ -4,14 +4,14 @@ build-backend = "maturin"
 
 [project]
 name = "subsumer"
-version = "0.7.2"
+version = "0.7.3"
 requires-python = ">=3.9"
 dependencies = ["numpy>=1.20"]
 description = "Geometric region embeddings for knowledge graph subsumption (Python bindings for the subsume Rust crate)"
 classifiers = [
-    "Programming Language :: Rust",
-    "Programming Language :: Python :: Implementation :: CPython",
-    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Programming Language :: Rust",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
 [tool.maturin]
