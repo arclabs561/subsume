@@ -441,6 +441,139 @@ class BoxEmbeddingTrainer:
         """
         ...
 
+class ConeEmbeddingTrainer:
+    """Trainer for ConE cone embeddings on knowledge graph triples.
+
+    Same triple convention as BoxEmbeddingTrainer: (head_id, relation_id, tail_id)
+    where the head cone is trained to contain the tail cone. Each entity is
+    represented as a cone (axis angles + apertures) instead of a box.
+    Cones are better suited for DAG/partial-order relationships.
+    """
+
+    entity_names: Optional[List[str]]
+    """Entity names indexed by ID, if loaded via from_triples."""
+
+    def __init__(self, learning_rate: float, dim: int) -> None:
+        """Create a trainer with default config and the given learning rate and dimension.
+
+        Args:
+            learning_rate: Optimizer step size.
+            dim: Embedding dimension.
+        """
+        ...
+
+    @staticmethod
+    def from_config(config: TrainingConfig) -> "ConeEmbeddingTrainer":
+        """Create a trainer from a TrainingConfig.
+
+        Args:
+            config: Training configuration with dim and hyperparameters.
+
+        Returns:
+            A new ConeEmbeddingTrainer.
+        """
+        ...
+
+    @staticmethod
+    def from_triples(
+        triples: List[Tuple[str, str, str]],
+        config: Optional[TrainingConfig] = None,
+        reverse: bool = False,
+    ) -> Tuple["ConeEmbeddingTrainer", List[Tuple[int, int, int]]]:
+        """Create a trainer from string triples, handling interning automatically.
+
+        Args:
+            triples: List of (head, relation, tail) string triples.
+            config: Training configuration. Uses defaults (dim=16) if None.
+            reverse: If True, swap head and tail. Use for
+                (child, hypernym, parent) data.
+
+        Returns:
+            Tuple of (trainer, train_triple_ids) where train_triple_ids is
+            a list of (head_id, relation_id, tail_id) integer tuples.
+        """
+        ...
+
+    def train_step(self, triples: List[Tuple[int, int, int]]) -> float:
+        """Run one training step over the given triples.
+
+        Args:
+            triples: List of integer triple IDs.
+
+        Returns:
+            Average loss for this step.
+        """
+        ...
+
+    def fit(
+        self,
+        train_triples: List[Tuple[int, int, int]],
+        val_triples: Optional[List[Tuple[int, int, int]]] = None,
+        num_entities: Optional[int] = None,
+    ) -> Dict[str, object]:
+        """Train for multiple epochs with optional validation and early stopping.
+
+        Args:
+            train_triples: List of (head_id, relation_id, tail_id) tuples.
+            val_triples: Optional validation triples for MRR tracking.
+            num_entities: Total entity count. Required if val_triples provided.
+                Auto-computed as max(entity_id) + 1 if None.
+
+        Returns:
+            Dict with keys: mrr, hits_at_1, hits_at_3, hits_at_10,
+            mean_rank, loss_history, validation_mrr_history, best_epoch.
+        """
+        ...
+
+    def export_embeddings(
+        self,
+    ) -> Tuple[List[int], npt.NDArray[np.float32], npt.NDArray[np.float32]]:
+        """Export all cone embeddings as numpy arrays.
+
+        Returns:
+            Tuple of (entity_ids, axes, apertures) where
+            axes and apertures have shape (n_entities, dim).
+        """
+        ...
+
+    def entity_name(self, entity_id: int) -> Optional[str]:
+        """Get entity name for an ID.
+
+        Only available if the trainer was created via from_triples.
+
+        Args:
+            entity_id: Integer entity ID.
+
+        Returns:
+            Entity name string, or None if not available.
+        """
+        ...
+
+    def save_checkpoint(self) -> str:
+        """Serialize trainer state to JSON.
+
+        Includes entity and relation names if available.
+
+        Returns:
+            JSON string of the trainer checkpoint.
+        """
+        ...
+
+    @staticmethod
+    def load_checkpoint(json: str) -> "ConeEmbeddingTrainer":
+        """Deserialize trainer state from JSON.
+
+        Accepts both the envelope format (with entity_names) and the
+        legacy format (bare trainer JSON).
+
+        Args:
+            json: JSON string from save_checkpoint.
+
+        Returns:
+            Restored ConeEmbeddingTrainer.
+        """
+        ...
+
 def containment_probability(
     min_a: List[float],
     max_a: List[float],
