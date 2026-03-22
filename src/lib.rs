@@ -314,3 +314,11 @@ pub mod candle_backend;
 #[cfg(feature = "petgraph")]
 #[cfg_attr(docsrs, doc(cfg(feature = "petgraph")))]
 pub mod petgraph_adapter;
+
+/// Bridge from [`lattix`] knowledge graphs to subsume datasets.
+///
+/// Converts lattix KGs (loaded from N-Triples, Turtle, CSV, JSON-LD)
+/// into subsume datasets for training. Requires the `lattix` feature.
+#[cfg(feature = "lattix")]
+#[cfg_attr(docsrs, doc(cfg(feature = "lattix")))]
+pub mod lattix_bridge;
