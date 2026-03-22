@@ -439,13 +439,13 @@ pub struct TrainingResult {
 // ---------------------------------------------------------------------------
 
 // Negative sampling
+pub use negative_sampling::{compute_relation_cardinalities, RelationCardinality};
 #[cfg(feature = "rand")]
 #[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
 pub use negative_sampling::{
     generate_negative_samples, generate_negative_samples_from_sorted_pool_with_rng,
     generate_negative_samples_with_rng, SortedEntityPool,
 };
-pub use negative_sampling::{compute_relation_cardinalities, RelationCardinality};
 
 // Evaluation
 pub use evaluation::{

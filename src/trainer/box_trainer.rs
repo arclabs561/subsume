@@ -8,9 +8,9 @@ use rand::seq::SliceRandom;
 #[cfg(feature = "rand")]
 use rand::{Rng, SeedableRng};
 
+use super::negative_sampling::RelationCardinality;
 #[cfg(feature = "ndarray-backend")]
 use super::{EvaluationResults, TrainingResult};
-use super::negative_sampling::RelationCardinality;
 use super::{NegativeSamplingStrategy, RelationTransform, TrainingConfig};
 #[cfg(feature = "ndarray-backend")]
 use crate::trainer::evaluation::evaluate_interned_with_transforms_inner;
@@ -509,11 +509,15 @@ impl BoxEmbeddingTrainer {
                 // Corrupt both: pick two independent replacements.
                 let nh = loop {
                     let c = all_entities[rng.random_range(0..all_entities.len())];
-                    if c != h { break c; }
+                    if c != h {
+                        break c;
+                    }
                 };
                 let nt = loop {
                     let c = all_entities[rng.random_range(0..all_entities.len())];
-                    if c != t { break c; }
+                    if c != t {
+                        break c;
+                    }
                 };
                 return (nh, nt);
             }
@@ -535,13 +539,17 @@ impl BoxEmbeddingTrainer {
         if corrupt_head {
             let nh = loop {
                 let c = all_entities[rng.random_range(0..all_entities.len())];
-                if c != h { break c; }
+                if c != h {
+                    break c;
+                }
             };
             (nh, t)
         } else {
             let nt = loop {
                 let c = all_entities[rng.random_range(0..all_entities.len())];
-                if c != t { break c; }
+                if c != t {
+                    break c;
+                }
             };
             (h, nt)
         }
@@ -669,10 +677,20 @@ impl BoxEmbeddingTrainer {
                 // Apply relation translation to negative head.
                 let box_neg_h_translated = if let Some(ref trans) = translation {
                     let dense = box_neg_h.to_box();
-                    let new_min: Vec<f32> = dense.min.iter().zip(trans).map(|(m, t)| m + t).collect();
-                    let new_max: Vec<f32> = dense.max.iter().zip(trans).map(|(m, t)| m + t).collect();
-                    let mu: Vec<f32> = new_min.iter().zip(&new_max).map(|(lo, hi)| (lo + hi) / 2.0).collect();
-                    let delta: Vec<f32> = new_min.iter().zip(&new_max).map(|(lo, hi)| ((hi - lo).max(1e-6)).ln()).collect();
+                    let new_min: Vec<f32> =
+                        dense.min.iter().zip(trans).map(|(m, t)| m + t).collect();
+                    let new_max: Vec<f32> =
+                        dense.max.iter().zip(trans).map(|(m, t)| m + t).collect();
+                    let mu: Vec<f32> = new_min
+                        .iter()
+                        .zip(&new_max)
+                        .map(|(lo, hi)| (lo + hi) / 2.0)
+                        .collect();
+                    let delta: Vec<f32> = new_min
+                        .iter()
+                        .zip(&new_max)
+                        .map(|(lo, hi)| ((hi - lo).max(1e-6)).ln())
+                        .collect();
                     TrainableBox::new(mu, delta).unwrap_or_else(|_| box_neg_h.clone())
                 } else {
                     box_neg_h.clone()
