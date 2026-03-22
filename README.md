@@ -30,7 +30,8 @@ Geometric region embeddings for subsumption, entailment, and logical query answe
 |---|---|
 | `distance` | Query2Box alpha-weighted point-to-box distance (Ren et al., 2020); depth-based (RegD) and boundary distances in backend modules |
 | `fuzzy` | Fuzzy t-norms/t-conorms for logical query answering (FuzzQE, Chen et al., AAAI 2022) |
-| `el` | EL++ ontology embedding: inclusion loss, role composition, existential boxes (Box2EL/TransBox) |
+| `el` | EL++ ontology embedding: inclusion, intersection (NF1), existential, role chain losses (Box2EL/TransBox) |
+| `el_dataset` | EL++ normalized axiom loader (GALEN, Gene Ontology, Anatomy formats) |
 
 ### Taxonomy and training
 
@@ -38,8 +39,10 @@ Geometric region embeddings for subsumption, entailment, and logical query answe
 |---|---|
 | `taxonomy` | TaxoBell-format dataset loader: `.terms`/`.taxo` parsing, train/val/test splitting |
 | `taxobell` | TaxoBell combined loss: Bhattacharyya triplet + KL containment + volume regularization + sigma clipping |
-| Training utilities | Negative sampling, AMSGrad optimizer |
-| Evaluation | MRR, Hits@k, Mean Rank, nDCG |
+| Training utilities | Negative sampling (uniform, Bernoulli), AMSGrad optimizer |
+| Evaluation | MRR, Hits@k, Mean Rank |
+| `lattix_bridge` | Load ontologies from N-Triples, Turtle, CSV, JSON-LD via [`lattix`](https://crates.io/crates/lattix) (optional) |
+| `rankops` | Rank fusion (RRF, CombMNZ), IR evaluation (nDCG, MAP) via [`rankops`](https://crates.io/crates/rankops) (optional) |
 
 ### Backends
 
@@ -130,6 +133,8 @@ cargo run -p subsume --example save_checkpoint --release           # generate pr
 cargo run -p subsume --features hyperbolic --example hyperbolic_demo  # Poincare ball: hierarchy preservation, exponential capacity
 cargo run -p subsume --example wn18rr_training --release  # WN18RR benchmark: 40K entities, 20 epochs
 cargo run -p subsume --example el_training              # EL++ box embeddings on a biomedical-style ontology
+cargo run -p subsume --example gene_ontology --release  # Gene Ontology EL++ axioms: NF1-NF4, subsumption inference
+cargo run -p subsume --example cone_query_answering     # FOL queries with cones: AND, OR, NOT, projection
 cargo run -p subsume --features candle-backend --example taxobell_training  # TaxoBell MLP encoder training (Candle)
 ```
 
