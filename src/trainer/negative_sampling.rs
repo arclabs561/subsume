@@ -57,7 +57,9 @@ pub fn compute_relation_cardinalities(
     let mut stats: HashMap<usize, (HashSet<usize>, HashSet<usize>, usize)> = HashMap::new();
 
     for &(h, r, t) in triples {
-        let entry = stats.entry(r).or_insert_with(|| (HashSet::new(), HashSet::new(), 0));
+        let entry = stats
+            .entry(r)
+            .or_insert_with(|| (HashSet::new(), HashSet::new(), 0));
         entry.0.insert(h);
         entry.1.insert(t);
         entry.2 += 1;
@@ -567,8 +569,16 @@ mod tests {
         let triples = vec![(0, 0, 1), (0, 0, 2), (0, 0, 3)];
         let cards = compute_relation_cardinalities(&triples);
         let c = cards.get(&0).expect("relation 0 should be present");
-        assert!((c.tph - 3.0).abs() < 1e-6, "tph should be 3.0, got {}", c.tph);
-        assert!((c.hpt - 1.0).abs() < 1e-6, "hpt should be 1.0, got {}", c.hpt);
+        assert!(
+            (c.tph - 3.0).abs() < 1e-6,
+            "tph should be 3.0, got {}",
+            c.tph
+        );
+        assert!(
+            (c.hpt - 1.0).abs() < 1e-6,
+            "hpt should be 1.0, got {}",
+            c.hpt
+        );
         assert!(
             (c.head_corrupt_prob() - 0.75).abs() < 1e-6,
             "P(corrupt_head) should be 0.75, got {}",

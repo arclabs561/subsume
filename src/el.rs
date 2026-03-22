@@ -299,7 +299,13 @@ pub fn el_role_chain_loss(
         &mut composed_center,
         &mut composed_offset,
     )?;
-    el_inclusion_loss(&composed_center, &composed_offset, center_t, offset_t, margin)
+    el_inclusion_loss(
+        &composed_center,
+        &composed_offset,
+        center_t,
+        offset_t,
+        margin,
+    )
 }
 
 #[cfg(test)]
@@ -785,7 +791,10 @@ mod tests {
         // Intersection fits inside D => loss = 0
         let loss =
             el_intersection_loss(&[0.0], &[2.0], &[1.0], &[2.0], &[0.5], &[2.0], 0.0).unwrap();
-        assert!(loss < 1e-6, "intersection inside D should have ~0 loss, got {loss}");
+        assert!(
+            loss < 1e-6,
+            "intersection inside D should have ~0 loss, got {loss}"
+        );
     }
 
     #[test]
@@ -810,7 +819,10 @@ mod tests {
         // Intersection does NOT fit => loss > 0
         let loss =
             el_intersection_loss(&[0.0], &[3.0], &[0.0], &[3.0], &[0.0], &[1.0], 0.0).unwrap();
-        assert!(loss > 0.0, "intersection overflows D => loss > 0, got {loss}");
+        assert!(
+            loss > 0.0,
+            "intersection overflows D => loss > 0, got {loss}"
+        );
     }
 
     #[test]
@@ -819,8 +831,7 @@ mod tests {
         // s: center=[0.5], offset=[0.3] => [0.2, 0.8]
         // composed: center=[1.5], offset=[0.8] => [0.7, 2.3]
         // t: center=[1.5], offset=[1.0] => [0.5, 2.5] -- contains composed
-        let loss =
-            el_role_chain_loss(&[1.0], &[0.5], &[0.5], &[0.3], &[1.5], &[1.0], 0.0).unwrap();
+        let loss = el_role_chain_loss(&[1.0], &[0.5], &[0.5], &[0.3], &[1.5], &[1.0], 0.0).unwrap();
         assert!(loss < 1e-6, "composed fits in t => loss 0, got {loss}");
     }
 }

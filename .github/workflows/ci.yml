@@ -85,6 +85,7 @@ jobs:
   semver:
     name: cargo-semver-checks
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

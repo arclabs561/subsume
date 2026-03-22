@@ -319,7 +319,10 @@ fn degenerate_box_no_panic() {
     // a small positive value due to the Bessel approximation offset)
     let vol = bx.volume().unwrap();
     assert!(!vol.is_nan(), "degenerate box volume is NaN");
-    assert!(vol.is_finite(), "degenerate box volume is not finite: {vol}");
+    assert!(
+        vol.is_finite(),
+        "degenerate box volume is not finite: {vol}"
+    );
     assert!(vol >= 0.0, "degenerate box volume is negative: {vol}");
 
     // Intersection with self should not panic
@@ -343,7 +346,10 @@ fn degenerate_box_high_dim() {
 
     let vol = bx.volume().unwrap();
     assert!(!vol.is_nan(), "high-dim degenerate volume is NaN");
-    assert!(vol.is_finite(), "high-dim degenerate volume is not finite: {vol}");
+    assert!(
+        vol.is_finite(),
+        "high-dim degenerate volume is not finite: {vol}"
+    );
 }
 
 // ---------------------------------------------------------------------------
