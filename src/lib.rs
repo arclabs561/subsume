@@ -175,6 +175,11 @@ pub mod trainer;
 /// Rank-based evaluation metrics (MRR, Hits@k, Mean Rank).
 pub mod metrics;
 
+/// Re-export rankops for rank fusion, IR evaluation (nDCG, MAP), and reranking.
+#[cfg(feature = "rankops")]
+#[cfg_attr(docsrs, doc(cfg(feature = "rankops")))]
+pub use rankops;
+
 /// Numerical stability: log-space volume, stable sigmoid, Gumbel operations.
 pub mod utils;
 
