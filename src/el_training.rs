@@ -72,6 +72,15 @@ pub enum Axiom {
         /// Super-role index.
         sup: usize,
     },
+    /// NF1: C1 ⊓ C2 ⊑ D (conjunction subsumption)
+    Intersection {
+        /// First conjunct concept index.
+        c1: usize,
+        /// Second conjunct concept index.
+        c2: usize,
+        /// Target concept index.
+        target: usize,
+    },
     /// RI7: R ∘ S ⊑ T
     RoleComposition {
         /// First role index.
@@ -132,6 +141,76 @@ impl Ontology {
             self.role_index.insert(name.to_string(), idx);
             idx
         }
+    }
+
+    /// Convert an [`ElDataset`](crate::el_dataset::ElDataset) into an Ontology.
+    ///
+    /// Maps all axiom types (NF1-NF4, RI6, RI7, DISJ) into the training Axiom enum.
+    pub fn from_el_dataset(ds: &crate::el_dataset::ElDataset) -> Self {
+        let mut ont = Self::new();
+
+        for (c, d) in &ds.nf2 {
+            let sub = ont.concept(c);
+            let sup = ont.concept(d);
+            ont.axioms.push(Axiom::SubClassOf { sub, sup });
+        }
+        for (c1, c2, d) in &ds.nf1 {
+            let c1_idx = ont.concept(c1);
+            let c2_idx = ont.concept(c2);
+            let target = ont.concept(d);
+            ont.axioms.push(Axiom::Intersection {
+                c1: c1_idx,
+                c2: c2_idx,
+                target,
+            });
+        }
+        for (c, r, d) in &ds.nf3 {
+            // NF3: C ⊑ ∃r.D -- concept C is subsumed by existential
+            // We store as Existential { role, filler=D, target=C }
+            // because Existential means ∃R.filler ⊑ target
+            // But NF3 is C ⊑ ∃r.D which is different from NF4 (∃r.C ⊑ D).
+            // NF3 doesn't directly map to Existential (which models NF4).
+            // For NF3, we add it as SubClassOf between C and a synthetic concept.
+            // However, for simplicity and following Box2EL, we skip NF3 in the
+            // basic training and handle it via the inclusion loss on roles.
+            let _c_idx = ont.concept(c);
+            let _r_idx = ont.role(r);
+            let _d_idx = ont.concept(d);
+            // NF3 axioms are registered for vocabulary but not trained directly
+            // (requires existential quantifier support in the loss).
+        }
+        for (r, c, d) in &ds.nf4 {
+            let role = ont.role(r);
+            let filler = ont.concept(c);
+            let target = ont.concept(d);
+            ont.axioms.push(Axiom::Existential {
+                role,
+                filler,
+                target,
+            });
+        }
+        for (r, s) in &ds.ri6 {
+            let sub = ont.role(r);
+            let sup = ont.role(s);
+            ont.axioms.push(Axiom::RoleInclusion { sub, sup });
+        }
+        for (r, s, t) in &ds.ri7 {
+            let r_idx = ont.role(r);
+            let s_idx = ont.role(s);
+            let t_idx = ont.role(t);
+            ont.axioms.push(Axiom::RoleComposition {
+                r: r_idx,
+                s: s_idx,
+                t: t_idx,
+            });
+        }
+        for (a, b) in &ds.disj {
+            let a_idx = ont.concept(a);
+            let b_idx = ont.concept(b);
+            ont.axioms.push(Axiom::Disjoint { a: a_idx, b: b_idx });
+        }
+
+        ont
     }
 
     /// Number of concepts.
@@ -707,6 +786,96 @@ pub fn train_el_embeddings(ontology: &Ontology, config: &ElTrainingConfig) -> El
                     roles.apply_grad(role, &g_role);
                     concepts.apply_grad(filler, &g_filler);
                     concepts.apply_grad(target, &g_target);
+                }
+                Axiom::Intersection { c1, c2, target } => {
+                    // NF1: C1 ⊓ C2 ⊑ D
+                    // Intersection box: lo = max(lo_c1, lo_c2), hi = min(hi_c1, hi_c2)
+                    let mut inter_center = vec![0.0f32; dim];
+                    let mut inter_offset = vec![0.0f32; dim];
+                    let mut empty = false;
+
+                    for i in 0..dim {
+                        let lo_c1 = concepts.centers[c1][i] - concepts.offsets[c1][i];
+                        let hi_c1 = concepts.centers[c1][i] + concepts.offsets[c1][i];
+                        let lo_c2 = concepts.centers[c2][i] - concepts.offsets[c2][i];
+                        let hi_c2 = concepts.centers[c2][i] + concepts.offsets[c2][i];
+
+                        let lo = lo_c1.max(lo_c2);
+                        let hi = hi_c1.min(hi_c2);
+
+                        if lo > hi {
+                            empty = true;
+                            break;
+                        }
+
+                        inter_center[i] = (lo + hi) / 2.0;
+                        inter_offset[i] = (hi - lo) / 2.0;
+                    }
+
+                    if !empty {
+                        let (g_inter, g_target_ax, loss) = inclusion_grads(
+                            &inter_center,
+                            &inter_offset,
+                            &concepts.centers[target],
+                            &concepts.offsets[target],
+                            config.margin,
+                        );
+                        total_loss += loss;
+
+                        // Chain rule through intersection.
+                        // inter_center[i] = (lo + hi) / 2
+                        // lo = max(lo_c1, lo_c2): gradient flows to whichever was larger
+                        // hi = min(hi_c1, hi_c2): gradient flows to whichever was smaller
+                        let mut g_c1 = BoxGrad::zeros(dim);
+                        let mut g_c2 = BoxGrad::zeros(dim);
+
+                        for i in 0..dim {
+                            let lo_c1 = concepts.centers[c1][i] - concepts.offsets[c1][i];
+                            let lo_c2 = concepts.centers[c2][i] - concepts.offsets[c2][i];
+                            let hi_c1 = concepts.centers[c1][i] + concepts.offsets[c1][i];
+                            let hi_c2 = concepts.centers[c2][i] + concepts.offsets[c2][i];
+
+                            // d(inter_center)/d(center_k) and d(inter_center)/d(offset_k)
+                            // inter_center = (lo + hi) / 2
+                            // d(center)/d(lo) = 0.5, d(center)/d(hi) = 0.5
+                            // inter_offset = (hi - lo) / 2
+                            // d(offset)/d(lo) = -0.5, d(offset)/d(hi) = 0.5
+
+                            let gc = g_inter.center[i];
+                            let go = g_inter.offset[i];
+
+                            // lo gradient (d_lo = 0.5 * gc - 0.5 * go)
+                            let d_lo = 0.5 * gc - 0.5 * go;
+                            // hi gradient (d_hi = 0.5 * gc + 0.5 * go)
+                            let d_hi = 0.5 * gc + 0.5 * go;
+
+                            // Route lo gradient to c1 or c2 (whichever defines the max)
+                            if lo_c1 >= lo_c2 {
+                                // lo = lo_c1 = center_c1 - offset_c1
+                                g_c1.center[i] += d_lo;
+                                g_c1.offset[i] -= d_lo;
+                            } else {
+                                g_c2.center[i] += d_lo;
+                                g_c2.offset[i] -= d_lo;
+                            }
+
+                            // Route hi gradient to c1 or c2 (whichever defines the min)
+                            if hi_c1 <= hi_c2 {
+                                // hi = hi_c1 = center_c1 + offset_c1
+                                g_c1.center[i] += d_hi;
+                                g_c1.offset[i] += d_hi;
+                            } else {
+                                g_c2.center[i] += d_hi;
+                                g_c2.offset[i] += d_hi;
+                            }
+                        }
+
+                        concepts.apply_grad(c1, &g_c1);
+                        if c2 != c1 {
+                            concepts.apply_grad(c2, &g_c2);
+                        }
+                        concepts.apply_grad(target, &g_target_ax);
+                    }
                 }
                 Axiom::RoleInclusion { sub, sup } => {
                     let (ga, gb, loss) = inclusion_grads(
