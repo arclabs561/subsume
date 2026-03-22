@@ -8,14 +8,16 @@
 //! One axiom per line, tab-separated, type-tagged:
 //!
 //! ```text
-//! NF1	HeartDisease	Genetic	InheritedHeartDisease
-//! NF2	Dog	Animal
-//! NF3	Heart	partOf	Body
-//! NF4	hasParent	Human	Human
-//! RI6	hasChild	hasDescendant
-//! RI7	hasParent	hasSibling	hasUncle
-//! DISJ	Cat	Dog
+//! NF1  HeartDisease  Genetic  InheritedHeartDisease
+//! NF2  Dog  Animal
+//! NF3  Heart  partOf  Body
+//! NF4  hasParent  Human  Human
+//! RI6  hasChild  hasDescendant
+//! RI7  hasParent  hasSibling  hasUncle
+//! DISJ  Cat  Dog
 //! ```
+//!
+//! (Fields are tab-separated in the actual file.)
 //!
 //! | Tag | Fields | Meaning |
 //! |-----|--------|---------|
