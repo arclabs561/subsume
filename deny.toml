@@ -3,7 +3,10 @@
 # Run: cargo deny check
 
 [advisories]
-ignore = []
+ignore = [
+    # paste is unmaintained but still functional; transitive dep via candle -> gemm
+    "RUSTSEC-2024-0436",
+]
 
 [licenses]
 allow = [
