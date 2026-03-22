@@ -68,8 +68,7 @@ fn build_entities() -> Vec<(&'static str, NdarrayCone)> {
         ),
         (
             "truck",
-            NdarrayCone::new(array![-1.7, -1.2, -0.6, -0.1], array![0.3, 0.3, 0.3, 0.3])
-                .unwrap(),
+            NdarrayCone::new(array![-1.7, -1.2, -0.6, -0.1], array![0.3, 0.3, 0.3, 0.3]).unwrap(),
         ),
     ]
 }
@@ -83,12 +82,7 @@ fn main() {
 
     // Helper: find entity cone by name
     let cone_of = |name: &str| -> NdarrayCone {
-        entities
-            .iter()
-            .find(|(n, _)| *n == name)
-            .unwrap()
-            .1
-            .clone()
+        entities.iter().find(|(n, _)| *n == name).unwrap().1.clone()
     };
 
     // Helper: entity cones as points (zero aperture) for scoring
@@ -164,7 +158,10 @@ fn main() {
     let animal_cone = cone_of("animal");
     let dog_cone = cone_of("dog");
 
-    println!("  {:>10} | {:>8} {:>8} | {:>8}", "entity", "animal", "dog", "Product");
+    println!(
+        "  {:>10} | {:>8} {:>8} | {:>8}",
+        "entity", "animal", "dog", "Product"
+    );
     println!("  {:-<10}-+-{:-<8}-{:-<8}-+-{:-<8}", "", "", "", "");
 
     for (name, point) in &entity_points {
@@ -183,11 +180,23 @@ fn main() {
     let c = cone_of("cat");
     let not_c = c.complement();
     let not_not_c = not_c.complement();
-    println!("  cat apertures:          {:?}", c.apertures().as_slice().unwrap());
-    println!("  NOT cat apertures:      {:?}", not_c.apertures().as_slice().unwrap());
-    println!("  NOT NOT cat apertures:  {:?}", not_not_c.apertures().as_slice().unwrap());
+    println!(
+        "  cat apertures:          {:?}",
+        c.apertures().as_slice().unwrap()
+    );
+    println!(
+        "  NOT cat apertures:      {:?}",
+        not_c.apertures().as_slice().unwrap()
+    );
+    println!(
+        "  NOT NOT cat apertures:  {:?}",
+        not_not_c.apertures().as_slice().unwrap()
+    );
     println!("  Double complement = identity: {}", {
-        let diff: f32 = c.apertures().iter().zip(not_not_c.apertures().iter())
+        let diff: f32 = c
+            .apertures()
+            .iter()
+            .zip(not_not_c.apertures().iter())
             .map(|(a, b)| (a - b).abs())
             .sum();
         diff < 1e-4
