@@ -1552,6 +1552,7 @@ mod tests {
             ];
 
             for &(name, analytical) in cases {
+                #[allow(clippy::needless_range_loop)]
                 for i in 0..dim {
                     let loss_plus = perturb_loss(name, i, 1.0);
                     let loss_minus = perturb_loss(name, i, -1.0);
