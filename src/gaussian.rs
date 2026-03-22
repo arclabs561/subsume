@@ -98,15 +98,6 @@ impl GaussianBox {
         Ok(Self { mu, sigma })
     }
 
-    /// Create a unit Gaussian (mu=0, sigma=1) of the given dimensionality.
-    #[must_use]
-    pub fn unit(dim: usize) -> Self {
-        Self {
-            mu: vec![0.0; dim],
-            sigma: vec![1.0; dim],
-        }
-    }
-
     /// Dimensionality of this Gaussian.
     #[must_use]
     pub fn dim(&self) -> usize {
@@ -541,8 +532,8 @@ mod tests {
 
     #[test]
     fn test_high_dim_256() {
-        let a = GaussianBox::unit(256);
-        let b = GaussianBox::unit(256);
+        let a = GaussianBox::new(vec![0.0; 256], vec![1.0; 256]).unwrap();
+        let b = GaussianBox::new(vec![0.0; 256], vec![1.0; 256]).unwrap();
         let kl = kl_divergence(&a, &b).unwrap();
         assert!(
             kl.abs() < 1e-4,
@@ -554,8 +545,8 @@ mod tests {
 
     #[test]
     fn test_high_dim_1024() {
-        let a = GaussianBox::unit(1024);
-        let b = GaussianBox::unit(1024);
+        let a = GaussianBox::new(vec![0.0; 1024], vec![1.0; 1024]).unwrap();
+        let b = GaussianBox::new(vec![0.0; 1024], vec![1.0; 1024]).unwrap();
         let kl = kl_divergence(&a, &b).unwrap();
         assert!(
             kl.abs() < 1e-3,
@@ -761,7 +752,7 @@ mod tests {
 
     #[test]
     fn test_kl_identical() {
-        let g = GaussianBox::unit(4);
+        let g = GaussianBox::new(vec![0.0; 4], vec![1.0; 4]).unwrap();
         let kl = kl_divergence(&g, &g).unwrap();
         assert!(
             (kl).abs() < 1e-6,
@@ -841,7 +832,7 @@ mod tests {
     #[test]
     fn test_volume_regularization() {
         // unit Gaussian: sigma = [1.0; 4], variance = [1.0; 4]
-        let g = GaussianBox::unit(4);
+        let g = GaussianBox::new(vec![0.0; 4], vec![1.0; 4]).unwrap();
         // min_var = 0.5: all variances (1.0) exceed it, so loss = 0
         let loss = volume_regularization(&g, 0.5);
         assert!(

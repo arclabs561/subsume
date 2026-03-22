@@ -472,17 +472,15 @@ fn dataset_roundtrip() {
     write!(f, "{test_data}").unwrap();
 
     let dataset = load_dataset(dir.path()).expect("load_dataset");
-    let stats = dataset.stats();
-
-    assert_eq!(stats.num_train, 3, "train triples");
-    assert_eq!(stats.num_valid, 1, "valid triples");
-    assert_eq!(stats.num_test, 2, "test triples");
+    assert_eq!(dataset.train.len(), 3, "train triples");
+    assert_eq!(dataset.valid.len(), 1, "valid triples");
+    assert_eq!(dataset.test.len(), 2, "test triples");
 
     // 8 unique entities: dog, cat, eagle, bird, animal, salmon, fish, oak, plant
-    assert_eq!(stats.num_entities, 9, "unique entities");
+    assert_eq!(dataset.entities().len(), 9, "unique entities");
 
     // 1 unique relation: _hypernym
-    assert_eq!(stats.num_relations, 1, "unique relations");
+    assert_eq!(dataset.relations().len(), 1, "unique relations");
 
     // Spot-check a training triple
     assert_eq!(dataset.train[0].head, "dog");
