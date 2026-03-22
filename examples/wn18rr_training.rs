@@ -53,13 +53,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
     let entities = &interned.entities;
 
-    // Training configuration -- conservative settings for a first run.
-    // Higher dim, more epochs, and lower lr would improve results but take longer.
+    // Configuration via environment variables for remote training.
+    let dim: usize = std::env::var("DIM")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(32);
+    let epochs: usize = std::env::var("EPOCHS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(20);
+    let lr: f32 = std::env::var("LR")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(5e-4);
+    let neg: usize = std::env::var("NEG")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(5);
+    let self_adv: bool = std::env::var("SELF_ADV")
+        .ok()
+        .map(|s| s == "1")
+        .unwrap_or(false);
+
     let config = TrainingConfig {
-        learning_rate: 5e-4,
-        epochs: 20,
+        learning_rate: lr,
+        epochs,
         batch_size: 512,
-        negative_samples: 5,
+        negative_samples: neg,
         margin: 0.5,
         regularization: 1e-4,
         negative_weight: 1.0,
@@ -67,11 +87,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         gumbel_beta_final: 20.0,
         max_grad_norm: 5.0,
         adversarial_temperature: 1.0,
-        warmup_epochs: 5,
+        warmup_epochs: (epochs / 10).max(1),
+        self_adversarial: self_adv,
         ..Default::default()
     };
-
-    let dim = 32;
     let mut trainer = BoxEmbeddingTrainer::new(config.clone(), dim);
 
     // Ensure all entities exist in the trainer.
