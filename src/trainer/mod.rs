@@ -23,6 +23,11 @@ pub mod evaluation;
 /// Negative sampling functions for knowledge graph training.
 pub mod negative_sampling;
 
+/// Candle-based box trainer with autograd (GPU-accelerated).
+#[cfg(feature = "candle-backend")]
+#[cfg_attr(docsrs, doc(cfg(feature = "candle-backend")))]
+pub mod candle_trainer;
+
 use crate::BoxError;
 
 // ---------------------------------------------------------------------------
