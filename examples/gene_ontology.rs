@@ -15,7 +15,7 @@
 
 use subsume::el_dataset::load_el_axioms;
 use subsume::{
-    evaluate_subsumption, train_el_embeddings, Axiom, ElTrainingConfig, ElTrainingResult, Ontology,
+    evaluate_subsumption, train_el_embeddings, ElTrainingConfig, ElTrainingResult, Ontology,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -47,80 +47,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n  Classes: {}, Roles: {}", classes.len(), roles.len());
 
     // ---------------------------------------------------------------
-    // 2. Build Ontology (indexed) from ElDataset (string-based)
+    // 2. Build Ontology (indexed) from ElDataset
     // ---------------------------------------------------------------
-    let mut ontology = Ontology::new();
-
-    // NF2: C c= D  ->  SubClassOf { sub, sup }
-    for (c, d) in &dataset.nf2 {
-        let sub = ontology.concept(c);
-        let sup = ontology.concept(d);
-        ontology.axioms.push(Axiom::SubClassOf { sub, sup });
-    }
-
-    // DISJ: C ^ D c= bot  ->  Disjoint { a, b }
-    for (c, d) in &dataset.disj {
-        let a = ontology.concept(c);
-        let b = ontology.concept(d);
-        ontology.axioms.push(Axiom::Disjoint { a, b });
-    }
-
-    // NF4: Er.C c= D  ->  Existential { role, filler, target }
-    for (r, c, d) in &dataset.nf4 {
-        let role = ontology.role(r);
-        let filler = ontology.concept(c);
-        let target = ontology.concept(d);
-        ontology.axioms.push(Axiom::Existential {
-            role,
-            filler,
-            target,
-        });
-    }
-
-    // RI6: r c= s  ->  RoleInclusion { sub, sup }
-    for (r, s) in &dataset.ri6 {
-        let sub = ontology.role(r);
-        let sup = ontology.role(s);
-        ontology.axioms.push(Axiom::RoleInclusion { sub, sup });
-    }
-
-    // RI7: r o s c= t  ->  RoleComposition { r, s, t }
-    for (r, s, t) in &dataset.ri7 {
-        let r_idx = ontology.role(r);
-        let s_idx = ontology.role(s);
-        let t_idx = ontology.role(t);
-        ontology.axioms.push(Axiom::RoleComposition {
-            r: r_idx,
-            s: s_idx,
-            t: t_idx,
-        });
-    }
-
-    // NF3: C c= Er.D -- the el_training module does not have a dedicated NF3
-    // axiom type. NF3 is the dual of NF4 (existential on the right-hand side
-    // vs left-hand side). We approximate by adding both a subsumption and an
-    // existential that capture the intended constraint:
-    //   C c= Er.D  implies  C is related to D via r
-    // We register the concepts/roles so they get embeddings, and add NF4-style
-    // axioms in reverse where plausible. For a complete NF3 implementation,
-    // extend the Axiom enum and training loop.
-    for (c, r, d) in &dataset.nf3 {
-        // Ensure concepts and roles exist in the ontology index.
-        let _c_idx = ontology.concept(c);
-        let _r_idx = ontology.role(r);
-        let _d_idx = ontology.concept(d);
-        // NF3 axioms contribute to the embedding space layout even without
-        // a dedicated loss term -- the concepts participate in other axioms.
-    }
-
-    // NF1: C1 ^ C2 c= D -- the el_training module does not have a dedicated
-    // NF1 axiom type either. We register the concepts so they are embedded.
-    // After training, we compute el_intersection_loss manually to evaluate.
-    for (c1, c2, d) in &dataset.nf1 {
-        let _c1_idx = ontology.concept(c1);
-        let _c2_idx = ontology.concept(c2);
-        let _d_idx = ontology.concept(d);
-    }
+    // from_el_dataset handles all axiom types: NF1 (Intersection),
+    // NF2 (SubClassOf), NF3 (ExistentialRight), NF4 (Existential),
+    // RI6 (RoleInclusion), RI7 (RoleComposition), DISJ (Disjoint).
+    let ontology = Ontology::from_el_dataset(&dataset);
 
     println!(
         "\nOntology: {} concepts, {} roles, {} axioms (training)",

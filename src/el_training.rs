@@ -72,6 +72,15 @@ pub enum Axiom {
         /// Super-role index.
         sup: usize,
     },
+    /// NF3: C ⊑ ∃r.D (concept subsumed by existential restriction)
+    ExistentialRight {
+        /// Concept index (the subclass).
+        sub: usize,
+        /// Role index.
+        role: usize,
+        /// Filler concept index.
+        filler: usize,
+    },
     /// NF1: C1 ⊓ C2 ⊑ D (conjunction subsumption)
     Intersection {
         /// First conjunct concept index.
@@ -165,19 +174,11 @@ impl Ontology {
             });
         }
         for (c, r, d) in &ds.nf3 {
-            // NF3: C ⊑ ∃r.D -- concept C is subsumed by existential
-            // We store as Existential { role, filler=D, target=C }
-            // because Existential means ∃R.filler ⊑ target
-            // But NF3 is C ⊑ ∃r.D which is different from NF4 (∃r.C ⊑ D).
-            // NF3 doesn't directly map to Existential (which models NF4).
-            // For NF3, we add it as SubClassOf between C and a synthetic concept.
-            // However, for simplicity and following Box2EL, we skip NF3 in the
-            // basic training and handle it via the inclusion loss on roles.
-            let _c_idx = ont.concept(c);
-            let _r_idx = ont.role(r);
-            let _d_idx = ont.concept(d);
-            // NF3 axioms are registered for vocabulary but not trained directly
-            // (requires existential quantifier support in the loss).
+            let sub = ont.concept(c);
+            let role = ont.role(r);
+            let filler = ont.concept(d);
+            ont.axioms
+                .push(Axiom::ExistentialRight { sub, role, filler });
         }
         for (r, c, d) in &ds.nf4 {
             let role = ont.role(r);
@@ -725,6 +726,48 @@ pub fn train_el_embeddings(ontology: &Ontology, config: &ElTrainingConfig) -> El
                             }
                         }
                     }
+                }
+                Axiom::ExistentialRight { sub, role, filler } => {
+                    // NF3: C ⊑ ∃r.D -- concept sub should be inside existential_box(r, filler)
+                    let mut ex_center = vec![0.0f32; dim];
+                    let mut ex_offset = vec![0.0f32; dim];
+                    el::existential_box(
+                        &roles.centers[role],
+                        &roles.offsets[role],
+                        &concepts.centers[filler],
+                        &concepts.offsets[filler],
+                        &mut ex_center,
+                        &mut ex_offset,
+                    )
+                    .expect("all embeddings use the same dim");
+
+                    // Inclusion loss: sub ⊑ ex
+                    let (g_sub_ax, g_ex, loss) = inclusion_grads(
+                        &concepts.centers[sub],
+                        &concepts.offsets[sub],
+                        &ex_center,
+                        &ex_offset,
+                        config.margin,
+                    );
+                    total_loss += config.existential_weight * loss;
+
+                    concepts.apply_grad(sub, &g_sub_ax);
+
+                    // Chain rule through existential_box: same as NF4 but for the "sup" side
+                    let mut g_role = BoxGrad::zeros(dim);
+                    let mut g_filler = BoxGrad::zeros(dim);
+                    for i in 0..dim {
+                        g_role.center[i] = g_ex.center[i];
+                        g_filler.center[i] = g_ex.center[i];
+
+                        if concepts.offsets[filler][i] > roles.offsets[role][i] {
+                            g_filler.offset[i] = g_ex.offset[i];
+                            g_role.offset[i] = -g_ex.offset[i];
+                        }
+                    }
+
+                    roles.apply_grad(role, &g_role);
+                    concepts.apply_grad(filler, &g_filler);
                 }
                 Axiom::Disjoint { a, b } => {
                     let (ga, gb, loss) = disjointness_grads(
