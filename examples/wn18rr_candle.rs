@@ -26,10 +26,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let dim: usize = env_or("DIM", 200);
     let epochs: usize = env_or("EPOCHS", 500);
     let lr: f64 = env_or("LR", 0.001);
-    let neg: usize = env_or("NEG", 50);
+    let neg: usize = env_or("NEG", 128);
     let batch: usize = env_or("BATCH", 512);
     let beta: f32 = env_or("BETA", 10.0);
     let margin: f32 = env_or("MARGIN", 3.0);
+    let adv_temp: f32 = env_or("ADV_TEMP", 2.0);
 
     let device = Device::cuda_if_available(0).unwrap_or(Device::Cpu);
     println!("=== WN18RR Candle Box Training ===");
@@ -37,7 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Device: {}",
         if device.is_cuda() { "CUDA" } else { "CPU" }
     );
-    println!("Config: dim={dim}, epochs={epochs}, lr={lr}, neg={neg}, batch={batch}, beta={beta}, margin={margin}\n");
+    println!("Config: dim={dim}, epochs={epochs}, lr={lr}, neg={neg}, batch={batch}, beta={beta}, margin={margin}, adv_temp={adv_temp}\n");
 
     let data_path = Path::new("data/WN18RR");
     if !data_path.exists() {
@@ -64,7 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let trainer = CandleBoxTrainer::new(num_entities, num_relations, dim, beta, &device)?;
 
     let start = Instant::now();
-    let losses = trainer.fit(&train, epochs, lr, batch, margin, neg)?;
+    let losses = trainer.fit(&train, epochs, lr, batch, margin, neg, adv_temp)?;
     let elapsed = start.elapsed();
 
     println!(

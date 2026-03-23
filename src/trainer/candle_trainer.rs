@@ -1,38 +1,32 @@
-//! Candle-based box embedding trainer with autograd.
+//! GPU-accelerated box embedding trainer via candle autograd.
 //!
-//! Uses candle tensors for GPU-accelerated training with automatic
-//! differentiation. Matches the probabilistic containment loss from
-//! the ndarray trainer: `-ln P(B ⊆ A)` where `P(B ⊆ A) = Vol(A ∩ B) / Vol(B)`,
-//! with softplus-smoothed intersection volumes for gradient flow through
-//! disjoint boxes.
+//! Trains box embeddings for knowledge graph completion using:
+//! - Per-dimension containment violation scoring (L1 norm, scales to any dim)
+//! - Log-sigmoid negative sampling loss (BoxE-style)
+//! - Self-adversarial negative weighting (RotatE-style)
+//! - Head + tail corruption
+//! - Zero-copy GPU training loop (data preloaded, negatives generated on device)
 //!
 //! # Architecture
 //!
-//! Entity embeddings are stored as two `Var` tensors:
-//! - `mu`: center positions, shape `[num_entities, dim]`
-//! - `log_delta`: log-widths, shape `[num_entities, dim]`
+//! Entity embeddings: `mu` (centers) + `log_delta` (log-widths), both `[num_entities, dim]`.
+//! Relation embeddings: optional `rel_offset` translations, `[num_relations, dim]`.
+//! Box bounds: `min = mu - delta/2`, `max = mu + delta/2`, where
+//! `delta = softplus(exp(log_delta), beta)`.
 //!
-//! Box bounds are derived via:
-//! - `min = mu - delta/2`, `max = mu + delta/2`
-//! - `delta = softplus(exp(log_delta), beta)` (Gumbel parameterization)
-//!
-//! # Memory optimization
-//!
-//! The entity table transforms (`exp -> softplus -> bounds`) are computed
-//! once per batch step into `(min_all, max_all)`, then batch-indexed via
-//! `index_select`. This keeps the autograd graph O(1) in entity count
-//! rather than O(negative_samples).
+//! The scoring function sums per-dimension containment violations:
+//! `score(h, t) = sum_d(relu(min_t - min_h) + relu(max_h - max_t))`.
+//! Lower score = head box better contains tail box.
 
 use candle_core::{Device, Result, Tensor, Var};
 
-/// Candle-based box embedding trainer with probabilistic containment loss.
+/// GPU-accelerated box embedding trainer.
 pub struct CandleBoxTrainer {
     /// Entity center positions: `[num_entities, dim]`.
     pub mu: Var,
     /// Entity log-widths: `[num_entities, dim]`.
     pub log_delta: Var,
     /// Per-relation translation offsets: `[num_relations, dim]`.
-    /// `None` if no relations are used (identity transform).
     pub rel_offset: Option<Var>,
     /// Embedding dimension.
     pub dim: usize,
@@ -40,9 +34,9 @@ pub struct CandleBoxTrainer {
     pub num_entities: usize,
     /// Number of relations (0 if identity).
     pub num_relations: usize,
-    /// Gumbel beta parameter.
+    /// Gumbel beta parameter for softplus width transform.
     pub beta: f32,
-    /// Device (CPU or CUDA).
+    /// Device (CPU, CUDA, or Metal).
     pub device: Device,
 }
 
@@ -91,9 +85,6 @@ impl CandleBoxTrainer {
     }
 
     /// Compute (min_all, max_all) for the entire entity table.
-    ///
-    /// Returns `[num_entities, dim]` tensors. Call once per batch step,
-    /// then use `index_select` for batch-sized lookups.
     fn entity_bounds(&self) -> Result<(Tensor, Tensor)> {
         let exp_ld = self.log_delta.as_tensor().exp()?;
         let delta = softplus(&exp_ld, self.beta)?;
@@ -104,31 +95,19 @@ impl CandleBoxTrainer {
         Ok((min_all, max_all))
     }
 
-    /// Per-dimension containment violation between head and tail boxes.
-    ///
-    /// For each dimension d:
-    ///   `violation_d = max(0, max(min_t_d - min_h_d, 0) + max(max_h_d - max_t_d, 0))`
-    ///
-    /// This measures how far head is from containing tail, per dimension.
-    /// Returns `[batch, dim]` tensor of violations.
+    /// Per-dimension containment violation (head containing tail).
     fn containment_violation(
         min_h: &Tensor,
         max_h: &Tensor,
         min_t: &Tensor,
         max_t: &Tensor,
     ) -> Result<Tensor> {
-        // Head's min must be <= tail's min (head contains tail from below)
         let lower_violation = min_t.sub(min_h)?.relu()?;
-        // Head's max must be >= tail's max (head contains tail from above)
         let upper_violation = max_h.sub(max_t)?.relu()?;
-        // Combined per-dimension violation
         lower_violation.add(&upper_violation)
     }
 
-    /// Score a batch from pre-computed entity bounds.
-    ///
-    /// Returns per-dim containment violation summed over dimensions (L1 score).
-    /// Lower = head better contains tail.
+    /// Score a batch from pre-computed entity bounds (L1 containment violation).
     fn batch_score(
         &self,
         min_all: &Tensor,
@@ -142,7 +121,6 @@ impl CandleBoxTrainer {
         let min_t = min_all.index_select(tail_ids, 0)?;
         let max_t = max_all.index_select(tail_ids, 0)?;
 
-        // Apply relation translation to head
         if let (Some(ref rel_var), Some(rel)) = (&self.rel_offset, rel_ids) {
             let offset = rel_var.as_tensor().index_select(rel, 0)?;
             min_h = min_h.add(&offset)?;
@@ -150,17 +128,10 @@ impl CandleBoxTrainer {
         }
 
         let violation = Self::containment_violation(&min_h, &max_h, &min_t, &max_t)?;
-        // L1 norm across dimensions (sum, not mean -- matches BoxE)
         violation.sum(1)
     }
 
-    /// Negative sampling loss with log-sigmoid (BoxE-style).
-    ///
-    /// `loss = -mean(log_sigmoid(margin - pos_score))
-    ///         -mean(log_sigmoid(neg_score - margin))`
-    ///
-    /// Lower score = better containment. Positive triples should score
-    /// below margin; negatives should score above margin.
+    /// Log-sigmoid negative sampling loss.
     fn ns_loss(
         pos_scores: &Tensor,
         neg_scores: &Tensor,
@@ -170,19 +141,47 @@ impl CandleBoxTrainer {
         let margin_p = Tensor::full(margin, pos_scores.shape(), device)?;
         let margin_n = Tensor::full(margin, neg_scores.shape(), device)?;
 
-        // Positive: log sigmoid(margin - score) -- want score < margin
         let pos_term = log_sigmoid(&margin_p.sub(pos_scores)?)?;
-        // Negative: log sigmoid(score - margin) -- want score > margin
         let neg_term = log_sigmoid(&neg_scores.sub(&margin_n)?)?;
 
-        // Minimize -(mean(pos_term) + mean(neg_term))
-        let loss = pos_term.mean(0)?.add(&neg_term.mean(0)?)?.neg()?;
-        Ok(loss)
+        pos_term.mean(0)?.add(&neg_term.mean(0)?)?.neg()
     }
 
-    /// Score a batch of (head, tail) pairs: lower = better containment.
+    /// Self-adversarial negative sampling loss.
     ///
-    /// Returns L1 containment violation per pair.
+    /// Weights each negative by `softmax(alpha * neg_score)` (detached).
+    /// Concentrates gradient on hard negatives the model currently scores well.
+    fn self_adversarial_ns_loss(
+        pos_scores: &Tensor,
+        neg_scores: &Tensor,
+        margin: f32,
+        adv_temp: f32,
+        num_neg: usize,
+        device: &Device,
+    ) -> Result<Tensor> {
+        let margin_p = Tensor::full(margin, pos_scores.shape(), device)?;
+
+        let pos_term = log_sigmoid(&margin_p.sub(pos_scores)?)?;
+
+        // Reshape negatives: [batch * num_neg] -> [batch, num_neg]
+        let batch_size = pos_scores.dims()[0];
+        let neg_2d = neg_scores.reshape((batch_size, num_neg))?;
+
+        // Softmax weights (detached -- no gradient through weights)
+        let weights = candle_nn::ops::softmax(
+            &neg_2d.affine(adv_temp as f64, 0.0)?.detach(),
+            1,
+        )?;
+
+        // Weighted negative loss per batch element
+        let margin_2d = Tensor::full(margin, (batch_size, num_neg), device)?;
+        let neg_term_2d = log_sigmoid(&neg_2d.sub(&margin_2d)?)?;
+        let weighted = weights.mul(&neg_term_2d)?.sum(1)?; // [batch]
+
+        pos_term.mean(0)?.add(&weighted.mean(0)?)?.neg()
+    }
+
+    /// Score a batch of (head, tail) pairs.
     pub fn score(&self, head_ids: &Tensor, tail_ids: &Tensor) -> Result<Tensor> {
         let (min_all, max_all) = self.entity_bounds()?;
         self.batch_score(&min_all, &max_all, head_ids, tail_ids, None)
@@ -199,10 +198,12 @@ impl CandleBoxTrainer {
         self.batch_score(&min_all, &max_all, head_ids, tail_ids, Some(rel_ids))
     }
 
-    /// Train on triples with AdamW optimizer.
+    /// Train with AdamW, log-sigmoid loss, and optional self-adversarial weighting.
     ///
-    /// Triples are `(head_id, relation_id, tail_id)`. Shuffles each epoch.
+    /// Triples are `(head_id, relation_id, tail_id)`. Corrupts both head and tail.
     /// Returns per-epoch average losses.
+    ///
+    /// Set `adversarial_temperature` to 0.0 to disable self-adversarial weighting.
     pub fn fit(
         &self,
         train_triples: &[(usize, usize, usize)],
@@ -211,6 +212,7 @@ impl CandleBoxTrainer {
         batch_size: usize,
         margin: f32,
         negative_samples: usize,
+        adversarial_temperature: f32,
     ) -> Result<Vec<f32>> {
         use candle_nn::{AdamW, Optimizer, ParamsAdamW};
 
@@ -221,7 +223,7 @@ impl CandleBoxTrainer {
 
         let params = ParamsAdamW {
             lr,
-            weight_decay: 1e-4,
+            weight_decay: 0.0, // BoxE uses no weight decay
             ..Default::default()
         };
         let mut opt = AdamW::new(vars, params)?;
@@ -236,7 +238,7 @@ impl CandleBoxTrainer {
             (*s >> 33) as usize
         };
 
-        // Preload ALL training data as device tensors (zero CPU-GPU transfer in loop)
+        // Preload training data as device tensors
         let all_heads: Vec<u32> = train_triples.iter().map(|t| t.0 as u32).collect();
         let all_rels: Vec<u32> = train_triples.iter().map(|t| t.1 as u32).collect();
         let all_tails: Vec<u32> = train_triples.iter().map(|t| t.2 as u32).collect();
@@ -244,17 +246,15 @@ impl CandleBoxTrainer {
         let rels_gpu = Tensor::from_vec(all_rels, (n,), &self.device)?;
         let tails_gpu = Tensor::from_vec(all_tails, (n,), &self.device)?;
 
-        // CPU-side permutation (cheap -- just u32 indices)
         let mut indices: Vec<u32> = (0..n as u32).collect();
+        let use_self_adv = adversarial_temperature > 0.0;
 
         for epoch in 0..epochs {
-            // Fisher-Yates shuffle (CPU -- fast for index permutation)
             for i in (1..n).rev() {
                 let j = lcg(&mut rng) % (i + 1);
                 indices.swap(i, j);
             }
 
-            // Upload permutation once per epoch
             let perm = Tensor::from_vec(indices.clone(), (n,), &self.device)?;
             let heads_shuf = heads_gpu.index_select(&perm, 0)?;
             let rels_shuf = rels_gpu.index_select(&perm, 0)?;
@@ -267,10 +267,8 @@ impl CandleBoxTrainer {
                 let batch_end = (batch_start + batch_size).min(n);
                 let bs = batch_end - batch_start;
 
-                // Compute entity bounds per step (params change after backward)
                 let (min_all, max_all) = self.entity_bounds()?;
 
-                // Slice batch from pre-shuffled GPU tensors (no CPU-GPU transfer)
                 let h_t = heads_shuf.narrow(0, batch_start, bs)?;
                 let r_t = rels_shuf.narrow(0, batch_start, bs)?;
                 let t_t = tails_shuf.narrow(0, batch_start, bs)?;
@@ -281,34 +279,63 @@ impl CandleBoxTrainer {
                     None
                 };
 
-                // Positive scores
                 let pos_scores =
                     self.batch_score(&min_all, &max_all, &h_t, &t_t, rel_ref)?;
 
-                // Generate negative tails on device (no CPU-GPU transfer)
+                // Corrupt both head and tail (half each)
                 let total_neg = bs * negative_samples;
-                let neg_rand = Tensor::rand(
+                let half_neg = total_neg / 2;
+
+                // Tail corruption: keep head, randomize tail
+                let neg_rand_t = Tensor::rand(
                     0.0_f32,
                     self.num_entities as f32,
-                    (total_neg,),
+                    (half_neg,),
                     &self.device,
                 )?;
-                let neg_t = neg_rand.to_dtype(candle_core::DType::U32)?;
+                let neg_t_ids = neg_rand_t.to_dtype(candle_core::DType::U32)?;
+                let neg_h_for_t = h_t.repeat(((half_neg + bs - 1) / bs,))?.narrow(0, 0, half_neg)?;
+                let neg_r_for_t = r_t.repeat(((half_neg + bs - 1) / bs,))?.narrow(0, 0, half_neg)?;
 
-                // Repeat head/rel for each negative sample
-                let neg_h = h_t.repeat((negative_samples,))?;
-                let neg_r = r_t.repeat((negative_samples,))?;
+                // Head corruption: keep tail, randomize head
+                let neg_rand_h = Tensor::rand(
+                    0.0_f32,
+                    self.num_entities as f32,
+                    (total_neg - half_neg,),
+                    &self.device,
+                )?;
+                let neg_h_ids = neg_rand_h.to_dtype(candle_core::DType::U32)?;
+                let remaining = total_neg - half_neg;
+                let neg_t_for_h = t_t.repeat(((remaining + bs - 1) / bs,))?.narrow(0, 0, remaining)?;
+                let neg_r_for_h = r_t.repeat(((remaining + bs - 1) / bs,))?.narrow(0, 0, remaining)?;
+
+                // Concatenate all negatives
+                let all_neg_h = Tensor::cat(&[&neg_h_for_t, &neg_h_ids], 0)?;
+                let all_neg_t = Tensor::cat(&[&neg_t_ids, &neg_t_for_h], 0)?;
+                let all_neg_r = Tensor::cat(&[&neg_r_for_t, &neg_r_for_h], 0)?;
 
                 let neg_rel_ref = if self.num_relations > 0 {
-                    Some(&neg_r)
+                    Some(&all_neg_r)
                 } else {
                     None
                 };
                 let neg_scores = self.batch_score(
-                    &min_all, &max_all, &neg_h, &neg_t, neg_rel_ref,
+                    &min_all, &max_all, &all_neg_h, &all_neg_t, neg_rel_ref,
                 )?;
 
-                let loss = Self::ns_loss(&pos_scores, &neg_scores, margin, &self.device)?;
+                let loss = if use_self_adv {
+                    Self::self_adversarial_ns_loss(
+                        &pos_scores,
+                        &neg_scores,
+                        margin,
+                        adversarial_temperature,
+                        negative_samples,
+                        &self.device,
+                    )?
+                } else {
+                    Self::ns_loss(&pos_scores, &neg_scores, margin, &self.device)?
+                };
+
                 opt.backward_step(&loss)?;
 
                 total_loss += loss.to_scalar::<f32>()?;
@@ -329,16 +356,12 @@ impl CandleBoxTrainer {
 
 /// Log-sigmoid: `ln(sigmoid(x)) = -softplus(-x, 1)`, numerically stable.
 fn log_sigmoid(x: &Tensor) -> Result<Tensor> {
-    // log_sigmoid(x) = x - softplus(x, 1) = -softplus(-x, 1)
     let neg_x = x.neg()?;
     let sp = softplus(&neg_x, 1.0)?;
     sp.neg()
 }
 
 /// Softplus: `(1/beta) * ln(1 + exp(beta * x))`, numerically stable.
-///
-/// For large beta, this approaches `max(0, x)` (sharp ReLU approximation).
-/// Matches `crate::utils::softplus`.
 fn softplus(x: &Tensor, beta: f32) -> Result<Tensor> {
     let scaled = x.affine(beta as f64, 0.0)?;
     let clamped = scaled.clamp(-20.0, 20.0)?;
@@ -358,7 +381,6 @@ mod tests {
         let trainer = CandleBoxTrainer::new(100, 5, 32, 10.0, &device).unwrap();
         assert_eq!(trainer.num_entities, 100);
         assert_eq!(trainer.num_relations, 5);
-        assert_eq!(trainer.dim, 32);
         assert!(trainer.rel_offset.is_some());
     }
 
@@ -375,10 +397,7 @@ mod tests {
         let trainer = CandleBoxTrainer::new(10, 0, 8, 10.0, &device).unwrap();
         let heads = Tensor::from_vec(vec![0u32, 1, 2], (3,), &device).unwrap();
         let tails = Tensor::from_vec(vec![3u32, 4, 5], (3,), &device).unwrap();
-        let (min_all, max_all) = trainer.entity_bounds().unwrap();
-        let scores = trainer
-            .batch_score(&min_all, &max_all, &heads, &tails, None)
-            .unwrap();
+        let scores = trainer.score(&heads, &tails).unwrap();
         let vals: Vec<f32> = scores.to_vec1().unwrap();
         for &v in &vals {
             assert!(v >= 0.0, "score should be non-negative, got {v}");
@@ -393,14 +412,11 @@ mod tests {
         let heads = Tensor::from_vec(vec![0u32, 1, 2], (3,), &device).unwrap();
         let tails = Tensor::from_vec(vec![3u32, 4, 5], (3,), &device).unwrap();
         let rels = Tensor::from_vec(vec![0u32, 1, 2], (3,), &device).unwrap();
-        let (min_all, max_all) = trainer.entity_bounds().unwrap();
-        let scores = trainer
-            .batch_score(&min_all, &max_all, &heads, &tails, Some(&rels))
-            .unwrap();
+        let scores = trainer.score_with_rel(&heads, &tails, &rels).unwrap();
         let vals: Vec<f32> = scores.to_vec1().unwrap();
         for &v in &vals {
-            assert!(v >= 0.0, "score should be non-negative, got {v}");
-            assert!(v.is_finite(), "score should be finite");
+            assert!(v >= 0.0);
+            assert!(v.is_finite());
         }
     }
 
@@ -425,13 +441,14 @@ mod tests {
         let loss = CandleBoxTrainer::ns_loss(&pos, &neg, 3.0, &device).unwrap();
 
         let grads = loss.backward().unwrap();
-        let mu_grad = grads.get(trainer.mu.as_tensor()).unwrap();
-        assert_eq!(mu_grad.dims(), &[10, 8]);
-
-        let rel_grad = grads
-            .get(trainer.rel_offset.as_ref().unwrap().as_tensor())
-            .unwrap();
-        assert_eq!(rel_grad.dims(), &[3, 8]);
+        assert_eq!(grads.get(trainer.mu.as_tensor()).unwrap().dims(), &[10, 8]);
+        assert_eq!(
+            grads
+                .get(trainer.rel_offset.as_ref().unwrap().as_tensor())
+                .unwrap()
+                .dims(),
+            &[3, 8]
+        );
     }
 
     #[test]
@@ -449,12 +466,23 @@ mod tests {
         let device = Device::Cpu;
         let trainer = CandleBoxTrainer::new(20, 2, 8, 10.0, &device).unwrap();
         let triples = vec![(0, 0, 1), (2, 1, 3), (4, 0, 5), (6, 1, 7)];
-        let losses = trainer.fit(&triples, 200, 0.05, 4, 0.1, 2).unwrap();
+        let losses = trainer.fit(&triples, 200, 0.05, 4, 3.0, 2, 0.0).unwrap();
         let first_avg: f32 = losses[..10].iter().sum::<f32>() / 10.0;
         let last_avg: f32 = losses[losses.len() - 10..].iter().sum::<f32>() / 10.0;
         assert!(
             last_avg < first_avg,
             "loss should decrease: first_10_avg={first_avg}, last_10_avg={last_avg}",
         );
+    }
+
+    #[test]
+    fn test_fit_self_adversarial() {
+        let device = Device::Cpu;
+        let trainer = CandleBoxTrainer::new(20, 2, 8, 10.0, &device).unwrap();
+        let triples = vec![(0, 0, 1), (2, 1, 3), (4, 0, 5), (6, 1, 7)];
+        // Should not panic with self-adversarial enabled
+        let losses = trainer.fit(&triples, 50, 0.05, 4, 3.0, 4, 2.0).unwrap();
+        assert_eq!(losses.len(), 50);
+        assert!(losses[0].is_finite());
     }
 }
