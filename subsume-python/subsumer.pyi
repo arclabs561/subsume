@@ -275,6 +275,9 @@ class CandleBoxTrainer:
         dim: int,
         beta: float = 10.0,
         device: str = "cpu",
+        inside_weight: float = 0.0,
+        vol_reg: float = 0.0,
+        bounds_every: int = 0,
     ) -> None: ...
     def fit(
         self,
@@ -288,6 +291,16 @@ class CandleBoxTrainer:
     ) -> List[float]:
         """Train with AdamW. Returns per-epoch average losses."""
         ...
+    def evaluate(
+        self,
+        test_triples: List[Tuple[int, int, int]],
+        all_triples: List[Tuple[int, int, int]],
+    ) -> Dict[str, float]:
+        """Evaluate link prediction (filtered setting).
+
+        Returns dict with mrr, hits_at_1, hits_at_3, hits_at_10, mean_rank.
+        """
+        ...
     def score(
         self, head_ids: List[int], tail_ids: List[int]
     ) -> npt.NDArray[np.float32]:
@@ -298,3 +311,9 @@ class CandleBoxTrainer:
     ) -> npt.NDArray[np.float32]:
         """Score with relation translation. Lower = better containment."""
         ...
+    def score_all_tails(
+        self, head_id: int, rel_id: Optional[int] = None
+    ) -> npt.NDArray[np.float32]:
+        """Score all entities as tails for a head. Lower = better containment."""
+        ...
+    def __repr__(self) -> str: ...
