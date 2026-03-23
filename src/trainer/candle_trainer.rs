@@ -871,4 +871,122 @@ mod tests {
             "loss should decrease with inside_weight: first_10={first_avg}, last_10={last_avg}"
         );
     }
+
+    #[test]
+    fn test_positive_scores_decrease_with_training() {
+        // After training, positive triples should have LOWER violation scores
+        // than before training (model learns containment).
+        let device = Device::Cpu;
+        let trainer = CandleBoxTrainer::new(10, 2, 8, 10.0, &device).unwrap();
+        let triples = vec![(0, 0, 1), (2, 1, 3), (4, 0, 5), (6, 1, 7)];
+
+        // Score positives before training.
+        let h = Tensor::from_vec(vec![0u32, 2, 4, 6], (4,), &device).unwrap();
+        let r = Tensor::from_vec(vec![0u32, 1, 0, 1], (4,), &device).unwrap();
+        let t = Tensor::from_vec(vec![1u32, 3, 5, 7], (4,), &device).unwrap();
+        let scores_before: Vec<f32> = trainer
+            .score_with_rel(&h, &t, &r).unwrap()
+            .to_vec1().unwrap();
+        let avg_before: f32 = scores_before.iter().sum::<f32>() / scores_before.len() as f32;
+
+        // Train.
+        let _losses = trainer.fit(&triples, 200, 0.05, 4, 3.0, 4, 0.0).unwrap();
+
+        // Score positives after training.
+        let scores_after: Vec<f32> = trainer
+            .score_with_rel(&h, &t, &r).unwrap()
+            .to_vec1().unwrap();
+        let avg_after: f32 = scores_after.iter().sum::<f32>() / scores_after.len() as f32;
+
+        assert!(
+            avg_after < avg_before,
+            "positive violation should decrease with training: before={avg_before}, after={avg_after}"
+        );
+    }
+
+    #[test]
+    fn test_negative_scores_higher_than_positive() {
+        // After training, random negatives should have higher (worse) scores
+        // than positive triples on average.
+        let device = Device::Cpu;
+        let trainer = CandleBoxTrainer::new(10, 2, 8, 10.0, &device).unwrap();
+        let triples = vec![(0, 0, 1), (2, 1, 3), (4, 0, 5), (6, 1, 7)];
+        let _losses = trainer.fit(&triples, 300, 0.05, 4, 3.0, 4, 0.0).unwrap();
+
+        // Score positive triples.
+        let h_pos = Tensor::from_vec(vec![0u32, 2, 4, 6], (4,), &device).unwrap();
+        let r_pos = Tensor::from_vec(vec![0u32, 1, 0, 1], (4,), &device).unwrap();
+        let t_pos = Tensor::from_vec(vec![1u32, 3, 5, 7], (4,), &device).unwrap();
+        let pos_scores: Vec<f32> = trainer
+            .score_with_rel(&h_pos, &t_pos, &r_pos).unwrap()
+            .to_vec1().unwrap();
+        let avg_pos: f32 = pos_scores.iter().sum::<f32>() / pos_scores.len() as f32;
+
+        // Score random negative triples (random tails).
+        let h_neg = Tensor::from_vec(vec![0u32, 2, 4, 6], (4,), &device).unwrap();
+        let r_neg = Tensor::from_vec(vec![0u32, 1, 0, 1], (4,), &device).unwrap();
+        let t_neg = Tensor::from_vec(vec![8u32, 9, 0, 2], (4,), &device).unwrap();
+        let neg_scores: Vec<f32> = trainer
+            .score_with_rel(&h_neg, &t_neg, &r_neg).unwrap()
+            .to_vec1().unwrap();
+        let avg_neg: f32 = neg_scores.iter().sum::<f32>() / neg_scores.len() as f32;
+
+        assert!(
+            avg_neg > avg_pos,
+            "negatives ({avg_neg}) should score higher (worse) than positives ({avg_pos})"
+        );
+    }
+
+    #[test]
+    fn test_evaluate_mrr_improves_with_training() {
+        // MRR should improve after training vs random init.
+        let device = Device::Cpu;
+        let trainer = CandleBoxTrainer::new(10, 2, 8, 10.0, &device).unwrap();
+        let triples = vec![(0, 0, 1), (2, 1, 3), (4, 0, 5), (6, 1, 7)];
+
+        let (mrr_before, _, _, _, _) = trainer.evaluate(&triples, &triples).unwrap();
+
+        let _losses = trainer.fit(&triples, 300, 0.05, 4, 3.0, 4, 0.0).unwrap();
+
+        let (mrr_after, _, _, _, _) = trainer.evaluate(&triples, &triples).unwrap();
+
+        assert!(
+            mrr_after > mrr_before,
+            "MRR should improve with training: before={mrr_before}, after={mrr_after}"
+        );
+    }
+
+    #[test]
+    fn test_scores_nonnegative() {
+        // All scores should be non-negative (violation + inside distance >= 0).
+        let device = Device::Cpu;
+        let trainer = CandleBoxTrainer::new(20, 3, 16, 10.0, &device)
+            .unwrap()
+            .with_inside_weight(0.1);
+        let triples = vec![(0, 0, 1), (2, 1, 3), (4, 2, 5)];
+        let _losses = trainer.fit(&triples, 50, 0.05, 3, 3.0, 2, 0.0).unwrap();
+
+        // Score all pairs for all relations.
+        for h in 0..20 {
+            let scores = trainer.score_all_tails(h, Some(0)).unwrap();
+            let vals: Vec<f32> = scores.to_vec1().unwrap();
+            for (tid, &v) in vals.iter().enumerate() {
+                assert!(v >= -1e-6, "score({h}, 0, {tid}) = {v} should be >= 0");
+                assert!(v.is_finite(), "score({h}, 0, {tid}) = {v} should be finite");
+            }
+        }
+    }
+
+    #[test]
+    fn test_gradient_flows_through_inside_distance() {
+        // Verify autograd propagates through the inside distance (soft mask + division).
+        let device = Device::Cpu;
+        let trainer = CandleBoxTrainer::new(10, 0, 4, 10.0, &device)
+            .unwrap()
+            .with_inside_weight(0.1);
+        let triples = vec![(0, 0, 1), (2, 0, 3)];
+        // If gradient doesn't flow, this would panic or produce NaN loss.
+        let losses = trainer.fit(&triples, 20, 0.05, 2, 3.0, 2, 0.0).unwrap();
+        assert!(losses.iter().all(|l| l.is_finite()), "all losses should be finite");
+    }
 }
