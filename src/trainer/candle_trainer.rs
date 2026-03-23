@@ -42,6 +42,10 @@ pub struct CandleBoxTrainer {
     /// distance (penalty for being off-center when contained). Setting this
     /// to ~0.02-0.1 enables the inside term.
     pub inside_weight: f32,
+    /// Volume regularization weight. Penalizes large entity boxes to
+    /// prevent the trivial solution (all boxes grow to contain everything).
+    /// Typical values: 0.0001-0.001.
+    pub vol_reg: f32,
     /// How often to recompute entity bounds during training (in batches).
     ///
     /// 0 = once per epoch (fast but stale). N = every N batches.
@@ -95,6 +99,7 @@ impl CandleBoxTrainer {
             num_relations,
             beta,
             inside_weight: 0.0,
+            vol_reg: 0.0,
             bounds_every: 0,
             device: device.clone(),
         })
@@ -106,6 +111,13 @@ impl CandleBoxTrainer {
     #[must_use]
     pub fn with_inside_weight(mut self, weight: f32) -> Self {
         self.inside_weight = weight;
+        self
+    }
+
+    /// Set volume regularization weight. Penalizes large boxes.
+    #[must_use]
+    pub fn with_vol_reg(mut self, weight: f32) -> Self {
+        self.vol_reg = weight;
         self
     }
 
@@ -417,6 +429,18 @@ impl CandleBoxTrainer {
                     )?
                 } else {
                     Self::ns_loss(&pos_scores, &neg_scores, margin, &self.device)?
+                };
+
+                // Volume regularization: penalize mean log-width of boxes in this batch.
+                // Prevents all boxes from growing to contain everything (trivial solution).
+                let loss = if self.vol_reg > 0.0 {
+                    // Mean log-delta over the batch entities.
+                    let batch_entities = Tensor::cat(&[&h_t, &t_t], 0)?;
+                    let batch_ld = self.log_delta.as_tensor().index_select(&batch_entities, 0)?;
+                    let vol_penalty = batch_ld.mean_all()?.affine(self.vol_reg as f64, 0.0)?;
+                    loss.add(&vol_penalty)?
+                } else {
+                    loss
                 };
 
                 opt.backward_step(&loss)?;
@@ -1009,5 +1033,32 @@ mod tests {
         // If gradient doesn't flow, this would panic or produce NaN loss.
         let losses = trainer.fit(&triples, 20, 0.05, 2, 3.0, 2, 0.0).unwrap();
         assert!(losses.iter().all(|l| l.is_finite()), "all losses should be finite");
+    }
+
+    #[test]
+    fn test_vol_reg_constrains_box_size() {
+        // Volume regularization should prevent boxes from growing too large.
+        let device = Device::Cpu;
+
+        // Train without vol_reg.
+        let t1 = CandleBoxTrainer::new(10, 2, 8, 10.0, &device).unwrap();
+        let triples = vec![(0, 0, 1), (2, 1, 3), (4, 0, 5), (6, 1, 7)];
+        let _l1 = t1.fit(&triples, 200, 0.05, 4, 3.0, 4, 0.0).unwrap();
+        let ld1: Vec<f32> = t1.log_delta.as_tensor().flatten_all().unwrap().to_vec1().unwrap();
+        let avg_ld1: f32 = ld1.iter().sum::<f32>() / ld1.len() as f32;
+
+        // Train with vol_reg.
+        let t2 = CandleBoxTrainer::new(10, 2, 8, 10.0, &device)
+            .unwrap()
+            .with_vol_reg(0.01);
+        let _l2 = t2.fit(&triples, 200, 0.05, 4, 3.0, 4, 0.0).unwrap();
+        let ld2: Vec<f32> = t2.log_delta.as_tensor().flatten_all().unwrap().to_vec1().unwrap();
+        let avg_ld2: f32 = ld2.iter().sum::<f32>() / ld2.len() as f32;
+
+        // With vol_reg, average log_delta should be smaller (boxes don't grow as much).
+        assert!(
+            avg_ld2 < avg_ld1,
+            "vol_reg should constrain box growth: without={avg_ld1}, with={avg_ld2}"
+        );
     }
 }
