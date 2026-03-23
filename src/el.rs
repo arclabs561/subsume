@@ -860,7 +860,8 @@ mod tests {
     fn test_intersection_loss_overlap_still_works() {
         // Overlapping conjuncts: C1=[0,4], C2=[2,6]. Intersection=[2,4].
         // D=[0,10] contains intersection => loss should be 0.
-        let loss = el_intersection_loss(&[2.0], &[2.0], &[4.0], &[2.0], &[5.0], &[5.0], 0.0).unwrap();
+        let loss =
+            el_intersection_loss(&[2.0], &[2.0], &[4.0], &[2.0], &[5.0], &[5.0], 0.0).unwrap();
         assert!(
             loss < 1e-6,
             "overlapping conjuncts with D containing intersection should have ~0 loss, got {loss}"

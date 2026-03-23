@@ -935,7 +935,7 @@ pub fn train_el_embeddings(ontology: &Ontology, config: &ElTrainingConfig) -> El
                         let mut g_c2 = BoxGrad::zeros(dim);
                         for i in 0..dim {
                             let d = concepts.centers[c1][i] - concepts.centers[c2][i];
-                            g_c1.center[i] = scale * d;  // push c1 toward c2
+                            g_c1.center[i] = scale * d; // push c1 toward c2
                             g_c2.center[i] = -scale * d; // push c2 toward c1
                         }
                         concepts.apply_grad(c1, &g_c1);
