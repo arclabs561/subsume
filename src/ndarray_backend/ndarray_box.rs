@@ -1108,7 +1108,7 @@ mod tests {
     fn containment_prob_zero_volume_child_is_error() {
         let parent = NdarrayBox::new(array![0.0, 0.0], array![4.0, 4.0], 1.0).unwrap();
         let child = NdarrayBox::new(array![1.0, 1.0], array![1.0, 1.0], 1.0).unwrap();
-        // Zero-volume "other" causes ZeroVolume error
+        // Zero-volume "other" causes zero-volume error
         let result = parent.containment_prob(&child);
         assert!(result.is_err());
     }
@@ -1253,7 +1253,7 @@ mod tests {
     fn point_box_containment_prob_returns_result() {
         let coords = array![1.0, 2.0, 3.0];
         let point = NdarrayBox::new(coords.clone(), coords, 1.0).unwrap();
-        // containment_prob may return Err(ZeroVolume) or Ok -- both are valid.
+        // containment_prob may return Err(zero-volume) or Ok -- both are valid.
         let result = point.containment_prob(&point);
         if let Ok(v) = result {
             assert!(v.is_finite(), "point box containment not finite: {v}");
@@ -1638,7 +1638,7 @@ mod degenerate_tests {
             let zb = NdarrayBox::new(Array1::from(val.clone()), Array1::from(val.clone()), 1.0).unwrap();
             let vol = zb.volume().unwrap();
             assert!(vol == 0.0, "zero-volume box has vol {vol}");
-            // containment_prob may return Err(ZeroVolume) -- that's valid.
+            // containment_prob may return Err(zero-volume) -- that's valid.
             let cp = zb.containment_prob(&zb);
             if let Ok(v) = cp { assert!(v.is_finite(), "zero-vol containment not finite: {v}"); }
 
@@ -1663,7 +1663,7 @@ mod degenerate_tests {
             let b = NdarrayBox::new(Array1::from(base), Array1::from(maxs), 1.0).unwrap();
             let vol = b.volume().unwrap();
             assert!(vol.is_finite() && vol >= 0.0, "near-zero vol: {vol}");
-            // May return Err(ZeroVolume) if width underflows to zero.
+            // May return Err(zero-volume) if width underflows to zero.
             if let Ok(cp) = b.containment_prob(&b) {
                 assert!(cp.is_finite(), "near-zero containment: {cp}");
             }
