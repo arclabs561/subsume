@@ -164,7 +164,7 @@ impl Box for CandleBox {
         let other_vol = other.volume()?;
 
         if other_vol <= 0.0 {
-            return Err(BoxError::ZeroVolume);
+            return Err(BoxError::Internal("Box has zero or negative volume".into()));
         }
 
         Ok((intersection_vol / other_vol).clamp(0.0, 1.0))
