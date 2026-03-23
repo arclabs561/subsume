@@ -8,9 +8,9 @@
 //!
 //! Environment variables:
 //!   DIM=200 EPOCHS=500 LR=0.001 NEG=128 BATCH=512 BETA=10.0 MARGIN=3.0 ADV_TEMP=2.0
+//!   INSIDE_W=0.02 BOUNDS_EVERY=50
 
 use candle_core::Device;
-use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::Instant;
 use subsume::dataset::load_dataset;
@@ -32,11 +32,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let beta: f32 = env_or("BETA", 10.0);
     let margin: f32 = env_or("MARGIN", 3.0);
     let adv_temp: f32 = env_or("ADV_TEMP", 2.0);
+    let inside_w: f32 = env_or("INSIDE_W", 0.0);
+    let bounds_every: usize = env_or("BOUNDS_EVERY", 0);
 
     let device = Device::cuda_if_available(0).unwrap_or(Device::Cpu);
     println!("=== WN18RR Candle Box Training ===");
     println!("Device: {}", if device.is_cuda() { "CUDA" } else { "CPU" });
-    println!("Config: dim={dim}, epochs={epochs}, lr={lr}, neg={neg}, batch={batch}, beta={beta}, margin={margin}, adv_temp={adv_temp}\n");
+    println!("Config: dim={dim}, epochs={epochs}, lr={lr}, neg={neg}, batch={batch}, beta={beta}, margin={margin}, adv_temp={adv_temp}, inside_w={inside_w}, bounds_every={bounds_every}\n");
 
     let data_path = Path::new("data/WN18RR");
     if !data_path.exists() {
@@ -60,7 +62,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         train.len()
     );
 
-    let trainer = CandleBoxTrainer::new(num_entities, num_relations, dim, beta, &device)?;
+    let trainer = CandleBoxTrainer::new(num_entities, num_relations, dim, beta, &device)?
+        .with_inside_weight(inside_w)
+        .with_bounds_every(bounds_every);
 
     let start = Instant::now();
     let losses = trainer.fit(&train, epochs, lr, batch, margin, neg, adv_temp)?;
@@ -79,75 +83,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         losses[losses.len() - 1]
     );
 
-    // Build filtered index: all known (head, rel) -> set of tails
-    let mut known_tails: HashMap<(usize, usize), HashSet<usize>> = HashMap::new();
-    for t in interned
+    // Build all_triples for filtered evaluation
+    let all_triples: Vec<(usize, usize, usize)> = interned
         .train
         .iter()
         .chain(interned.valid.iter())
         .chain(interned.test.iter())
-    {
-        known_tails
-            .entry((t.head, t.relation))
-            .or_default()
-            .insert(t.tail);
-    }
+        .map(|t| (t.head, t.relation, t.tail))
+        .collect();
 
-    // Evaluate on test set (filtered ranking)
-    let test_sample_size = interned.test.len().min(1000);
+    let test_triples: Vec<(usize, usize, usize)> = interned
+        .test
+        .iter()
+        .map(|t| (t.head, t.relation, t.tail))
+        .collect();
+
+    // Evaluate on test set (filtered, both head + tail prediction)
+    let eval_size = test_triples.len().min(1000);
     println!(
-        "\nFiltered eval on {test_sample_size}/{} test triples...",
-        interned.test.len()
+        "\nFiltered eval (head+tail) on {eval_size}/{} test triples...",
+        test_triples.len()
     );
     let eval_start = Instant::now();
-
-    let mut ranks = Vec::new();
-    let all_tails = candle_core::Tensor::from_vec(
-        (0..num_entities as u32).collect::<Vec<_>>(),
-        (num_entities,),
-        &device,
-    )?;
-
-    for t in &interned.test[..test_sample_size] {
-        let head_ids = candle_core::Tensor::from_vec(
-            vec![t.head as u32; num_entities],
-            (num_entities,),
-            &device,
-        )?;
-        let rel_ids = candle_core::Tensor::from_vec(
-            vec![t.relation as u32; num_entities],
-            (num_entities,),
-            &device,
-        )?;
-        let scores = trainer.score_with_rel(&head_ids, &all_tails, &rel_ids)?;
-        let scores_vec: Vec<f32> = scores.to_vec1()?;
-
-        let correct_score = scores_vec[t.tail];
-        let filter_set = known_tails.get(&(t.head, t.relation));
-
-        // Filtered rank: count entities scoring better, excluding known triples
-        let rank = scores_vec
-            .iter()
-            .enumerate()
-            .filter(|&(eid, &s)| {
-                s < correct_score
-                    && (eid == t.tail || !filter_set.is_some_and(|known| known.contains(&eid)))
-            })
-            .count()
-            + 1;
-        ranks.push(rank);
-    }
-
-    let mrr: f32 = ranks.iter().map(|&r| 1.0 / r as f32).sum::<f32>() / ranks.len() as f32;
-    let hits_1: f32 = ranks.iter().filter(|&&r| r <= 1).count() as f32 / ranks.len() as f32;
-    let hits_3: f32 = ranks.iter().filter(|&&r| r <= 3).count() as f32 / ranks.len() as f32;
-    let hits_10: f32 = ranks.iter().filter(|&&r| r <= 10).count() as f32 / ranks.len() as f32;
-    let mean_rank: f32 = ranks.iter().sum::<usize>() as f32 / ranks.len() as f32;
+    let (mrr, h1, h3, h10, mr) = trainer.evaluate(&test_triples[..eval_size], &all_triples)?;
 
     println!("  Eval time: {:.1}s", eval_start.elapsed().as_secs_f64());
-    println!(
-        "  MRR: {mrr:.4}  H@1: {hits_1:.4}  H@3: {hits_3:.4}  H@10: {hits_10:.4}  MR: {mean_rank:.1}"
-    );
+    println!("  MRR: {mrr:.4}  H@1: {h1:.4}  H@3: {h3:.4}  H@10: {h10:.4}  MR: {mr:.1}");
 
     Ok(())
 }
