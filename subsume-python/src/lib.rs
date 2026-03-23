@@ -1523,6 +1523,9 @@ fn train_el_embeddings(
 ///     dim: Embedding dimension.
 ///     beta: Gumbel beta for softplus width transform (default 10.0).
 ///     device: One of "cpu", "cuda", "metal".
+///     inside_weight: Weight for inside distance term (default 0.0).
+///     vol_reg: Volume regularization weight (default 0.0).
+///     bounds_every: Recompute entity bounds every N batches (0 = once per epoch).
 #[cfg(feature = "candle-backend")]
 #[pyclass(name = "CandleBoxTrainer")]
 struct PyCandleBoxTrainer {
@@ -1534,13 +1537,16 @@ struct PyCandleBoxTrainer {
 impl PyCandleBoxTrainer {
     /// Create a new candle-based box trainer.
     #[new]
-    #[pyo3(signature = (num_entities, num_relations, dim, beta=10.0, device="cpu"))]
+    #[pyo3(signature = (num_entities, num_relations, dim, beta=10.0, device="cpu", inside_weight=0.0, vol_reg=0.0, bounds_every=0))]
     fn new(
         num_entities: usize,
         num_relations: usize,
         dim: usize,
         beta: f32,
         device: &str,
+        inside_weight: f32,
+        vol_reg: f32,
+        bounds_every: usize,
     ) -> PyResult<Self> {
         let dev = match device {
             "cpu" => candle_core::Device::Cpu,
@@ -1561,7 +1567,10 @@ impl PyCandleBoxTrainer {
             beta,
             &dev,
         )
-        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?
+        .with_inside_weight(inside_weight)
+        .with_vol_reg(vol_reg)
+        .with_bounds_every(bounds_every);
         Ok(Self { inner })
     }
 
@@ -1658,11 +1667,71 @@ impl PyCandleBoxTrainer {
         Ok(arr.into_pyarray(py).into())
     }
 
+    /// Evaluate link prediction on test triples (filtered setting).
+    ///
+    /// Args:
+    ///     test_triples: List of (head_id, relation_id, tail_id) test triples.
+    ///     all_triples: List of all known triples (train + val + test) for filtering.
+    ///
+    /// Returns:
+    ///     Dict with keys: mrr, hits_at_1, hits_at_3, hits_at_10, mean_rank.
+    fn evaluate(
+        &self,
+        test_triples: Vec<(usize, usize, usize)>,
+        all_triples: Vec<(usize, usize, usize)>,
+    ) -> PyResult<std::collections::HashMap<String, f32>> {
+        let (mrr, h1, h3, h10, mr) = self
+            .inner
+            .evaluate(&test_triples, &all_triples)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let mut result = std::collections::HashMap::new();
+        result.insert("mrr".to_string(), mrr);
+        result.insert("hits_at_1".to_string(), h1);
+        result.insert("hits_at_3".to_string(), h3);
+        result.insert("hits_at_10".to_string(), h10);
+        result.insert("mean_rank".to_string(), mr);
+        Ok(result)
+    }
+
+    /// Score all entities as tails for a given head (and optional relation).
+    ///
+    /// Args:
+    ///     head_id: Entity ID of the head.
+    ///     rel_id: Optional relation ID. None for identity (no translation).
+    ///
+    /// Returns:
+    ///     1-D numpy array of scores (one per entity). Lower = better containment.
+    #[pyo3(signature = (head_id, rel_id=None))]
+    fn score_all_tails<'py>(
+        &self,
+        py: Python<'py>,
+        head_id: usize,
+        rel_id: Option<usize>,
+    ) -> PyResult<Py<PyArray1<f32>>> {
+        let scores = self
+            .inner
+            .score_all_tails(head_id, rel_id)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let flat: Vec<f32> = scores
+            .to_vec1()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let arr = ndarray::Array1::from(flat);
+        Ok(arr.into_pyarray(py).into())
+    }
+
     fn __repr__(&self) -> String {
-        format!(
-            "CandleBoxTrainer(entities={}, relations={}, dim={})",
+        let mut s = format!(
+            "CandleBoxTrainer(entities={}, relations={}, dim={}",
             self.inner.num_entities, self.inner.num_relations, self.inner.dim
-        )
+        );
+        if self.inner.inside_weight != 0.0 {
+            s.push_str(&format!(", inside_weight={}", self.inner.inside_weight));
+        }
+        if self.inner.vol_reg != 0.0 {
+            s.push_str(&format!(", vol_reg={}", self.inner.vol_reg));
+        }
+        s.push(')');
+        s
     }
 }
 
