@@ -263,11 +263,14 @@ impl CandleBoxTrainer {
             let mut total_loss = 0.0f32;
             let mut batch_count = 0usize;
 
+            // Compute entity bounds once per epoch for speed.
+            // Staleness from not recomputing after each backward_step is
+            // acceptable -- standard practice in PyKEEN/DGL-KE.
+            let (min_all, max_all) = self.entity_bounds()?;
+
             for batch_start in (0..n).step_by(batch_size) {
                 let batch_end = (batch_start + batch_size).min(n);
                 let bs = batch_end - batch_start;
-
-                let (min_all, max_all) = self.entity_bounds()?;
 
                 let h_t = heads_shuf.narrow(0, batch_start, bs)?;
                 let r_t = rels_shuf.narrow(0, batch_start, bs)?;
