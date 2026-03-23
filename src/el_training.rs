@@ -918,6 +918,30 @@ pub fn train_el_embeddings(ontology: &Ontology, config: &ElTrainingConfig) -> El
                             concepts.apply_grad(c2, &g_c2);
                         }
                         concepts.apply_grad(target, &g_target_ax);
+                    } else {
+                        // Center-attraction surrogate for disjoint conjuncts.
+                        // Gradient of 0.1 * ||center_c1 - center_c2||_2 w.r.t. centers.
+                        // This pulls C1 and C2 together until they overlap.
+                        let mut dist_sq = 0.0f32;
+                        for i in 0..dim {
+                            let d = concepts.centers[c1][i] - concepts.centers[c2][i];
+                            dist_sq += d * d;
+                        }
+                        let dist = dist_sq.sqrt().max(1e-8);
+                        total_loss += 0.1 * dist;
+
+                        let scale = 0.1 / dist;
+                        let mut g_c1 = BoxGrad::zeros(dim);
+                        let mut g_c2 = BoxGrad::zeros(dim);
+                        for i in 0..dim {
+                            let d = concepts.centers[c1][i] - concepts.centers[c2][i];
+                            g_c1.center[i] = scale * d;  // push c1 toward c2
+                            g_c2.center[i] = -scale * d; // push c2 toward c1
+                        }
+                        concepts.apply_grad(c1, &g_c1);
+                        if c2 != c1 {
+                            concepts.apply_grad(c2, &g_c2);
+                        }
                     }
                 }
                 Axiom::RoleInclusion { sub, sup } => {
