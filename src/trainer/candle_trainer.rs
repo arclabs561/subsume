@@ -229,6 +229,9 @@ impl CandleBoxTrainer {
         let mut epoch_losses = Vec::with_capacity(epochs);
         let mut rng: u64 = 42;
 
+        // Cosine LR schedule: lr decays from `lr` to `lr * 0.01` over all epochs.
+        let lr_min = lr * 0.01;
+
         let lcg = |s: &mut u64| -> usize {
             *s = s
                 .wrapping_mul(6364136223846793005)
@@ -257,6 +260,12 @@ impl CandleBoxTrainer {
             let heads_shuf = heads_gpu.index_select(&perm, 0)?;
             let rels_shuf = rels_gpu.index_select(&perm, 0)?;
             let tails_shuf = tails_gpu.index_select(&perm, 0)?;
+
+            // Cosine LR schedule
+            let progress = epoch as f64 / epochs.max(1) as f64;
+            let current_lr =
+                lr_min + 0.5 * (lr - lr_min) * (1.0 + (std::f64::consts::PI * progress).cos());
+            opt.set_learning_rate(current_lr);
 
             let mut total_loss = 0.0f32;
             let mut batch_count = 0usize;
@@ -354,6 +363,173 @@ impl CandleBoxTrainer {
         }
 
         Ok(epoch_losses)
+    }
+
+    /// Score all entities as potential tails for a (head, relation) query.
+    ///
+    /// Returns a `[num_entities]` tensor of L1 containment violation scores.
+    /// Lower score = better containment (head box better contains tail box).
+    /// Uses the same scoring signal as training.
+    pub fn score_all_tails(&self, head_id: usize, rel_id: Option<usize>) -> Result<Tensor> {
+        let (min_all, max_all) = self.entity_bounds()?;
+
+        // Head bounds: [1, dim]
+        let h_idx = Tensor::from_vec(vec![head_id as u32], (1,), &self.device)?;
+        let mut min_h = min_all.index_select(&h_idx, 0)?; // [1, dim]
+        let mut max_h = max_all.index_select(&h_idx, 0)?;
+
+        // Apply relation offset
+        if let (Some(ref rel_var), Some(rid)) = (&self.rel_offset, rel_id) {
+            let r_idx = Tensor::from_vec(vec![rid as u32], (1,), &self.device)?;
+            let offset = rel_var.as_tensor().index_select(&r_idx, 0)?;
+            min_h = min_h.add(&offset)?;
+            max_h = max_h.add(&offset)?;
+        }
+
+        // Broadcast head to [num_entities, dim]
+        let min_h = min_h.broadcast_as((self.num_entities, self.dim))?;
+        let max_h = max_h.broadcast_as((self.num_entities, self.dim))?;
+
+        // Violation against all entities as tails
+        let violation = Self::containment_violation(&min_h, &max_h, &min_all, &max_all)?;
+        violation.sum(1) // [num_entities]
+    }
+
+    /// Evaluate link prediction using L1 violation scoring (matches training signal).
+    ///
+    /// Returns `(mrr, hits_at_1, hits_at_3, hits_at_10, mean_rank)`.
+    /// Uses filtered setting: known-true triples are excluded from ranking.
+    pub fn evaluate(
+        &self,
+        test_triples: &[(usize, usize, usize)],
+        all_triples: &[(usize, usize, usize)],
+    ) -> Result<(f32, f32, f32, f32, f32)> {
+        use std::collections::{HashMap, HashSet};
+
+        // Build filter: for each (head, rel), collect known tail entities.
+        let mut filter_hr: HashMap<(usize, usize), HashSet<usize>> = HashMap::new();
+        let mut filter_tr: HashMap<(usize, usize), HashSet<usize>> = HashMap::new();
+        for &(h, r, t) in all_triples {
+            filter_hr.entry((h, r)).or_default().insert(t);
+            filter_tr.entry((t, r)).or_default().insert(h);
+        }
+
+        let mut reciprocal_ranks = Vec::with_capacity(test_triples.len() * 2);
+        let mut hits1 = 0u32;
+        let mut hits3 = 0u32;
+        let mut hits10 = 0u32;
+        let mut total_rank = 0u64;
+
+        for &(h, r, t) in test_triples {
+            // Tail prediction: score all entities as tails for (h, r, ?)
+            let tail_scores: Vec<f32> = self.score_all_tails(h, Some(r))?.to_vec1()?;
+
+            let correct_score = tail_scores[t];
+            let filter_set = filter_hr.get(&(h, r));
+
+            // Rank: count entities with strictly better (lower) score, excluding filtered.
+            let mut rank = 1u32;
+            for (eid, &s) in tail_scores.iter().enumerate() {
+                if eid == t {
+                    continue;
+                }
+                if let Some(known) = filter_set {
+                    if known.contains(&eid) {
+                        continue;
+                    }
+                }
+                if s < correct_score {
+                    rank += 1;
+                }
+            }
+
+            reciprocal_ranks.push(1.0 / rank as f32);
+            total_rank += rank as u64;
+            if rank <= 1 {
+                hits1 += 1;
+            }
+            if rank <= 3 {
+                hits3 += 1;
+            }
+            if rank <= 10 {
+                hits10 += 1;
+            }
+
+            // Head prediction: score all entities as heads for (?, r, t)
+            let head_scores: Vec<f32> = self.score_all_heads(t, Some(r))?.to_vec1()?;
+
+            let correct_score = head_scores[h];
+            let filter_set = filter_tr.get(&(t, r));
+
+            let mut rank = 1u32;
+            for (eid, &s) in head_scores.iter().enumerate() {
+                if eid == h {
+                    continue;
+                }
+                if let Some(known) = filter_set {
+                    if known.contains(&eid) {
+                        continue;
+                    }
+                }
+                if s < correct_score {
+                    rank += 1;
+                }
+            }
+
+            reciprocal_ranks.push(1.0 / rank as f32);
+            total_rank += rank as u64;
+            if rank <= 1 {
+                hits1 += 1;
+            }
+            if rank <= 3 {
+                hits3 += 1;
+            }
+            if rank <= 10 {
+                hits10 += 1;
+            }
+        }
+
+        let n = reciprocal_ranks.len() as f32;
+        let mrr = reciprocal_ranks.iter().sum::<f32>() / n;
+        let h1 = hits1 as f32 / n;
+        let h3 = hits3 as f32 / n;
+        let h10 = hits10 as f32 / n;
+        let mr = total_rank as f32 / n;
+
+        Ok((mrr, h1, h3, h10, mr))
+    }
+
+    /// Score all entities as potential heads for a (tail, relation) query.
+    ///
+    /// Returns a `[num_entities]` tensor of L1 containment violation scores.
+    /// For head prediction: we check how well each candidate head contains the given tail.
+    pub fn score_all_heads(&self, tail_id: usize, rel_id: Option<usize>) -> Result<Tensor> {
+        let (min_all, max_all) = self.entity_bounds()?;
+
+        // Tail bounds: [1, dim]
+        let t_idx = Tensor::from_vec(vec![tail_id as u32], (1,), &self.device)?;
+        let min_t = min_all.index_select(&t_idx, 0)?; // [1, dim]
+        let max_t = max_all.index_select(&t_idx, 0)?;
+
+        // Broadcast tail to [num_entities, dim]
+        let min_t = min_t.broadcast_as((self.num_entities, self.dim))?;
+        let max_t = max_t.broadcast_as((self.num_entities, self.dim))?;
+
+        // All entities as candidate heads
+        let mut min_h = min_all.clone();
+        let mut max_h = max_all.clone();
+
+        // Apply relation offset to all candidate heads
+        if let (Some(ref rel_var), Some(rid)) = (&self.rel_offset, rel_id) {
+            let r_idx = Tensor::from_vec(vec![rid as u32], (1,), &self.device)?;
+            let offset = rel_var.as_tensor().index_select(&r_idx, 0)?; // [1, dim]
+            let offset = offset.broadcast_as((self.num_entities, self.dim))?;
+            min_h = min_h.add(&offset)?;
+            max_h = max_h.add(&offset)?;
+        }
+
+        let violation = Self::containment_violation(&min_h, &max_h, &min_t, &max_t)?;
+        violation.sum(1) // [num_entities]
     }
 }
 
@@ -487,5 +663,62 @@ mod tests {
         let losses = trainer.fit(&triples, 50, 0.05, 4, 3.0, 4, 2.0).unwrap();
         assert_eq!(losses.len(), 50);
         assert!(losses[0].is_finite());
+    }
+
+    #[test]
+    fn test_score_all_tails() {
+        let device = Device::Cpu;
+        let trainer = CandleBoxTrainer::new(10, 2, 8, 10.0, &device).unwrap();
+        let scores = trainer.score_all_tails(0, Some(0)).unwrap();
+        assert_eq!(scores.dims(), &[10]);
+        let vals: Vec<f32> = scores.to_vec1().unwrap();
+        for &v in &vals {
+            assert!(v >= 0.0, "violation scores should be non-negative");
+            assert!(v.is_finite());
+        }
+    }
+
+    #[test]
+    fn test_score_all_heads() {
+        let device = Device::Cpu;
+        let trainer = CandleBoxTrainer::new(10, 2, 8, 10.0, &device).unwrap();
+        let scores = trainer.score_all_heads(3, Some(1)).unwrap();
+        assert_eq!(scores.dims(), &[10]);
+        let vals: Vec<f32> = scores.to_vec1().unwrap();
+        for &v in &vals {
+            assert!(v >= 0.0);
+            assert!(v.is_finite());
+        }
+    }
+
+    #[test]
+    fn test_evaluate_after_training() {
+        let device = Device::Cpu;
+        let trainer = CandleBoxTrainer::new(10, 2, 8, 10.0, &device).unwrap();
+        let train = vec![(0, 0, 1), (2, 1, 3), (4, 0, 5), (6, 1, 7)];
+        let _losses = trainer.fit(&train, 100, 0.05, 4, 3.0, 4, 0.0).unwrap();
+        let (mrr, h1, h3, h10, mr) = trainer.evaluate(&train, &train).unwrap();
+        assert!((0.0..=1.0).contains(&mrr), "MRR={mrr}");
+        assert!((0.0..=1.0).contains(&h1));
+        assert!((0.0..=1.0).contains(&h3));
+        assert!((0.0..=1.0).contains(&h10));
+        assert!(mr >= 1.0, "mean rank should be >= 1, got {mr}");
+    }
+
+    #[test]
+    fn test_cosine_lr_schedule() {
+        let device = Device::Cpu;
+        let trainer = CandleBoxTrainer::new(10, 0, 4, 10.0, &device).unwrap();
+        let triples = vec![(0, 0, 1), (2, 0, 3)];
+        // Short run -- just check it doesn't panic with the LR schedule
+        let losses = trainer.fit(&triples, 20, 0.1, 2, 3.0, 2, 0.0).unwrap();
+        assert_eq!(losses.len(), 20);
+        // Loss should decrease (LR starts high, decays)
+        let first = losses[0];
+        let last = losses[losses.len() - 1];
+        assert!(
+            last < first,
+            "loss should decrease: first={first}, last={last}"
+        );
     }
 }
