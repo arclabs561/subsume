@@ -436,7 +436,10 @@ impl CandleBoxTrainer {
                 let loss = if self.vol_reg > 0.0 {
                     // Mean log-delta over the batch entities.
                     let batch_entities = Tensor::cat(&[&h_t, &t_t], 0)?;
-                    let batch_ld = self.log_delta.as_tensor().index_select(&batch_entities, 0)?;
+                    let batch_ld = self
+                        .log_delta
+                        .as_tensor()
+                        .index_select(&batch_entities, 0)?;
                     let vol_penalty = batch_ld.mean_all()?.affine(self.vol_reg as f64, 0.0)?;
                     loss.add(&vol_penalty)?
                 } else {
@@ -829,16 +832,30 @@ mod tests {
         let min_t = Tensor::new(&[[7.0f32, 7.0]], &device).unwrap();
         let max_t = Tensor::new(&[[8.0f32, 8.0]], &device).unwrap();
         let contained = CandleBoxTrainer::distance(&min_h, &max_h, &min_t, &max_t, 0.0)
-            .unwrap().sum(1).unwrap().to_vec1::<f32>().unwrap()[0];
-        assert!(contained < 1e-6, "contained tail should have ~0 violation, got {contained}");
+            .unwrap()
+            .sum(1)
+            .unwrap()
+            .to_vec1::<f32>()
+            .unwrap()[0];
+        assert!(
+            contained < 1e-6,
+            "contained tail should have ~0 violation, got {contained}"
+        );
 
         // Protruding: tail [4, 12] extends beyond head [0,10].
         // upper violation per dim = relu(12 - 10) = 2. Total = 4.
         let min_t2 = Tensor::new(&[[4.0f32, 4.0]], &device).unwrap();
         let max_t2 = Tensor::new(&[[12.0f32, 12.0]], &device).unwrap();
         let protruding = CandleBoxTrainer::distance(&min_h, &max_h, &min_t2, &max_t2, 0.0)
-            .unwrap().sum(1).unwrap().to_vec1::<f32>().unwrap()[0];
-        assert!((protruding - 4.0).abs() < 1e-5, "expected violation=4.0, got {protruding}");
+            .unwrap()
+            .sum(1)
+            .unwrap()
+            .to_vec1::<f32>()
+            .unwrap()[0];
+        assert!(
+            (protruding - 4.0).abs() < 1e-5,
+            "expected violation=4.0, got {protruding}"
+        );
 
         // Lower = better containment.
         assert!(contained < protruding);
@@ -858,21 +875,38 @@ mod tests {
         let max_t_edge = Tensor::new(&[[9.0f32, 9.0]], &device).unwrap();
 
         // Without inside weight: both have 0 violation, indistinguishable.
-        let center_base = CandleBoxTrainer::distance(
-            &min_h, &max_h, &min_t_center, &max_t_center, 0.0,
-        ).unwrap().sum(1).unwrap().to_vec1::<f32>().unwrap()[0];
-        let edge_base = CandleBoxTrainer::distance(
-            &min_h, &max_h, &min_t_edge, &max_t_edge, 0.0,
-        ).unwrap().sum(1).unwrap().to_vec1::<f32>().unwrap()[0];
-        assert!(center_base < 1e-6 && edge_base < 1e-6, "both should have ~0 violation");
+        let center_base =
+            CandleBoxTrainer::distance(&min_h, &max_h, &min_t_center, &max_t_center, 0.0)
+                .unwrap()
+                .sum(1)
+                .unwrap()
+                .to_vec1::<f32>()
+                .unwrap()[0];
+        let edge_base = CandleBoxTrainer::distance(&min_h, &max_h, &min_t_edge, &max_t_edge, 0.0)
+            .unwrap()
+            .sum(1)
+            .unwrap()
+            .to_vec1::<f32>()
+            .unwrap()[0];
+        assert!(
+            center_base < 1e-6 && edge_base < 1e-6,
+            "both should have ~0 violation"
+        );
 
         // With inside weight: centered scores lower (better), edge scores higher.
-        let center_inside = CandleBoxTrainer::distance(
-            &min_h, &max_h, &min_t_center, &max_t_center, 0.1,
-        ).unwrap().sum(1).unwrap().to_vec1::<f32>().unwrap()[0];
-        let edge_inside = CandleBoxTrainer::distance(
-            &min_h, &max_h, &min_t_edge, &max_t_edge, 0.1,
-        ).unwrap().sum(1).unwrap().to_vec1::<f32>().unwrap()[0];
+        let center_inside =
+            CandleBoxTrainer::distance(&min_h, &max_h, &min_t_center, &max_t_center, 0.1)
+                .unwrap()
+                .sum(1)
+                .unwrap()
+                .to_vec1::<f32>()
+                .unwrap()[0];
+        let edge_inside = CandleBoxTrainer::distance(&min_h, &max_h, &min_t_edge, &max_t_edge, 0.1)
+            .unwrap()
+            .sum(1)
+            .unwrap()
+            .to_vec1::<f32>()
+            .unwrap()[0];
         assert!(
             center_inside < edge_inside,
             "centered ({center_inside}) should score lower (better) than edge ({edge_inside})"
@@ -889,15 +923,36 @@ mod tests {
         let max_t = Tensor::new(&[[8.0f32, 8.0]], &device).unwrap();
 
         let s0 = CandleBoxTrainer::distance(&min_h, &max_h, &min_t, &max_t, 0.0)
-            .unwrap().sum(1).unwrap().to_vec1::<f32>().unwrap()[0];
+            .unwrap()
+            .sum(1)
+            .unwrap()
+            .to_vec1::<f32>()
+            .unwrap()[0];
         let s1 = CandleBoxTrainer::distance(&min_h, &max_h, &min_t, &max_t, 0.1)
-            .unwrap().sum(1).unwrap().to_vec1::<f32>().unwrap()[0];
+            .unwrap()
+            .sum(1)
+            .unwrap()
+            .to_vec1::<f32>()
+            .unwrap()[0];
         let s2 = CandleBoxTrainer::distance(&min_h, &max_h, &min_t, &max_t, 0.5)
-            .unwrap().sum(1).unwrap().to_vec1::<f32>().unwrap()[0];
+            .unwrap()
+            .sum(1)
+            .unwrap()
+            .to_vec1::<f32>()
+            .unwrap()[0];
 
-        assert!(s0 < 1e-6, "base violation should be 0 for contained pair, got {s0}");
-        assert!(s1 > s0, "inside_weight=0.1 should add inside penalty: s0={s0}, s1={s1}");
-        assert!(s2 > s1, "inside_weight=0.5 should add more: s1={s1}, s2={s2}");
+        assert!(
+            s0 < 1e-6,
+            "base violation should be 0 for contained pair, got {s0}"
+        );
+        assert!(
+            s1 > s0,
+            "inside_weight=0.1 should add inside penalty: s0={s0}, s1={s1}"
+        );
+        assert!(
+            s2 > s1,
+            "inside_weight=0.5 should add more: s1={s1}, s2={s2}"
+        );
     }
 
     #[test]
@@ -930,8 +985,10 @@ mod tests {
         let r = Tensor::from_vec(vec![0u32, 1, 0, 1], (4,), &device).unwrap();
         let t = Tensor::from_vec(vec![1u32, 3, 5, 7], (4,), &device).unwrap();
         let scores_before: Vec<f32> = trainer
-            .score_with_rel(&h, &t, &r).unwrap()
-            .to_vec1().unwrap();
+            .score_with_rel(&h, &t, &r)
+            .unwrap()
+            .to_vec1()
+            .unwrap();
         let avg_before: f32 = scores_before.iter().sum::<f32>() / scores_before.len() as f32;
 
         // Train.
@@ -939,8 +996,10 @@ mod tests {
 
         // Score positives after training.
         let scores_after: Vec<f32> = trainer
-            .score_with_rel(&h, &t, &r).unwrap()
-            .to_vec1().unwrap();
+            .score_with_rel(&h, &t, &r)
+            .unwrap()
+            .to_vec1()
+            .unwrap();
         let avg_after: f32 = scores_after.iter().sum::<f32>() / scores_after.len() as f32;
 
         assert!(
@@ -963,8 +1022,10 @@ mod tests {
         let r_pos = Tensor::from_vec(vec![0u32, 1, 0, 1], (4,), &device).unwrap();
         let t_pos = Tensor::from_vec(vec![1u32, 3, 5, 7], (4,), &device).unwrap();
         let pos_scores: Vec<f32> = trainer
-            .score_with_rel(&h_pos, &t_pos, &r_pos).unwrap()
-            .to_vec1().unwrap();
+            .score_with_rel(&h_pos, &t_pos, &r_pos)
+            .unwrap()
+            .to_vec1()
+            .unwrap();
         let avg_pos: f32 = pos_scores.iter().sum::<f32>() / pos_scores.len() as f32;
 
         // Score random negative triples (random tails).
@@ -972,8 +1033,10 @@ mod tests {
         let r_neg = Tensor::from_vec(vec![0u32, 1, 0, 1], (4,), &device).unwrap();
         let t_neg = Tensor::from_vec(vec![8u32, 9, 0, 2], (4,), &device).unwrap();
         let neg_scores: Vec<f32> = trainer
-            .score_with_rel(&h_neg, &t_neg, &r_neg).unwrap()
-            .to_vec1().unwrap();
+            .score_with_rel(&h_neg, &t_neg, &r_neg)
+            .unwrap()
+            .to_vec1()
+            .unwrap();
         let avg_neg: f32 = neg_scores.iter().sum::<f32>() / neg_scores.len() as f32;
 
         assert!(
@@ -1032,7 +1095,10 @@ mod tests {
         let triples = vec![(0, 0, 1), (2, 0, 3)];
         // If gradient doesn't flow, this would panic or produce NaN loss.
         let losses = trainer.fit(&triples, 20, 0.05, 2, 3.0, 2, 0.0).unwrap();
-        assert!(losses.iter().all(|l| l.is_finite()), "all losses should be finite");
+        assert!(
+            losses.iter().all(|l| l.is_finite()),
+            "all losses should be finite"
+        );
     }
 
     #[test]
@@ -1044,7 +1110,13 @@ mod tests {
         let t1 = CandleBoxTrainer::new(10, 2, 8, 10.0, &device).unwrap();
         let triples = vec![(0, 0, 1), (2, 1, 3), (4, 0, 5), (6, 1, 7)];
         let _l1 = t1.fit(&triples, 200, 0.05, 4, 3.0, 4, 0.0).unwrap();
-        let ld1: Vec<f32> = t1.log_delta.as_tensor().flatten_all().unwrap().to_vec1().unwrap();
+        let ld1: Vec<f32> = t1
+            .log_delta
+            .as_tensor()
+            .flatten_all()
+            .unwrap()
+            .to_vec1()
+            .unwrap();
         let avg_ld1: f32 = ld1.iter().sum::<f32>() / ld1.len() as f32;
 
         // Train with vol_reg.
@@ -1052,7 +1124,13 @@ mod tests {
             .unwrap()
             .with_vol_reg(0.01);
         let _l2 = t2.fit(&triples, 200, 0.05, 4, 3.0, 4, 0.0).unwrap();
-        let ld2: Vec<f32> = t2.log_delta.as_tensor().flatten_all().unwrap().to_vec1().unwrap();
+        let ld2: Vec<f32> = t2
+            .log_delta
+            .as_tensor()
+            .flatten_all()
+            .unwrap()
+            .to_vec1()
+            .unwrap();
         let avg_ld2: f32 = ld2.iter().sum::<f32>() / ld2.len() as f32;
 
         // With vol_reg, average log_delta should be smaller (boxes don't grow as much).
