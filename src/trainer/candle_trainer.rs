@@ -266,53 +266,44 @@ impl CandleBoxTrainer {
             (*s >> 33) as usize
         };
 
-        // Preload training data as contiguous arrays (avoid per-batch allocation)
+        // Preload ALL training data as device tensors (zero CPU-GPU transfer in loop)
         let all_heads: Vec<u32> = train_triples.iter().map(|t| t.0 as u32).collect();
         let all_rels: Vec<u32> = train_triples.iter().map(|t| t.1 as u32).collect();
         let all_tails: Vec<u32> = train_triples.iter().map(|t| t.2 as u32).collect();
+        let heads_gpu = Tensor::from_vec(all_heads, (n,), &self.device)?;
+        let rels_gpu = Tensor::from_vec(all_rels, (n,), &self.device)?;
+        let tails_gpu = Tensor::from_vec(all_tails, (n,), &self.device)?;
 
-        let mut indices: Vec<usize> = (0..n).collect();
-        // Pre-allocate batch buffers to avoid per-step allocation
-        let max_bs = batch_size;
-        let max_neg = max_bs * negative_samples;
-        let mut heads_buf = Vec::with_capacity(max_bs);
-        let mut rels_buf = Vec::with_capacity(max_bs);
-        let mut tails_buf = Vec::with_capacity(max_bs);
-        let mut neg_heads_buf = Vec::with_capacity(max_neg);
-        let mut neg_rels_buf = Vec::with_capacity(max_neg);
-        let mut neg_tails_buf = Vec::with_capacity(max_neg);
+        // CPU-side permutation (cheap -- just u32 indices)
+        let mut indices: Vec<u32> = (0..n as u32).collect();
 
         for epoch in 0..epochs {
-            // Fisher-Yates shuffle
+            // Fisher-Yates shuffle (CPU -- fast for index permutation)
             for i in (1..n).rev() {
                 let j = lcg(&mut rng) % (i + 1);
                 indices.swap(i, j);
             }
 
+            // Upload permutation once per epoch
+            let perm = Tensor::from_vec(indices.clone(), (n,), &self.device)?;
+            let heads_shuf = heads_gpu.index_select(&perm, 0)?;
+            let rels_shuf = rels_gpu.index_select(&perm, 0)?;
+            let tails_shuf = tails_gpu.index_select(&perm, 0)?;
+
             let mut total_loss = 0.0f32;
             let mut batch_count = 0usize;
 
-            // Compute entity bounds ONCE per epoch (params change slowly)
+            // Compute entity bounds ONCE per epoch
             let (min_all, max_all) = self.entity_bounds()?;
 
             for batch_start in (0..n).step_by(batch_size) {
                 let batch_end = (batch_start + batch_size).min(n);
                 let bs = batch_end - batch_start;
 
-                // Fill batch buffers from shuffled indices
-                heads_buf.clear();
-                rels_buf.clear();
-                tails_buf.clear();
-                for i in batch_start..batch_end {
-                    let idx = indices[i];
-                    heads_buf.push(all_heads[idx]);
-                    rels_buf.push(all_rels[idx]);
-                    tails_buf.push(all_tails[idx]);
-                }
-
-                let h_t = Tensor::from_vec(heads_buf.clone(), (bs,), &self.device)?;
-                let r_t = Tensor::from_vec(rels_buf.clone(), (bs,), &self.device)?;
-                let t_t = Tensor::from_vec(tails_buf.clone(), (bs,), &self.device)?;
+                // Slice batch from pre-shuffled GPU tensors (no CPU-GPU transfer)
+                let h_t = heads_shuf.narrow(0, batch_start, bs)?;
+                let r_t = rels_shuf.narrow(0, batch_start, bs)?;
+                let t_t = tails_shuf.narrow(0, batch_start, bs)?;
 
                 let rel_ref = if self.num_relations > 0 {
                     Some(&r_t)
@@ -324,22 +315,22 @@ impl CandleBoxTrainer {
                 let pos_loss =
                     self.batch_loss(&min_all, &max_all, &h_t, &t_t, rel_ref, true, 0.0)?;
 
-                // Batch all negatives into one tensor
+                // Generate negative tails on device (no CPU-GPU transfer)
                 let total_neg = bs * negative_samples;
-                neg_heads_buf.clear();
-                neg_rels_buf.clear();
-                neg_tails_buf.clear();
-                for _ in 0..negative_samples {
-                    neg_heads_buf.extend_from_slice(&heads_buf);
-                    neg_rels_buf.extend_from_slice(&rels_buf);
-                }
-                for _ in 0..total_neg {
-                    neg_tails_buf.push((lcg(&mut rng) % self.num_entities) as u32);
-                }
+                // Use uniform random [0, 1) scaled to entity count
+                let neg_rand = Tensor::rand(
+                    0.0_f32,
+                    self.num_entities as f32,
+                    (total_neg,),
+                    &self.device,
+                )?;
+                let neg_t = neg_rand.to_dtype(candle_core::DType::U32)?;
 
-                let neg_h = Tensor::from_vec(neg_heads_buf.clone(), (total_neg,), &self.device)?;
-                let neg_t = Tensor::from_vec(neg_tails_buf.clone(), (total_neg,), &self.device)?;
-                let neg_r = Tensor::from_vec(neg_rels_buf.clone(), (total_neg,), &self.device)?;
+                // Repeat head/rel for each negative sample
+                // [h0,h1,...,hN, h0,h1,...,hN, ...] (neg_samples times)
+                let neg_h = h_t.repeat((negative_samples,))?;
+                let neg_r = r_t.repeat((negative_samples,))?;
+
                 let neg_rel_ref = if self.num_relations > 0 {
                     Some(&neg_r)
                 } else {
