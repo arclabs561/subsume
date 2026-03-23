@@ -16,8 +16,12 @@
 //! - `min = mu - delta/2`, `max = mu + delta/2`
 //! - `delta = softplus(exp(log_delta), beta)` (Gumbel parameterization)
 //!
-//! The loss is `-ln(Vol(A ∩ B) / Vol(B))` for positives,
-//! `max(0, P_overlap - margin)^2` for negatives.
+//! # Memory optimization
+//!
+//! The entity table transforms (`exp -> softplus -> bounds`) are computed
+//! once per batch step into `(min_all, max_all)`, then batch-indexed via
+//! `index_select`. This keeps the autograd graph O(1) in entity count
+//! rather than O(negative_samples).
 
 use candle_core::{Device, Result, Tensor, Var};
 
@@ -86,27 +90,28 @@ impl CandleBoxTrainer {
         })
     }
 
-    /// Get box half-widths from log_delta via softplus.
-    fn get_half_width(&self) -> Result<Tensor> {
+    /// Compute (min_all, max_all) for the entire entity table.
+    ///
+    /// Returns `[num_entities, dim]` tensors. Call once per batch step,
+    /// then use `index_select` for batch-sized lookups.
+    fn entity_bounds(&self) -> Result<(Tensor, Tensor)> {
         let exp_ld = self.log_delta.as_tensor().exp()?;
         let delta = softplus(&exp_ld, self.beta)?;
-        delta.affine(0.5, 0.0)
+        let hw = delta.affine(0.5, 0.0)?;
+        let mu = self.mu.as_tensor();
+        let min_all = mu.sub(&hw)?;
+        let max_all = mu.add(&hw)?;
+        Ok((min_all, max_all))
     }
 
-    /// Get (min, max) bounds for a batch of entity IDs.
-    fn get_bounds(&self, ids: &Tensor) -> Result<(Tensor, Tensor)> {
-        let mu = self.mu.as_tensor().index_select(ids, 0)?;
-        let hw = self.get_half_width()?.index_select(ids, 0)?;
-        let min = mu.sub(&hw)?;
-        let max = mu.add(&hw)?;
-        Ok((min, max))
+    /// Compute log-volume from pre-computed bounds.
+    fn log_volume_from_bounds(min: &Tensor, max: &Tensor) -> Result<Tensor> {
+        let width = max.sub(min)?;
+        let log_w = width.clamp(1e-30, f32::MAX)?.log()?;
+        log_w.sum(1)
     }
 
-    /// Compute softplus-smoothed intersection volume in log space.
-    ///
-    /// Returns `ln(Vol(A ∩ B))` computed as sum of `ln(softplus(hi - lo, beta))`
-    /// per dimension. This avoids the numerical issues of multiplying many
-    /// small softplus values directly.
+    /// Compute softplus-smoothed log-intersection volume.
     fn log_intersection_volume(
         &self,
         min_a: &Tensor,
@@ -114,68 +119,34 @@ impl CandleBoxTrainer {
         min_b: &Tensor,
         max_b: &Tensor,
     ) -> Result<Tensor> {
-        // lo = max(min_a, min_b), hi = min(max_a, max_b)
         let lo = min_a.maximum(min_b)?;
         let hi = max_a.minimum(max_b)?;
         let diff = hi.sub(&lo)?;
-        // softplus(diff, beta) per element, then log, then sum over dims.
-        // Add eps before log to handle disjoint boxes where softplus -> 0.
         let sp = softplus(&diff, self.beta)?;
         let log_sp = sp.clamp(1e-30, f32::MAX)?.log()?;
-        log_sp.sum(1) // [batch]
+        log_sp.sum(1)
     }
 
-    /// Compute log-volume of boxes for a batch of entity IDs.
-    fn log_volume(&self, ids: &Tensor) -> Result<Tensor> {
-        let hw = self.get_half_width()?.index_select(ids, 0)?;
-        // volume = prod(2 * hw) per entity, log_vol = sum(ln(2 * hw))
-        let width = hw.affine(2.0, 0.0)?;
-        let log_w = width.clamp(1e-30, f32::MAX)?.log()?;
-        log_w.sum(1)
-    }
-
-    /// Probabilistic containment loss for positive triples.
+    /// Compute batch loss from pre-computed entity bounds.
     ///
-    /// Loss = `-ln P(B ⊆ A)` where `P(B ⊆ A) = Vol(A ∩ B) / Vol(B)`.
-    /// When relation IDs are provided, head boxes are translated by the
-    /// relation offset before computing containment.
-    pub fn positive_loss(
+    /// For positive triples: `-ln P(B ⊆ A)` where `P = Vol(A ∩ B) / Vol(B)`.
+    /// For negatives: `max(0, P - margin)^2`.
+    fn batch_loss(
         &self,
+        min_all: &Tensor,
+        max_all: &Tensor,
         head_ids: &Tensor,
         tail_ids: &Tensor,
         rel_ids: Option<&Tensor>,
-    ) -> Result<Tensor> {
-        let (mut min_h, mut max_h) = self.get_bounds(head_ids)?;
-        let (min_t, max_t) = self.get_bounds(tail_ids)?;
-
-        // Apply relation translation to head box
-        if let (Some(ref rel_var), Some(rel)) = (&self.rel_offset, rel_ids) {
-            let offset = rel_var.as_tensor().index_select(rel, 0)?;
-            min_h = min_h.add(&offset)?;
-            max_h = max_h.add(&offset)?;
-        }
-
-        let log_vol_int = self.log_intersection_volume(&min_h, &max_h, &min_t, &max_t)?;
-        let log_vol_t = self.log_volume(tail_ids)?;
-
-        // -ln(P) = -(log_vol_int - log_vol_t), clamped to [0, 10]
-        let neg_log_prob = log_vol_t.sub(&log_vol_int)?;
-        neg_log_prob.clamp(0.0, 10.0)?.mean(0)
-    }
-
-    /// Negative loss: penalize overlap between head and corrupted tail.
-    ///
-    /// Loss = `max(0, P_overlap - margin)^2` where `P_overlap = Vol(A ∩ B) / Vol(B)`.
-    pub fn negative_loss(
-        &self,
-        head_ids: &Tensor,
-        tail_ids: &Tensor,
-        rel_ids: Option<&Tensor>,
+        is_positive: bool,
         margin: f32,
     ) -> Result<Tensor> {
-        let (mut min_h, mut max_h) = self.get_bounds(head_ids)?;
-        let (min_t, max_t) = self.get_bounds(tail_ids)?;
+        let mut min_h = min_all.index_select(head_ids, 0)?;
+        let mut max_h = max_all.index_select(head_ids, 0)?;
+        let min_t = min_all.index_select(tail_ids, 0)?;
+        let max_t = max_all.index_select(tail_ids, 0)?;
 
+        // Apply relation translation to head
         if let (Some(ref rel_var), Some(rel)) = (&self.rel_offset, rel_ids) {
             let offset = rel_var.as_tensor().index_select(rel, 0)?;
             min_h = min_h.add(&offset)?;
@@ -183,29 +154,32 @@ impl CandleBoxTrainer {
         }
 
         let log_vol_int = self.log_intersection_volume(&min_h, &max_h, &min_t, &max_t)?;
-        let log_vol_t = self.log_volume(tail_ids)?;
+        let log_vol_t = Self::log_volume_from_bounds(&min_t, &max_t)?;
 
-        // P = exp(log_vol_int - log_vol_t), clamped to [0, 1]
-        let log_prob = log_vol_int.sub(&log_vol_t)?;
-        let prob = log_prob.clamp(-20.0, 0.0)?.exp()?;
-
-        // max(0, prob - margin)^2
-        let margin_t = Tensor::full(margin, prob.shape(), &self.device)?;
-        let violation = prob.sub(&margin_t)?.relu()?;
-        violation.sqr()?.mean(0)
+        if is_positive {
+            let neg_log_prob = log_vol_t.sub(&log_vol_int)?;
+            neg_log_prob.clamp(0.0, 10.0)?.mean(0)
+        } else {
+            let log_prob = log_vol_int.sub(&log_vol_t)?;
+            let prob = log_prob.clamp(-20.0, 0.0)?.exp()?;
+            let margin_t = Tensor::full(margin, prob.shape(), &self.device)?;
+            let violation = prob.sub(&margin_t)?.relu()?;
+            violation.sqr()?.mean(0)
+        }
     }
 
     /// Score a batch of (head, tail) pairs: lower = better containment.
     ///
     /// Returns `-ln P(B ⊆ A)` per pair.
     pub fn score(&self, head_ids: &Tensor, tail_ids: &Tensor) -> Result<Tensor> {
-        let (min_h, max_h) = self.get_bounds(head_ids)?;
-        let (min_t, max_t) = self.get_bounds(tail_ids)?;
+        let (min_all, max_all) = self.entity_bounds()?;
+        let min_h = min_all.index_select(head_ids, 0)?;
+        let max_h = max_all.index_select(head_ids, 0)?;
+        let min_t = min_all.index_select(tail_ids, 0)?;
+        let max_t = max_all.index_select(tail_ids, 0)?;
 
         let log_vol_int = self.log_intersection_volume(&min_h, &max_h, &min_t, &max_t)?;
-        let log_vol_t = self.log_volume(tail_ids)?;
-
-        // -ln P = log_vol_t - log_vol_int
+        let log_vol_t = Self::log_volume_from_bounds(&min_t, &max_t)?;
         log_vol_t.sub(&log_vol_int)
     }
 
@@ -216,8 +190,11 @@ impl CandleBoxTrainer {
         tail_ids: &Tensor,
         rel_ids: &Tensor,
     ) -> Result<Tensor> {
-        let (mut min_h, mut max_h) = self.get_bounds(head_ids)?;
-        let (min_t, max_t) = self.get_bounds(tail_ids)?;
+        let (min_all, max_all) = self.entity_bounds()?;
+        let mut min_h = min_all.index_select(head_ids, 0)?;
+        let mut max_h = max_all.index_select(head_ids, 0)?;
+        let min_t = min_all.index_select(tail_ids, 0)?;
+        let max_t = max_all.index_select(tail_ids, 0)?;
 
         if let Some(ref rel_var) = self.rel_offset {
             let offset = rel_var.as_tensor().index_select(rel_ids, 0)?;
@@ -226,7 +203,7 @@ impl CandleBoxTrainer {
         }
 
         let log_vol_int = self.log_intersection_volume(&min_h, &max_h, &min_t, &max_t)?;
-        let log_vol_t = self.log_volume(tail_ids)?;
+        let log_vol_t = Self::log_volume_from_bounds(&min_t, &max_t)?;
         log_vol_t.sub(&log_vol_int)
     }
 
@@ -267,11 +244,10 @@ impl CandleBoxTrainer {
             (*s >> 33) as usize
         };
 
-        // Shuffled index for epoch iteration
         let mut indices: Vec<usize> = (0..n).collect();
 
         for epoch in 0..epochs {
-            // Fisher-Yates shuffle using LCG
+            // Fisher-Yates shuffle
             for i in (1..n).rev() {
                 let j = lcg(&mut rng) % (i + 1);
                 indices.swap(i, j);
@@ -284,6 +260,9 @@ impl CandleBoxTrainer {
                 let batch_end = (batch_start + batch_size).min(n);
                 let bs = batch_end - batch_start;
 
+                // Compute entity bounds ONCE per batch step
+                let (min_all, max_all) = self.entity_bounds()?;
+
                 let heads: Vec<u32> = (batch_start..batch_end)
                     .map(|i| train_triples[indices[i]].0 as u32)
                     .collect();
@@ -294,8 +273,8 @@ impl CandleBoxTrainer {
                     .map(|i| train_triples[indices[i]].2 as u32)
                     .collect();
 
-                let h_t = Tensor::from_vec(heads.clone(), (bs,), &self.device)?;
-                let r_t = Tensor::from_vec(rels.clone(), (bs,), &self.device)?;
+                let h_t = Tensor::from_vec(heads, (bs,), &self.device)?;
+                let r_t = Tensor::from_vec(rels, (bs,), &self.device)?;
                 let t_t = Tensor::from_vec(tails, (bs,), &self.device)?;
 
                 let rel_ref = if self.num_relations > 0 {
@@ -305,9 +284,10 @@ impl CandleBoxTrainer {
                 };
 
                 // Positive loss
-                let pos_loss = self.positive_loss(&h_t, &t_t, rel_ref)?;
+                let pos_loss =
+                    self.batch_loss(&min_all, &max_all, &h_t, &t_t, rel_ref, true, 0.0)?;
 
-                // Negative samples (corrupt tail)
+                // Negative samples (corrupt tail), reusing same entity bounds
                 let mut neg_loss_total =
                     Tensor::zeros((), candle_core::DType::F32, &self.device)?;
                 for _ in 0..negative_samples {
@@ -315,7 +295,9 @@ impl CandleBoxTrainer {
                         .map(|_| (lcg(&mut rng) % self.num_entities) as u32)
                         .collect();
                     let nt_t = Tensor::from_vec(neg_tails, (bs,), &self.device)?;
-                    let nl = self.negative_loss(&h_t, &nt_t, rel_ref, margin)?;
+                    let nl = self.batch_loss(
+                        &min_all, &max_all, &h_t, &nt_t, rel_ref, false, margin,
+                    )?;
                     neg_loss_total = neg_loss_total.add(&nl)?;
                 }
 
@@ -343,9 +325,7 @@ impl CandleBoxTrainer {
 /// For large beta, this approaches `max(0, x)` (sharp ReLU approximation).
 /// Matches `crate::utils::softplus`.
 fn softplus(x: &Tensor, beta: f32) -> Result<Tensor> {
-    // Scale: beta * x
     let scaled = x.affine(beta as f64, 0.0)?;
-    // Clamp for numerical stability, then log1p(exp(scaled)) / beta
     let clamped = scaled.clamp(-20.0, 20.0)?;
     let exp_scaled = clamped.exp()?;
     let one = Tensor::ones_like(&exp_scaled)?;
@@ -380,7 +360,10 @@ mod tests {
         let trainer = CandleBoxTrainer::new(10, 0, 8, 10.0, &device).unwrap();
         let heads = Tensor::from_vec(vec![0u32, 1, 2], (3,), &device).unwrap();
         let tails = Tensor::from_vec(vec![3u32, 4, 5], (3,), &device).unwrap();
-        let loss = trainer.positive_loss(&heads, &tails, None).unwrap();
+        let (min_all, max_all) = trainer.entity_bounds().unwrap();
+        let loss = trainer
+            .batch_loss(&min_all, &max_all, &heads, &tails, None, true, 0.0)
+            .unwrap();
         let val = loss.to_scalar::<f32>().unwrap();
         assert!(val >= 0.0, "loss should be non-negative, got {val}");
         assert!(val.is_finite(), "loss should be finite");
@@ -393,8 +376,17 @@ mod tests {
         let heads = Tensor::from_vec(vec![0u32, 1, 2], (3,), &device).unwrap();
         let tails = Tensor::from_vec(vec![3u32, 4, 5], (3,), &device).unwrap();
         let rels = Tensor::from_vec(vec![0u32, 1, 2], (3,), &device).unwrap();
+        let (min_all, max_all) = trainer.entity_bounds().unwrap();
         let loss = trainer
-            .positive_loss(&heads, &tails, Some(&rels))
+            .batch_loss(
+                &min_all,
+                &max_all,
+                &heads,
+                &tails,
+                Some(&rels),
+                true,
+                0.0,
+            )
             .unwrap();
         let val = loss.to_scalar::<f32>().unwrap();
         assert!(val >= 0.0, "loss should be non-negative, got {val}");
@@ -408,8 +400,17 @@ mod tests {
         let heads = Tensor::from_vec(vec![0u32, 1], (2,), &device).unwrap();
         let tails = Tensor::from_vec(vec![2u32, 3], (2,), &device).unwrap();
         let rels = Tensor::from_vec(vec![0u32, 1], (2,), &device).unwrap();
+        let (min_all, max_all) = trainer.entity_bounds().unwrap();
         let loss = trainer
-            .positive_loss(&heads, &tails, Some(&rels))
+            .batch_loss(
+                &min_all,
+                &max_all,
+                &heads,
+                &tails,
+                Some(&rels),
+                true,
+                0.0,
+            )
             .unwrap();
 
         let grads = loss.backward().unwrap();
@@ -437,10 +438,8 @@ mod tests {
     fn test_fit_loss_decreases() {
         let device = Device::Cpu;
         let trainer = CandleBoxTrainer::new(20, 2, 8, 10.0, &device).unwrap();
-        // Simple triples: entity 0 --rel0--> entity 1, entity 2 --rel1--> entity 3
         let triples = vec![(0, 0, 1), (2, 1, 3), (4, 0, 5), (6, 1, 7)];
         let losses = trainer.fit(&triples, 200, 0.05, 4, 0.1, 2).unwrap();
-        // Compare first 10 avg vs last 10 avg for robustness
         let first_avg: f32 = losses[..10].iter().sum::<f32>() / 10.0;
         let last_avg: f32 = losses[losses.len() - 10..].iter().sum::<f32>() / 10.0;
         assert!(
