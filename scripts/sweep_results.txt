@@ -1,2 +1,8 @@
 === Local WN18RR Sweep (Mon Mar 23 11:25:28 EDT 2026) ===
 
+baseline(m=6,lr=0.01)                    MRR=0.0483   loss=0.2245   time=177.4s
+margin=12                                MRR=0.0110   loss=0.2531   time=386.2s
+margin=12,neg=64                         MRR=0.0110   loss=0.2251   time=452.6s
+lr=0.001,margin=9                        MRR=0.0083   loss=0.0351   time=218.8s
+lr=0.05,margin=9                         MRR=0.0237   loss=11.0645  time=546.8s
+no_adv,margin=9                          MRR=0.0850   loss=0.7659   time=770.6s
