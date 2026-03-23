@@ -64,8 +64,11 @@ impl CandleBoxTrainer {
             (num_entities, dim),
             device,
         )?)?;
+        // Initialize log_delta near 0 so delta = softplus(exp(0), beta) ≈ 1.0.
+        // This gives half-width ~0.5, creating overlapping boxes at init. With tiny
+        // boxes (log_delta=-1), almost all pairs have zero violation and zero gradient.
         let log_delta =
-            Var::from_tensor(&Tensor::randn(-1.0_f32, 0.1, (num_entities, dim), device)?)?;
+            Var::from_tensor(&Tensor::randn(0.0_f32, 0.1, (num_entities, dim), device)?)?;
 
         let rel_offset = if num_relations > 0 {
             Some(Var::from_tensor(&Tensor::randn(
@@ -850,7 +853,7 @@ mod tests {
         let s2 = CandleBoxTrainer::distance(&min_h, &max_h, &min_t, &max_t, 0.5)
             .unwrap().sum(1).unwrap().to_vec1::<f32>().unwrap()[0];
 
-        assert!(s0 < 1e-6, "base violation should be 0 for contained pair");
+        assert!(s0 < 1e-6, "base violation should be 0 for contained pair, got {s0}");
         assert!(s1 > s0, "inside_weight=0.1 should add inside penalty: s0={s0}, s1={s1}");
         assert!(s2 > s1, "inside_weight=0.5 should add more: s1={s1}, s2={s2}");
     }
