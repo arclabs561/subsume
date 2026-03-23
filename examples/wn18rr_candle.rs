@@ -26,10 +26,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let dim: usize = env_or("DIM", 200);
     let epochs: usize = env_or("EPOCHS", 500);
     let lr: f64 = env_or("LR", 0.001);
-    let neg: usize = env_or("NEG", 10);
-    let batch: usize = env_or("BATCH", 1024);
+    let neg: usize = env_or("NEG", 50);
+    let batch: usize = env_or("BATCH", 512);
     let beta: f32 = env_or("BETA", 10.0);
-    let margin: f32 = env_or("MARGIN", 0.1);
+    let margin: f32 = env_or("MARGIN", 3.0);
 
     let device = Device::cuda_if_available(0).unwrap_or(Device::Cpu);
     println!("=== WN18RR Candle Box Training ===");
