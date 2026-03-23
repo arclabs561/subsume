@@ -650,14 +650,33 @@ impl PyBoxEmbeddingTrainer {
     /// Score a single (head, relation, tail) triple.
     ///
     /// Returns the containment probability P(tail inside translated_head).
-    fn predict(&self, head_id: usize, _relation_id: usize, tail_id: usize) -> PyResult<f32> {
+    /// Applies learned per-relation translation to the head box when available.
+    fn predict(&self, head_id: usize, relation_id: usize, tail_id: usize) -> PyResult<f32> {
         let box_h = self.inner.get_box(head_id).ok_or_else(|| {
             pyo3::exceptions::PyKeyError::new_err(format!("no box for entity {head_id}"))
         })?;
         let box_t = self.inner.get_box(tail_id).ok_or_else(|| {
             pyo3::exceptions::PyKeyError::new_err(format!("no box for entity {tail_id}"))
         })?;
-        box_h
+
+        // Apply learned relation translation to head box.
+        let scoring_box = if let Some(trans) = self.inner.relation_translations.get(&relation_id) {
+            use subsume::Box as BoxRegion;
+            let min_h = box_h.min();
+            let max_h = box_h.max();
+            let new_min = min_h.iter().zip(trans).map(|(m, t)| m + t).collect();
+            let new_max = max_h.iter().zip(trans).map(|(m, t)| m + t).collect();
+            subsume::ndarray_backend::NdarrayBox::new(
+                ndarray::Array1::from_vec(new_min),
+                ndarray::Array1::from_vec(new_max),
+                1.0,
+            )
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?
+        } else {
+            box_h
+        };
+        use subsume::Box as BoxRegion;
+        scoring_box
             .containment_prob(&box_t)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
     }
@@ -665,21 +684,41 @@ impl PyBoxEmbeddingTrainer {
     /// Score all entities as tails for a (head, relation) query.
     ///
     /// Returns a numpy array of shape (num_entities,) with containment probabilities.
+    /// Applies learned per-relation translation to the head box when available.
     /// Entities without learned embeddings get score 0.0.
     fn score_tails<'py>(
         &self,
         py: Python<'py>,
         head_id: usize,
-        _relation_id: usize,
+        relation_id: usize,
     ) -> PyResult<Py<PyArray1<f32>>> {
-        let box_h = self.inner.get_box(head_id).ok_or_else(|| {
+        use subsume::Box as BoxRegion;
+
+        let base_box = self.inner.get_box(head_id).ok_or_else(|| {
             pyo3::exceptions::PyKeyError::new_err(format!("no box for entity {head_id}"))
         })?;
+
+        // Build the (possibly translated) head box.
+        let scoring_box = if let Some(trans) = self.inner.relation_translations.get(&relation_id) {
+            let min_h = base_box.min();
+            let max_h = base_box.max();
+            let new_min: Vec<f32> = min_h.iter().zip(trans).map(|(m, t)| m + t).collect();
+            let new_max: Vec<f32> = max_h.iter().zip(trans).map(|(m, t)| m + t).collect();
+            subsume::ndarray_backend::NdarrayBox::new(
+                ndarray::Array1::from_vec(new_min),
+                ndarray::Array1::from_vec(new_max),
+                1.0,
+            )
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?
+        } else {
+            base_box
+        };
+
         let max_id = self.inner.boxes.keys().copied().max().unwrap_or(0);
         let mut scores = vec![0.0f32; max_id + 1];
         for (&eid, tb) in &self.inner.boxes {
             if let Ok(nb) = tb.to_ndarray_box() {
-                scores[eid] = box_h.containment_prob(&nb).unwrap_or(0.0);
+                scores[eid] = scoring_box.containment_prob(&nb).unwrap_or(0.0);
             }
         }
         let arr = ndarray::Array1::from(scores);
