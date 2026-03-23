@@ -431,16 +431,19 @@ impl CandleBoxTrainer {
                     Self::ns_loss(&pos_scores, &neg_scores, margin, &self.device)?
                 };
 
-                // Volume regularization: penalize mean log-width of boxes in this batch.
+                // Volume regularization: penalize mean box width in this batch.
                 // Prevents all boxes from growing to contain everything (trivial solution).
+                // Uses exp(log_delta) (always positive) instead of raw log_delta
+                // (which can be negative, inverting the penalty).
                 let loss = if self.vol_reg > 0.0 {
-                    // Mean log-delta over the batch entities.
                     let batch_entities = Tensor::cat(&[&h_t, &t_t], 0)?;
                     let batch_ld = self
                         .log_delta
                         .as_tensor()
                         .index_select(&batch_entities, 0)?;
-                    let vol_penalty = batch_ld.mean_all()?.affine(self.vol_reg as f64, 0.0)?;
+                    let batch_width = batch_ld.exp()?;
+                    let vol_penalty =
+                        batch_width.mean_all()?.affine(self.vol_reg as f64, 0.0)?;
                     loss.add(&vol_penalty)?
                 } else {
                     loss
