@@ -39,8 +39,9 @@ Geometric region embeddings for subsumption, entailment, and logical query answe
 |---|---|
 | `taxonomy` | TaxoBell-format dataset loader: `.terms`/`.taxo` parsing, train/val/test splitting |
 | `taxobell` | TaxoBell combined loss: Bhattacharyya triplet + KL containment + volume regularization + sigma clipping |
-| Training utilities | Negative sampling (uniform, Bernoulli), AMSGrad optimizer |
-| Evaluation | MRR, Hits@k, Mean Rank |
+| `BoxEmbeddingTrainer` | CPU trainer with analytical gradients, AMSGrad, Bernoulli negative sampling |
+| `CandleBoxTrainer` | GPU trainer with AdamW autograd, cosine LR, self-adversarial NS, inside distance (BoxE-style), volume regularization, filtered evaluation |
+| Evaluation | MRR, Hits@k, Mean Rank (filtered, head + tail prediction) |
 | `lattix_bridge` | Load ontologies from N-Triples, Turtle, CSV, JSON-LD via [`lattix`](https://crates.io/crates/lattix) (optional) |
 | `rankops` | Rank fusion (RRF, CombMNZ), IR evaluation (nDCG, MAP) via [`rankops`](https://crates.io/crates/rankops) (optional) |
 
@@ -50,9 +51,11 @@ Geometric region embeddings for subsumption, entailment, and logical query answe
 |---|---|
 | `NdarrayBox` / `NdarrayGumbelBox` / `NdarrayCone` / `NdarrayOctagon` | CPU backend using `ndarray::Array1<f32>` |
 | `CandleBox` / `CandleGumbelBox` | GPU/Metal backend using `candle_core::Tensor` |
+| `CandleBoxTrainer` | GPU training loop: AdamW + autograd, log-sigmoid loss, per-relation translations |
 
 The ndarray backend has full geometry support. The candle backend provides
-GPU-accelerated box operations for training workflows.
+GPU-accelerated box operations and a complete training loop. Enable with
+`features = ["candle-backend"]` or `features = ["cuda"]` for CUDA GPU support.
 
 ## Usage
 
@@ -96,6 +99,21 @@ let result = trainer.fit(&train, None, None)?;
 println!("MRR: {:.3}", result.final_results.mrr);
 ```
 
+### Training (GPU via candle)
+
+```rust,ignore
+use subsume::CandleBoxTrainer;
+use candle_core::Device;
+
+let device = Device::cuda_if_available(0).unwrap_or(Device::Cpu);
+let trainer = CandleBoxTrainer::new(num_entities, num_relations, 200, 10.0, &device)?
+    .with_inside_weight(0.02)   // BoxE-style center attraction
+    .with_vol_reg(0.0001);      // prevent trivial solution
+
+let losses = trainer.fit(&train_triples, 500, 0.001, 512, 9.0, 128, 1.0)?;
+let (mrr, h1, h3, h10, mr) = trainer.evaluate(&test_triples, &all_triples)?;
+```
+
 ### Training (Python)
 
 ```bash
@@ -136,6 +154,7 @@ cargo run -p subsume --example el_training              # EL++ box embeddings on
 cargo run -p subsume --example gene_ontology --release  # Gene Ontology EL++ axioms: NF1-NF4, subsumption inference
 cargo run -p subsume --example cone_query_answering     # FOL queries with cones: AND, OR, NOT, projection
 cargo run -p subsume --features candle-backend --example taxobell_training  # TaxoBell MLP encoder training (Candle)
+cargo run -p subsume --features candle-backend --example wn18rr_candle --release  # WN18RR GPU training + filtered eval
 ```
 
 See [`examples/README.md`](examples/README.md) for a guide to choosing the right example.
@@ -269,11 +288,34 @@ let triples: Vec<Triple> = df.column("head")?.str()?
 let dataset = Dataset::new(triples, vec![], vec![]);
 ```
 
+## GPU training
+
+The `CandleBoxTrainer` supports CPU, CUDA, and Metal via the candle backend:
+
+```bash
+# CPU
+cargo run --features candle-backend --example wn18rr_candle --release
+
+# CUDA GPU
+cargo run --features cuda --example wn18rr_candle --release
+```
+
+Configure via environment variables:
+
+```bash
+DIM=200 EPOCHS=500 LR=0.001 NEG=128 BATCH=512 MARGIN=9.0 \
+  ADV_TEMP=1.0 INSIDE_W=0.02 VOL_REG=0.0001 BOUNDS_EVERY=50 \
+  cargo run --features cuda --example wn18rr_candle --release
+```
+
+See `examples/README.md` for all available examples.
+
 ## References
 
 - Nickel & Kiela (2017). "Poincare Embeddings for Learning Hierarchical Representations"
 - Vilnis et al. (2018). "Probabilistic Embedding of Knowledge Graphs with Box Lattice Measures"
 - Li et al. (2019). "Smoothing the Geometry of Probabilistic Box Embeddings" (ICLR 2019)
+- Sun et al. (2019). "RotatE: Knowledge Graph Embedding by Relational Rotation in Complex Space" (self-adversarial negative sampling)
 - Abboud et al. (2020). "BoxE: A Box Embedding Model for Knowledge Base Completion"
 - Dasgupta et al. (2020). "Improving Local Identifiability in Probabilistic Box Embeddings"
 - Ren et al. (2020). "Query2Box: Reasoning over Knowledge Graphs using Box Embeddings"
