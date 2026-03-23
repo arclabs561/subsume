@@ -8,7 +8,7 @@
 //!
 //! Environment variables:
 //!   DIM=200 EPOCHS=500 LR=0.001 NEG=128 BATCH=512 BETA=10.0 MARGIN=3.0 ADV_TEMP=2.0
-//!   INSIDE_W=0.02 BOUNDS_EVERY=50
+//!   INSIDE_W=0.02 BOUNDS_EVERY=50 VOL_REG=0.0001
 
 use candle_core::Device;
 use std::path::Path;
@@ -34,6 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let adv_temp: f32 = env_or("ADV_TEMP", 2.0);
     let inside_w: f32 = env_or("INSIDE_W", 0.0);
     let bounds_every: usize = env_or("BOUNDS_EVERY", 0);
+    let vol_reg: f32 = env_or("VOL_REG", 0.0);
 
     let device = Device::cuda_if_available(0).unwrap_or(Device::Cpu);
     println!("=== WN18RR Candle Box Training ===");
@@ -64,6 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let trainer = CandleBoxTrainer::new(num_entities, num_relations, dim, beta, &device)?
         .with_inside_weight(inside_w)
+        .with_vol_reg(vol_reg)
         .with_bounds_every(bounds_every);
 
     let start = Instant::now();
