@@ -42,6 +42,11 @@ pub struct CandleBoxTrainer {
     /// distance (penalty for being off-center when contained). Setting this
     /// to ~0.02-0.1 enables the inside term.
     pub inside_weight: f32,
+    /// How often to recompute entity bounds during training (in batches).
+    ///
+    /// 0 = once per epoch (fast but stale). N = every N batches.
+    /// For WN18RR (~340 batches/epoch), try 50-100.
+    pub bounds_every: usize,
     /// Device (CPU, CUDA, or Metal).
     pub device: Device,
 }
@@ -90,6 +95,7 @@ impl CandleBoxTrainer {
             num_relations,
             beta,
             inside_weight: 0.0,
+            bounds_every: 0,
             device: device.clone(),
         })
     }
@@ -100,6 +106,13 @@ impl CandleBoxTrainer {
     #[must_use]
     pub fn with_inside_weight(mut self, weight: f32) -> Self {
         self.inside_weight = weight;
+        self
+    }
+
+    /// Set bounds recomputation frequency (batches). 0 = once per epoch.
+    #[must_use]
+    pub fn with_bounds_every(mut self, n: usize) -> Self {
+        self.bounds_every = n;
         self
     }
 
@@ -323,12 +336,17 @@ impl CandleBoxTrainer {
             let mut total_loss = 0.0f32;
             let mut batch_count = 0usize;
 
-            // Compute entity bounds once per epoch for speed.
-            // Staleness from not recomputing after each backward_step is
-            // acceptable -- standard practice in PyKEEN/DGL-KE.
-            let (min_all, max_all) = self.entity_bounds()?;
+            // Compute entity bounds. Recompute every `bounds_every` batches
+            // (0 = once per epoch). Fresher bounds = better gradients but slower.
+            let (mut min_all, mut max_all) = self.entity_bounds()?;
 
             for batch_start in (0..n).step_by(batch_size) {
+                if self.bounds_every > 0 && batch_count > 0 && batch_count % self.bounds_every == 0
+                {
+                    let (m, x) = self.entity_bounds()?;
+                    min_all = m;
+                    max_all = x;
+                }
                 let batch_end = (batch_start + batch_size).min(n);
                 let bs = batch_end - batch_start;
 
