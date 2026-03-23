@@ -285,19 +285,19 @@ impl CandleBoxTrainer {
                 // Compute entity bounds ONCE per batch step
                 let (min_all, max_all) = self.entity_bounds()?;
 
-                let heads: Vec<u32> = (batch_start..batch_end)
+                let heads_raw: Vec<u32> = (batch_start..batch_end)
                     .map(|i| train_triples[indices[i]].0 as u32)
                     .collect();
-                let rels: Vec<u32> = (batch_start..batch_end)
+                let rels_raw: Vec<u32> = (batch_start..batch_end)
                     .map(|i| train_triples[indices[i]].1 as u32)
                     .collect();
-                let tails: Vec<u32> = (batch_start..batch_end)
+                let tails_raw: Vec<u32> = (batch_start..batch_end)
                     .map(|i| train_triples[indices[i]].2 as u32)
                     .collect();
 
-                let h_t = Tensor::from_vec(heads, (bs,), &self.device)?;
-                let r_t = Tensor::from_vec(rels, (bs,), &self.device)?;
-                let t_t = Tensor::from_vec(tails, (bs,), &self.device)?;
+                let h_t = Tensor::from_vec(heads_raw.clone(), (bs,), &self.device)?;
+                let r_t = Tensor::from_vec(rels_raw.clone(), (bs,), &self.device)?;
+                let t_t = Tensor::from_vec(tails_raw, (bs,), &self.device)?;
 
                 let rel_ref = if self.num_relations > 0 {
                     Some(&r_t)
@@ -309,19 +309,35 @@ impl CandleBoxTrainer {
                 let pos_loss =
                     self.batch_loss(&min_all, &max_all, &h_t, &t_t, rel_ref, true, 0.0)?;
 
-                // Negative samples (corrupt tail), reusing same entity bounds
-                let mut neg_loss_total =
-                    Tensor::zeros((), candle_core::DType::F32, &self.device)?;
-                for _ in 0..negative_samples {
-                    let neg_tails: Vec<u32> = (0..bs)
-                        .map(|_| (lcg(&mut rng) % self.num_entities) as u32)
-                        .collect();
-                    let nt_t = Tensor::from_vec(neg_tails, (bs,), &self.device)?;
-                    let nl = self.batch_loss(
-                        &min_all, &max_all, &h_t, &nt_t, rel_ref, false, margin,
-                    )?;
-                    neg_loss_total = neg_loss_total.add(&nl)?;
-                }
+                // Batch all negative samples into one tensor [bs * neg_samples]
+                let total_neg = bs * negative_samples;
+                let neg_heads: Vec<u32> = heads_raw
+                    .iter()
+                    .cycle()
+                    .take(total_neg)
+                    .copied()
+                    .collect();
+                let neg_rels: Vec<u32> = rels_raw
+                    .iter()
+                    .cycle()
+                    .take(total_neg)
+                    .copied()
+                    .collect();
+                let neg_tails: Vec<u32> = (0..total_neg)
+                    .map(|_| (lcg(&mut rng) % self.num_entities) as u32)
+                    .collect();
+
+                let neg_h = Tensor::from_vec(neg_heads, (total_neg,), &self.device)?;
+                let neg_t = Tensor::from_vec(neg_tails, (total_neg,), &self.device)?;
+                let neg_r = Tensor::from_vec(neg_rels, (total_neg,), &self.device)?;
+                let neg_rel_ref = if self.num_relations > 0 {
+                    Some(&neg_r)
+                } else {
+                    None
+                };
+                let neg_loss_total = self.batch_loss(
+                    &min_all, &max_all, &neg_h, &neg_t, neg_rel_ref, false, margin,
+                )?;
 
                 let loss = pos_loss.add(&neg_loss_total)?;
                 opt.backward_step(&loss)?;
