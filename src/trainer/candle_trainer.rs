@@ -168,10 +168,7 @@ impl CandleBoxTrainer {
         let neg_2d = neg_scores.reshape((batch_size, num_neg))?;
 
         // Softmax weights (detached -- no gradient through weights)
-        let weights = candle_nn::ops::softmax(
-            &neg_2d.affine(adv_temp as f64, 0.0)?.detach(),
-            1,
-        )?;
+        let weights = candle_nn::ops::softmax(&neg_2d.affine(adv_temp as f64, 0.0)?.detach(), 1)?;
 
         // Weighted negative loss per batch element
         let margin_2d = Tensor::full(margin, (batch_size, num_neg), device)?;
@@ -204,6 +201,7 @@ impl CandleBoxTrainer {
     /// Returns per-epoch average losses.
     ///
     /// Set `adversarial_temperature` to 0.0 to disable self-adversarial weighting.
+    #[allow(clippy::too_many_arguments)]
     pub fn fit(
         &self,
         train_triples: &[(usize, usize, usize)],
@@ -282,23 +280,22 @@ impl CandleBoxTrainer {
                     None
                 };
 
-                let pos_scores =
-                    self.batch_score(&min_all, &max_all, &h_t, &t_t, rel_ref)?;
+                let pos_scores = self.batch_score(&min_all, &max_all, &h_t, &t_t, rel_ref)?;
 
                 // Corrupt both head and tail (half each)
                 let total_neg = bs * negative_samples;
                 let half_neg = total_neg / 2;
 
                 // Tail corruption: keep head, randomize tail
-                let neg_rand_t = Tensor::rand(
-                    0.0_f32,
-                    self.num_entities as f32,
-                    (half_neg,),
-                    &self.device,
-                )?;
+                let neg_rand_t =
+                    Tensor::rand(0.0_f32, self.num_entities as f32, (half_neg,), &self.device)?;
                 let neg_t_ids = neg_rand_t.to_dtype(candle_core::DType::U32)?;
-                let neg_h_for_t = h_t.repeat(((half_neg + bs - 1) / bs,))?.narrow(0, 0, half_neg)?;
-                let neg_r_for_t = r_t.repeat(((half_neg + bs - 1) / bs,))?.narrow(0, 0, half_neg)?;
+                let neg_h_for_t = h_t
+                    .repeat((half_neg.div_ceil(bs),))?
+                    .narrow(0, 0, half_neg)?;
+                let neg_r_for_t = r_t
+                    .repeat((half_neg.div_ceil(bs),))?
+                    .narrow(0, 0, half_neg)?;
 
                 // Head corruption: keep tail, randomize head
                 let neg_rand_h = Tensor::rand(
@@ -309,8 +306,12 @@ impl CandleBoxTrainer {
                 )?;
                 let neg_h_ids = neg_rand_h.to_dtype(candle_core::DType::U32)?;
                 let remaining = total_neg - half_neg;
-                let neg_t_for_h = t_t.repeat(((remaining + bs - 1) / bs,))?.narrow(0, 0, remaining)?;
-                let neg_r_for_h = r_t.repeat(((remaining + bs - 1) / bs,))?.narrow(0, 0, remaining)?;
+                let neg_t_for_h = t_t
+                    .repeat((remaining.div_ceil(bs),))?
+                    .narrow(0, 0, remaining)?;
+                let neg_r_for_h = r_t
+                    .repeat((remaining.div_ceil(bs),))?
+                    .narrow(0, 0, remaining)?;
 
                 // Concatenate all negatives
                 let all_neg_h = Tensor::cat(&[&neg_h_for_t, &neg_h_ids], 0)?;
@@ -322,9 +323,8 @@ impl CandleBoxTrainer {
                 } else {
                     None
                 };
-                let neg_scores = self.batch_score(
-                    &min_all, &max_all, &all_neg_h, &all_neg_t, neg_rel_ref,
-                )?;
+                let neg_scores =
+                    self.batch_score(&min_all, &max_all, &all_neg_h, &all_neg_t, neg_rel_ref)?;
 
                 let loss = if use_self_adv {
                     Self::self_adversarial_ns_loss(

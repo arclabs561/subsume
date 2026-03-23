@@ -35,10 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let device = Device::cuda_if_available(0).unwrap_or(Device::Cpu);
     println!("=== WN18RR Candle Box Training ===");
-    println!(
-        "Device: {}",
-        if device.is_cuda() { "CUDA" } else { "CPU" }
-    );
+    println!("Device: {}", if device.is_cuda() { "CUDA" } else { "CPU" });
     println!("Config: dim={dim}, epochs={epochs}, lr={lr}, neg={neg}, batch={batch}, beta={beta}, margin={margin}, adv_temp={adv_temp}\n");
 
     let data_path = Path::new("data/WN18RR");
@@ -134,8 +131,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .enumerate()
             .filter(|&(eid, &s)| {
                 s < correct_score
-                    && (eid == t.tail
-                        || !filter_set.is_some_and(|known| known.contains(&eid)))
+                    && (eid == t.tail || !filter_set.is_some_and(|known| known.contains(&eid)))
             })
             .count()
             + 1;
