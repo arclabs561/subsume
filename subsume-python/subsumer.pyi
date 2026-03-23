@@ -70,6 +70,8 @@ class TrainingConfig:
     warmup_epochs: int
     early_stopping_patience: Optional[int]
     symmetric_loss: bool
+    self_adversarial: bool
+    adversarial_temperature: float
 
     def __init__(
         self,
@@ -86,6 +88,8 @@ class TrainingConfig:
         warmup_epochs: int = 10,
         early_stopping_patience: Optional[int] = 10,
         symmetric_loss: bool = False,
+        self_adversarial: bool = False,
+        adversarial_temperature: float = 1.0,
     ) -> None: ...
     def __repr__(self) -> str: ...
 
@@ -256,3 +260,41 @@ def el_intersection_loss(
 ) -> float:
     """Compute NF1 intersection loss: C1 AND C2 should be contained in D."""
     ...
+
+class CandleBoxTrainer:
+    """GPU-accelerated box embedding trainer via candle autograd.
+
+    Available only when built with the ``candle-backend`` feature.
+    Supports CPU, CUDA, and Metal devices.
+    """
+
+    def __init__(
+        self,
+        num_entities: int,
+        num_relations: int,
+        dim: int,
+        beta: float = 10.0,
+        device: str = "cpu",
+    ) -> None: ...
+    def fit(
+        self,
+        triples: List[Tuple[int, int, int]],
+        epochs: int = 100,
+        lr: float = 0.001,
+        batch_size: int = 512,
+        margin: float = 6.0,
+        negative_samples: int = 64,
+        adversarial_temperature: float = 1.0,
+    ) -> List[float]:
+        """Train with AdamW. Returns per-epoch average losses."""
+        ...
+    def score(
+        self, head_ids: List[int], tail_ids: List[int]
+    ) -> npt.NDArray[np.float32]:
+        """Score (head, tail) pairs. Lower = better containment."""
+        ...
+    def score_with_rel(
+        self, head_ids: List[int], tail_ids: List[int], rel_ids: List[int]
+    ) -> npt.NDArray[np.float32]:
+        """Score with relation translation. Lower = better containment."""
+        ...
