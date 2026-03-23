@@ -1,15 +1,16 @@
 //! Train box embeddings on WN18RR using the candle backend (GPU-capable).
 //!
-//! Uses automatic differentiation with probabilistic containment loss.
-//! Supports CUDA via `--features cuda` or CPU via `--features candle-backend`.
+//! Uses per-dimension containment scoring with log-sigmoid loss and
+//! self-adversarial negative sampling. Supports CPU, CUDA, and Metal.
 //!
 //! Run (CPU):  cargo run --features candle-backend --example wn18rr_candle --release
 //! Run (GPU):  cargo run --features cuda --example wn18rr_candle --release
 //!
 //! Environment variables:
-//!   DIM=200 EPOCHS=500 LR=0.001 NEG=10 BATCH=1024 BETA=10.0 MARGIN=0.1
+//!   DIM=200 EPOCHS=500 LR=0.001 NEG=128 BATCH=512 BETA=10.0 MARGIN=3.0 ADV_TEMP=2.0
 
 use candle_core::Device;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::Instant;
 use subsume::dataset::load_dataset;
@@ -68,10 +69,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let losses = trainer.fit(&train, epochs, lr, batch, margin, neg, adv_temp)?;
     let elapsed = start.elapsed();
 
+    let triples_per_sec = (train.len() * epochs) as f64 / elapsed.as_secs_f64();
     println!(
-        "\nTraining: {:.1}s ({:.2}s/epoch)",
+        "\nTraining: {:.1}s ({:.2}s/epoch, {:.0} triples/sec)",
         elapsed.as_secs_f64(),
-        elapsed.as_secs_f64() / epochs as f64
+        elapsed.as_secs_f64() / epochs as f64,
+        triples_per_sec,
     );
     println!(
         "Loss: {:.4} (epoch 1) -> {:.4} (epoch {epochs})",
@@ -79,10 +82,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         losses[losses.len() - 1]
     );
 
-    // Evaluate on test set
-    let test_sample_size = 500.min(interned.test.len());
+    // Build filtered index: all known (head, rel) -> set of tails
+    let mut known_tails: HashMap<(usize, usize), HashSet<usize>> = HashMap::new();
+    for t in interned
+        .train
+        .iter()
+        .chain(interned.valid.iter())
+        .chain(interned.test.iter())
+    {
+        known_tails
+            .entry((t.head, t.relation))
+            .or_default()
+            .insert(t.tail);
+    }
+
+    // Evaluate on test set (filtered ranking)
+    let test_sample_size = interned.test.len().min(1000);
     println!(
-        "\nEvaluating on test set ({test_sample_size}/{} triples)...",
+        "\nFiltered eval on {test_sample_size}/{} test triples...",
         interned.test.len()
     );
     let eval_start = Instant::now();
@@ -108,11 +125,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let scores = trainer.score_with_rel(&head_ids, &all_tails, &rel_ids)?;
         let scores_vec: Vec<f32> = scores.to_vec1()?;
 
-        // Lower score = better containment
         let correct_score = scores_vec[t.tail];
+        let filter_set = known_tails.get(&(t.head, t.relation));
+
+        // Filtered rank: count entities scoring better, excluding known triples
         let rank = scores_vec
             .iter()
-            .filter(|&&s| s < correct_score)
+            .enumerate()
+            .filter(|&(eid, &s)| {
+                s < correct_score
+                    && (eid == t.tail
+                        || !filter_set.is_some_and(|known| known.contains(&eid)))
+            })
             .count()
             + 1;
         ranks.push(rank);
@@ -125,7 +149,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mean_rank: f32 = ranks.iter().sum::<usize>() as f32 / ranks.len() as f32;
 
     println!("  Eval time: {:.1}s", eval_start.elapsed().as_secs_f64());
-    println!("  MRR: {mrr:.4}  Hits@1: {hits_1:.4}  Hits@3: {hits_3:.4}  Hits@10: {hits_10:.4}  MR: {mean_rank:.1}");
+    println!(
+        "  MRR: {mrr:.4}  H@1: {hits_1:.4}  H@3: {hits_3:.4}  H@10: {hits_10:.4}  MR: {mean_rank:.1}"
+    );
 
     Ok(())
 }
