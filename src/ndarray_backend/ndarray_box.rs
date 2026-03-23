@@ -268,7 +268,7 @@ impl Box for NdarrayBox {
             }));
 
             if other_vol <= 0.0 {
-                return Err(BoxError::ZeroVolume);
+                return Err(BoxError::Internal("Box has zero or negative volume".into()));
             }
 
             let mut j = 0usize;
@@ -299,7 +299,7 @@ impl Box for NdarrayBox {
             }
 
             if other_vol <= 0.0 {
-                return Err(BoxError::ZeroVolume);
+                return Err(BoxError::Internal("Box has zero or negative volume".into()));
             }
 
             Ok((intersection_vol / other_vol).clamp(0.0, 1.0))
@@ -343,7 +343,7 @@ impl Box for NdarrayBox {
                 }));
 
                 if other_vol <= 0.0 {
-                    return Err(BoxError::ZeroVolume);
+                    return Err(BoxError::Internal("Box has zero or negative volume".into()));
                 }
 
                 let mut j = 0usize;
@@ -374,7 +374,7 @@ impl Box for NdarrayBox {
                 }
 
                 if other_vol <= 0.0 {
-                    return Err(BoxError::ZeroVolume);
+                    return Err(BoxError::Internal("Box has zero or negative volume".into()));
                 }
 
                 (intersection_vol / other_vol).clamp(0.0, 1.0)

@@ -415,10 +415,6 @@ pub enum BoxError {
         reason: &'static str,
     },
 
-    /// Box has zero or negative volume.
-    #[error("Box has zero or negative volume")]
-    ZeroVolume,
-
     /// Internal error from tensor/array operations.
     #[error("Internal error: {0}")]
     Internal(String),

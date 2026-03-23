@@ -1,7 +1,7 @@
 //! Backend-specific distance implementations for ndarray.
 
 use crate::ndarray_backend::NdarrayBox;
-use crate::utils::{BOUNDARY_CONTAINMENT_THRESHOLD, LOG_VOLUME_FLOOR};
+use crate::utils::BOUNDARY_CONTAINMENT_THRESHOLD;
 use crate::{Box, BoxError};
 use ndarray::Array1;
 
@@ -77,41 +77,6 @@ pub fn vector_to_box_distance(point: &Array1<f32>, box_: &NdarrayBox) -> Result<
     }
 
     Ok(dist_sq.sqrt())
-}
-
-/// Compute depth-based distance between two boxes (RegD 2025).
-///
-/// This is an optimized implementation for ndarray that uses actual log volumes.
-pub fn depth_distance(
-    box_a: &NdarrayBox,
-    box_b: &NdarrayBox,
-    volume_weight: f32,
-) -> Result<f32, BoxError> {
-    // Standard Euclidean distance
-    let euclidean_dist = box_a.distance(box_b)?;
-
-    // Volume-based term: |log(Vol(A)) - log(Vol(B))|
-    let vol_a = box_a.volume()?;
-    let vol_b = box_b.volume()?;
-
-    // Use actual logarithm for proper depth distance
-    let log_vol_a = if vol_a > 1e-10 {
-        vol_a.ln()
-    } else {
-        LOG_VOLUME_FLOOR
-    };
-
-    let log_vol_b = if vol_b > 1e-10 {
-        vol_b.ln()
-    } else {
-        LOG_VOLUME_FLOOR
-    };
-
-    // Volume difference term
-    let volume_diff = (log_vol_a - log_vol_b).abs();
-
-    // Depth distance = Euclidean + α * volume_diff
-    Ok(euclidean_dist + volume_weight * volume_diff)
 }
 
 /// Compute boundary distance between two boxes (RegD 2025).
@@ -208,14 +173,6 @@ mod tests {
         let dist = vector_to_box_distance(&point, &box_).unwrap();
         // Distance should be 1.0 (gap in y dimension)
         assert!((dist - 1.0).abs() < 1e-5);
-    }
-
-    #[test]
-    fn test_depth_distance() {
-        let box_a = NdarrayBox::new(array![0.0, 0.0], array![1.0, 1.0], 1.0).unwrap();
-        let box_b = NdarrayBox::new(array![0.2, 0.2], array![0.8, 0.8], 1.0).unwrap();
-        let dist = depth_distance(&box_a, &box_b, 0.1).unwrap();
-        assert!(dist >= 0.0);
     }
 
     #[test]

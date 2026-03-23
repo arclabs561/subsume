@@ -1,7 +1,7 @@
 //! Backend-specific distance implementations for candle.
 
 use crate::candle_backend::CandleBox;
-use crate::utils::{BOUNDARY_CONTAINMENT_THRESHOLD, LOG_VOLUME_FLOOR};
+use crate::utils::BOUNDARY_CONTAINMENT_THRESHOLD;
 use crate::{Box, BoxError};
 use candle_core::Tensor;
 
@@ -63,41 +63,6 @@ pub fn vector_to_box_distance(point: &Tensor, box_: &CandleBox) -> Result<f32, B
     }
 
     Ok(dist_sq.sqrt())
-}
-
-/// Compute depth-based distance between two boxes (RegD 2025).
-///
-/// Optimized implementation for candle that uses actual log volumes.
-pub fn depth_distance(
-    box_a: &CandleBox,
-    box_b: &CandleBox,
-    volume_weight: f32,
-) -> Result<f32, BoxError> {
-    // Standard Euclidean distance
-    let euclidean_dist = box_a.distance(box_b)?;
-
-    // Volume-based term: |log(Vol(A)) - log(Vol(B))|
-    let vol_a = box_a.volume()?;
-    let vol_b = box_b.volume()?;
-
-    // Use actual logarithm for proper depth distance
-    let log_vol_a = if vol_a > 1e-10 {
-        vol_a.ln()
-    } else {
-        LOG_VOLUME_FLOOR
-    };
-
-    let log_vol_b = if vol_b > 1e-10 {
-        vol_b.ln()
-    } else {
-        LOG_VOLUME_FLOOR
-    };
-
-    // Volume difference term
-    let volume_diff = (log_vol_a - log_vol_b).abs();
-
-    // Depth distance = Euclidean + α * volume_diff
-    Ok(euclidean_dist + volume_weight * volume_diff)
 }
 
 /// Compute boundary distance between two boxes (RegD 2025).
@@ -184,24 +149,6 @@ mod tests {
         let dist = vector_to_box_distance(&point, &box_)?;
         // Distance should be sqrt((2-1)^2 + (2-1)^2) = sqrt(2) ≈ 1.414
         assert!((dist - 2.0_f32.sqrt()).abs() < 1e-5);
-        Ok(())
-    }
-
-    #[test]
-    fn test_depth_distance() -> Result<(), BoxError> {
-        let device = Device::Cpu;
-        let box_a = CandleBox::new(
-            Tensor::new(&[0.0f32, 0.0], &device).map_err(|e| BoxError::Internal(e.to_string()))?,
-            Tensor::new(&[1.0f32, 1.0], &device).map_err(|e| BoxError::Internal(e.to_string()))?,
-            1.0,
-        )?;
-        let box_b = CandleBox::new(
-            Tensor::new(&[0.2f32, 0.2], &device).map_err(|e| BoxError::Internal(e.to_string()))?,
-            Tensor::new(&[0.8f32, 0.8], &device).map_err(|e| BoxError::Internal(e.to_string()))?,
-            1.0,
-        )?;
-        let dist = depth_distance(&box_a, &box_b, 0.1)?;
-        assert!(dist >= 0.0);
         Ok(())
     }
 

@@ -402,8 +402,6 @@ pub struct BoxEmbeddingTrainer {
     pub optimizer_states: HashMap<usize, AMSGradState>,
     /// Embedding dimension.
     pub dim: usize,
-    /// Per-relation transforms (relation_id -> transform). Default: empty (all Identity).
-    pub relation_transforms: HashMap<usize, RelationTransform>,
     /// Current Gumbel beta, annealed from `config.gumbel_beta` to
     /// `config.gumbel_beta_final` across epochs in `fit()`.
     pub current_beta: f32,
@@ -434,7 +432,6 @@ impl BoxEmbeddingTrainer {
             boxes: HashMap::new(),
             optimizer_states: HashMap::new(),
             dim,
-            relation_transforms: HashMap::new(),
             current_beta,
             relation_translations: HashMap::new(),
             relation_optimizer_states: HashMap::new(),
@@ -843,36 +840,11 @@ impl BoxEmbeddingTrainer {
             .into_iter()
             .collect();
 
-        for &(h, r, t) in triples {
-            // Get the relation transform (default to Identity).
-            let transform = self
-                .relation_transforms
-                .get(&r)
-                .cloned()
-                .unwrap_or(RelationTransform::Identity);
-
+        for &(h, _r, t) in triples {
             // Snapshot current boxes (immutable copy for gradient computation).
             let box_h = self.snapshot_box(h);
             let box_t = self.snapshot_box(t);
-
-            // Apply transform to head box for scoring.
-            let box_h_transformed = if transform.is_identity() {
-                box_h.clone()
-            } else {
-                let dense = box_h.to_box();
-                let (new_min, new_max) = transform.apply_to_bounds(&dense.min, &dense.max);
-                let mu: Vec<f32> = new_min
-                    .iter()
-                    .zip(&new_max)
-                    .map(|(lo, hi)| (lo + hi) / 2.0)
-                    .collect();
-                let delta: Vec<f32> = new_min
-                    .iter()
-                    .zip(&new_max)
-                    .map(|(lo, hi)| ((hi - lo).max(1e-6)).ln())
-                    .collect();
-                TrainableBox::new(mu, delta).unwrap_or_else(|_| box_h.clone())
-            };
+            let box_h_transformed = box_h.clone();
 
             // Generate negative samples using the configured strategy and count.
             if entity_ids.len() <= 1 {
@@ -1184,12 +1156,10 @@ impl BoxEmbeddingTrainer {
             entity_vec.push(nb);
         }
 
-        // Build transforms from learned translations + explicit transforms.
-        let mut combined_transforms: HashMap<usize, RelationTransform> =
-            self.relation_transforms.clone();
+        // Build transforms from learned translations.
+        let mut combined_transforms: HashMap<usize, RelationTransform> = HashMap::new();
         for (&rel_id, trans) in &self.relation_translations {
-            // Only add if not already an explicit transform and translation is non-zero.
-            if !combined_transforms.contains_key(&rel_id) && trans.iter().any(|&v| v.abs() > 1e-8) {
+            if trans.iter().any(|&v| v.abs() > 1e-8) {
                 combined_transforms.insert(rel_id, RelationTransform::Translation(trans.clone()));
             }
         }
