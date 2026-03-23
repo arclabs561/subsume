@@ -111,19 +111,19 @@ impl CandleBoxTrainer {
         Ok((min_all, max_all))
     }
 
-    /// Per-dimension distance: containment margin + weighted inside distance.
+    /// Per-dimension distance: containment violation + weighted inside distance.
     ///
-    /// Containment margin: `relu(min_t - min_h) + relu(max_h - max_t)` per dim.
-    /// Higher = more contained. This is the base signal used in training.
+    /// Violation (outside distance): `relu(min_h - min_t) + relu(max_t - max_h)` per dim.
+    /// Positive when tail protrudes from head. Zero when fully contained.
+    /// Lower score = better containment (matches loss function convention).
     ///
     /// Inside distance (BoxE-style): `|center_t - center_h| / width_h` per dim,
-    /// masked to only count in dimensions where the tail is actually contained.
-    /// This discriminates among contained entities by penalizing off-center placement.
+    /// masked to dimensions where the tail is fully contained (violation=0).
+    /// Discriminates among contained entities by penalizing off-center placement.
     ///
-    /// Combined: `margin + alpha * inside` where both terms are added
-    /// (inside provides additional discrimination for ranking).
+    /// Combined: `violation + alpha * inside`.
     ///
-    /// `alpha = 0` recovers pure containment margin (no inside term).
+    /// `alpha = 0` recovers pure containment violation.
     fn distance(
         min_h: &Tensor,
         max_h: &Tensor,
@@ -131,19 +131,14 @@ impl CandleBoxTrainer {
         max_t: &Tensor,
         alpha: f32,
     ) -> Result<Tensor> {
-        // Containment margin: positive when tail bound is inside head bound.
-        let lower_margin = min_t.sub(min_h)?.relu()?;
-        let upper_margin = max_h.sub(max_t)?.relu()?;
-        let margin = lower_margin.add(&upper_margin)?;
+        // Containment violation: positive when tail protrudes from head.
+        let lower_violation = min_h.sub(min_t)?.relu()?;
+        let upper_violation = max_t.sub(max_h)?.relu()?;
+        let violation = lower_violation.add(&upper_violation)?;
 
         if alpha == 0.0 {
-            return Ok(margin);
+            return Ok(violation);
         }
-
-        // Protrusion per dim: positive when tail protrudes from head.
-        let lower_protrusion = min_h.sub(min_t)?.relu()?;
-        let upper_protrusion = max_t.sub(max_h)?.relu()?;
-        let protrusion = lower_protrusion.add(&upper_protrusion)?;
 
         // Inside distance: |center_t - center_h| / width_h, masked where contained.
         let center_h = min_h.add(max_h)?.affine(0.5, 0.0)?;
@@ -153,11 +148,11 @@ impl CandleBoxTrainer {
         let width_h = max_h.sub(min_h)?.clamp(1e-6, f64::INFINITY)?;
         let inside_normed = center_dist.div(&width_h)?;
 
-        // Soft mask: 1 where contained (protrusion=0), 0 where protruding.
-        let mask = protrusion.affine(-10.0, 0.0)?.exp()?;
+        // Soft mask: 1 where contained (violation=0), 0 where protruding.
+        let mask = violation.affine(-10.0, 0.0)?.exp()?;
         let inside_masked = inside_normed.mul(&mask)?;
 
-        margin.add(&inside_masked.affine(alpha as f64, 0.0)?)
+        violation.add(&inside_masked.affine(alpha as f64, 0.0)?)
     }
 
     /// Score a batch from pre-computed entity bounds.
@@ -779,93 +774,85 @@ mod tests {
 
     #[test]
     fn test_distance_polarity() {
-        // The scoring function measures containment MARGIN (higher = more contained).
-        // relu(min_t - min_h) + relu(max_h - max_t) per dimension.
-        // Contained tail: both terms positive (measuring slack).
-        // Protruding tail: at least one term zero on the protruding dimension.
+        // Scoring = containment VIOLATION (lower = better containment).
+        // relu(min_h - min_t) + relu(max_t - max_h) per dimension.
         let device = Device::Cpu;
 
-        // Contained: tail [7,8] inside head [0,10]
+        // Contained: tail [7,8] inside head [0,10]. Violation = 0.
         let min_h = Tensor::new(&[[0.0f32, 0.0]], &device).unwrap();
         let max_h = Tensor::new(&[[10.0f32, 10.0]], &device).unwrap();
         let min_t = Tensor::new(&[[7.0f32, 7.0]], &device).unwrap();
         let max_t = Tensor::new(&[[8.0f32, 8.0]], &device).unwrap();
-        let contained_score = CandleBoxTrainer::distance(&min_h, &max_h, &min_t, &max_t, 0.0)
+        let contained = CandleBoxTrainer::distance(&min_h, &max_h, &min_t, &max_t, 0.0)
             .unwrap().sum(1).unwrap().to_vec1::<f32>().unwrap()[0];
+        assert!(contained < 1e-6, "contained tail should have ~0 violation, got {contained}");
 
-        // Protruding: tail [4, 12] extends beyond head [0,10]
+        // Protruding: tail [4, 12] extends beyond head [0,10].
+        // upper violation per dim = relu(12 - 10) = 2. Total = 4.
         let min_t2 = Tensor::new(&[[4.0f32, 4.0]], &device).unwrap();
         let max_t2 = Tensor::new(&[[12.0f32, 12.0]], &device).unwrap();
-        let protruding_score = CandleBoxTrainer::distance(&min_h, &max_h, &min_t2, &max_t2, 0.0)
+        let protruding = CandleBoxTrainer::distance(&min_h, &max_h, &min_t2, &max_t2, 0.0)
             .unwrap().sum(1).unwrap().to_vec1::<f32>().unwrap()[0];
+        assert!((protruding - 4.0).abs() < 1e-5, "expected violation=4.0, got {protruding}");
 
-        // Contained pair scores HIGHER (more margin).
-        assert!(
-            contained_score > protruding_score,
-            "contained ({contained_score}) should score higher than protruding ({protruding_score})"
-        );
+        // Lower = better containment.
+        assert!(contained < protruding);
     }
 
     #[test]
     fn test_inside_distance_discriminates_contained() {
-        // Inside distance should distinguish centered vs edge-aligned contained pairs.
+        // Both tails fully contained (violation=0), but one is centered, one is at the edge.
+        // Inside distance should distinguish them (lower = more centered = better).
         let device = Device::Cpu;
         let min_h = Tensor::new(&[[0.0f32, 0.0]], &device).unwrap();
         let max_h = Tensor::new(&[[10.0f32, 10.0]], &device).unwrap();
 
-        // Centered tail
         let min_t_center = Tensor::new(&[[4.0f32, 4.0]], &device).unwrap();
         let max_t_center = Tensor::new(&[[6.0f32, 6.0]], &device).unwrap();
-        // Edge-aligned tail (still inside, but near upper edge)
         let min_t_edge = Tensor::new(&[[8.0f32, 8.0]], &device).unwrap();
         let max_t_edge = Tensor::new(&[[9.0f32, 9.0]], &device).unwrap();
 
-        // Without inside weight, both are equivalent (both fully contained).
-        let center_no_inside = CandleBoxTrainer::distance(
+        // Without inside weight: both have 0 violation, indistinguishable.
+        let center_base = CandleBoxTrainer::distance(
             &min_h, &max_h, &min_t_center, &max_t_center, 0.0,
         ).unwrap().sum(1).unwrap().to_vec1::<f32>().unwrap()[0];
-        let edge_no_inside = CandleBoxTrainer::distance(
+        let edge_base = CandleBoxTrainer::distance(
             &min_h, &max_h, &min_t_edge, &max_t_edge, 0.0,
         ).unwrap().sum(1).unwrap().to_vec1::<f32>().unwrap()[0];
+        assert!(center_base < 1e-6 && edge_base < 1e-6, "both should have ~0 violation");
 
-        // With inside weight, centered should differ from edge.
-        let center_with_inside = CandleBoxTrainer::distance(
+        // With inside weight: centered scores lower (better), edge scores higher.
+        let center_inside = CandleBoxTrainer::distance(
             &min_h, &max_h, &min_t_center, &max_t_center, 0.1,
         ).unwrap().sum(1).unwrap().to_vec1::<f32>().unwrap()[0];
-        let edge_with_inside = CandleBoxTrainer::distance(
+        let edge_inside = CandleBoxTrainer::distance(
             &min_h, &max_h, &min_t_edge, &max_t_edge, 0.1,
         ).unwrap().sum(1).unwrap().to_vec1::<f32>().unwrap()[0];
-
-        // Inside distance should make the two cases distinguishable.
-        let diff_without = (center_no_inside - edge_no_inside).abs();
-        let diff_with = (center_with_inside - edge_with_inside).abs();
         assert!(
-            diff_with > diff_without,
-            "inside weight should increase discrimination: without={diff_without}, with={diff_with}"
+            center_inside < edge_inside,
+            "centered ({center_inside}) should score lower (better) than edge ({edge_inside})"
         );
     }
 
     #[test]
     fn test_inside_weight_monotonic() {
-        // Higher inside_weight should change the score for contained pairs.
+        // For off-center contained pair, higher inside_weight => higher score.
         let device = Device::Cpu;
         let min_h = Tensor::new(&[[0.0f32, 0.0]], &device).unwrap();
         let max_h = Tensor::new(&[[10.0f32, 10.0]], &device).unwrap();
         let min_t = Tensor::new(&[[7.0f32, 7.0]], &device).unwrap();
         let max_t = Tensor::new(&[[8.0f32, 8.0]], &device).unwrap();
 
-        let score_no = CandleBoxTrainer::distance(&min_h, &max_h, &min_t, &max_t, 0.0)
+        let s0 = CandleBoxTrainer::distance(&min_h, &max_h, &min_t, &max_t, 0.0)
             .unwrap().sum(1).unwrap().to_vec1::<f32>().unwrap()[0];
-        let score_low = CandleBoxTrainer::distance(&min_h, &max_h, &min_t, &max_t, 0.02)
+        let s1 = CandleBoxTrainer::distance(&min_h, &max_h, &min_t, &max_t, 0.1)
             .unwrap().sum(1).unwrap().to_vec1::<f32>().unwrap()[0];
-        let score_high = CandleBoxTrainer::distance(&min_h, &max_h, &min_t, &max_t, 0.2)
+        let s2 = CandleBoxTrainer::distance(&min_h, &max_h, &min_t, &max_t, 0.5)
             .unwrap().sum(1).unwrap().to_vec1::<f32>().unwrap()[0];
 
-        // Inside weight should change scores relative to no-inside baseline.
-        assert!(
-            (score_low - score_no).abs() > 1e-6 || (score_high - score_no).abs() > 1e-6,
-            "inside weight should affect score: no={score_no}, low={score_low}, high={score_high}"
-        );
+        assert!(s0 < 1e-6, "base violation should be 0 for contained pair");
+        assert!(s1 > s0, "inside_weight=0.1 should add inside penalty: s0={s0}, s1={s1}");
+        assert!(s2 > s1, "inside_weight=0.5 should add more: s1={s1}, s2={s2}");
     }
 
     #[test]
