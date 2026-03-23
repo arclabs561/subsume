@@ -254,9 +254,19 @@ pub fn el_intersection_loss(
         inter_offset[i] = (hi - lo) / 2.0;
     }
 
-    // Empty intersection is trivially contained in anything.
+    // Empty intersection: conjuncts are disjoint.
+    // Return a center-attraction surrogate to provide gradient signal
+    // that pulls C1 and C2 together until they overlap. Without this,
+    // NF1 axioms contribute zero gradient at random init (dead zone).
+    // Scale factor 0.1 prevents this surrogate from dominating the
+    // inclusion loss once boxes do overlap.
     if empty {
-        return Ok(0.0);
+        let mut center_dist_sq = 0.0f32;
+        for i in 0..dim {
+            let d = center_c1[i] - center_c2[i];
+            center_dist_sq += d * d;
+        }
+        return Ok(0.1 * center_dist_sq.sqrt());
     }
 
     el_inclusion_loss(&inter_center, &inter_offset, center_d, offset_d, margin)
@@ -755,17 +765,17 @@ mod tests {
         }
 
         #[test]
-        fn prop_intersection_loss_zero_when_d_is_universe(
+        fn prop_intersection_loss_zero_when_d_is_universe_and_overlapping(
             c1 in vec_f32(4),
             o1 in vec_f32_nonneg(4),
-            c2 in vec_f32(4),
-            o2 in vec_f32_nonneg(4),
         ) {
-            // If D covers [-100, 100]^d, any intersection fits inside it.
+            // If C1 == C2 (guaranteed overlap) and D covers [-100, 100]^d,
+            // the intersection fits inside D => loss = 0.
+            // (Disjoint conjuncts get a center-attraction surrogate > 0.)
             let cd = vec![0.0f32; 4];
             let od = vec![100.0f32; 4];
-            let loss = el_intersection_loss(&c1, &o1, &c2, &o2, &cd, &od, 0.0).unwrap();
-            prop_assert!(loss < 1e-4, "universal D should contain any intersection, got {loss}");
+            let loss = el_intersection_loss(&c1, &o1, &c1, &o1, &cd, &od, 0.0).unwrap();
+            prop_assert!(loss < 1e-4, "overlapping C1==C2 with universal D should have loss~0, got {loss}");
         }
 
         #[test]
@@ -801,12 +811,13 @@ mod tests {
     fn test_intersection_loss_disjoint() {
         // C1: center=[0], offset=[1] => [-1, 1]
         // C2: center=[5], offset=[1] => [4, 6]
-        // Disjoint => empty intersection => loss = 0 trivially
+        // Disjoint => center-attraction surrogate: 0.1 * |0 - 5| = 0.5
         let loss =
             el_intersection_loss(&[0.0], &[1.0], &[5.0], &[1.0], &[0.0], &[0.1], 0.0).unwrap();
+        let expected = 0.1 * 5.0; // 0.1 * L2 center distance
         assert!(
-            loss < 1e-6,
-            "disjoint boxes have empty intersection => loss 0, got {loss}"
+            (loss - expected).abs() < 1e-6,
+            "disjoint boxes should get center-attraction surrogate: expected {expected}, got {loss}"
         );
     }
 
@@ -822,6 +833,37 @@ mod tests {
         assert!(
             loss > 0.0,
             "intersection overflows D => loss > 0, got {loss}"
+        );
+    }
+
+    #[test]
+    fn test_intersection_loss_disjoint_surrogate() {
+        // Disjoint conjuncts: C1=[0,2], C2=[10,12]. No overlap.
+        // Previously returned 0.0 (dead zone). Now returns center-attraction surrogate.
+        let loss_disjoint =
+            el_intersection_loss(&[1.0], &[1.0], &[11.0], &[1.0], &[0.0], &[20.0], 0.0).unwrap();
+        assert!(
+            loss_disjoint > 0.0,
+            "disjoint conjuncts should produce non-zero surrogate loss, got {loss_disjoint}"
+        );
+
+        // Closer disjoint conjuncts should have lower surrogate loss.
+        let loss_closer =
+            el_intersection_loss(&[1.0], &[1.0], &[5.0], &[1.0], &[0.0], &[20.0], 0.0).unwrap();
+        assert!(
+            loss_closer < loss_disjoint,
+            "closer conjuncts ({loss_closer}) should have lower loss than farther ({loss_disjoint})"
+        );
+    }
+
+    #[test]
+    fn test_intersection_loss_overlap_still_works() {
+        // Overlapping conjuncts: C1=[0,4], C2=[2,6]. Intersection=[2,4].
+        // D=[0,10] contains intersection => loss should be 0.
+        let loss = el_intersection_loss(&[2.0], &[2.0], &[4.0], &[2.0], &[5.0], &[5.0], 0.0).unwrap();
+        assert!(
+            loss < 1e-6,
+            "overlapping conjuncts with D containing intersection should have ~0 loss, got {loss}"
         );
     }
 
