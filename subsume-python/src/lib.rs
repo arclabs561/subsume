@@ -1473,6 +1473,160 @@ fn train_el_embeddings(
     Ok(dict.into())
 }
 
+/// GPU-accelerated box embedding trainer via candle autograd.
+///
+/// Unlike ``BoxEmbeddingTrainer`` (ndarray, CPU), this uses candle's autograd
+/// for gradient computation and supports GPU (CUDA/Metal) acceleration.
+///
+/// Args:
+///     num_entities: Number of entities.
+///     num_relations: Number of relations (0 for identity/no relation transforms).
+///     dim: Embedding dimension.
+///     beta: Gumbel beta for softplus width transform (default 10.0).
+///     device: One of "cpu", "cuda", "metal".
+#[cfg(feature = "candle-backend")]
+#[pyclass(name = "CandleBoxTrainer")]
+struct PyCandleBoxTrainer {
+    inner: subsume::trainer::candle_trainer::CandleBoxTrainer,
+}
+
+#[cfg(feature = "candle-backend")]
+#[pymethods]
+impl PyCandleBoxTrainer {
+    /// Create a new candle-based box trainer.
+    #[new]
+    #[pyo3(signature = (num_entities, num_relations, dim, beta=10.0, device="cpu"))]
+    fn new(
+        num_entities: usize,
+        num_relations: usize,
+        dim: usize,
+        beta: f32,
+        device: &str,
+    ) -> PyResult<Self> {
+        let dev = match device {
+            "cpu" => candle_core::Device::Cpu,
+            "cuda" => candle_core::Device::new_cuda(0)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?,
+            "metal" => candle_core::Device::new_metal(0)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?,
+            other => {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "unknown device '{other}', expected 'cpu', 'cuda', or 'metal'"
+                )))
+            }
+        };
+        let inner = subsume::trainer::candle_trainer::CandleBoxTrainer::new(
+            num_entities,
+            num_relations,
+            dim,
+            beta,
+            &dev,
+        )
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        Ok(Self { inner })
+    }
+
+    /// Train with AdamW optimizer.
+    ///
+    /// Args:
+    ///     triples: List of (head_id, relation_id, tail_id) tuples.
+    ///     epochs: Number of training epochs.
+    ///     lr: Learning rate (float64).
+    ///     batch_size: Triples per batch.
+    ///     margin: Margin for log-sigmoid loss.
+    ///     negative_samples: Negatives per positive triple.
+    ///     adversarial_temperature: Temperature for self-adversarial weighting (0.0 to disable).
+    ///
+    /// Returns:
+    ///     List of per-epoch average losses.
+    #[pyo3(signature = (triples, epochs=100, lr=0.001, batch_size=512, margin=6.0, negative_samples=64, adversarial_temperature=1.0))]
+    fn fit(
+        &self,
+        triples: Vec<(usize, usize, usize)>,
+        epochs: usize,
+        lr: f64,
+        batch_size: usize,
+        margin: f32,
+        negative_samples: usize,
+        adversarial_temperature: f32,
+    ) -> PyResult<Vec<f32>> {
+        self.inner
+            .fit(
+                &triples,
+                epochs,
+                lr,
+                batch_size,
+                margin,
+                negative_samples,
+                adversarial_temperature,
+            )
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+    }
+
+    /// Score (head, tail) pairs without relation translation.
+    ///
+    /// Returns a numpy array of containment violation scores (lower = better containment).
+    fn score<'py>(
+        &self,
+        py: Python<'py>,
+        head_ids: Vec<u32>,
+        tail_ids: Vec<u32>,
+    ) -> PyResult<Py<PyArray1<f32>>> {
+        let hn = head_ids.len();
+        let tn = tail_ids.len();
+        let h = candle_core::Tensor::from_vec(head_ids, &[hn], &self.inner.device)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let t = candle_core::Tensor::from_vec(tail_ids, &[tn], &self.inner.device)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let scores = self
+            .inner
+            .score(&h, &t)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let flat: Vec<f32> = scores
+            .to_vec1()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let arr = ndarray::Array1::from(flat);
+        Ok(arr.into_pyarray(py).into())
+    }
+
+    /// Score (head, tail, relation) triples with relation translation.
+    ///
+    /// Returns a numpy array of containment violation scores (lower = better containment).
+    fn score_with_rel<'py>(
+        &self,
+        py: Python<'py>,
+        head_ids: Vec<u32>,
+        tail_ids: Vec<u32>,
+        rel_ids: Vec<u32>,
+    ) -> PyResult<Py<PyArray1<f32>>> {
+        let hn = head_ids.len();
+        let tn = tail_ids.len();
+        let rn = rel_ids.len();
+        let h = candle_core::Tensor::from_vec(head_ids, &[hn], &self.inner.device)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let t = candle_core::Tensor::from_vec(tail_ids, &[tn], &self.inner.device)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let r = candle_core::Tensor::from_vec(rel_ids, &[rn], &self.inner.device)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let scores = self
+            .inner
+            .score_with_rel(&h, &t, &r)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let flat: Vec<f32> = scores
+            .to_vec1()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let arr = ndarray::Array1::from(flat);
+        Ok(arr.into_pyarray(py).into())
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "CandleBoxTrainer(entities={}, relations={}, dim={})",
+            self.inner.num_entities, self.inner.num_relations, self.inner.dim
+        )
+    }
+}
+
 /// Geometric region embeddings for knowledge graph subsumption.
 ///
 /// Python bindings for the ``subsume`` Rust crate.
@@ -1514,5 +1668,7 @@ fn subsumer(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(el_inclusion_loss, m)?)?;
     m.add_function(wrap_pyfunction!(el_intersection_loss, m)?)?;
     m.add_function(wrap_pyfunction!(train_el_embeddings, m)?)?;
+    #[cfg(feature = "candle-backend")]
+    m.add_class::<PyCandleBoxTrainer>()?;
     Ok(())
 }
