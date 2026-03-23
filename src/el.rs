@@ -189,8 +189,9 @@ pub fn existential_box(
 /// Box intersection is computed element-wise: `max(min)` for lower bounds,
 /// `min(max)` for upper bounds (using center/offset representation).
 ///
-/// If C1 and C2 don't overlap (empty intersection), the loss is zero
-/// because the empty set is trivially a subset of anything.
+/// If C1 and C2 don't overlap (empty intersection), returns a center-attraction
+/// surrogate `0.1 * ||center_c1 - center_c2||` to provide gradient signal that
+/// pulls the conjuncts together until they overlap.
 ///
 /// # Arguments
 ///

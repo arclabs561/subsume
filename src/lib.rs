@@ -17,8 +17,9 @@
 //! | Use octagon embeddings (box + diagonal constraints) | [`NdarrayOctagon`](ndarray_backend::ndarray_octagon::NdarrayOctagon), [`octagon`] module |
 //! | Fuzzy query answering (t-norms) | [`fuzzy::TNorm`], [`fuzzy::TConorm`], [`fuzzy`] module |
 //! | Load a knowledge graph dataset | [`Dataset`], [`Triple`] |
-//! | Train box embeddings (ndarray) | [`ndarray_backend`], [`TrainingConfig`] |
-//! | Evaluate with link prediction | [`evaluate_link_prediction`], [`metrics`] module |
+//! | Train box embeddings (CPU) | [`BoxEmbeddingTrainer`], [`TrainingConfig`] |
+//! | Train box embeddings (GPU) | [`CandleBoxTrainer`](trainer::candle_trainer::CandleBoxTrainer) (feature = `candle-backend`) |
+//! | Evaluate with link prediction | [`evaluate_link_prediction`], [`CandleBoxTrainer::evaluate`](trainer::candle_trainer::CandleBoxTrainer::evaluate) |
 //!
 //! # Why regions instead of points?
 //!
@@ -75,7 +76,9 @@
 //!
 //! - [`dataset`] -- load WN18RR, FB15k-237, YAGO3-10, and similar KG datasets
 //! - [`trainable`] -- [`trainable::TrainableBox`] and [`trainable::TrainableCone`] with learnable parameters
-//! - [`trainer`] -- negative sampling, loss computation, link prediction evaluation
+//! - [`trainer`] -- negative sampling, loss computation, link prediction evaluation.
+//!   Includes [`CandleBoxTrainer`](trainer::candle_trainer::CandleBoxTrainer) for GPU training
+//!   with AdamW, cosine LR, self-adversarial NS, and filtered evaluation.
 //! - [`metrics`] -- rank-based metrics (MRR, Hits@k, Mean Rank)
 //! - [`optimizer`] -- AMSGrad state management
 //! - [`utils`] -- numerical stability (log-space volume, stable sigmoid, Gumbel operations)
@@ -258,6 +261,11 @@ pub use trainer::{
     ConeEmbeddingTrainer, EvaluationResults, RelationCardinality, RelationTransform,
     TrainingConfig, TrainingResult,
 };
+
+// Re-export: CandleBoxTrainer (GPU training)
+#[cfg(feature = "candle-backend")]
+#[cfg_attr(docsrs, doc(cfg(feature = "candle-backend")))]
+pub use trainer::candle_trainer::CandleBoxTrainer;
 
 // Re-export: ndarray (public dependency -- appears in NdarrayBox/NdarrayGumbelBox/NdarrayCone API)
 #[cfg(feature = "ndarray-backend")]

@@ -143,9 +143,8 @@ pub trait Box: Sized {
     /// See the [mathematical foundations](https://github.com/arclabs561/subsume/blob/main/docs/MATHEMATICAL_FOUNDATIONS.md) for details.
     ///
     ///
-    /// # Errors
-    ///
-    /// Returns `BoxError::InvalidBounds` if any min\[i\] > max\[i\].
+    /// Bounds are validated at construction time, so this cannot fail
+    /// under normal usage.
     fn volume(&self) -> Result<Self::Scalar, BoxError>;
 
     /// Compute the intersection of two boxes.
