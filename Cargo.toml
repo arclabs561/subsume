@@ -46,6 +46,7 @@ lattix = { version = "0.5.4", optional = true, features = ["formats"] }
 default = ["ndarray-backend"]
 ndarray-backend = ["dep:ndarray", "dep:serde_json", "rand"]
 candle-backend = ["dep:candle-core", "dep:candle-nn"]
+cuda = ["candle-backend", "candle-core/cuda"]
 rand = ["dep:rand"]
 petgraph = ["dep:petgraph"]
 rankops = ["dep:rankops"]
@@ -73,6 +74,10 @@ required-features = ["hyperbolic"]
 
 [[example]]
 name = "taxobell_training"
+required-features = ["candle-backend"]
+
+[[example]]
+name = "wn18rr_candle"
 required-features = ["candle-backend"]
 
 [lints.rust]
