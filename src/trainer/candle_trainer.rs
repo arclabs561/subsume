@@ -127,10 +127,32 @@ impl CandleBoxTrainer {
         log_sp.sum(1)
     }
 
+    /// Per-dimension containment violation between head and tail boxes.
+    ///
+    /// For each dimension d:
+    ///   `violation_d = max(0, max(min_t_d - min_h_d, 0) + max(max_h_d - max_t_d, 0))`
+    ///
+    /// This measures how far head is from containing tail, per dimension.
+    /// Returns `[batch, dim]` tensor of violations.
+    fn containment_violation(
+        min_h: &Tensor,
+        max_h: &Tensor,
+        min_t: &Tensor,
+        max_t: &Tensor,
+    ) -> Result<Tensor> {
+        // Head's min must be <= tail's min (head contains tail from below)
+        let lower_violation = min_t.sub(min_h)?.relu()?;
+        // Head's max must be >= tail's max (head contains tail from above)
+        let upper_violation = max_h.sub(max_t)?.relu()?;
+        // Combined per-dimension violation
+        lower_violation.add(&upper_violation)
+    }
+
     /// Compute batch loss from pre-computed entity bounds.
     ///
-    /// For positive triples: `-ln P(B ⊆ A)` where `P = Vol(A ∩ B) / Vol(B)`.
-    /// For negatives: `max(0, P - margin)^2`.
+    /// Uses per-dimension distance loss for training (scales to any dimension).
+    /// Positive: mean of per-dim containment violation.
+    /// Negative: max(0, margin - mean_violation)^2.
     fn batch_loss(
         &self,
         min_all: &Tensor,
@@ -153,18 +175,18 @@ impl CandleBoxTrainer {
             max_h = max_h.add(&offset)?;
         }
 
-        let log_vol_int = self.log_intersection_volume(&min_h, &max_h, &min_t, &max_t)?;
-        let log_vol_t = Self::log_volume_from_bounds(&min_t, &max_t)?;
+        let violation = Self::containment_violation(&min_h, &max_h, &min_t, &max_t)?;
+        // Mean over dimensions per triple
+        let mean_viol = violation.mean(1)?;
 
         if is_positive {
-            let neg_log_prob = log_vol_t.sub(&log_vol_int)?;
-            neg_log_prob.clamp(0.0, 10.0)?.mean(0)
+            // Positive: minimize violation (push head to contain tail)
+            mean_viol.mean(0)
         } else {
-            let log_prob = log_vol_int.sub(&log_vol_t)?;
-            let prob = log_prob.clamp(-20.0, 0.0)?.exp()?;
-            let margin_t = Tensor::full(margin, prob.shape(), &self.device)?;
-            let violation = prob.sub(&margin_t)?.relu()?;
-            violation.sqr()?.mean(0)
+            // Negative: penalize if violation is too small (boxes too similar)
+            let margin_t = Tensor::full(margin, mean_viol.shape(), &self.device)?;
+            let neg_loss = margin_t.sub(&mean_viol)?.relu()?;
+            neg_loss.sqr()?.mean(0)
         }
     }
 
