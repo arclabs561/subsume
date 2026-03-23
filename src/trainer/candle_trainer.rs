@@ -442,8 +442,7 @@ impl CandleBoxTrainer {
                         .as_tensor()
                         .index_select(&batch_entities, 0)?;
                     let batch_width = batch_ld.exp()?;
-                    let vol_penalty =
-                        batch_width.mean_all()?.affine(self.vol_reg as f64, 0.0)?;
+                    let vol_penalty = batch_width.mean_all()?.affine(self.vol_reg as f64, 0.0)?;
                     loss.add(&vol_penalty)?
                 } else {
                     loss
@@ -1125,7 +1124,7 @@ mod tests {
         // Train with vol_reg.
         let t2 = CandleBoxTrainer::new(10, 2, 8, 10.0, &device)
             .unwrap()
-            .with_vol_reg(0.01);
+            .with_vol_reg(0.1);
         let _l2 = t2.fit(&triples, 200, 0.05, 4, 3.0, 4, 0.0).unwrap();
         let ld2: Vec<f32> = t2
             .log_delta
