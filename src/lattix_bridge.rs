@@ -64,18 +64,6 @@ pub fn extract_subsumption_triples(kg: &lattix::KnowledgeGraph, predicate: &str)
     }
 }
 
-/// Standard RDF predicate URIs for ontology relations.
-pub mod predicates {
-    /// `rdfs:subClassOf` -- concept subsumption.
-    pub const RDFS_SUBCLASS_OF: &str = "http://www.w3.org/2000/01/rdf-schema#subClassOf";
-    /// `rdfs:subPropertyOf` -- property/role subsumption.
-    pub const RDFS_SUB_PROPERTY_OF: &str = "http://www.w3.org/2000/01/rdf-schema#subPropertyOf";
-    /// `owl:equivalentClass` -- class equivalence.
-    pub const OWL_EQUIVALENT_CLASS: &str = "http://www.w3.org/2002/07/owl#equivalentClass";
-    /// `rdf:type` -- instance membership.
-    pub const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

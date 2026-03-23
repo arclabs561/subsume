@@ -4,7 +4,7 @@ pub mod ndarray_cone;
 pub mod ndarray_gumbel;
 pub mod ndarray_octagon;
 
-pub use distance::{boundary_distance, depth_distance, query2box_distance, vector_to_box_distance};
+pub use distance::{boundary_distance, query2box_distance, vector_to_box_distance};
 pub use ndarray_box::NdarrayBox;
 pub use ndarray_cone::NdarrayCone;
 pub use ndarray_gumbel::NdarrayGumbelBox;

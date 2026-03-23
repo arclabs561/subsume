@@ -3,20 +3,10 @@
 # Run: cargo deny check
 
 [advisories]
-ignore = [
-    # paste is unmaintained but still functional; transitive dep via candle -> gemm
-    "RUSTSEC-2024-0436",
-]
+ignore = []
 
 [licenses]
-allow = [
-    "MIT",
-    "Apache-2.0",
-    "BSD-2-Clause",
-    "Unicode-3.0",
-    "Unlicense",
-    "Zlib",
-]
+allow = ["MIT", "Apache-2.0", "BSD-2-Clause", "Unicode-3.0", "Unlicense"]
 confidence-threshold = 0.8
 
 [licenses.private]
