@@ -668,14 +668,15 @@ impl BoxEmbeddingTrainer {
 
             // Negative samples: random from full entity pool.
             // Collect all negatives first (needed for softmax weighting).
-            let mut neg_data: Vec<(
+            type NegEntry = (
                 usize,
                 usize,
                 TrainableBox,
                 TrainableBox,
                 f32,
                 (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>),
-            )> = Vec::with_capacity(n_neg);
+            );
+            let mut neg_data: Vec<NegEntry> = Vec::with_capacity(n_neg);
 
             for _ in 0..n_neg {
                 let (neg_h, neg_t) = self.sample_negative(h, r, t, all_entities, &step_config, rng);
@@ -1031,15 +1032,8 @@ impl BoxEmbeddingTrainer {
                 }
 
                 // Compute negative losses and gradients, collecting scores for adversarial weighting.
-                let mut neg_grads: Vec<(
-                    usize,
-                    usize,
-                    f32,
-                    Vec<f32>,
-                    Vec<f32>,
-                    Vec<f32>,
-                    Vec<f32>,
-                )> = Vec::with_capacity(neg_pairs.len());
+                type NegGrad = (usize, usize, f32, Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>);
+                let mut neg_grads: Vec<NegGrad> = Vec::with_capacity(neg_pairs.len());
 
                 for (i, &(neg_h, neg_t)) in neg_pairs.iter().enumerate() {
                     let (ref bnh, ref bnt) = neg_boxes[i];
