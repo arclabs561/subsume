@@ -407,12 +407,6 @@ impl CandleBoxTrainer {
                 let r_t = rels_shuf.narrow(0, batch_start, bs)?;
                 let t_t = tails_shuf.narrow(0, batch_start, bs)?;
 
-                let rel_ref = if self.num_relations > 0 {
-                    Some(&r_t)
-                } else {
-                    None
-                };
-
                 // Build all head/tail/rel IDs for positives + negatives in one tensor.
                 // One batch_score_direct call = one autograd graph (2x faster).
                 let total_neg = bs * negative_samples;

@@ -212,11 +212,11 @@ pub enum NegativeSamplingStrategy {
 ///
 /// Fields consumed by [`BoxEmbeddingTrainer::train_step`]: `learning_rate`, `margin`,
 /// `regularization`, `negative_weight`, `negative_samples`, `negative_strategy`,
-/// `gumbel_beta`, `max_grad_norm`, `adversarial_temperature`, `self_adversarial`,
+/// `softplus_beta`, `max_grad_norm`, `adversarial_temperature`, `self_adversarial`,
 /// `use_infonce`.
 ///
 /// The remaining fields (`epochs`, `batch_size`,
-/// `early_stopping_*`, `warmup_epochs`, `gumbel_beta_final`) are configuration
+/// `early_stopping_*`, `warmup_epochs`, `softplus_beta_final`) are configuration
 /// metadata for caller-side training loops (e.g., [`BoxEmbeddingTrainer::fit`]).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TrainingConfig {
@@ -249,24 +249,29 @@ pub struct TrainingConfig {
 
     /// Softplus steepness for Gumbel intersection volume in gradient computation.
     ///
-    /// Controls the smoothness of the intersection volume approximation:
+    /// Softplus steepness for intersection volume approximation.
+    ///
     /// `softplus(beta * (hi - lo), 1.0)` replaces the hard `max(0, hi - lo)`.
     /// Lower values give broader gradients for disjoint boxes; higher values
-    /// approach the hard intersection. Annealed toward `gumbel_beta_final`
+    /// approach the hard intersection. Annealed toward `softplus_beta_final`
     /// across epochs when using `BoxEmbeddingTrainer::fit`.
     ///
-    /// Default: `10.0` (broad gradients, backward-compatible behavior when
-    /// combined with the disjoint surrogate).
-    pub gumbel_beta: f32,
-
-    /// Final value of `gumbel_beta` after annealing across epochs.
+    /// Default: `10.0`.
     ///
-    /// In `BoxEmbeddingTrainer::fit`, `gumbel_beta` is linearly interpolated
+    /// Previously named `gumbel_beta`; the serde alias preserves backward
+    /// compatibility with existing checkpoints.
+    #[serde(alias = "gumbel_beta")]
+    pub softplus_beta: f32,
+
+    /// Final value of `softplus_beta` after annealing across epochs.
+    ///
+    /// In `BoxEmbeddingTrainer::fit`, `softplus_beta` is linearly interpolated
     /// from its initial value to this value over the training epochs.
     /// Higher final beta gives sharper containment boundaries at convergence.
     ///
     /// Default: `50.0`.
-    pub gumbel_beta_final: f32,
+    #[serde(alias = "gumbel_beta_final")]
+    pub softplus_beta_final: f32,
 
     /// Maximum L2 norm for combined gradients (global gradient clipping).
     ///
@@ -357,8 +362,8 @@ impl Default for TrainingConfig {
             regularization: 0.0001,
             warmup_epochs: 10,
             negative_weight: 1.0,
-            gumbel_beta: 10.0,
-            gumbel_beta_final: 50.0,
+            softplus_beta: 10.0,
+            softplus_beta_final: 50.0,
             max_grad_norm: 10.0,
             adversarial_temperature: 1.0,
             use_infonce: false,
@@ -395,10 +400,10 @@ impl TrainingConfig {
                 self.margin
             )));
         }
-        if !self.gumbel_beta.is_finite() || self.gumbel_beta <= 0.0 {
+        if !self.softplus_beta.is_finite() || self.softplus_beta <= 0.0 {
             return Err(BoxError::Internal(format!(
-                "gumbel_beta must be positive and finite, got {}",
-                self.gumbel_beta
+                "softplus_beta must be positive and finite, got {}",
+                self.softplus_beta
             )));
         }
         if !self.max_grad_norm.is_finite() || self.max_grad_norm <= 0.0 {

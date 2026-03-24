@@ -65,8 +65,8 @@ class TrainingConfig:
     negative_samples: int
     negative_weight: float
     regularization: float
-    gumbel_beta: float
-    gumbel_beta_final: float
+    softplus_beta: float
+    softplus_beta_final: float
     warmup_epochs: int
     early_stopping_patience: Optional[int]
     symmetric_loss: bool
@@ -83,8 +83,8 @@ class TrainingConfig:
         negative_samples: int = 1,
         negative_weight: float = 1.0,
         regularization: float = 0.0001,
-        gumbel_beta: float = 10.0,
-        gumbel_beta_final: float = 50.0,
+        softplus_beta: float = 10.0,
+        softplus_beta_final: float = 50.0,
         warmup_epochs: int = 10,
         early_stopping_patience: Optional[int] = 10,
         symmetric_loss: bool = False,

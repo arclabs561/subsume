@@ -237,9 +237,9 @@ struct PyTrainingConfig {
     #[pyo3(get)]
     regularization: f32,
     #[pyo3(get)]
-    gumbel_beta: f32,
+    softplus_beta: f32,
     #[pyo3(get)]
-    gumbel_beta_final: f32,
+    softplus_beta_final: f32,
     #[pyo3(get)]
     warmup_epochs: usize,
     #[pyo3(get)]
@@ -265,15 +265,15 @@ impl PyTrainingConfig {
     ///     negative_samples: Negatives per positive (default: 1).
     ///     negative_weight: Weight on negative loss term (default: 1.0).
     ///     regularization: Volume regularization weight (default: 0.0001).
-    ///     gumbel_beta: Softplus steepness, start (default: 10.0).
-    ///     gumbel_beta_final: Softplus steepness, end after annealing (default: 50.0).
+    ///     softplus_beta: Softplus steepness, start (default: 10.0).
+    ///     softplus_beta_final: Softplus steepness, end after annealing (default: 50.0).
     ///     warmup_epochs: LR warmup epochs (default: 10).
     ///     early_stopping_patience: Stop after N epochs without improvement (default: 10, None to disable).
     ///     symmetric_loss: Use symmetric min(P(A|B), P(B|A)) loss (default: False).
     ///     self_adversarial: Weight negatives by softmax of model score (default: False).
     ///     adversarial_temperature: Temperature for self-adversarial weighting (default: 1.0).
     #[new]
-    #[pyo3(signature = (dim, learning_rate=0.001, epochs=100, batch_size=512, margin=1.0, negative_samples=1, negative_weight=1.0, regularization=0.0001, gumbel_beta=10.0, gumbel_beta_final=50.0, warmup_epochs=10, early_stopping_patience=Some(10), symmetric_loss=false, self_adversarial=false, adversarial_temperature=1.0))]
+    #[pyo3(signature = (dim, learning_rate=0.001, epochs=100, batch_size=512, margin=1.0, negative_samples=1, negative_weight=1.0, regularization=0.0001, softplus_beta=10.0, softplus_beta_final=50.0, warmup_epochs=10, early_stopping_patience=Some(10), symmetric_loss=false, self_adversarial=false, adversarial_temperature=1.0))]
     fn new(
         dim: usize,
         learning_rate: f32,
@@ -283,8 +283,8 @@ impl PyTrainingConfig {
         negative_samples: usize,
         negative_weight: f32,
         regularization: f32,
-        gumbel_beta: f32,
-        gumbel_beta_final: f32,
+        softplus_beta: f32,
+        softplus_beta_final: f32,
         warmup_epochs: usize,
         early_stopping_patience: Option<usize>,
         symmetric_loss: bool,
@@ -317,8 +317,8 @@ impl PyTrainingConfig {
             negative_samples,
             negative_weight,
             regularization,
-            gumbel_beta,
-            gumbel_beta_final,
+            softplus_beta,
+            softplus_beta_final,
             warmup_epochs,
             early_stopping_patience,
             symmetric_loss,
@@ -336,8 +336,8 @@ impl PyTrainingConfig {
             negative_samples,
             negative_weight,
             regularization,
-            gumbel_beta,
-            gumbel_beta_final,
+            softplus_beta,
+            softplus_beta_final,
             warmup_epochs,
             early_stopping_patience,
             symmetric_loss,
@@ -348,7 +348,7 @@ impl PyTrainingConfig {
 
     fn __repr__(&self) -> String {
         format!(
-            "TrainingConfig(dim={}, lr={}, epochs={}, batch_size={}, margin={}, neg_samples={}, neg_weight={}, reg={}, gumbel_beta={}, gumbel_beta_final={}, warmup={}, patience={:?}, symmetric={}, self_adversarial={}, adv_temp={})",
+            "TrainingConfig(dim={}, lr={}, epochs={}, batch_size={}, margin={}, neg_samples={}, neg_weight={}, reg={}, softplus_beta={}, softplus_beta_final={}, warmup={}, patience={:?}, symmetric={}, self_adversarial={}, adv_temp={})",
             self.dim,
             self.learning_rate,
             self.epochs,
@@ -357,8 +357,8 @@ impl PyTrainingConfig {
             self.negative_samples,
             self.negative_weight,
             self.regularization,
-            self.gumbel_beta,
-            self.gumbel_beta_final,
+            self.softplus_beta,
+            self.softplus_beta_final,
             self.warmup_epochs,
             self.early_stopping_patience,
             self.symmetric_loss,
