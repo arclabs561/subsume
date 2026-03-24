@@ -225,26 +225,35 @@ impl CandleElTrainer {
                 let (c_sub, o_sub) = self.concept_boxes(&sub_t)?;
                 let (c_sup, o_sup) = self.concept_boxes(&sup_t)?;
 
-                // Positive: inclusion loss squared
-                let pos_loss = Self::inclusion_loss(&c_sub, &o_sub, &c_sup, &o_sup, self.margin)?;
-                let pos_mean = pos_loss.mean(0)?;
+                // Positive: inclusion loss (box containment)
+                let pos_incl = Self::inclusion_loss(&c_sub, &o_sub, &c_sup, &o_sup, self.margin)?;
 
-                // Negative: random concept replacing sup
+                // Center-distance contrastive loss (directly optimizes eval metric):
+                // Pull positive pairs' centers together.
+                let pos_center_dist = c_sub.sub(&c_sup)?.sqr()?.sum(1)?.mean(0)?;
+
+                // Negative: push random concept centers apart from sub
                 let mut neg_loss_sum = Tensor::zeros((), candle_core::DType::F32, &self.device)?;
                 for _ in 0..negative_samples {
                     let neg_ids: Vec<u32> = (0..bs).map(|_| (lcg(&mut rng) % nc) as u32).collect();
                     let neg_t = Tensor::from_vec(neg_ids, (bs,), &self.device)?;
-                    let (c_neg, o_neg) = self.concept_boxes(&neg_t)?;
-                    let disj =
-                        Self::disjointness_score(&c_sub, &o_sub, &c_neg, &o_neg, self.margin)?;
-                    // (neg_dist - disj_score)^2
-                    let target = Tensor::full(self.neg_dist, disj.shape(), &self.device)?;
-                    let gap = target.sub(&disj)?;
+                    let (c_neg, _o_neg) = self.concept_boxes(&neg_t)?;
+
+                    // Push negative centers away: max(0, neg_dist - ||c_sub - c_neg||)^2
+                    let neg_center_dist_sq = c_sub.sub(&c_neg)?.sqr()?.sum(1)?;
+                    let neg_center_dist = neg_center_dist_sq.affine(1.0, 1e-8)?.sqrt()?;
+                    let target =
+                        Tensor::full(self.neg_dist, neg_center_dist.shape(), &self.device)?;
+                    let gap = target.sub(&neg_center_dist)?.relu()?;
                     let neg_loss = gap.sqr()?.mean(0)?;
                     neg_loss_sum = neg_loss_sum.add(&neg_loss)?;
                 }
 
-                let batch_loss = pos_mean.add(&neg_loss_sum)?;
+                // Combined: inclusion + center contrastive + negative separation
+                let batch_loss = pos_incl
+                    .mean(0)?
+                    .add(&pos_center_dist)?
+                    .add(&neg_loss_sum)?;
                 opt.backward_step(&batch_loss)?;
                 total_loss += batch_loss.to_scalar::<f32>()?;
                 loss_count += 1;
