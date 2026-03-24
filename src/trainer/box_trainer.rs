@@ -39,7 +39,7 @@ pub fn compute_pair_loss(
 
     // Compute softplus-smoothed intersection volume: always positive, always
     // has gradient, unlike the hard max(0, hi-lo) per dimension.
-    let beta = config.gumbel_beta;
+    let beta = config.softplus_beta;
     let vol_int_soft = softplus_intersection_volume(&a, &b, beta);
     let vol_a = a.volume().max(1e-30);
     let vol_b = b.volume().max(1e-30);
@@ -110,7 +110,7 @@ fn softplus_intersection_volume(
 /// uses `min(P(A|B), P(B|A))` instead.
 /// For **negative** pairs, the loss is `w_neg * max(0, max(P(A|B), P(B|A)) - margin)^2`.
 ///
-/// Intersection volume uses softplus smoothing (`config.gumbel_beta`), so
+/// Intersection volume uses softplus smoothing (`config.softplus_beta`), so
 /// `d(side)/d(bound) = sigmoid(beta * (hi - lo))` rather than the hard 0/1
 /// indicator. This gives nonzero gradients even for disjoint boxes, though a
 /// center-attraction surrogate is still used when the softplus volume is
@@ -137,7 +137,7 @@ pub fn compute_analytical_gradients(
     let vol_a = a.volume().max(1e-30);
     let vol_b = b.volume().max(1e-30);
 
-    let beta = config.gumbel_beta;
+    let beta = config.softplus_beta;
 
     // Per-dimension softplus-smoothed intersection side lengths.
     // side[i] = softplus(hi - lo, beta), always positive -> always has gradient.
@@ -402,8 +402,8 @@ pub struct BoxEmbeddingTrainer {
     pub optimizer_states: HashMap<usize, AMSGradState>,
     /// Embedding dimension.
     pub dim: usize,
-    /// Current Gumbel beta, annealed from `config.gumbel_beta` to
-    /// `config.gumbel_beta_final` across epochs in `fit()`.
+    /// Current Gumbel beta, annealed from `config.softplus_beta` to
+    /// `config.softplus_beta_final` across epochs in `fit()`.
     pub current_beta: f32,
     /// Learned per-relation translation vectors (relation_id -> Vec<f32> of length `dim`).
     /// Applied to head box before containment scoring. Initialized to zeros.
@@ -426,7 +426,7 @@ impl BoxEmbeddingTrainer {
     /// deserializing a config from an untrusted source. [`fit`](Self::fit)
     /// validates automatically before training.
     pub fn new(config: TrainingConfig, dim: usize) -> Self {
-        let current_beta = config.gumbel_beta;
+        let current_beta = config.softplus_beta;
         Self {
             config,
             boxes: HashMap::new(),
@@ -573,7 +573,7 @@ impl BoxEmbeddingTrainer {
         }
 
         let mut step_config = self.config.clone();
-        step_config.gumbel_beta = self.current_beta;
+        step_config.softplus_beta = self.current_beta;
 
         let n_neg = step_config.negative_samples.max(1);
         let mut total_loss = 0.0f32;
@@ -819,7 +819,7 @@ impl BoxEmbeddingTrainer {
     /// containment score scaled by `adversarial_temperature` (Sun et al., RotatE
     /// ICLR 2019).
     ///
-    /// Uses `self.current_beta` as the effective `gumbel_beta` for this step.
+    /// Uses `self.current_beta` as the effective `softplus_beta` for this step.
     ///
     /// Returns the average loss across all triples.
     pub fn train_step(&mut self, triples: &[(usize, usize, usize)]) -> Result<f32, BoxError> {
@@ -829,7 +829,7 @@ impl BoxEmbeddingTrainer {
 
         // Build a step-local config snapshot with the annealed beta.
         let mut step_config = self.config.clone();
-        step_config.gumbel_beta = self.current_beta;
+        step_config.softplus_beta = self.current_beta;
 
         let mut total_loss = 0.0f32;
         // Collect all entity IDs present in this batch for negative sampling.
@@ -1190,8 +1190,8 @@ impl BoxEmbeddingTrainer {
     /// for early stopping, and `config.warmup_epochs` for learning rate warmup.
     /// If `validation` is provided, evaluates after each epoch and tracks best MRR.
     ///
-    /// Linearly anneals `current_beta` from `config.gumbel_beta` to
-    /// `config.gumbel_beta_final` across epochs (soft -> hard containment).
+    /// Linearly anneals `current_beta` from `config.softplus_beta` to
+    /// `config.softplus_beta_final` across epochs (soft -> hard containment).
     ///
     /// Returns a [`TrainingResult`] with loss history, validation MRR history,
     /// and the final evaluation results.
@@ -1209,8 +1209,8 @@ impl BoxEmbeddingTrainer {
         let base_lr = self.config.learning_rate;
         let patience = self.config.early_stopping_patience;
         let min_delta = self.config.early_stopping_min_delta;
-        let beta_start = self.config.gumbel_beta;
-        let beta_end = self.config.gumbel_beta_final;
+        let beta_start = self.config.softplus_beta;
+        let beta_end = self.config.softplus_beta_final;
 
         let mut loss_history = Vec::with_capacity(epochs);
         let mut mrr_history = Vec::new();
@@ -1627,7 +1627,7 @@ mod tests {
         let cfg = TrainingConfig {
             regularization: 0.001,
             max_grad_norm: f32::MAX,
-            gumbel_beta: 10.0,
+            softplus_beta: 10.0,
             margin: 0.2,
             negative_weight: 1.0,
             ..Default::default()
