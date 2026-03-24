@@ -1,12 +1,14 @@
 //! Benchmark EL++ box embeddings on Box2EL datasets (GALEN, GO, Anatomy).
 //!
-//! Run:
+//! Run (ndarray backend):
 //!   cargo run --example el_benchmark --release -- data/GALEN
-//!   cargo run --example el_benchmark --release -- data/GO
-//!   cargo run --example el_benchmark --release -- data/ANATOMY
+//!
+//! Run (candle backend, recommended for large ontologies):
+//!   BACKEND=candle cargo run --features candle-backend --example el_benchmark --release -- data/GALEN
 //!
 //! Environment variables:
-//!   DIM=50 EPOCHS=300 LR=0.005 MARGIN=0.1
+//!   DIM=200 EPOCHS=300 LR=0.01 MARGIN=0.15 NEG_DIST=5 REG_FACTOR=0.4
+//!   NEG_SAMPLES=1 BACKEND=ndarray|candle BATCH=512
 //!
 //! Expects train.tsv + test.tsv in the data directory (Box2EL TSV format).
 //! Convert from Box2EL numpy with: uv run scripts/convert_box2el.py
@@ -36,10 +38,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let neg_dist: f32 = env_or("NEG_DIST", 5.0);
     let reg_factor: f32 = env_or("REG_FACTOR", 0.4);
     let neg_samples: usize = env_or("NEG_SAMPLES", 1);
+    let batch_size: usize = env_or("BATCH", 512);
+    let backend = std::env::var("BACKEND").unwrap_or_else(|_| "ndarray".to_string());
 
     println!("=== EL++ Box Embedding Benchmark ===");
-    println!("Data: {data_dir}");
-    println!("Config: dim={dim}, epochs={epochs}, lr={lr}, margin={margin}, neg_dist={neg_dist}, reg={reg_factor}, neg_samples={neg_samples}\n");
+    println!("Data: {data_dir}, Backend: {backend}");
+    println!("Config: dim={dim}, epochs={epochs}, lr={lr}, margin={margin}, neg_dist={neg_dist}, reg={reg_factor}, neg_samples={neg_samples}, batch={batch_size}\n");
 
     // Load training axioms
     let train_path = data_path.join("train.tsv");
@@ -70,7 +74,65 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ontology.role_names.len()
     );
 
-    // Train
+    // Map test concept names to ontology indices (needed for both backends)
+    let test_path = data_path.join("test.tsv");
+    let test_pairs: Vec<(usize, usize)> = if test_path.exists() {
+        let test_ds = load_el_axioms(&test_path)?;
+        test_ds
+            .nf2
+            .iter()
+            .filter_map(|(c, d)| {
+                let sub = ontology.concept_index.get(c.as_str())?;
+                let sup = ontology.concept_index.get(d.as_str())?;
+                Some((*sub, *sup))
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    #[cfg(feature = "candle-backend")]
+    if backend == "candle" {
+        use subsume::trainer::candle_el_trainer::CandleElTrainer;
+        let device = candle_core::Device::cuda_if_available(0).unwrap_or(candle_core::Device::Cpu);
+        println!("Device: {}", if device.is_cuda() { "CUDA" } else { "CPU" });
+
+        let nc = ontology.concept_names.len();
+        let nr = ontology.role_names.len();
+        let trainer = CandleElTrainer::new(nc, nr, dim, margin, neg_dist, &device)?;
+
+        let start = Instant::now();
+        let losses = trainer.fit(
+            &ontology,
+            epochs,
+            lr as f64,
+            batch_size,
+            neg_samples,
+            reg_factor,
+        )?;
+        let elapsed = start.elapsed();
+
+        let final_loss = losses.last().copied().unwrap_or(0.0);
+        println!(
+            "\nTraining: {:.1}s ({:.2}s/epoch)",
+            elapsed.as_secs_f64(),
+            elapsed.as_secs_f64() / epochs as f64
+        );
+        println!("Final loss: {final_loss:.6}");
+
+        if !test_pairs.is_empty() {
+            let eval_size = test_pairs.len().min(1000);
+            println!("\nEval: {eval_size}/{} NF2 test axioms", test_pairs.len());
+            let eval_start = Instant::now();
+            let (h1, h10, mrr) = trainer.evaluate_subsumption(&test_pairs[..eval_size])?;
+            println!("  Eval time: {:.1}s", eval_start.elapsed().as_secs_f64());
+            println!("  MRR: {mrr:.4}  H@1: {h1:.4}  H@10: {h10:.4}");
+        }
+
+        return Ok(());
+    }
+
+    // Ndarray backend (default)
     let config = ElTrainingConfig {
         dim,
         epochs,
@@ -86,46 +148,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let result = subsume::train_el_embeddings(&ontology, &config);
     let elapsed = start.elapsed();
 
+    let final_loss = result.epoch_losses.last().copied().unwrap_or(0.0);
     println!(
         "\nTraining: {:.1}s ({:.2}s/epoch)",
         elapsed.as_secs_f64(),
         elapsed.as_secs_f64() / epochs as f64
     );
-    let final_loss = result.epoch_losses.last().copied().unwrap_or(0.0);
     println!("Final loss: {final_loss:.6}");
 
-    // Load test axioms if available
-    let test_path = data_path.join("test.tsv");
-    if test_path.exists() {
-        let test_ds = load_el_axioms(&test_path)?;
-
-        // Convert test axioms to training Axiom format for evaluation.
-        // We need to map test concept/role names to the TRAINING ontology's indices.
-        let mut test_axioms: Vec<Axiom> = Vec::new();
-        for (c, d) in &test_ds.nf2 {
-            if let (Some(&sub), Some(&sup)) = (
-                ontology.concept_index.get(c.as_str()),
-                ontology.concept_index.get(d.as_str()),
-            ) {
-                test_axioms.push(Axiom::SubClassOf { sub, sup });
-            }
-        }
-
-        let n_test = test_axioms.len();
-        if n_test > 0 {
-            let eval_size = n_test.min(1000); // cap for speed
-            println!("\nEval: {eval_size}/{n_test} NF2 subsumption test axioms (concepts in training vocab)");
-
-            let eval_start = Instant::now();
-            let (hits1, hits10, mrr) =
-                subsume::evaluate_subsumption(&result, &test_axioms[..eval_size]);
-            let eval_time = eval_start.elapsed();
-
-            println!("  Eval time: {:.1}s", eval_time.as_secs_f64());
-            println!("  MRR: {mrr:.4}  H@1: {hits1:.4}  H@10: {hits10:.4}");
-        } else {
-            println!("\nNo NF2 test axioms with concepts in training vocabulary.");
-        }
+    if !test_pairs.is_empty() {
+        let eval_size = test_pairs.len().min(1000);
+        let test_axioms: Vec<Axiom> = test_pairs[..eval_size]
+            .iter()
+            .map(|&(sub, sup)| Axiom::SubClassOf { sub, sup })
+            .collect();
+        println!("\nEval: {eval_size}/{} NF2 test axioms", test_pairs.len());
+        let eval_start = Instant::now();
+        let (h1, h10, mrr) = subsume::evaluate_subsumption(&result, &test_axioms);
+        println!("  Eval time: {:.1}s", eval_start.elapsed().as_secs_f64());
+        println!("  MRR: {mrr:.4}  H@1: {h1:.4}  H@10: {h10:.4}");
     }
 
     Ok(())
