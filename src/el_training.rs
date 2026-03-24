@@ -358,6 +358,17 @@ pub struct ElTrainingConfig {
     pub seed: u64,
     /// Log interval (print every N epochs). 0 = no logging.
     pub log_interval: usize,
+    /// Target separation distance for negative samples (Box2EL-style).
+    ///
+    /// Negatives are penalized with `(neg_dist - disjointness_score)^2`.
+    /// Higher values push unrelated concepts further apart.
+    /// Default: 2.0 (matches Box2EL).
+    pub neg_dist: f32,
+    /// L2 regularization factor on concept offsets.
+    ///
+    /// Prevents offset collapse (all boxes same size).
+    /// Default: 0.0 (no regularization).
+    pub reg_factor: f32,
 }
 
 impl Default for ElTrainingConfig {
@@ -376,6 +387,8 @@ impl Default for ElTrainingConfig {
             warmup_epochs: 10,
             seed: 42,
             log_interval: 20,
+            neg_dist: 2.0,
+            reg_factor: 0.0,
         }
     }
 }
@@ -695,31 +708,54 @@ pub fn train_el_embeddings(ontology: &Ontology, config: &ElTrainingConfig) -> El
                         concepts.apply_grad(sup, &gb);
                     }
 
-                    // Negative samples
+                    // Negative samples: Box2EL-style disjointness target.
+                    // For each negative, compute disjointness score (how far apart)
+                    // and penalize (neg_dist - score)^2 to push them to target distance.
                     for _ in 0..config.negative_samples {
                         let neg = rng.random_range(0..nc);
                         if neg == sub || neg == sup {
                             continue;
                         }
-                        // All embeddings share the same dim, so dimension mismatch is impossible.
-                        let neg_loss = el::el_inclusion_loss(
-                            &concepts.centers[neg],
-                            &concepts.offsets[neg],
-                            &concepts.centers[sup],
-                            &concepts.offsets[sup],
-                            0.0,
-                        )
-                        .expect("all embeddings use the same dim");
-                        let neg_penalty = (config.margin - neg_loss).max(0.0);
-                        total_loss += config.negative_weight * neg_penalty;
 
-                        if neg_penalty > 0.0 {
-                            let (gn, gs) = negative_inclusion_grads(
-                                &concepts.centers[neg],
-                                &concepts.offsets[neg],
-                                &concepts.centers[sup],
-                                &concepts.offsets[sup],
-                            );
+                        // Disjointness score: ||relu(|c_neg-c_sup| - o_neg - o_sup + margin)||
+                        // High when boxes don't overlap, low when they do.
+                        let mut disj_sq = 0.0f32;
+                        let mut disj_terms = vec![0.0f32; dim];
+                        for i in 0..dim {
+                            let diff = (concepts.centers[neg][i] - concepts.centers[sup][i]).abs();
+                            let v = diff - concepts.offsets[neg][i] - concepts.offsets[sup][i]
+                                + config.margin;
+                            let rv = v.max(0.0);
+                            disj_terms[i] = rv;
+                            disj_sq += rv * rv;
+                        }
+                        let disj_score = disj_sq.sqrt();
+
+                        // Loss: (neg_dist - disj_score)^2
+                        let gap = config.neg_dist - disj_score;
+                        let neg_loss = gap * gap;
+                        total_loss += config.negative_weight * neg_loss;
+
+                        // Gradient: d/d(params) of (neg_dist - disj_score)^2
+                        //         = -2 * gap * d(disj_score)/d(params)
+                        if disj_score > 1e-8 && gap.abs() > 1e-8 {
+                            let scale = -2.0 * gap / disj_score;
+                            let mut gn = BoxGrad::zeros(dim);
+                            let mut gs = BoxGrad::zeros(dim);
+                            for i in 0..dim {
+                                if disj_terms[i] <= 0.0 {
+                                    continue;
+                                }
+                                let diff = concepts.centers[neg][i] - concepts.centers[sup][i];
+                                let sign = if diff >= 0.0 { 1.0 } else { -1.0 };
+                                let t = scale * disj_terms[i];
+                                // d(disj)/d(center_neg) = sign * relu_term / norm
+                                gn.center[i] = sign * t;
+                                gs.center[i] = -sign * t;
+                                // d(disj)/d(offset_neg) = -relu_term / norm
+                                gn.offset[i] = -t;
+                                gs.offset[i] = -t;
+                            }
                             concepts.apply_grad(neg, &gn);
                             if sup != neg {
                                 concepts.apply_grad(sup, &gs);
@@ -1002,6 +1038,27 @@ pub fn train_el_embeddings(ontology: &Ontology, config: &ElTrainingConfig) -> El
                 }
             }
             count += 1;
+        }
+
+        // Offset regularization: penalize mean L2 norm of concept offsets.
+        // Prevents all boxes from collapsing to the same size.
+        if config.reg_factor > 0.0 {
+            let lr = get_learning_rate(
+                epoch,
+                config.epochs,
+                config.learning_rate,
+                config.warmup_epochs,
+            );
+            for i in 0..nc {
+                for j in 0..dim {
+                    let o = concepts.offsets[i][j];
+                    // Gradient of reg_factor * ||offset||_2 w.r.t. offset[j]
+                    // = reg_factor * offset[j] / ||offset||
+                    // Simplified: just use reg_factor * offset[j] (L2 squared gradient)
+                    concepts.offsets[i][j] -= lr * config.reg_factor * o;
+                    concepts.offsets[i][j] = concepts.offsets[i][j].max(0.01);
+                }
+            }
         }
 
         let avg_loss = if count > 0 {
