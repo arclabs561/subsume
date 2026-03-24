@@ -1012,8 +1012,27 @@ pub fn train_el_embeddings(ontology: &Ontology, config: &ElTrainingConfig) -> El
         epoch_losses.push(avg_loss);
 
         if config.log_interval > 0 && (epoch + 1) % config.log_interval == 0 {
+            // Embedding diagnostics: mean |center|, mean offset, offset range
+            let nc = concepts.centers.len();
+            let mut center_abs_sum = 0.0f32;
+            let mut offset_sum = 0.0f32;
+            let mut offset_min = f32::MAX;
+            let mut offset_max = f32::MIN;
+            for i in 0..nc {
+                for &c in &concepts.centers[i] {
+                    center_abs_sum += c.abs();
+                }
+                for &o in &concepts.offsets[i] {
+                    offset_sum += o;
+                    offset_min = offset_min.min(o);
+                    offset_max = offset_max.max(o);
+                }
+            }
+            let n_params = (nc * dim) as f32;
+            let avg_center = center_abs_sum / n_params;
+            let avg_offset = offset_sum / n_params;
             eprintln!(
-                "epoch {}/{}: avg_loss = {avg_loss:.6}, lr = {lr:.6}",
+                "epoch {}/{}: avg_loss = {avg_loss:.6}, lr = {lr:.6}, |c|={avg_center:.3}, o_avg={avg_offset:.3}, o_range=[{offset_min:.3}, {offset_max:.3}]",
                 epoch + 1,
                 config.epochs
             );
@@ -1079,6 +1098,32 @@ pub fn evaluate_subsumption(result: &ElTrainingResult, axioms: &[Axiom]) -> (f32
     if total == 0 {
         return (0.0, 0.0, 0.0);
     }
+
+    // Diagnostic: log score statistics for the first few test axioms
+    #[cfg(debug_assertions)]
+    {
+        let mut sample_count = 0;
+        for axiom in axioms {
+            if let Axiom::SubClassOf { sub, sup } = axiom {
+                if sample_count < 3 {
+                    let correct_score = result.subsumption_score(*sub, *sup);
+                    let mut all_scores: Vec<f32> = (0..nc)
+                        .filter(|&c| c != *sub)
+                        .map(|c| result.subsumption_score(*sub, c))
+                        .collect();
+                    all_scores.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                    let min_s = all_scores.first().copied().unwrap_or(0.0);
+                    let median_s = all_scores.get(all_scores.len() / 2).copied().unwrap_or(0.0);
+                    let max_s = all_scores.last().copied().unwrap_or(0.0);
+                    eprintln!(
+                        "  eval sample: sub={sub} sup={sup} correct_score={correct_score:.4} min={min_s:.4} median={median_s:.4} max={max_s:.4}"
+                    );
+                    sample_count += 1;
+                }
+            }
+        }
+    }
+
     (
         hits1 as f32 / total as f32,
         hits10 as f32 / total as f32,
