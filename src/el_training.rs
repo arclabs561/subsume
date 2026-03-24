@@ -1107,15 +1107,19 @@ pub fn train_el_embeddings(ontology: &Ontology, config: &ElTrainingConfig) -> El
 
 /// Evaluate subsumption prediction accuracy on a set of axioms.
 ///
-/// For each `SubClassOf(C, D)` axiom, checks whether the model ranks
-/// the true superclass D among the top-k predictions (lowest inclusion loss).
+/// For each `SubClassOf(C, D)` axiom, ranks all concepts by center L2 distance
+/// to the subclass concept (matching the Box2EL evaluation protocol).
 /// Returns (hits_at_1, hits_at_10, mrr) over `SubClassOf` axioms only.
+///
+/// Uses center distance (not full inclusion loss) because in high dimensions,
+/// offset noise dominates the inclusion formula and destroys ranking quality.
 pub fn evaluate_subsumption(result: &ElTrainingResult, axioms: &[Axiom]) -> (f32, f32, f32) {
     let nc = result.concept_centers.len();
     if nc == 0 {
         return (0.0, 0.0, 0.0);
     }
 
+    let dim = result.concept_centers[0].len();
     let mut hits1 = 0usize;
     let mut hits10 = 0usize;
     let mut rr_sum = 0.0f32;
@@ -1123,14 +1127,21 @@ pub fn evaluate_subsumption(result: &ElTrainingResult, axioms: &[Axiom]) -> (f32
 
     for axiom in axioms {
         if let Axiom::SubClassOf { sub, sup } = axiom {
-            // Standard link-prediction protocol: filter the subject from
-            // the candidate list to avoid trivial self-containment (a
-            // concept always has zero inclusion loss with itself).
+            // Rank all concepts by center L2 distance to sub's center.
+            // Lower distance = more likely to be the correct superclass.
+            // This matches Box2EL's evaluation protocol (centers only, no offsets).
+            let sub_center = &result.concept_centers[*sub];
             let mut scores: Vec<(usize, f32)> = (0..nc)
                 .filter(|&c| c != *sub)
                 .map(|c| {
-                    let loss = result.subsumption_score(*sub, c);
-                    (c, loss)
+                    let cand_center = &result.concept_centers[c];
+                    let dist_sq: f32 = (0..dim)
+                        .map(|d| {
+                            let diff = sub_center[d] - cand_center[d];
+                            diff * diff
+                        })
+                        .sum();
+                    (c, dist_sq.sqrt())
                 })
                 .collect();
             scores.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
