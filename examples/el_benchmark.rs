@@ -29,14 +29,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|| "data/GALEN".to_string());
     let data_path = Path::new(&data_dir);
 
-    let dim: usize = env_or("DIM", 50);
+    let dim: usize = env_or("DIM", 200);
     let epochs: usize = env_or("EPOCHS", 300);
-    let lr: f32 = env_or("LR", 0.005);
-    let margin: f32 = env_or("MARGIN", 0.1);
+    let lr: f32 = env_or("LR", 0.01);
+    let margin: f32 = env_or("MARGIN", 0.15);
+    let neg_dist: f32 = env_or("NEG_DIST", 5.0);
+    let reg_factor: f32 = env_or("REG_FACTOR", 0.4);
+    let neg_samples: usize = env_or("NEG_SAMPLES", 1);
 
     println!("=== EL++ Box Embedding Benchmark ===");
     println!("Data: {data_dir}");
-    println!("Config: dim={dim}, epochs={epochs}, lr={lr}, margin={margin}\n");
+    println!("Config: dim={dim}, epochs={epochs}, lr={lr}, margin={margin}, neg_dist={neg_dist}, reg={reg_factor}, neg_samples={neg_samples}\n");
 
     // Load training axioms
     let train_path = data_path.join("train.tsv");
@@ -73,6 +76,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         epochs,
         learning_rate: lr,
         margin,
+        neg_dist,
+        reg_factor,
+        negative_samples: neg_samples,
         ..Default::default()
     };
 
