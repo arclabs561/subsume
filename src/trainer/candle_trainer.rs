@@ -413,28 +413,25 @@ impl CandleBoxTrainer {
                     None
                 };
 
-                let pos_scores = self.batch_score_direct(&h_t, &t_t, rel_ref)?;
-
-                // Corrupt both head and tail (half each).
+                // Build all head/tail/rel IDs for positives + negatives in one tensor.
+                // One batch_score_direct call = one autograd graph (2x faster).
                 let total_neg = bs * negative_samples;
                 let half_neg = total_neg / 2;
                 let neg_offset = batch_count * neg_per_batch;
+                let remaining = total_neg - half_neg;
 
                 // Slice precomputed negative IDs for this batch.
                 let batch_neg = all_neg_ids.narrow(0, neg_offset, total_neg)?;
                 let neg_tail_ids = batch_neg.narrow(0, 0, half_neg)?;
-                let neg_head_ids = batch_neg.narrow(0, half_neg, total_neg - half_neg)?;
+                let neg_head_ids = batch_neg.narrow(0, half_neg, remaining)?;
 
-                // Tail corruption: keep head, randomize tail
+                // Build fused head/tail/rel: [positives, neg_tail_corrupt, neg_head_corrupt]
                 let neg_h_for_t = h_t
                     .repeat((half_neg.div_ceil(bs),))?
                     .narrow(0, 0, half_neg)?;
                 let neg_r_for_t = r_t
                     .repeat((half_neg.div_ceil(bs),))?
                     .narrow(0, 0, half_neg)?;
-
-                // Head corruption: keep tail, randomize head
-                let remaining = total_neg - half_neg;
                 let neg_t_for_h = t_t
                     .repeat((remaining.div_ceil(bs),))?
                     .narrow(0, 0, remaining)?;
@@ -442,17 +439,23 @@ impl CandleBoxTrainer {
                     .repeat((remaining.div_ceil(bs),))?
                     .narrow(0, 0, remaining)?;
 
-                // Concatenate all negatives
-                let all_neg_h = Tensor::cat(&[&neg_h_for_t, &neg_head_ids], 0)?;
-                let all_neg_t = Tensor::cat(&[&neg_tail_ids, &neg_t_for_h], 0)?;
-                let all_neg_r = Tensor::cat(&[&neg_r_for_t, &neg_r_for_h], 0)?;
+                let fused_h = Tensor::cat(&[&h_t, &neg_h_for_t, &neg_head_ids], 0)?;
+                let fused_t = Tensor::cat(&[&t_t, &neg_tail_ids, &neg_t_for_h], 0)?;
 
-                let neg_rel_ref = if self.num_relations > 0 {
-                    Some(&all_neg_r)
+                let (fused_scores, rel_ref) = if self.num_relations > 0 {
+                    let fused_r = Tensor::cat(&[&r_t, &neg_r_for_t, &neg_r_for_h], 0)?;
+                    (
+                        self.batch_score_direct(&fused_h, &fused_t, Some(&fused_r))?,
+                        true,
+                    )
                 } else {
-                    None
+                    (self.batch_score_direct(&fused_h, &fused_t, None)?, false)
                 };
-                let neg_scores = self.batch_score_direct(&all_neg_h, &all_neg_t, neg_rel_ref)?;
+                let _ = rel_ref; // used only for control flow above
+
+                // Split fused scores back into positive and negative.
+                let pos_scores = fused_scores.narrow(0, 0, bs)?;
+                let neg_scores = fused_scores.narrow(0, bs, total_neg)?;
 
                 let loss = if use_self_adv {
                     Self::self_adversarial_ns_loss(
