@@ -491,7 +491,19 @@ impl CandleBoxTrainer {
             epoch_losses.push(avg);
 
             if (epoch + 1) % 50 == 0 || epoch == 0 {
-                eprintln!("  epoch {:>4}/{epochs}: avg_loss = {avg:.6}", epoch + 1);
+                // Diagnostics: embedding statistics + LR
+                let mu_mean = self.mu.as_tensor().abs()?.mean_all()?.to_scalar::<f32>()?;
+                let ld_mean = self.log_delta.as_tensor().mean_all()?.to_scalar::<f32>()?;
+                let delta_mean = self
+                    .log_delta
+                    .as_tensor()
+                    .exp()?
+                    .mean_all()?
+                    .to_scalar::<f32>()?;
+                eprintln!(
+                    "  epoch {:>4}/{epochs}: loss={avg:.6} lr={current_lr:.6} |mu|={mu_mean:.3} log_d={ld_mean:.3} delta={delta_mean:.3}",
+                    epoch + 1
+                );
             }
         }
 
