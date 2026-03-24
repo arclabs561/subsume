@@ -52,19 +52,14 @@ impl CandleElTrainer {
         neg_dist: f32,
         device: &Device,
     ) -> Result<Self> {
-        // L2-normalized uniform init (matches Box2EL)
-        let scale = 1.0 / (dim as f64).sqrt();
-        let concept_centers = Var::from_tensor(&Tensor::randn(
-            0.0_f32,
-            scale as f32,
-            (num_concepts, dim),
-            device,
-        )?)?;
+        // Uniform [-1, 1] init (Box2EL uses uniform then L2-normalize)
+        let concept_centers =
+            Var::from_tensor(&Tensor::rand(-1.0_f32, 1.0, (num_concepts, dim), device)?)?;
         let concept_offsets =
             Var::from_tensor(&Tensor::rand(0.1_f32, 1.0, (num_concepts, dim), device)?)?;
-        let role_centers = Var::from_tensor(&Tensor::randn(
-            0.0_f32,
-            scale as f32,
+        let role_centers = Var::from_tensor(&Tensor::rand(
+            -1.0_f32,
+            1.0,
             (num_roles.max(1), dim),
             device,
         )?)?;
@@ -89,7 +84,7 @@ impl CandleElTrainer {
         })
     }
 
-    /// Inclusion loss: `||relu(|c_a - c_b| + o_a - o_b - margin)||^2` per sample.
+    /// Inclusion loss: `||relu(|c_a - c_b| + o_a - o_b - margin)||` per sample (L2 norm).
     fn inclusion_loss(
         centers_a: &Tensor,
         offsets_a: &Tensor,
@@ -103,8 +98,10 @@ impl CandleElTrainer {
             .sub(offsets_b)?
             .affine(1.0, -(margin as f64))?
             .relu()?;
-        // L2 norm squared per sample, then mean
-        violation.sqr()?.sum(1)
+        // L2 norm per sample (not squared -- squaring causes gradient explosion in high dim)
+        let norm_sq = violation.sqr()?.sum(1)?;
+        // Add epsilon before sqrt for numerical stability
+        norm_sq.affine(1.0, 1e-8)?.sqrt()
     }
 
     /// Disjointness score: `||relu(|c_a - c_b| - o_a - o_b + margin)||` per sample.
@@ -121,7 +118,8 @@ impl CandleElTrainer {
             .sub(offsets_b)?
             .affine(1.0, margin as f64)?
             .relu()?;
-        gap.sqr()?.sum(1)?.sqrt()
+        let norm_sq = gap.sqr()?.sum(1)?;
+        norm_sq.affine(1.0, 1e-8)?.sqrt()
     }
 
     /// Get concept boxes (center, abs(offset)) for given IDs.
@@ -384,6 +382,15 @@ impl CandleElTrainer {
                 0.0
             };
             epoch_losses.push(avg);
+
+            // NaN detection: stop early to preserve debuggable state
+            if avg.is_nan() || avg.is_infinite() {
+                eprintln!(
+                    "  WARNING: loss diverged at epoch {} (loss={avg}). Stopping.",
+                    epoch + 1
+                );
+                break;
+            }
 
             if (epoch + 1) % 100 == 0 || epoch == 0 {
                 let c_mean = self
