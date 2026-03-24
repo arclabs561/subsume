@@ -664,6 +664,46 @@ impl CandleBoxTrainer {
         let dist = Self::distance(&min_h, &max_h, &min_t, &max_t, self.inside_weight)?;
         dist.sum(1) // [num_entities]
     }
+
+    /// Find the k entities most likely to subsume (contain) the given entity.
+    ///
+    /// Returns `(entity_ids, scores)` sorted by ascending score (best first).
+    /// "Entity A subsumes entity B" means A's box contains B's box.
+    /// So we find heads whose boxes best contain the query entity (as tail).
+    pub fn query_subsumers(
+        &self,
+        entity_id: usize,
+        k: usize,
+        rel_id: Option<usize>,
+    ) -> Result<(Vec<usize>, Vec<f32>)> {
+        let scores: Vec<f32> = self.score_all_heads(entity_id, rel_id)?.to_vec1()?;
+        let mut indexed: Vec<(usize, f32)> = scores.into_iter().enumerate().collect();
+        indexed.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        let k = k.min(indexed.len());
+        let ids: Vec<usize> = indexed[..k].iter().map(|(i, _)| *i).collect();
+        let vals: Vec<f32> = indexed[..k].iter().map(|(_, s)| *s).collect();
+        Ok((ids, vals))
+    }
+
+    /// Find the k entities most likely to be subsumed by (contained in) the given entity.
+    ///
+    /// Returns `(entity_ids, scores)` sorted by ascending score (best first).
+    /// "Entity A subsumes entity B" means A's box contains B's box.
+    /// So we find tails whose boxes are best contained by the query entity (as head).
+    pub fn query_subsumed(
+        &self,
+        entity_id: usize,
+        k: usize,
+        rel_id: Option<usize>,
+    ) -> Result<(Vec<usize>, Vec<f32>)> {
+        let scores: Vec<f32> = self.score_all_tails(entity_id, rel_id)?.to_vec1()?;
+        let mut indexed: Vec<(usize, f32)> = scores.into_iter().enumerate().collect();
+        indexed.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        let k = k.min(indexed.len());
+        let ids: Vec<usize> = indexed[..k].iter().map(|(i, _)| *i).collect();
+        let vals: Vec<f32> = indexed[..k].iter().map(|(_, s)| *s).collect();
+        Ok((ids, vals))
+    }
 }
 
 /// Log-sigmoid: `ln(sigmoid(x)) = -softplus(-x, 1)`, numerically stable.
@@ -1172,6 +1212,54 @@ mod tests {
         assert!(
             avg_ld2 < avg_ld1,
             "vol_reg should constrain box growth: without={avg_ld1}, with={avg_ld2}"
+        );
+    }
+
+    #[test]
+    fn test_query_subsumers_returns_k_results() {
+        let device = Device::Cpu;
+        let trainer = CandleBoxTrainer::new(20, 2, 8, 10.0, &device).unwrap();
+        let triples = vec![(0, 0, 1), (2, 1, 3), (4, 0, 5), (6, 1, 7)];
+        let _losses = trainer.fit(&triples, 100, 0.05, 4, 3.0, 4, 0.0).unwrap();
+
+        let (ids, scores) = trainer.query_subsumers(1, 5, Some(0)).unwrap();
+        assert_eq!(ids.len(), 5);
+        assert_eq!(scores.len(), 5);
+        // Scores should be sorted ascending (lower = better containment).
+        for w in scores.windows(2) {
+            assert!(w[0] <= w[1], "scores should be sorted ascending");
+        }
+    }
+
+    #[test]
+    fn test_query_subsumed_returns_k_results() {
+        let device = Device::Cpu;
+        let trainer = CandleBoxTrainer::new(20, 2, 8, 10.0, &device).unwrap();
+        let triples = vec![(0, 0, 1), (2, 1, 3), (4, 0, 5), (6, 1, 7)];
+        let _losses = trainer.fit(&triples, 100, 0.05, 4, 3.0, 4, 0.0).unwrap();
+
+        let (ids, scores) = trainer.query_subsumed(0, 5, Some(0)).unwrap();
+        assert_eq!(ids.len(), 5);
+        assert_eq!(scores.len(), 5);
+        for w in scores.windows(2) {
+            assert!(w[0] <= w[1], "scores should be sorted ascending");
+        }
+    }
+
+    #[test]
+    fn test_query_subsumers_trained_finds_correct_head() {
+        // After training (0, rel=0, 1), entity 0 should subsume entity 1.
+        // So query_subsumers(1) should rank entity 0 near the top.
+        let device = Device::Cpu;
+        let trainer = CandleBoxTrainer::new(10, 2, 8, 10.0, &device).unwrap();
+        let triples = vec![(0, 0, 1), (2, 1, 3), (4, 0, 5), (6, 1, 7)];
+        let _losses = trainer.fit(&triples, 300, 0.05, 4, 3.0, 4, 0.0).unwrap();
+
+        let (ids, _scores) = trainer.query_subsumers(1, 10, Some(0)).unwrap();
+        // Entity 0 should be in the top 10 subsumers of entity 1.
+        assert!(
+            ids.contains(&0),
+            "entity 0 should subsume entity 1 after training, got top-10: {ids:?}"
         );
     }
 }

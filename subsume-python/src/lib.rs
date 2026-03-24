@@ -1719,6 +1719,36 @@ impl PyCandleBoxTrainer {
         Ok(arr.into_pyarray(py).into())
     }
 
+    /// Find k entities most likely to subsume (contain) the given entity.
+    ///
+    /// Returns (entity_ids, scores) sorted by ascending score (best first).
+    #[pyo3(signature = (entity_id, k=10, rel_id=None))]
+    fn query_subsumers(
+        &self,
+        entity_id: usize,
+        k: usize,
+        rel_id: Option<usize>,
+    ) -> PyResult<(Vec<usize>, Vec<f32>)> {
+        self.inner
+            .query_subsumers(entity_id, k, rel_id)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+    }
+
+    /// Find k entities most likely to be subsumed by (contained in) the given entity.
+    ///
+    /// Returns (entity_ids, scores) sorted by ascending score (best first).
+    #[pyo3(signature = (entity_id, k=10, rel_id=None))]
+    fn query_subsumed(
+        &self,
+        entity_id: usize,
+        k: usize,
+        rel_id: Option<usize>,
+    ) -> PyResult<(Vec<usize>, Vec<f32>)> {
+        self.inner
+            .query_subsumed(entity_id, k, rel_id)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+    }
+
     fn __repr__(&self) -> String {
         let mut s = format!(
             "CandleBoxTrainer(entities={}, relations={}, dim={}",
