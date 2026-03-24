@@ -129,6 +129,10 @@ impl CandleBoxTrainer {
     }
 
     /// Compute (min_all, max_all) for the entire entity table.
+    ///
+    /// These bounds are used for index_select lookups, not directly
+    /// differentiated. The autograd graph flows through `batch_score`
+    /// which recomputes bounds for the selected entities.
     fn entity_bounds(&self) -> Result<(Tensor, Tensor)> {
         let exp_ld = self.log_delta.as_tensor().exp()?;
         let delta = softplus(&exp_ld, self.beta)?;
@@ -352,6 +356,16 @@ impl CandleBoxTrainer {
             // (0 = once per epoch). Fresher bounds = better gradients but slower.
             let (mut min_all, mut max_all) = self.entity_bounds()?;
 
+            // Precompute all negative entity IDs for the epoch (one big rand).
+            // This avoids per-batch Tensor::rand + dtype cast + clamp overhead.
+            let ne = self.num_entities;
+            let num_batches = n.div_ceil(batch_size);
+            let neg_per_batch = batch_size * negative_samples;
+            let total_neg_epoch = num_batches * neg_per_batch;
+            let all_neg_ids = Tensor::rand(0.0_f32, ne as f32, (total_neg_epoch,), &self.device)?
+                .to_dtype(candle_core::DType::U32)?
+                .clamp(0u32, (ne - 1) as u32)?;
+
             for batch_start in (0..n).step_by(batch_size) {
                 if self.bounds_every > 0 && batch_count > 0 && batch_count % self.bounds_every == 0
                 {
@@ -374,19 +388,17 @@ impl CandleBoxTrainer {
 
                 let pos_scores = self.batch_score(&min_all, &max_all, &h_t, &t_t, rel_ref)?;
 
-                // Corrupt both head and tail (half each)
+                // Corrupt both head and tail (half each).
                 let total_neg = bs * negative_samples;
                 let half_neg = total_neg / 2;
+                let neg_offset = batch_count * neg_per_batch;
 
-                // Tail corruption: keep head, randomize tail.
-                // Clamp upper bound to num_entities-1 to avoid f32 rounding
-                // producing an out-of-bounds entity ID on cast to u32.
-                let ne = self.num_entities;
-                let neg_rand_t =
-                    Tensor::rand(0.0_f32, ne as f32, (half_neg,), &self.device)?;
-                let neg_t_ids = neg_rand_t
-                    .to_dtype(candle_core::DType::U32)?
-                    .clamp(0u32, (ne - 1) as u32)?;
+                // Slice precomputed negative IDs for this batch.
+                let batch_neg = all_neg_ids.narrow(0, neg_offset, total_neg)?;
+                let neg_tail_ids = batch_neg.narrow(0, 0, half_neg)?;
+                let neg_head_ids = batch_neg.narrow(0, half_neg, total_neg - half_neg)?;
+
+                // Tail corruption: keep head, randomize tail
                 let neg_h_for_t = h_t
                     .repeat((half_neg.div_ceil(bs),))?
                     .narrow(0, 0, half_neg)?;
@@ -395,15 +407,6 @@ impl CandleBoxTrainer {
                     .narrow(0, 0, half_neg)?;
 
                 // Head corruption: keep tail, randomize head
-                let neg_rand_h = Tensor::rand(
-                    0.0_f32,
-                    ne as f32,
-                    (total_neg - half_neg,),
-                    &self.device,
-                )?;
-                let neg_h_ids = neg_rand_h
-                    .to_dtype(candle_core::DType::U32)?
-                    .clamp(0u32, (ne - 1) as u32)?;
                 let remaining = total_neg - half_neg;
                 let neg_t_for_h = t_t
                     .repeat((remaining.div_ceil(bs),))?
@@ -413,8 +416,8 @@ impl CandleBoxTrainer {
                     .narrow(0, 0, remaining)?;
 
                 // Concatenate all negatives
-                let all_neg_h = Tensor::cat(&[&neg_h_for_t, &neg_h_ids], 0)?;
-                let all_neg_t = Tensor::cat(&[&neg_t_ids, &neg_t_for_h], 0)?;
+                let all_neg_h = Tensor::cat(&[&neg_h_for_t, &neg_head_ids], 0)?;
+                let all_neg_t = Tensor::cat(&[&neg_tail_ids, &neg_t_for_h], 0)?;
                 let all_neg_r = Tensor::cat(&[&neg_r_for_t, &neg_r_for_h], 0)?;
 
                 let neg_rel_ref = if self.num_relations > 0 {
