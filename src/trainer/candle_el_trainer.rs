@@ -19,15 +19,25 @@ use candle_core::{Device, Result, Tensor, Var};
 use crate::el_training::{Axiom, Ontology};
 
 /// GPU-accelerated EL++ trainer.
+///
+/// Uses Box2EL-style architecture with per-concept bump translations
+/// for NF3/NF4 existential axioms. Bumps create concept-pair-specific
+/// transformations that make centers discriminative for subsumption ranking.
 pub struct CandleElTrainer {
     /// Concept centers: `[num_concepts, dim]`.
     pub concept_centers: Var,
     /// Concept raw offsets: `[num_concepts, dim]` (abs applied at use).
     pub concept_offsets: Var,
-    /// Role centers: `[num_roles, dim]`.
-    pub role_centers: Var,
-    /// Role raw offsets: `[num_roles, dim]`.
-    pub role_offsets: Var,
+    /// Per-concept bump translations: `[num_concepts, dim]`.
+    ///
+    /// Used in NF3/NF4: concept C is bumped by D's bump vector before
+    /// checking inclusion in the role box. This creates directional
+    /// subsumption encoding (Box2EL's key architectural contribution).
+    pub bumps: Var,
+    /// Role head boxes: `[num_roles, dim*2]` (center + offset).
+    pub role_heads: Var,
+    /// Role tail boxes: `[num_roles, dim*2]` (center + offset).
+    pub role_tails: Var,
     /// Embedding dimension.
     pub dim: usize,
     /// Number of concepts.
@@ -57,24 +67,19 @@ impl CandleElTrainer {
             Var::from_tensor(&Tensor::rand(-1.0_f32, 1.0, (num_concepts, dim), device)?)?;
         let concept_offsets =
             Var::from_tensor(&Tensor::rand(0.1_f32, 1.0, (num_concepts, dim), device)?)?;
-        let role_centers = Var::from_tensor(&Tensor::rand(
-            -1.0_f32,
-            1.0,
-            (num_roles.max(1), dim),
-            device,
-        )?)?;
-        let role_offsets = Var::from_tensor(&Tensor::rand(
-            0.1_f32,
-            1.0,
-            (num_roles.max(1), dim),
-            device,
-        )?)?;
+        // Bumps: small init (will be regularized)
+        let bumps = Var::from_tensor(&Tensor::randn(0.0_f32, 0.1, (num_concepts, dim), device)?)?;
+        // Role head/tail boxes: [num_roles, dim*2] where first dim = center, second dim = raw offset
+        let nr = num_roles.max(1);
+        let role_heads = Var::from_tensor(&Tensor::rand(-1.0_f32, 1.0, (nr, dim * 2), device)?)?;
+        let role_tails = Var::from_tensor(&Tensor::rand(-1.0_f32, 1.0, (nr, dim * 2), device)?)?;
 
         Ok(Self {
             concept_centers,
             concept_offsets,
-            role_centers,
-            role_offsets,
+            bumps,
+            role_heads,
+            role_tails,
             dim,
             num_concepts,
             num_roles,
@@ -133,10 +138,21 @@ impl CandleElTrainer {
         Ok((centers, offsets))
     }
 
-    /// Get role boxes for given IDs.
-    fn role_boxes(&self, ids: &Tensor) -> Result<(Tensor, Tensor)> {
-        let centers = self.role_centers.as_tensor().index_select(ids, 0)?;
-        let offsets = self.role_offsets.as_tensor().index_select(ids, 0)?.abs()?;
+    /// Get bump vectors for given concept IDs.
+    fn concept_bumps(&self, ids: &Tensor) -> Result<Tensor> {
+        self.bumps.as_tensor().index_select(ids, 0)
+    }
+
+    /// Get role head/tail boxes from the combined embedding.
+    /// Returns (center, abs(offset)) for the requested role box type.
+    fn role_box(&self, ids: &Tensor, head: bool) -> Result<(Tensor, Tensor)> {
+        let embed = if head {
+            self.role_heads.as_tensor().index_select(ids, 0)?
+        } else {
+            self.role_tails.as_tensor().index_select(ids, 0)?
+        };
+        let centers = embed.narrow(1, 0, self.dim)?;
+        let offsets = embed.narrow(1, self.dim, self.dim)?.abs()?;
         Ok((centers, offsets))
     }
 
@@ -153,10 +169,14 @@ impl CandleElTrainer {
     ) -> Result<Vec<f32>> {
         use candle_nn::{AdamW, Optimizer, ParamsAdamW};
 
-        let mut vars = vec![self.concept_centers.clone(), self.concept_offsets.clone()];
+        let mut vars = vec![
+            self.concept_centers.clone(),
+            self.concept_offsets.clone(),
+            self.bumps.clone(),
+        ];
         if self.num_roles > 0 {
-            vars.push(self.role_centers.clone());
-            vars.push(self.role_offsets.clone());
+            vars.push(self.role_heads.clone());
+            vars.push(self.role_tails.clone());
         }
 
         let params = ParamsAdamW {
@@ -301,7 +321,10 @@ impl CandleElTrainer {
                 loss_count += 1;
             }
 
-            // NF3: C ⊑ ∃r.D -- existential inclusion
+            // NF3: C ⊑ ∃r.D -- Box2EL bump-based existential
+            // dist1 = inclusion(C + bump_D, head_r)
+            // dist2 = inclusion(D + bump_C, tail_r)
+            // loss = (dist1 + dist2) / 2
             if !nf3_axioms.is_empty() {
                 let bs = batch_size.min(nf3_axioms.len());
                 let mut sub_ids = Vec::with_capacity(bs);
@@ -320,22 +343,59 @@ impl CandleElTrainer {
                 let filler_t = Tensor::from_vec(filler_ids, (bs,), &self.device)?;
 
                 let (c_sub, o_sub) = self.concept_boxes(&sub_t)?;
-                let (c_role, o_role) = self.role_boxes(&role_t)?;
                 let (c_filler, o_filler) = self.concept_boxes(&filler_t)?;
+                let bump_sub = self.concept_bumps(&sub_t)?;
+                let bump_filler = self.concept_bumps(&filler_t)?;
+                let (c_head, o_head) = self.role_box(&role_t, true)?;
+                let (c_tail, o_tail) = self.role_box(&role_t, false)?;
 
-                // Existential box: center = role + filler, offset = relu(filler - role)
-                let ex_center = c_role.add(&c_filler)?;
-                let ex_offset = o_filler.sub(&o_role)?.relu()?;
+                // C bumped by D's bump -> should be in head box of role r
+                let c_sub_bumped = c_sub.add(&bump_filler)?;
+                let dist1 =
+                    Self::inclusion_loss(&c_sub_bumped, &o_sub, &c_head, &o_head, self.margin)?;
 
-                let nf3_loss =
-                    Self::inclusion_loss(&c_sub, &o_sub, &ex_center, &ex_offset, self.margin)?;
-                let nf3_mean = nf3_loss.mean(0)?;
-                opt.backward_step(&nf3_mean)?;
-                total_loss += nf3_mean.to_scalar::<f32>()?;
+                // D bumped by C's bump -> should be in tail box of role r
+                let c_filler_bumped = c_filler.add(&bump_sub)?;
+                let dist2 = Self::inclusion_loss(
+                    &c_filler_bumped,
+                    &o_filler,
+                    &c_tail,
+                    &o_tail,
+                    self.margin,
+                )?;
+
+                let nf3_loss = dist1.add(&dist2)?.affine(0.5, 0.0)?.mean(0)?;
+
+                // NF3 negatives: corrupt filler with random concept
+                let mut nf3_neg_sum = Tensor::zeros((), candle_core::DType::F32, &self.device)?;
+                for _ in 0..negative_samples {
+                    let neg_ids: Vec<u32> = (0..bs).map(|_| (lcg(&mut rng) % nc) as u32).collect();
+                    let neg_t = Tensor::from_vec(neg_ids, (bs,), &self.device)?;
+                    let (c_neg, o_neg) = self.concept_boxes(&neg_t)?;
+                    let bump_neg = self.concept_bumps(&neg_t)?;
+
+                    let c_sub_bumped_neg = c_sub.add(&bump_neg)?;
+                    let neg_dist1 = Self::inclusion_loss(
+                        &c_sub_bumped_neg,
+                        &o_sub,
+                        &c_head,
+                        &o_head,
+                        self.margin,
+                    )?;
+                    // (neg_dist - neg_inclusion)^2 -- push negatives away
+                    let target = Tensor::full(self.neg_dist, neg_dist1.shape(), &self.device)?;
+                    let gap = target.sub(&neg_dist1)?.relu()?;
+                    let nl = gap.sqr()?.mean(0)?;
+                    nf3_neg_sum = nf3_neg_sum.add(&nl)?;
+                }
+
+                let nf3_total = nf3_loss.add(&nf3_neg_sum)?;
+                opt.backward_step(&nf3_total)?;
+                total_loss += nf3_total.to_scalar::<f32>()?;
                 loss_count += 1;
             }
 
-            // NF4: ∃r.C ⊑ D
+            // NF4: ∃r.C ⊑ D -- same bump approach, reversed direction
             if !nf4_axioms.is_empty() {
                 let bs = batch_size.min(nf4_axioms.len());
                 let mut role_ids = Vec::with_capacity(bs);
@@ -353,34 +413,44 @@ impl CandleElTrainer {
                 let filler_t = Tensor::from_vec(filler_ids, (bs,), &self.device)?;
                 let target_t = Tensor::from_vec(target_ids, (bs,), &self.device)?;
 
-                let (c_role, o_role) = self.role_boxes(&role_t)?;
                 let (c_filler, o_filler) = self.concept_boxes(&filler_t)?;
                 let (c_target, o_target) = self.concept_boxes(&target_t)?;
+                let bump_filler = self.concept_bumps(&filler_t)?;
+                let bump_target = self.concept_bumps(&target_t)?;
+                let (c_head, o_head) = self.role_box(&role_t, true)?;
+                let (c_tail, o_tail) = self.role_box(&role_t, false)?;
 
-                let ex_center = c_role.add(&c_filler)?;
-                let ex_offset = o_filler.sub(&o_role)?.relu()?;
+                // Filler bumped by target's bump -> head box
+                let c_f_bumped = c_filler.add(&bump_target)?;
+                let dist1 =
+                    Self::inclusion_loss(&c_f_bumped, &o_filler, &c_head, &o_head, self.margin)?;
+                // Target bumped by filler's bump -> tail box
+                let c_t_bumped = c_target.add(&bump_filler)?;
+                let dist2 =
+                    Self::inclusion_loss(&c_t_bumped, &o_target, &c_tail, &o_tail, self.margin)?;
 
-                let nf4_loss = Self::inclusion_loss(
-                    &ex_center,
-                    &ex_offset,
-                    &c_target,
-                    &o_target,
-                    self.margin,
-                )?;
-                let nf4_mean = nf4_loss.mean(0)?;
-                opt.backward_step(&nf4_mean)?;
-                total_loss += nf4_mean.to_scalar::<f32>()?;
+                let nf4_loss = dist1.add(&dist2)?.affine(0.5, 0.0)?.mean(0)?;
+                opt.backward_step(&nf4_loss)?;
+                total_loss += nf4_loss.to_scalar::<f32>()?;
                 loss_count += 1;
             }
 
-            // Offset regularization
+            // Regularization: offset norms + bump norms (Box2EL regularizes bumps)
             if reg_factor > 0.0 {
-                let reg = self
+                let offset_reg = self
                     .concept_offsets
                     .as_tensor()
                     .abs()?
                     .mean_all()?
+                    .affine(reg_factor as f64 * 0.5, 0.0)?;
+                let bump_reg = self
+                    .bumps
+                    .as_tensor()
+                    .sqr()?
+                    .mean_all()?
+                    .sqrt()?
                     .affine(reg_factor as f64, 0.0)?;
+                let reg = offset_reg.add(&bump_reg)?;
                 opt.backward_step(&reg)?;
                 total_loss += reg.to_scalar::<f32>()?;
             }
