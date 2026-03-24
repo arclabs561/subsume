@@ -378,10 +378,15 @@ impl CandleBoxTrainer {
                 let total_neg = bs * negative_samples;
                 let half_neg = total_neg / 2;
 
-                // Tail corruption: keep head, randomize tail
+                // Tail corruption: keep head, randomize tail.
+                // Clamp upper bound to num_entities-1 to avoid f32 rounding
+                // producing an out-of-bounds entity ID on cast to u32.
+                let ne = self.num_entities;
                 let neg_rand_t =
-                    Tensor::rand(0.0_f32, self.num_entities as f32, (half_neg,), &self.device)?;
-                let neg_t_ids = neg_rand_t.to_dtype(candle_core::DType::U32)?;
+                    Tensor::rand(0.0_f32, ne as f32, (half_neg,), &self.device)?;
+                let neg_t_ids = neg_rand_t
+                    .to_dtype(candle_core::DType::U32)?
+                    .clamp(0u32, (ne - 1) as u32)?;
                 let neg_h_for_t = h_t
                     .repeat((half_neg.div_ceil(bs),))?
                     .narrow(0, 0, half_neg)?;
@@ -392,11 +397,13 @@ impl CandleBoxTrainer {
                 // Head corruption: keep tail, randomize head
                 let neg_rand_h = Tensor::rand(
                     0.0_f32,
-                    self.num_entities as f32,
+                    ne as f32,
                     (total_neg - half_neg,),
                     &self.device,
                 )?;
-                let neg_h_ids = neg_rand_h.to_dtype(candle_core::DType::U32)?;
+                let neg_h_ids = neg_rand_h
+                    .to_dtype(candle_core::DType::U32)?
+                    .clamp(0u32, (ne - 1) as u32)?;
                 let remaining = total_neg - half_neg;
                 let neg_t_for_h = t_t
                     .repeat((remaining.div_ceil(bs),))?
