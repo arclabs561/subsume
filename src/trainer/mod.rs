@@ -28,6 +28,11 @@ pub mod negative_sampling;
 #[cfg_attr(docsrs, doc(cfg(feature = "candle-backend")))]
 pub mod candle_trainer;
 
+/// Candle-based EL++ trainer with autograd (GPU-accelerated).
+#[cfg(feature = "candle-backend")]
+#[cfg_attr(docsrs, doc(cfg(feature = "candle-backend")))]
+pub mod candle_el_trainer;
+
 use crate::BoxError;
 
 // ---------------------------------------------------------------------------
