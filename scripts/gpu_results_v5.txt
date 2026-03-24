@@ -1,0 +1,23 @@
+=== GPU Run (v5) Tue Mar 24 14:45:50 UTC 2026 ===
+--- dim=200, 300ep, inside+vol_reg ---
+=== WN18RR Candle Box Training ===
+Device: CUDA
+Config: dim=200, epochs=300, lr=0.001, neg=16, batch=512, beta=10, margin=9, adv_temp=0, inside_w=0.02, bounds_every=0
+
+Dataset: 40943 entities, 11 relations, 86835 train triples
+
+  epoch    1/300: avg_loss = 13.919522
+  epoch   50/300: avg_loss = 0.044125
+  epoch  100/300: avg_loss = 0.026369
+  epoch  150/300: avg_loss = 0.020272
+  epoch  200/300: avg_loss = 0.017306
+  epoch  250/300: avg_loss = 0.015787
+  epoch  300/300: avg_loss = 0.015347
+
+Training: 2000.6s (6.67s/epoch, 13021 triples/sec)
+Loss: 13.9195 (epoch 1) -> 0.0153 (epoch 300)
+
+Filtered eval (head+tail) on 1000/3134 test triples...
+  Eval time: 13.3s
+  MRR: 0.1541  H@1: 0.0075  H@3: 0.2515  H@10: 0.4175  MR: 4858.6
+=== Done Tue Mar 24 15:19:26 UTC 2026 ===
