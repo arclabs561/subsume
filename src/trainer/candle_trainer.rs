@@ -187,9 +187,41 @@ impl CandleBoxTrainer {
         violation.add(&inside_masked.affine(alpha as f64, 0.0)?)
     }
 
-    /// Score a batch from pre-computed entity bounds.
+    /// Compute bounds for specific entities (avoids full-table computation).
+    fn entity_bounds_for(&self, ids: &Tensor) -> Result<(Tensor, Tensor)> {
+        let mu_sel = self.mu.as_tensor().index_select(ids, 0)?;
+        let ld_sel = self.log_delta.as_tensor().index_select(ids, 0)?;
+        let delta = softplus(&ld_sel.exp()?, self.beta)?;
+        let hw = delta.affine(0.5, 0.0)?;
+        let min = mu_sel.sub(&hw)?;
+        let max = mu_sel.add(&hw)?;
+        Ok((min, max))
+    }
+
+    /// Score a batch by computing bounds only for the needed entities.
     ///
     /// Returns per-sample scores (lower = better containment).
+    /// This is the fast path used in training -- avoids full-table entity_bounds.
+    fn batch_score_direct(
+        &self,
+        head_ids: &Tensor,
+        tail_ids: &Tensor,
+        rel_ids: Option<&Tensor>,
+    ) -> Result<Tensor> {
+        let (mut min_h, mut max_h) = self.entity_bounds_for(head_ids)?;
+        let (min_t, max_t) = self.entity_bounds_for(tail_ids)?;
+
+        if let (Some(ref rel_var), Some(rel)) = (&self.rel_offset, rel_ids) {
+            let offset = rel_var.as_tensor().index_select(rel, 0)?;
+            min_h = min_h.add(&offset)?;
+            max_h = max_h.add(&offset)?;
+        }
+
+        let dist = Self::distance(&min_h, &max_h, &min_t, &max_t, self.inside_weight)?;
+        dist.sum(1)
+    }
+
+    /// Score a batch from pre-computed entity bounds (used by public score API).
     fn batch_score(
         &self,
         min_all: &Tensor,
@@ -352,9 +384,10 @@ impl CandleBoxTrainer {
             let mut total_loss = 0.0f32;
             let mut batch_count = 0usize;
 
-            // Compute entity bounds. Recompute every `bounds_every` batches
-            // (0 = once per epoch). Fresher bounds = better gradients but slower.
-            let (mut min_all, mut max_all) = self.entity_bounds()?;
+            // Entity bounds are now computed per-batch inside batch_score
+            // (only for the entities in the batch, not the full table).
+            // The bounds_every mechanism is no longer needed for training
+            // since each batch computes its own fresh bounds.
 
             // Precompute all negative entity IDs for the epoch (one big rand).
             // This avoids per-batch Tensor::rand + dtype cast + clamp overhead.
@@ -367,12 +400,6 @@ impl CandleBoxTrainer {
                 .clamp(0u32, (ne - 1) as u32)?;
 
             for batch_start in (0..n).step_by(batch_size) {
-                if self.bounds_every > 0 && batch_count > 0 && batch_count % self.bounds_every == 0
-                {
-                    let (m, x) = self.entity_bounds()?;
-                    min_all = m;
-                    max_all = x;
-                }
                 let batch_end = (batch_start + batch_size).min(n);
                 let bs = batch_end - batch_start;
 
@@ -386,7 +413,7 @@ impl CandleBoxTrainer {
                     None
                 };
 
-                let pos_scores = self.batch_score(&min_all, &max_all, &h_t, &t_t, rel_ref)?;
+                let pos_scores = self.batch_score_direct(&h_t, &t_t, rel_ref)?;
 
                 // Corrupt both head and tail (half each).
                 let total_neg = bs * negative_samples;
@@ -425,8 +452,7 @@ impl CandleBoxTrainer {
                 } else {
                     None
                 };
-                let neg_scores =
-                    self.batch_score(&min_all, &max_all, &all_neg_h, &all_neg_t, neg_rel_ref)?;
+                let neg_scores = self.batch_score_direct(&all_neg_h, &all_neg_t, neg_rel_ref)?;
 
                 let loss = if use_self_adv {
                     Self::self_adversarial_ns_loss(
