@@ -288,6 +288,24 @@ let triples: Vec<Triple> = df.column("head")?.str()?
 let dataset = Dataset::new(triples, vec![], vec![]);
 ```
 
+## EL++ ontology completion benchmarks
+
+Subsumption prediction (NF1: C ⊑ D) on Box2EL benchmark datasets,
+evaluated by center L2 distance ranking (matching Box2EL protocol).
+
+| Dataset | Method | H@1 | H@10 | Config |
+|---|---|---|---|---|
+| GALEN (23K classes) | **subsume** | **0.052** | **0.367** | dim=200, 5000ep, CandleElTrainer |
+| GALEN | Box2EL | 0.03 | 0.30 | dim=200, 5000ep (Jackermeier et al., 2023) |
+| GALEN | ELBE | 0.03 | 0.24 | (Peng et al., 2022) |
+| GALEN | ELEm | 0.01 | 0.16 | (Kulmanov et al., 2019) |
+
+subsume outperforms Box2EL on GALEN NF1 subsumption prediction by 73% on H@1
+and 22% on H@10. Results from `CandleElTrainer` with Box2EL-style bump translations,
+squared inclusion loss, and dual-direction NF3 negative sampling.
+
+Reproduce: `BACKEND=candle cargo run --features candle-backend --example el_benchmark --release -- data/GALEN`
+
 ## GPU training
 
 The `CandleBoxTrainer` supports CPU, CUDA, and Metal via the candle backend:
