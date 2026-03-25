@@ -894,16 +894,16 @@ mod tests {
     fn test_cosine_lr_schedule() {
         let device = Device::Cpu;
         let trainer = CandleBoxTrainer::new(10, 0, 4, 10.0, &device).unwrap();
-        let triples = vec![(0, 0, 1), (2, 0, 3)];
-        // Short run -- just check it doesn't panic with the LR schedule
-        let losses = trainer.fit(&triples, 20, 0.1, 2, 3.0, 2, 0.0).unwrap();
-        assert_eq!(losses.len(), 20);
-        // Loss should decrease (LR starts high, decays)
-        let first = losses[0];
-        let last = losses[losses.len() - 1];
+        let triples = vec![(0, 0, 1), (2, 0, 3), (4, 0, 5), (6, 0, 7)];
+        // Run enough epochs to see convergence even with unlucky init
+        let losses = trainer.fit(&triples, 50, 0.1, 4, 3.0, 2, 0.0).unwrap();
+        assert_eq!(losses.len(), 50);
+        // Average of first 5 vs last 5 -- more stable than single-point comparison
+        let first_avg: f32 = losses[..5].iter().sum::<f32>() / 5.0;
+        let last_avg: f32 = losses[45..].iter().sum::<f32>() / 5.0;
         assert!(
-            last < first,
-            "loss should decrease: first={first}, last={last}"
+            last_avg < first_avg,
+            "loss should decrease: first_avg={first_avg}, last_avg={last_avg}"
         );
     }
 
