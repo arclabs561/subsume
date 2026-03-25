@@ -342,13 +342,15 @@ impl CandleElTrainer {
                 let (c_head, o_head) = self.role_box(&role_t, true)?;
                 let (c_tail, o_tail) = self.role_box(&role_t, false)?;
 
-                // C bumped by D's bump -> should be in head box of role r
-                let c_sub_bumped = c_sub.add(&bump_filler)?;
+                // C bumped by D's bump -> should be in head box of role r.
+                // Detach centers so NF3 gradient flows only through bumps,
+                // preserving center quality for NF2 training and evaluation.
+                let c_sub_bumped = c_sub.detach().add(&bump_filler)?;
                 let dist1 =
                     Self::inclusion_loss(&c_sub_bumped, &o_sub, &c_head, &o_head, self.margin)?;
 
                 // D bumped by C's bump -> should be in tail box of role r
-                let c_filler_bumped = c_filler.add(&bump_sub)?;
+                let c_filler_bumped = c_filler.detach().add(&bump_sub)?;
                 let dist2 = Self::inclusion_loss(
                     &c_filler_bumped,
                     &o_filler,
@@ -367,7 +369,7 @@ impl CandleElTrainer {
                     let (c_neg, o_neg) = self.concept_boxes(&neg_t)?;
                     let bump_neg = self.concept_bumps(&neg_t)?;
 
-                    let c_sub_bumped_neg = c_sub.add(&bump_neg)?;
+                    let c_sub_bumped_neg = c_sub.detach().add(&bump_neg)?;
                     let neg_dist1 = Self::inclusion_loss(
                         &c_sub_bumped_neg,
                         &o_sub,
@@ -413,12 +415,12 @@ impl CandleElTrainer {
                 let (c_head, o_head) = self.role_box(&role_t, true)?;
                 let (c_tail, o_tail) = self.role_box(&role_t, false)?;
 
-                // Filler bumped by target's bump -> head box
-                let c_f_bumped = c_filler.add(&bump_target)?;
+                // Filler bumped by target's bump -> head box (detach centers)
+                let c_f_bumped = c_filler.detach().add(&bump_target)?;
                 let dist1 =
                     Self::inclusion_loss(&c_f_bumped, &o_filler, &c_head, &o_head, self.margin)?;
-                // Target bumped by filler's bump -> tail box
-                let c_t_bumped = c_target.add(&bump_filler)?;
+                // Target bumped by filler's bump -> tail box (detach centers)
+                let c_t_bumped = c_target.detach().add(&bump_filler)?;
                 let dist2 =
                     Self::inclusion_loss(&c_t_bumped, &o_target, &c_tail, &o_tail, self.margin)?;
 
