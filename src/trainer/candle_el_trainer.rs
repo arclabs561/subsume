@@ -524,7 +524,10 @@ impl CandleElTrainer {
         Ok(epoch_losses)
     }
 
-    /// Evaluate subsumption (NF2) by center L2 distance ranking.
+    /// Evaluate subsumption (NF2: C ⊑ D) by center L2 distance ranking.
+    ///
+    /// For each test pair (C, D), ranks all concepts by L2 distance to C's center
+    /// and reports the rank of D (Box2EL protocol).
     pub fn evaluate_subsumption(
         &self,
         test_axioms: &[(usize, usize)], // (sub, sup) pairs
@@ -567,6 +570,277 @@ impl CandleElTrainer {
             let rank = scores
                 .iter()
                 .position(|(c, _)| *c == sup)
+                .map(|p| p + 1)
+                .unwrap_or(nc);
+
+            if rank == 1 {
+                hits1 += 1;
+            }
+            if rank <= 10 {
+                hits10 += 1;
+            }
+            rr_sum += 1.0 / rank as f32;
+            total += 1;
+        }
+
+        if total == 0 {
+            return Ok((0.0, 0.0, 0.0));
+        }
+        Ok((
+            hits1 as f32 / total as f32,
+            hits10 as f32 / total as f32,
+            rr_sum / total as f32,
+        ))
+    }
+
+    /// Evaluate NF1 (C1 ⊓ C2 ⊑ D) by intersection-center L2 distance ranking.
+    ///
+    /// Computes the box intersection of C1 and C2, then ranks all concepts
+    /// by L2 distance from the intersection center to find D.
+    pub fn evaluate_nf1(
+        &self,
+        test_axioms: &[(usize, usize, usize)], // (c1, c2, d) triples
+    ) -> Result<(f32, f32, f32)> {
+        let centers: Vec<f32> = self
+            .concept_centers
+            .as_tensor()
+            .to_vec2::<f32>()?
+            .into_iter()
+            .flatten()
+            .collect();
+        let offsets: Vec<f32> = self
+            .concept_offsets
+            .as_tensor()
+            .abs()?
+            .to_vec2::<f32>()?
+            .into_iter()
+            .flatten()
+            .collect();
+        let nc = self.num_concepts;
+        let dim = self.dim;
+
+        let mut hits1 = 0usize;
+        let mut hits10 = 0usize;
+        let mut rr_sum = 0.0f32;
+        let mut total = 0usize;
+
+        for &(c1, c2, d) in test_axioms {
+            if c1 >= nc || c2 >= nc || d >= nc {
+                continue;
+            }
+            // Compute intersection center: max of mins, min of maxes
+            let c1_off = c1 * dim;
+            let c2_off = c2 * dim;
+            let mut inter_center = vec![0.0f32; dim];
+            for i in 0..dim {
+                let min1 = centers[c1_off + i] - offsets[c1_off + i];
+                let max1 = centers[c1_off + i] + offsets[c1_off + i];
+                let min2 = centers[c2_off + i] - offsets[c2_off + i];
+                let max2 = centers[c2_off + i] + offsets[c2_off + i];
+                let inter_min = min1.max(min2);
+                let inter_max = max1.min(max2).max(inter_min);
+                inter_center[i] = (inter_min + inter_max) / 2.0;
+            }
+
+            // Rank all concepts by distance to intersection center
+            let mut scores: Vec<(usize, f32)> = (0..nc)
+                .filter(|&c| c != c1 && c != c2)
+                .map(|c| {
+                    let c_off = c * dim;
+                    let dist_sq: f32 = (0..dim)
+                        .map(|i| {
+                            let diff = inter_center[i] - centers[c_off + i];
+                            diff * diff
+                        })
+                        .sum();
+                    (c, dist_sq.sqrt())
+                })
+                .collect();
+            scores.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+            let rank = scores
+                .iter()
+                .position(|(c, _)| *c == d)
+                .map(|p| p + 1)
+                .unwrap_or(nc);
+
+            if rank == 1 {
+                hits1 += 1;
+            }
+            if rank <= 10 {
+                hits10 += 1;
+            }
+            rr_sum += 1.0 / rank as f32;
+            total += 1;
+        }
+
+        if total == 0 {
+            return Ok((0.0, 0.0, 0.0));
+        }
+        Ok((
+            hits1 as f32 / total as f32,
+            hits10 as f32 / total as f32,
+            rr_sum / total as f32,
+        ))
+    }
+
+    /// Evaluate NF3 (C ⊑ ∃r.D) by bumped-center L2 distance ranking.
+    ///
+    /// For each test triple (C, r, D): compute C + bump_D for each candidate D,
+    /// measure L2 distance to role head center, rank candidates. The candidate D
+    /// whose bump brings C closest to the role head wins.
+    pub fn evaluate_nf3(
+        &self,
+        test_axioms: &[(usize, usize, usize)], // (sub, role, filler) triples
+    ) -> Result<(f32, f32, f32)> {
+        let centers: Vec<f32> = self
+            .concept_centers
+            .as_tensor()
+            .to_vec2::<f32>()?
+            .into_iter()
+            .flatten()
+            .collect();
+        let bump_vecs: Vec<f32> = self
+            .bumps
+            .as_tensor()
+            .to_vec2::<f32>()?
+            .into_iter()
+            .flatten()
+            .collect();
+        let role_heads_data: Vec<f32> = self
+            .role_heads
+            .as_tensor()
+            .to_vec2::<f32>()?
+            .into_iter()
+            .flatten()
+            .collect();
+        let nc = self.num_concepts;
+        let nr = self.num_roles;
+        let dim = self.dim;
+
+        let mut hits1 = 0usize;
+        let mut hits10 = 0usize;
+        let mut rr_sum = 0.0f32;
+        let mut total = 0usize;
+
+        for &(sub, role, filler) in test_axioms {
+            if sub >= nc || filler >= nc || role >= nr {
+                continue;
+            }
+            let sub_off = sub * dim;
+            // Role head center is first dim elements of the role_heads row
+            let rh_off = role * dim * 2;
+
+            // For each candidate D, compute distance of (C_center + bump_D) to role_head_center
+            let mut scores: Vec<(usize, f32)> = (0..nc)
+                .map(|d| {
+                    let bump_off = d * dim;
+                    let dist_sq: f32 = (0..dim)
+                        .map(|i| {
+                            let bumped = centers[sub_off + i] + bump_vecs[bump_off + i];
+                            let diff = bumped - role_heads_data[rh_off + i];
+                            diff * diff
+                        })
+                        .sum();
+                    (d, dist_sq.sqrt())
+                })
+                .collect();
+            scores.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+            let rank = scores
+                .iter()
+                .position(|(c, _)| *c == filler)
+                .map(|p| p + 1)
+                .unwrap_or(nc);
+
+            if rank == 1 {
+                hits1 += 1;
+            }
+            if rank <= 10 {
+                hits10 += 1;
+            }
+            rr_sum += 1.0 / rank as f32;
+            total += 1;
+        }
+
+        if total == 0 {
+            return Ok((0.0, 0.0, 0.0));
+        }
+        Ok((
+            hits1 as f32 / total as f32,
+            hits10 as f32 / total as f32,
+            rr_sum / total as f32,
+        ))
+    }
+
+    /// Evaluate NF4 (∃r.C ⊑ D) by shifted-head L2 distance ranking.
+    ///
+    /// For each test triple (r, C, D): compute head_r - bump_C, then rank all
+    /// concepts D by L2 distance from that shifted center to D's center.
+    pub fn evaluate_nf4(
+        &self,
+        test_axioms: &[(usize, usize, usize)], // (role, filler, target) triples
+    ) -> Result<(f32, f32, f32)> {
+        let centers: Vec<f32> = self
+            .concept_centers
+            .as_tensor()
+            .to_vec2::<f32>()?
+            .into_iter()
+            .flatten()
+            .collect();
+        let bump_vecs: Vec<f32> = self
+            .bumps
+            .as_tensor()
+            .to_vec2::<f32>()?
+            .into_iter()
+            .flatten()
+            .collect();
+        let role_heads_data: Vec<f32> = self
+            .role_heads
+            .as_tensor()
+            .to_vec2::<f32>()?
+            .into_iter()
+            .flatten()
+            .collect();
+        let nc = self.num_concepts;
+        let nr = self.num_roles;
+        let dim = self.dim;
+
+        let mut hits1 = 0usize;
+        let mut hits10 = 0usize;
+        let mut rr_sum = 0.0f32;
+        let mut total = 0usize;
+
+        for &(role, filler, target) in test_axioms {
+            if filler >= nc || target >= nc || role >= nr {
+                continue;
+            }
+            // Compute shifted head center: head_r - bump_C
+            let rh_off = role * dim * 2;
+            let bump_off = filler * dim;
+            let mut query_center = vec![0.0f32; dim];
+            for i in 0..dim {
+                query_center[i] = role_heads_data[rh_off + i] - bump_vecs[bump_off + i];
+            }
+
+            // Rank all concepts by distance to query center
+            let mut scores: Vec<(usize, f32)> = (0..nc)
+                .map(|c| {
+                    let c_off = c * dim;
+                    let dist_sq: f32 = (0..dim)
+                        .map(|i| {
+                            let diff = query_center[i] - centers[c_off + i];
+                            diff * diff
+                        })
+                        .sum();
+                    (c, dist_sq.sqrt())
+                })
+                .collect();
+            scores.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+            let rank = scores
+                .iter()
+                .position(|(c, _)| *c == target)
                 .map(|p| p + 1)
                 .unwrap_or(nc);
 

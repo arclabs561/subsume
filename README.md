@@ -290,23 +290,28 @@ let dataset = Dataset::new(triples, vec![], vec![]);
 
 ## EL++ ontology completion benchmarks
 
-Subsumption prediction (NF1: C ⊑ D) on Box2EL benchmark datasets,
+Per-normal-form results on Box2EL benchmark datasets (Jackermeier et al., 2023),
 evaluated by center L2 distance ranking (matching Box2EL protocol).
+Bold marks the best H@1 for each (dataset, NF) pair.
 
-| Dataset | Method | H@1 | H@10 | Source |
-|---|---|---|---|---|
-| GALEN (23K) | **subsume** | **0.052** | **0.367** | CandleElTrainer, dim=200, 5000ep |
-| GALEN | Box2EL | 0.03 | 0.30 | Jackermeier et al., 2023 |
-| GALEN | ELBE | 0.03 | 0.24 | Peng et al., 2022 |
-| GO (46K) | **subsume** | **0.036** | **0.227** | CandleElTrainer |
-| GO | Box2EL | 0.03 | 0.17 | Jackermeier et al., 2023 |
-| GO | ELBE | 0.01 | 0.10 | |
-| ANATOMY (106K) | **subsume** | **0.076** | 0.225 | margin=0.05, 7000ep |
-| ANATOMY | Box2EL | 0.07 | **0.34** | Jackermeier et al., 2023 |
-| ANATOMY | ELBE | 0.05 | 0.24 | |
+| Dataset | NF type | subsume H@1 | subsume H@10 | Box2EL H@1 | Box2EL H@10 |
+|---|---|---|---|---|---|
+| GALEN (23K) | NF1: C1 ⊓ C2 ⊑ D | **0.047** | 0.125 | 0.03 | 0.30 |
+| GALEN | NF2: C ⊑ D | 0.052 | **0.357** | **0.06** | 0.15 |
+| GALEN | NF3: C ⊑ ∃r.D | **0.208** | **0.456** | 0.08 | 0.19 |
+| GALEN | NF4: ∃r.C ⊑ D | 0.001 | 0.001 | 0.00 | 0.06 |
+| GO (46K) | NF1 | **0.143** | **0.401** | 0.03 | 0.17 |
+| GO | NF2 | 0.033 | 0.230 | **0.18** | **0.58** |
+| GO | NF3 | **0.260** | **0.514** | 0.00 | 0.18 |
+| GO | NF4 | 0.000 | 0.082 | 0.00 | **0.37** |
+| ANATOMY (106K) | NF1 | **0.194** | **0.422** | 0.07 | 0.34 |
+| ANATOMY | NF2 | 0.065 | 0.237 | **0.16** | **0.41** |
+| ANATOMY | NF3 | 0.155 | 0.313 | **0.21** | **0.56** |
+| ANATOMY | NF4 | 0.000 | 0.000 | 0.00 | 0.05 |
 
-subsume matches or outperforms Box2EL on H@1 across all three datasets.
-Box2EL leads on H@10 for ANATOMY (dense 106K-class ontology).
+subsume wins NF1 (conjunction) and NF3 (existential) on GALEN and GO.
+Box2EL wins NF2 (atomic subsumption) on GO and ANATOMY.
+NF4 (inverse existential) is near-zero for both methods across all datasets.
 Results from `CandleElTrainer` with Box2EL-style bump translations,
 squared inclusion loss, and dual-direction NF3 negative sampling.
 
