@@ -332,15 +332,14 @@ impl CandleElTrainer {
                 let max2 = cc2.add(&oc2)?;
                 let inter_min = min1.maximum(&min2)?;
                 let inter_max = max1.minimum(&max2)?;
-                // Clamp: if min > max, intersection is empty
                 let inter_max = inter_max.maximum(&inter_min)?;
                 let inter_center = inter_min.add(&inter_max)?.affine(0.5, 0.0)?;
                 let inter_offset = inter_max.sub(&inter_min)?.affine(0.5, 0.0)?;
 
                 let nf1_loss =
-                    Self::inclusion_loss(&inter_center, &inter_offset, &cd, &od, self.margin)?;
-                let nf1_mean = nf1_loss.mean(0)?;
-                epoch_loss = epoch_loss.add(&nf1_mean)?;
+                    Self::inclusion_loss(&inter_center, &inter_offset, &cd, &od, self.margin)?
+                        .mean(0)?;
+                epoch_loss = epoch_loss.add(&nf1_loss)?;
             }
 
             // NF3: C ⊑ ∃r.D -- Box2EL bump-based existential
