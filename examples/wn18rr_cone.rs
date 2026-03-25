@@ -33,10 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let device = Device::cuda_if_available(0).unwrap_or(Device::Cpu);
     println!("=== WN18RR Candle Cone Training ===");
-    println!(
-        "Device: {}",
-        if device.is_cuda() { "CUDA" } else { "CPU" }
-    );
+    println!("Device: {}", if device.is_cuda() { "CUDA" } else { "CPU" });
     println!("Config: dim={dim}, epochs={epochs}, lr={lr}, neg={neg}, batch={batch}, margin={margin}, cen={cen}\n");
 
     let data_path = Path::new("data/WN18RR");
