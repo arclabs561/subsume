@@ -328,6 +328,120 @@ impl CandleConeTrainer {
 
         Self::cone_distance(&q_axes_exp, &q_aper_exp, &all_axes, self.cen)
     }
+
+    /// Score all entities as heads for a given tail (and optional relation).
+    pub fn score_all_heads(
+        &self,
+        tail_id: usize,
+        rel_id: Option<usize>,
+    ) -> Result<Tensor> {
+        let t_t = Tensor::from_vec(vec![tail_id as u32], (1,), &self.device)?;
+        let t_axes = self.entity_axes(&t_t)?;
+        let t_axes_exp = t_axes.broadcast_as((self.num_entities, self.dim))?;
+
+        // Get all entity axes + apertures as potential heads
+        let all_ids: Vec<u32> = (0..self.num_entities as u32).collect();
+        let all_t = Tensor::from_vec(all_ids, (self.num_entities,), &self.device)?;
+        let all_axes = self.entity_axes(&all_t)?;
+        let all_aper = self.entity_apertures(&all_t)?;
+
+        let q_axes = if let Some(rid) = rel_id {
+            let r_t = Tensor::from_vec(vec![rid as u32], (1,), &self.device)?;
+            if let Some(offsets) = self.rel_offsets(&r_t)? {
+                let offset_exp = offsets.broadcast_as((self.num_entities, self.dim))?;
+                all_axes.add(&offset_exp)?
+            } else {
+                all_axes
+            }
+        } else {
+            all_axes
+        };
+
+        Self::cone_distance(&q_axes, &all_aper, &t_axes_exp, self.cen)
+    }
+
+    /// Evaluate link prediction (filtered setting).
+    ///
+    /// Returns `(mrr, hits_at_1, hits_at_3, hits_at_10, mean_rank)`.
+    pub fn evaluate(
+        &self,
+        test_triples: &[(usize, usize, usize)],
+        all_triples: &[(usize, usize, usize)],
+    ) -> Result<(f32, f32, f32, f32, f32)> {
+        use std::collections::{HashMap, HashSet};
+
+        let mut filter_hr: HashMap<(usize, usize), HashSet<usize>> = HashMap::new();
+        let mut filter_tr: HashMap<(usize, usize), HashSet<usize>> = HashMap::new();
+        for &(h, r, t) in all_triples {
+            filter_hr.entry((h, r)).or_default().insert(t);
+            filter_tr.entry((t, r)).or_default().insert(h);
+        }
+
+        let mut reciprocal_ranks = Vec::with_capacity(test_triples.len() * 2);
+        let mut hits1 = 0u32;
+        let mut hits3 = 0u32;
+        let mut hits10 = 0u32;
+        let mut total_rank = 0u64;
+
+        for &(h, r, t) in test_triples {
+            // Tail prediction
+            let tail_scores: Vec<f32> = self.score_all_tails(h, Some(r))?.to_vec1()?;
+            let correct_score = tail_scores[t];
+            let filter_set = filter_hr.get(&(h, r));
+            let mut rank = 1u32;
+            for (eid, &s) in tail_scores.iter().enumerate() {
+                if eid == t {
+                    continue;
+                }
+                if let Some(known) = filter_set {
+                    if known.contains(&eid) {
+                        continue;
+                    }
+                }
+                if s < correct_score {
+                    rank += 1;
+                }
+            }
+            reciprocal_ranks.push(1.0 / rank as f32);
+            total_rank += rank as u64;
+            if rank <= 1 { hits1 += 1; }
+            if rank <= 3 { hits3 += 1; }
+            if rank <= 10 { hits10 += 1; }
+
+            // Head prediction
+            let head_scores: Vec<f32> = self.score_all_heads(t, Some(r))?.to_vec1()?;
+            let correct_score = head_scores[h];
+            let filter_set = filter_tr.get(&(t, r));
+            let mut rank = 1u32;
+            for (eid, &s) in head_scores.iter().enumerate() {
+                if eid == h {
+                    continue;
+                }
+                if let Some(known) = filter_set {
+                    if known.contains(&eid) {
+                        continue;
+                    }
+                }
+                if s < correct_score {
+                    rank += 1;
+                }
+            }
+            reciprocal_ranks.push(1.0 / rank as f32);
+            total_rank += rank as u64;
+            if rank <= 1 { hits1 += 1; }
+            if rank <= 3 { hits3 += 1; }
+            if rank <= 10 { hits10 += 1; }
+        }
+
+        let n = reciprocal_ranks.len() as f32;
+        let mrr = reciprocal_ranks.iter().sum::<f32>() / n;
+        let h1 = hits1 as f32 / n;
+        let h3 = hits3 as f32 / n;
+        let h10 = hits10 as f32 / n;
+        let mr = total_rank as f32 / n;
+
+        Ok((mrr, h1, h3, h10, mr))
+    }
 }
 
 #[cfg(test)]
