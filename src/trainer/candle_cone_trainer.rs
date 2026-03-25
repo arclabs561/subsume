@@ -150,7 +150,12 @@ impl CandleConeTrainer {
         combined.sum(1)
     }
 
-    /// Train with AdamW optimizer and log-sigmoid loss.
+    /// Train with AdamW optimizer.
+    ///
+    /// The `margin` parameter acts as ConE's `gamma`: the logit is `margin - distance`,
+    /// and the loss is `log_sigmoid(logit)` for positives and `log_sigmoid(-logit)` for
+    /// negatives. Higher margin means the model needs larger distances to produce negative
+    /// logits. ConE uses gamma=30 at dim=800; for dim=100, try margin=20-30.
     ///
     /// Returns per-epoch average losses.
     #[allow(clippy::too_many_arguments)]
@@ -222,12 +227,14 @@ impl CandleConeTrainer {
             };
 
             // Positive scores: head cone should contain tail
-            let pos_scores = Self::cone_distance(&q_axes, &h_aper, &t_axes, self.cen)?;
+            let pos_dist = Self::cone_distance(&q_axes, &h_aper, &t_axes, self.cen)?;
 
-            // Direct distance loss + margin-squared negatives
-            // (matches ndarray ConeEmbeddingTrainer's compute_cone_pair_loss)
-            let pos_loss = pos_scores.mean(0)?;
+            // ConE-style logit: margin - distance (higher logit = closer = better)
+            // Positive: maximize logit -> minimize -log(sigmoid(logit))
+            let pos_logit = pos_dist.affine(-1.0, margin as f64)?;
+            let pos_loss = log_sigmoid(&pos_logit)?.neg()?.mean(0)?;
 
+            // Negative: minimize logit -> minimize -log(sigmoid(-logit))
             let mut neg_loss_sum = Tensor::zeros((), candle_core::DType::F32, &self.device)?;
             for _ in 0..negative_samples {
                 let neg_ids: Vec<u32> = (0..bs)
@@ -235,12 +242,10 @@ impl CandleConeTrainer {
                     .collect();
                 let neg_t = Tensor::from_vec(neg_ids, (bs,), &self.device)?;
                 let neg_axes = self.entity_axes(&neg_t)?;
-                let neg_scores = Self::cone_distance(&q_axes, &h_aper, &neg_axes, self.cen)?;
+                let neg_dist = Self::cone_distance(&q_axes, &h_aper, &neg_axes, self.cen)?;
 
-                // (margin - distance)^2 when distance < margin, else 0
-                let margin_t = Tensor::full(margin, neg_scores.shape(), &self.device)?;
-                let gap = margin_t.sub(&neg_scores)?.relu()?;
-                let neg_loss = gap.sqr()?.mean(0)?;
+                let neg_logit = neg_dist.affine(-1.0, margin as f64)?;
+                let neg_loss = log_sigmoid(&neg_logit.neg()?)?.neg()?.mean(0)?;
                 neg_loss_sum = neg_loss_sum.add(&neg_loss)?;
             }
 
