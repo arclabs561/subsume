@@ -33,6 +33,11 @@ pub mod candle_trainer;
 #[cfg_attr(docsrs, doc(cfg(feature = "candle-backend")))]
 pub mod candle_el_trainer;
 
+/// Candle-based cone trainer with autograd (GPU-accelerated).
+#[cfg(feature = "candle-backend")]
+#[cfg_attr(docsrs, doc(cfg(feature = "candle-backend")))]
+pub mod candle_cone_trainer;
+
 use crate::BoxError;
 
 // ---------------------------------------------------------------------------
