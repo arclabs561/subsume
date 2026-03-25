@@ -237,9 +237,7 @@ impl CandleConeTrainer {
 
             let mut neg_loss_sum = Tensor::zeros((), candle_core::DType::F32, &self.device)?;
             for _ in 0..negative_samples {
-                let neg_ids: Vec<u32> = (0..bs)
-                    .map(|_| (lcg(&mut rng) % ne) as u32)
-                    .collect();
+                let neg_ids: Vec<u32> = (0..bs).map(|_| (lcg(&mut rng) % ne) as u32).collect();
                 let neg_t = Tensor::from_vec(neg_ids, (bs,), &self.device)?;
                 let neg_axes = self.entity_axes(&neg_t)?;
                 let neg_dist = Self::cone_distance(&q_axes, &h_aper, &neg_axes, self.cen)?;
@@ -305,11 +303,7 @@ impl CandleConeTrainer {
     }
 
     /// Score all entities as tails for a given head.
-    pub fn score_all_tails(
-        &self,
-        head_id: usize,
-        rel_id: Option<usize>,
-    ) -> Result<Tensor> {
+    pub fn score_all_tails(&self, head_id: usize, rel_id: Option<usize>) -> Result<Tensor> {
         let h_t = Tensor::from_vec(vec![head_id as u32], (1,), &self.device)?;
         let h_axes = self.entity_axes(&h_t)?;
         let h_aper = self.entity_apertures(&h_t)?;
@@ -337,11 +331,7 @@ impl CandleConeTrainer {
     }
 
     /// Score all entities as heads for a given tail (and optional relation).
-    pub fn score_all_heads(
-        &self,
-        tail_id: usize,
-        rel_id: Option<usize>,
-    ) -> Result<Tensor> {
+    pub fn score_all_heads(&self, tail_id: usize, rel_id: Option<usize>) -> Result<Tensor> {
         let t_t = Tensor::from_vec(vec![tail_id as u32], (1,), &self.device)?;
         let t_axes = self.entity_axes(&t_t)?;
         let t_axes_exp = t_axes.broadcast_as((self.num_entities, self.dim))?;
@@ -411,9 +401,15 @@ impl CandleConeTrainer {
             }
             reciprocal_ranks.push(1.0 / rank as f32);
             total_rank += rank as u64;
-            if rank <= 1 { hits1 += 1; }
-            if rank <= 3 { hits3 += 1; }
-            if rank <= 10 { hits10 += 1; }
+            if rank <= 1 {
+                hits1 += 1;
+            }
+            if rank <= 3 {
+                hits3 += 1;
+            }
+            if rank <= 10 {
+                hits10 += 1;
+            }
 
             // Head prediction
             let head_scores: Vec<f32> = self.score_all_heads(t, Some(r))?.to_vec1()?;
@@ -435,9 +431,15 @@ impl CandleConeTrainer {
             }
             reciprocal_ranks.push(1.0 / rank as f32);
             total_rank += rank as u64;
-            if rank <= 1 { hits1 += 1; }
-            if rank <= 3 { hits3 += 1; }
-            if rank <= 10 { hits10 += 1; }
+            if rank <= 1 {
+                hits1 += 1;
+            }
+            if rank <= 3 {
+                hits3 += 1;
+            }
+            if rank <= 10 {
+                hits10 += 1;
+            }
         }
 
         let n = reciprocal_ranks.len() as f32;
