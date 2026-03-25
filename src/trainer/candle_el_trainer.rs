@@ -218,7 +218,6 @@ impl CandleElTrainer {
             ..Default::default()
         };
         let mut opt = AdamW::new(vars, params)?;
-        let lr_min = lr * 0.01;
 
         // Group axioms by type for balanced sampling
         let mut nf2_axioms: Vec<(usize, usize)> = Vec::new(); // (sub, sup)
@@ -252,7 +251,9 @@ impl CandleElTrainer {
             (*s >> 33) as usize
         };
 
+        let lr_min = lr * 0.01;
         for epoch in 0..epochs {
+            // Cosine LR decay (helps convergence even though Box2EL uses constant)
             let progress = epoch as f64 / epochs.max(1) as f64;
             let current_lr =
                 lr_min + 0.5 * (lr - lr_min) * (1.0 + (std::f64::consts::PI * progress).cos());
