@@ -128,24 +128,26 @@ impl CandleConeTrainer {
         // dist_in  = |sin((entity - axis) / 2)|      (distance to axis center)
         // total    = dist_out + cen * dist_in
 
+        // Squared angular distance: sin^2((entity - axis) / 2)
         let diff = entity_axes.sub(query_axes)?;
         let half_diff = diff.affine(0.5, 0.0)?;
-        let dist_to_axis = half_diff.sin()?.abs()?;
+        let sin_half = half_diff.sin()?;
+        let dist_sq = sin_half.sqr()?; // sin^2, smooth everywhere
 
+        // Squared aperture half: sin^2(aperture / 2)
         let half_aper = query_apertures.affine(0.5, 0.0)?;
-        let dist_base = half_aper.sin()?.abs()?;
+        let base_sq = half_aper.sin()?.sqr()?;
 
-        // Containment violation: relu(dist_to_axis - dist_base)
-        // When entity is inside cone, this is 0. When outside, proportional to overshoot.
-        let violation = dist_to_axis.sub(&dist_base)?.relu()?;
+        // Violation: relu(dist_sq - base_sq), smooth through sqr, relu
+        let violation = dist_sq.sub(&base_sq)?.relu()?;
 
-        // Inside distance: always contributes (small weight)
-        let inside_term = dist_to_axis.affine(cen as f64, 0.0)?;
+        // Inside term: cen * dist_sq (always contributes, small weight)
+        let inside_term = dist_sq.affine(cen as f64, 0.0)?;
 
         let combined = violation.add(&inside_term)?;
 
-        // Sum across dimensions -> [batch]
-        combined.sum(1)
+        // Mean across dimensions -> [batch]
+        combined.mean(1)
     }
 
     /// Train with AdamW optimizer and log-sigmoid loss.
