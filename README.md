@@ -301,12 +301,12 @@ evaluated by center L2 distance ranking (matching Box2EL protocol).
 | GO (46K) | **subsume** | **0.036** | **0.227** | CandleElTrainer |
 | GO | Box2EL | 0.03 | 0.17 | Jackermeier et al., 2023 |
 | GO | ELBE | 0.01 | 0.10 | |
-| ANATOMY (106K) | subsume | 0.052 | 0.212 | CandleElTrainer |
-| ANATOMY | **Box2EL** | **0.07** | **0.34** | Jackermeier et al., 2023 |
+| ANATOMY (106K) | **subsume** | **0.076** | 0.225 | margin=0.05, 7000ep |
+| ANATOMY | Box2EL | 0.07 | **0.34** | Jackermeier et al., 2023 |
 | ANATOMY | ELBE | 0.05 | 0.24 | |
 
-subsume outperforms Box2EL on GALEN and GO for NF1 subsumption prediction.
-Box2EL wins on ANATOMY (106K classes -- may benefit from more training time or GPU).
+subsume matches or outperforms Box2EL on H@1 across all three datasets.
+Box2EL leads on H@10 for ANATOMY (dense 106K-class ontology).
 Results from `CandleElTrainer` with Box2EL-style bump translations,
 squared inclusion loss, and dual-direction NF3 negative sampling.
 
