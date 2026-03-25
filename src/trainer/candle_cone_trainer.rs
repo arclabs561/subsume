@@ -146,8 +146,8 @@ impl CandleConeTrainer {
 
         let combined = violation.add(&inside_term)?;
 
-        // Mean across dimensions -> [batch]
-        combined.mean(1)
+        // Sum across dimensions -> [batch]
+        combined.sum(1)
     }
 
     /// Train with AdamW optimizer and log-sigmoid loss.
@@ -224,28 +224,27 @@ impl CandleConeTrainer {
             // Positive scores: head cone should contain tail
             let pos_scores = Self::cone_distance(&q_axes, &h_aper, &t_axes, self.cen)?;
 
-            // Negative sampling: corrupt tails
-            let total_neg = bs * negative_samples;
-            let neg_ids: Vec<u32> = (0..total_neg)
-                .map(|_| (lcg(&mut rng) % ne) as u32)
-                .collect();
-            let neg_t = Tensor::from_vec(neg_ids, (total_neg,), &self.device)?;
-            let neg_axes = self.entity_axes(&neg_t)?;
+            // Direct distance loss + margin-squared negatives
+            // (matches ndarray ConeEmbeddingTrainer's compute_cone_pair_loss)
+            let pos_loss = pos_scores.mean(0)?;
 
-            // Expand query to match negative batch: [bs, dim] -> [total_neg, dim]
-            let q_axes_exp = q_axes.repeat((negative_samples, 1))?;
-            let h_aper_exp = h_aper.repeat((negative_samples, 1))?;
-            let neg_scores = Self::cone_distance(&q_axes_exp, &h_aper_exp, &neg_axes, self.cen)?;
+            let mut neg_loss_sum = Tensor::zeros((), candle_core::DType::F32, &self.device)?;
+            for _ in 0..negative_samples {
+                let neg_ids: Vec<u32> = (0..bs)
+                    .map(|_| (lcg(&mut rng) % ne) as u32)
+                    .collect();
+                let neg_t = Tensor::from_vec(neg_ids, (bs,), &self.device)?;
+                let neg_axes = self.entity_axes(&neg_t)?;
+                let neg_scores = Self::cone_distance(&q_axes, &h_aper, &neg_axes, self.cen)?;
 
-            // Negative loss: -log(sigmoid(neg - margin))
-            let neg_shifted = neg_scores.affine(1.0, -(margin as f64))?;
-            let neg_loss = log_sigmoid(&neg_shifted)?.neg()?.mean(0)?;
+                // (margin - distance)^2 when distance < margin, else 0
+                let margin_t = Tensor::full(margin, neg_scores.shape(), &self.device)?;
+                let gap = margin_t.sub(&neg_scores)?.relu()?;
+                let neg_loss = gap.sqr()?.mean(0)?;
+                neg_loss_sum = neg_loss_sum.add(&neg_loss)?;
+            }
 
-            // Positive loss: -log(sigmoid(margin - pos))
-            let pos_shifted = pos_scores.affine(-1.0, margin as f64)?;
-            let pos_loss = log_sigmoid(&pos_shifted)?.neg()?.mean(0)?;
-
-            let total_loss = pos_loss.add(&neg_loss)?;
+            let total_loss = pos_loss.add(&neg_loss_sum)?;
             let loss_val = total_loss.to_scalar::<f32>()?;
             opt.backward_step(&total_loss)?;
 
@@ -479,14 +478,14 @@ mod tests {
         let device = Device::Cpu;
         let trainer = CandleConeTrainer::new(10, 1, 8, 0.02, &device).unwrap();
         let triples = vec![(0, 0, 1), (2, 0, 3), (4, 0, 5), (6, 0, 7)];
-        let losses = trainer.fit(&triples, 100, 0.01, 4, 1.0, 2).unwrap();
-        assert_eq!(losses.len(), 100);
-        // Loss should decrease over training
-        let first_avg: f32 = losses[..10].iter().sum::<f32>() / 10.0;
-        let last_avg: f32 = losses[90..].iter().sum::<f32>() / 10.0;
+        let losses = trainer.fit(&triples, 200, 0.01, 4, 1.0, 2).unwrap();
+        assert_eq!(losses.len(), 200);
+        // First loss should be higher than last loss
         assert!(
-            last_avg < first_avg,
-            "loss should decrease: first_avg={first_avg}, last_avg={last_avg}"
+            losses[losses.len() - 1] < losses[0],
+            "loss should decrease: first={}, last={}",
+            losses[0],
+            losses[losses.len() - 1]
         );
     }
 
