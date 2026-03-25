@@ -62,17 +62,30 @@ impl CandleElTrainer {
         neg_dist: f32,
         device: &Device,
     ) -> Result<Self> {
-        // Uniform [-1, 1] init (Box2EL uses uniform then L2-normalize)
-        let concept_centers =
-            Var::from_tensor(&Tensor::rand(-1.0_f32, 1.0, (num_concepts, dim), device)?)?;
-        let concept_offsets =
-            Var::from_tensor(&Tensor::rand(0.1_f32, 1.0, (num_concepts, dim), device)?)?;
-        // Bumps: small init (will be regularized)
-        let bumps = Var::from_tensor(&Tensor::randn(0.0_f32, 0.1, (num_concepts, dim), device)?)?;
-        // Role head/tail boxes: [num_roles, dim*2] where first dim = center, second dim = raw offset
+        // Uniform [-1, 1] then L2-normalize (matching Box2EL exactly)
+        let cc_raw = Tensor::rand(-1.0_f32, 1.0, (num_concepts, dim), device)?;
+        let cc_norm =
+            cc_raw.broadcast_div(&cc_raw.sqr()?.sum(1)?.sqrt()?.reshape((num_concepts, 1))?)?;
+        let concept_centers = Var::from_tensor(&cc_norm)?;
+        // All embeddings: uniform [-1,1] then L2-normalize (Box2EL init_embeddings)
+        let co_raw = Tensor::rand(-1.0_f32, 1.0, (num_concepts, dim), device)?;
+        let co_norm =
+            co_raw.broadcast_div(&co_raw.sqr()?.sum(1)?.sqrt()?.reshape((num_concepts, 1))?)?;
+        let concept_offsets = Var::from_tensor(&co_norm)?;
+
+        let bump_raw = Tensor::rand(-1.0_f32, 1.0, (num_concepts, dim), device)?;
+        let bump_norm =
+            bump_raw.broadcast_div(&bump_raw.sqr()?.sum(1)?.sqrt()?.reshape((num_concepts, 1))?)?;
+        let bumps = Var::from_tensor(&bump_norm)?;
+
         let nr = num_roles.max(1);
-        let role_heads = Var::from_tensor(&Tensor::rand(-1.0_f32, 1.0, (nr, dim * 2), device)?)?;
-        let role_tails = Var::from_tensor(&Tensor::rand(-1.0_f32, 1.0, (nr, dim * 2), device)?)?;
+        let rh_raw = Tensor::rand(-1.0_f32, 1.0, (nr, dim * 2), device)?;
+        let rh_norm = rh_raw.broadcast_div(&rh_raw.sqr()?.sum(1)?.sqrt()?.reshape((nr, 1))?)?;
+        let role_heads = Var::from_tensor(&rh_norm)?;
+
+        let rt_raw = Tensor::rand(-1.0_f32, 1.0, (nr, dim * 2), device)?;
+        let rt_norm = rt_raw.broadcast_div(&rt_raw.sqr()?.sum(1)?.sqrt()?.reshape((nr, 1))?)?;
+        let role_tails = Var::from_tensor(&rt_norm)?;
 
         Ok(Self {
             concept_centers,
@@ -226,8 +239,8 @@ impl CandleElTrainer {
                 lr_min + 0.5 * (lr - lr_min) * (1.0 + (std::f64::consts::PI * progress).cos());
             opt.set_learning_rate(current_lr);
 
-            let mut total_loss = 0.0f32;
-            let mut loss_count = 0;
+            // Accumulate all NF losses into one tensor (Box2EL does one backward per epoch)
+            let mut epoch_loss = Tensor::zeros((), candle_core::DType::F32, &self.device)?;
 
             // NF2: C ⊑ D -- sample a batch of subsumption axioms
             if !nf2_axioms.is_empty() {
@@ -267,9 +280,7 @@ impl CandleElTrainer {
                 }
 
                 let batch_loss = pos_loss.add(&neg_loss_sum)?;
-                opt.backward_step(&batch_loss)?;
-                total_loss += batch_loss.to_scalar::<f32>()?;
-                loss_count += 1;
+                epoch_loss = epoch_loss.add(&batch_loss)?;
             }
 
             // NF1: C1 ⊓ C2 ⊑ D -- intersection then inclusion
@@ -309,9 +320,7 @@ impl CandleElTrainer {
                 let nf1_loss =
                     Self::inclusion_loss(&inter_center, &inter_offset, &cd, &od, self.margin)?;
                 let nf1_mean = nf1_loss.mean(0)?;
-                opt.backward_step(&nf1_mean)?;
-                total_loss += nf1_mean.to_scalar::<f32>()?;
-                loss_count += 1;
+                epoch_loss = epoch_loss.add(&nf1_mean)?;
             }
 
             // NF3: C ⊑ ∃r.D -- Box2EL bump-based existential
@@ -343,14 +352,13 @@ impl CandleElTrainer {
                 let (c_tail, o_tail) = self.role_box(&role_t, false)?;
 
                 // C bumped by D's bump -> should be in head box of role r.
-                // Detach centers so NF3 gradient flows only through bumps,
-                // preserving center quality for NF2 training and evaluation.
-                let c_sub_bumped = c_sub.detach().add(&bump_filler)?;
+                // Gradient flows through BOTH centers and bumps (matching Box2EL).
+                let c_sub_bumped = c_sub.add(&bump_filler)?;
                 let dist1 =
                     Self::inclusion_loss(&c_sub_bumped, &o_sub, &c_head, &o_head, self.margin)?;
 
                 // D bumped by C's bump -> should be in tail box of role r
-                let c_filler_bumped = c_filler.detach().add(&bump_sub)?;
+                let c_filler_bumped = c_filler.add(&bump_sub)?;
                 let dist2 = Self::inclusion_loss(
                     &c_filler_bumped,
                     &o_filler,
@@ -369,7 +377,7 @@ impl CandleElTrainer {
                     let (c_neg, o_neg) = self.concept_boxes(&neg_t)?;
                     let bump_neg = self.concept_bumps(&neg_t)?;
 
-                    let c_sub_bumped_neg = c_sub.detach().add(&bump_neg)?;
+                    let c_sub_bumped_neg = c_sub.add(&bump_neg)?;
                     let neg_dist1 = Self::inclusion_loss(
                         &c_sub_bumped_neg,
                         &o_sub,
@@ -385,9 +393,7 @@ impl CandleElTrainer {
                 }
 
                 let nf3_total = nf3_loss.add(&nf3_neg_sum)?;
-                opt.backward_step(&nf3_total)?;
-                total_loss += nf3_total.to_scalar::<f32>()?;
-                loss_count += 1;
+                epoch_loss = epoch_loss.add(&nf3_total)?;
             }
 
             // NF4: ∃r.C ⊑ D -- same bump approach, reversed direction
@@ -415,52 +421,42 @@ impl CandleElTrainer {
                 let (c_head, o_head) = self.role_box(&role_t, true)?;
                 let (c_tail, o_tail) = self.role_box(&role_t, false)?;
 
-                // Filler bumped by target's bump -> head box (detach centers)
-                let c_f_bumped = c_filler.detach().add(&bump_target)?;
+                // Filler bumped by target's bump -> head box
+                let c_f_bumped = c_filler.add(&bump_target)?;
                 let dist1 =
                     Self::inclusion_loss(&c_f_bumped, &o_filler, &c_head, &o_head, self.margin)?;
-                // Target bumped by filler's bump -> tail box (detach centers)
-                let c_t_bumped = c_target.detach().add(&bump_filler)?;
+                // Target bumped by filler's bump -> tail box
+                let c_t_bumped = c_target.add(&bump_filler)?;
                 let dist2 =
                     Self::inclusion_loss(&c_t_bumped, &o_target, &c_tail, &o_tail, self.margin)?;
 
                 let nf4_loss = dist1.add(&dist2)?.affine(0.5, 0.0)?.mean(0)?;
-                opt.backward_step(&nf4_loss)?;
-                total_loss += nf4_loss.to_scalar::<f32>()?;
-                loss_count += 1;
+                epoch_loss = epoch_loss.add(&nf4_loss)?;
             }
 
-            // Regularization: offset norms + bump norms (Box2EL regularizes bumps)
+            // Regularization: bump norms (Box2EL: reg_factor * mean(||bump||_2))
             if reg_factor > 0.0 {
-                let offset_reg = self
-                    .concept_offsets
-                    .as_tensor()
-                    .abs()?
-                    .mean_all()?
-                    .affine(reg_factor as f64 * 0.5, 0.0)?;
                 let bump_reg = self
                     .bumps
                     .as_tensor()
                     .sqr()?
-                    .mean_all()?
+                    .sum(1)?
                     .sqrt()?
+                    .mean(0)?
                     .affine(reg_factor as f64, 0.0)?;
-                let reg = offset_reg.add(&bump_reg)?;
-                opt.backward_step(&reg)?;
-                total_loss += reg.to_scalar::<f32>()?;
+                epoch_loss = epoch_loss.add(&bump_reg)?;
             }
 
-            let avg = if loss_count > 0 {
-                total_loss / loss_count as f32
-            } else {
-                0.0
-            };
-            epoch_losses.push(avg);
+            // Single backward pass for entire epoch (matching Box2EL)
+            let loss_val = epoch_loss.to_scalar::<f32>()?;
+            opt.backward_step(&epoch_loss)?;
+
+            epoch_losses.push(loss_val);
 
             // NaN detection: stop early to preserve debuggable state
-            if avg.is_nan() || avg.is_infinite() {
+            if loss_val.is_nan() || loss_val.is_infinite() {
                 eprintln!(
-                    "  WARNING: loss diverged at epoch {} (loss={avg}). Stopping.",
+                    "  WARNING: loss diverged at epoch {} (loss={loss_val}). Stopping.",
                     epoch + 1
                 );
                 break;
@@ -480,7 +476,7 @@ impl CandleElTrainer {
                     .mean_all()?
                     .to_scalar::<f32>()?;
                 eprintln!(
-                    "  epoch {:>5}/{epochs}: loss={avg:.4} lr={current_lr:.6} |c|={c_mean:.3} |o|={o_mean:.3}",
+                    "  epoch {:>5}/{epochs}: loss={loss_val:.4} lr={current_lr:.6} |c|={c_mean:.3} |o|={o_mean:.3}",
                     epoch + 1
                 );
             }
