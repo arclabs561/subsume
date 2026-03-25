@@ -627,36 +627,6 @@ fn disjointness_grads(
     (ga, gb, norm)
 }
 
-/// Heuristic gradient for negative inclusion (push A OUT of B).
-///
-/// This is NOT an analytical gradient of the negative penalty
-/// `(margin - inclusion_loss(A, B)).max(0)`. It uses a fixed scale
-/// to push centers apart and shrink the superclass offset. The true
-/// subgradient w.r.t. `A.offset` is nonzero but omitted here for
-/// stability — in practice the positive inclusion signal already
-/// adjusts offsets sufficiently.
-fn negative_inclusion_grads(
-    ca: &[f32],
-    _oa: &[f32],
-    cb: &[f32],
-    _ob: &[f32],
-) -> (BoxGrad, BoxGrad) {
-    let dim = ca.len();
-    let mut ga = BoxGrad::zeros(dim);
-    let mut gb = BoxGrad::zeros(dim);
-    let scale = 0.1;
-
-    for i in 0..dim {
-        let diff = ca[i] - cb[i];
-        let sign = if diff >= 0.0 { 1.0 } else { -1.0 };
-        ga.center[i] = -sign * scale;
-        gb.center[i] = sign * scale;
-        gb.offset[i] = scale;
-    }
-
-    (ga, gb)
-}
-
 // ---------------------------------------------------------------------------
 // Training loop
 // ---------------------------------------------------------------------------
@@ -721,6 +691,7 @@ pub fn train_el_embeddings(ontology: &Ontology, config: &ElTrainingConfig) -> El
                         // High when boxes don't overlap, low when they do.
                         let mut disj_sq = 0.0f32;
                         let mut disj_terms = vec![0.0f32; dim];
+                        #[allow(clippy::needless_range_loop)]
                         for i in 0..dim {
                             let diff = (concepts.centers[neg][i] - concepts.centers[sup][i]).abs();
                             let v = diff - concepts.offsets[neg][i] - concepts.offsets[sup][i]
@@ -742,6 +713,7 @@ pub fn train_el_embeddings(ontology: &Ontology, config: &ElTrainingConfig) -> El
                             let scale = -2.0 * gap / disj_score;
                             let mut gn = BoxGrad::zeros(dim);
                             let mut gs = BoxGrad::zeros(dim);
+                            #[allow(clippy::needless_range_loop)]
                             for i in 0..dim {
                                 if disj_terms[i] <= 0.0 {
                                     continue;
