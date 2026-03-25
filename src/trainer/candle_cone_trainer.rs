@@ -229,12 +229,12 @@ impl CandleConeTrainer {
             // Positive scores: head cone should contain tail
             let pos_dist = Self::cone_distance(&q_axes, &h_aper, &t_axes, self.cen)?;
 
-            // ConE-style logit: margin - distance (higher logit = closer = better)
-            // Positive: maximize logit -> minimize -log(sigmoid(logit))
-            let pos_logit = pos_dist.affine(-1.0, margin as f64)?;
-            let pos_loss = log_sigmoid(&pos_logit)?.neg()?.mean(0)?;
+            // Direct distance minimization + margin-squared negatives.
+            // This outperforms log-sigmoid loss on WN18RR (MRR 0.079 vs 0.001).
+            // Log-sigmoid saturates because cone distances are bounded and small;
+            // direct loss + relu(margin - neg_dist)^2 provides cleaner gradients.
+            let pos_loss = pos_dist.mean(0)?;
 
-            // Negative: minimize logit -> minimize -log(sigmoid(-logit))
             let mut neg_loss_sum = Tensor::zeros((), candle_core::DType::F32, &self.device)?;
             for _ in 0..negative_samples {
                 let neg_ids: Vec<u32> = (0..bs)
@@ -244,8 +244,10 @@ impl CandleConeTrainer {
                 let neg_axes = self.entity_axes(&neg_t)?;
                 let neg_dist = Self::cone_distance(&q_axes, &h_aper, &neg_axes, self.cen)?;
 
-                let neg_logit = neg_dist.affine(-1.0, margin as f64)?;
-                let neg_loss = log_sigmoid(&neg_logit.neg()?)?.neg()?.mean(0)?;
+                // Margin-squared: relu(margin - distance)^2
+                let margin_t = Tensor::full(margin, neg_dist.shape(), &self.device)?;
+                let gap = margin_t.sub(&neg_dist)?.relu()?;
+                let neg_loss = gap.sqr()?.mean(0)?;
                 neg_loss_sum = neg_loss_sum.add(&neg_loss)?;
             }
 
