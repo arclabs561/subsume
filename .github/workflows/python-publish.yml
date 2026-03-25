@@ -20,8 +20,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
-      - name: Test (all features)
-        run: cargo test --all-features
+      - name: Test (non-CUDA features)
+        run: cargo test --features "ndarray-backend,candle-backend,rand,sheaf,rankops,petgraph"
 
   build:
     name: Build wheels (${{ matrix.target }} on ${{ matrix.os }})
