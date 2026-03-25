@@ -293,16 +293,20 @@ let dataset = Dataset::new(triples, vec![], vec![]);
 Subsumption prediction (NF1: C ⊑ D) on Box2EL benchmark datasets,
 evaluated by center L2 distance ranking (matching Box2EL protocol).
 
-| Dataset | Method | H@1 | H@10 | Config |
+| Dataset | Method | H@1 | H@10 | Source |
 |---|---|---|---|---|
-| GALEN (23K classes) | **subsume** | **0.052** | **0.367** | dim=200, 5000ep |
+| GALEN (23K) | **subsume** | **0.052** | **0.367** | CandleElTrainer, dim=200, 5000ep |
 | GALEN | Box2EL | 0.03 | 0.30 | Jackermeier et al., 2023 |
 | GALEN | ELBE | 0.03 | 0.24 | Peng et al., 2022 |
-| GO (46K classes) | **subsume** | **0.036** | **0.227** | dim=200, 5000ep |
+| GO (46K) | **subsume** | **0.036** | **0.227** | CandleElTrainer |
 | GO | Box2EL | 0.03 | 0.17 | Jackermeier et al., 2023 |
 | GO | ELBE | 0.01 | 0.10 | |
+| ANATOMY (106K) | subsume | 0.052 | 0.212 | CandleElTrainer |
+| ANATOMY | **Box2EL** | **0.07** | **0.34** | Jackermeier et al., 2023 |
+| ANATOMY | ELBE | 0.05 | 0.24 | |
 
-subsume outperforms Box2EL on both GALEN and GO for NF1 subsumption prediction.
+subsume outperforms Box2EL on GALEN and GO for NF1 subsumption prediction.
+Box2EL wins on ANATOMY (106K classes -- may benefit from more training time or GPU).
 Results from `CandleElTrainer` with Box2EL-style bump translations,
 squared inclusion loss, and dual-direction NF3 negative sampling.
 
