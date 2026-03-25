@@ -138,8 +138,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         negative_weight: 1.0,
         early_stopping_patience: Some(30),
         warmup_epochs: 10,
-        gumbel_beta: 10.0,
-        gumbel_beta_final: 50.0,
+        softplus_beta: 10.0,
+        softplus_beta_final: 50.0,
         ..Default::default()
     };
     let dim = 12;
