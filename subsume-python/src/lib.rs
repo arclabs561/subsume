@@ -2035,6 +2035,114 @@ impl PyCandleElTrainer {
     }
 }
 
+/// GPU-accelerated cone embedding trainer via candle autograd.
+///
+/// Trains cone embeddings (ConE distance scoring) for knowledge graph completion.
+///
+/// Example::
+///
+///     trainer = subsumer.CandleConeTrainer(num_entities=1000, num_relations=10, dim=32)
+///     losses = trainer.fit(triples, epochs=100, lr=0.01)
+#[cfg(feature = "candle-backend")]
+#[pyclass(name = "CandleConeTrainer")]
+struct PyCandleConeTrainer {
+    inner: subsume::trainer::candle_cone_trainer::CandleConeTrainer,
+}
+
+#[cfg(feature = "candle-backend")]
+#[pymethods]
+impl PyCandleConeTrainer {
+    #[new]
+    #[pyo3(signature = (num_entities, num_relations=0, dim=32, cen=0.02, device="cpu"))]
+    fn new(
+        num_entities: usize,
+        num_relations: usize,
+        dim: usize,
+        cen: f32,
+        device: &str,
+    ) -> PyResult<Self> {
+        let dev = match device {
+            "cpu" => candle_core::Device::Cpu,
+            "cuda" => candle_core::Device::new_cuda(0)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?,
+            "metal" => candle_core::Device::new_metal(0)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?,
+            other => {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "unknown device '{other}', expected 'cpu', 'cuda', or 'metal'"
+                )))
+            }
+        };
+        let inner =
+            subsume::trainer::candle_cone_trainer::CandleConeTrainer::new(num_entities, num_relations, dim, cen, &dev)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        Ok(Self { inner })
+    }
+
+    #[pyo3(signature = (triples, epochs=100, lr=0.001, batch_size=512, margin=6.0, negative_samples=64))]
+    fn fit(
+        &self,
+        triples: Vec<(usize, usize, usize)>,
+        epochs: usize,
+        lr: f64,
+        batch_size: usize,
+        margin: f32,
+        negative_samples: usize,
+    ) -> PyResult<Vec<f32>> {
+        self.inner
+            .fit(&triples, epochs, lr, batch_size, margin, negative_samples)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+    }
+
+    fn score<'py>(
+        &self,
+        py: Python<'py>,
+        head_ids: Vec<u32>,
+        tail_ids: Vec<u32>,
+    ) -> PyResult<Py<PyArray1<f32>>> {
+        let hn = head_ids.len();
+        let tn = tail_ids.len();
+        let h = candle_core::Tensor::from_vec(head_ids, &[hn], &self.inner.device)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let t = candle_core::Tensor::from_vec(tail_ids, &[tn], &self.inner.device)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let scores = self
+            .inner
+            .score(&h, &t)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let flat: Vec<f32> = scores
+            .to_vec1()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let arr = ndarray::Array1::from(flat);
+        Ok(arr.into_pyarray(py).into())
+    }
+
+    #[pyo3(signature = (head_id, rel_id=None))]
+    fn score_all_tails<'py>(
+        &self,
+        py: Python<'py>,
+        head_id: usize,
+        rel_id: Option<usize>,
+    ) -> PyResult<Py<PyArray1<f32>>> {
+        let scores = self
+            .inner
+            .score_all_tails(head_id, rel_id)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let flat: Vec<f32> = scores
+            .to_vec1()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let arr = ndarray::Array1::from(flat);
+        Ok(arr.into_pyarray(py).into())
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "CandleConeTrainer(entities={}, relations={}, dim={})",
+            self.inner.num_entities, self.inner.num_relations, self.inner.dim
+        )
+    }
+}
+
 /// Geometric region embeddings for knowledge graph subsumption.
 ///
 /// Python bindings for the ``subsume`` Rust crate.
@@ -2080,5 +2188,7 @@ fn subsumer(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyCandleBoxTrainer>()?;
     #[cfg(feature = "candle-backend")]
     m.add_class::<PyCandleElTrainer>()?;
+    #[cfg(feature = "candle-backend")]
+    m.add_class::<PyCandleConeTrainer>()?;
     Ok(())
 }
