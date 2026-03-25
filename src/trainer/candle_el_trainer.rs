@@ -123,6 +123,25 @@ impl CandleElTrainer {
         norm_sq.affine(1.0, 1e-8)?.sqrt()
     }
 
+    /// Negative loss (Box2EL `neg_loss`): `||relu(|c_a - c_b| - o_a - o_b + margin)||` per sample.
+    /// Used for NF3 negatives. Returns L2 norm (not squared).
+    fn neg_loss_fn(
+        centers_a: &Tensor,
+        offsets_a: &Tensor,
+        centers_b: &Tensor,
+        offsets_b: &Tensor,
+        margin: f32,
+    ) -> Result<Tensor> {
+        let diffs = centers_a.sub(centers_b)?.abs()?;
+        let gap = diffs
+            .sub(offsets_a)?
+            .sub(offsets_b)?
+            .affine(1.0, margin as f64)?
+            .relu()?;
+        let norm_sq = gap.sqr()?.sum(1)?;
+        norm_sq.affine(1.0, 1e-8)?.sqrt()
+    }
+
     /// Disjointness score: `||relu(|c_a - c_b| - o_a - o_b + margin)||` per sample.
     fn disjointness_score(
         centers_a: &Tensor,
@@ -369,27 +388,47 @@ impl CandleElTrainer {
 
                 let nf3_loss = dist1.add(&dist2)?.affine(0.5, 0.0)?.mean(0)?;
 
-                // NF3 negatives: corrupt filler with random concept
+                // NF3 negatives: corrupt BOTH head and tail (matching Box2EL exactly).
+                // For each neg sample: replace D with random -> check (C+bump_rand, head_r)
+                //                      replace C with random -> check (rand+bump_C, tail_r)
                 let mut nf3_neg_sum = Tensor::zeros((), candle_core::DType::F32, &self.device)?;
                 for _ in 0..negative_samples {
-                    let neg_ids: Vec<u32> = (0..bs).map(|_| (lcg(&mut rng) % nc) as u32).collect();
-                    let neg_t = Tensor::from_vec(neg_ids, (bs,), &self.device)?;
-                    let (c_neg, o_neg) = self.concept_boxes(&neg_t)?;
-                    let bump_neg = self.concept_bumps(&neg_t)?;
+                    // Corrupt tail (D): keep C, replace D with random
+                    let neg_tail_ids: Vec<u32> =
+                        (0..bs).map(|_| (lcg(&mut rng) % nc) as u32).collect();
+                    let neg_tail_t = Tensor::from_vec(neg_tail_ids, (bs,), &self.device)?;
+                    let bump_neg_tail = self.concept_bumps(&neg_tail_t)?;
 
-                    let c_sub_bumped_neg = c_sub.add(&bump_neg)?;
-                    let neg_dist1 = Self::inclusion_loss(
+                    let c_sub_bumped_neg = c_sub.add(&bump_neg_tail)?;
+                    let neg_loss1 = Self::neg_loss_fn(
                         &c_sub_bumped_neg,
                         &o_sub,
                         &c_head,
                         &o_head,
                         self.margin,
                     )?;
-                    // (neg_dist - neg_inclusion)^2 -- push negatives away
-                    let target = Tensor::full(self.neg_dist, neg_dist1.shape(), &self.device)?;
-                    let gap = target.sub(&neg_dist1)?.relu()?;
-                    let nl = gap.sqr()?.mean(0)?;
-                    nf3_neg_sum = nf3_neg_sum.add(&nl)?;
+
+                    // Corrupt head (C): keep D, replace C with random
+                    let neg_head_ids: Vec<u32> =
+                        (0..bs).map(|_| (lcg(&mut rng) % nc) as u32).collect();
+                    let neg_head_t = Tensor::from_vec(neg_head_ids, (bs,), &self.device)?;
+                    let (c_neg_head, o_neg_head) = self.concept_boxes(&neg_head_t)?;
+
+                    let c_neg_bumped = c_neg_head.add(&bump_sub)?;
+                    let neg_loss2 = Self::neg_loss_fn(
+                        &c_neg_bumped,
+                        &o_neg_head,
+                        &c_tail,
+                        &o_tail,
+                        self.margin,
+                    )?;
+
+                    // Box2EL: (neg_dist - neg_loss).square().mean() for BOTH
+                    let target1 = Tensor::full(self.neg_dist, neg_loss1.shape(), &self.device)?;
+                    let target2 = Tensor::full(self.neg_dist, neg_loss2.shape(), &self.device)?;
+                    let nl1 = target1.sub(&neg_loss1)?.sqr()?.mean(0)?;
+                    let nl2 = target2.sub(&neg_loss2)?.sqr()?.mean(0)?;
+                    nf3_neg_sum = nf3_neg_sum.add(&nl1)?.add(&nl2)?;
                 }
 
                 let nf3_total = nf3_loss.add(&nf3_neg_sum)?;
@@ -414,23 +453,23 @@ impl CandleElTrainer {
                 let filler_t = Tensor::from_vec(filler_ids, (bs,), &self.device)?;
                 let target_t = Tensor::from_vec(target_ids, (bs,), &self.device)?;
 
-                let (c_filler, o_filler) = self.concept_boxes(&filler_t)?;
+                // Box2EL NF4: inclusion_loss(head_r.translate(-bump_C), D)
+                // Different from NF3! Only uses head box, one bump, one target.
                 let (c_target, o_target) = self.concept_boxes(&target_t)?;
                 let bump_filler = self.concept_bumps(&filler_t)?;
-                let bump_target = self.concept_bumps(&target_t)?;
                 let (c_head, o_head) = self.role_box(&role_t, true)?;
-                let (c_tail, o_tail) = self.role_box(&role_t, false)?;
 
-                // Filler bumped by target's bump -> head box
-                let c_f_bumped = c_filler.add(&bump_target)?;
-                let dist1 =
-                    Self::inclusion_loss(&c_f_bumped, &o_filler, &c_head, &o_head, self.margin)?;
-                // Target bumped by filler's bump -> tail box
-                let c_t_bumped = c_target.add(&bump_filler)?;
-                let dist2 =
-                    Self::inclusion_loss(&c_t_bumped, &o_target, &c_tail, &o_tail, self.margin)?;
-
-                let nf4_loss = dist1.add(&dist2)?.affine(0.5, 0.0)?.mean(0)?;
+                // Translate head box by -bump_C (negate filler bump)
+                let c_head_shifted = c_head.sub(&bump_filler)?;
+                let nf4_loss = Self::inclusion_loss(
+                    &c_head_shifted,
+                    &o_head,
+                    &c_target,
+                    &o_target,
+                    self.margin,
+                )?
+                .sqr()?
+                .mean(0)?;
                 epoch_loss = epoch_loss.add(&nf4_loss)?;
             }
 
