@@ -249,7 +249,10 @@ impl CandleConeTrainer {
                 neg_loss_sum = neg_loss_sum.add(&neg_loss)?;
             }
 
-            let total_loss = pos_loss.add(&neg_loss_sum)?;
+            // Aperture regularization on batch heads: penalize large apertures
+            let aper_reg = h_aper.mean_all()?.affine(0.001, 0.0)?;
+
+            let total_loss = pos_loss.add(&neg_loss_sum)?.add(&aper_reg)?;
             let loss_val = total_loss.to_scalar::<f32>()?;
             opt.backward_step(&total_loss)?;
 
