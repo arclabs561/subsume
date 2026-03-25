@@ -524,11 +524,11 @@ impl CandleElTrainer {
         Ok(epoch_losses)
     }
 
-    /// Evaluate subsumption (NF2: C ⊑ D) by inclusion loss ranking.
+    /// Evaluate subsumption (NF2: C ⊑ D) by center L2 distance ranking.
     ///
-    /// For each test pair (C, D), ranks all concepts by inclusion loss
-    /// (containment violation) from C into each candidate. Lower inclusion
-    /// loss = better containment = higher rank.
+    /// For each test pair (C, D), ranks all concepts by L2 distance to C's center
+    /// and reports the rank of D. This matches the Box2EL evaluation protocol
+    /// where centers encode subsumption hierarchy position.
     pub fn evaluate_subsumption(
         &self,
         test_axioms: &[(usize, usize)], // (sub, sup) pairs
@@ -536,14 +536,6 @@ impl CandleElTrainer {
         let centers: Vec<f32> = self
             .concept_centers
             .as_tensor()
-            .to_vec2::<f32>()?
-            .into_iter()
-            .flatten()
-            .collect();
-        let offsets: Vec<f32> = self
-            .concept_offsets
-            .as_tensor()
-            .abs()?
             .to_vec2::<f32>()?
             .into_iter()
             .flatten()
@@ -560,21 +552,18 @@ impl CandleElTrainer {
             if sub >= nc || sup >= nc {
                 continue;
             }
-            let sub_off = sub * dim;
-            // Rank all candidates by inclusion loss: how well does candidate contain sub?
-            // inclusion_loss(sub, candidate) = ||relu(|c_sub - c_cand| + o_sub - o_cand)||
+            let sub_offset = sub * dim;
             let mut scores: Vec<(usize, f32)> = (0..nc)
                 .filter(|&c| c != sub)
                 .map(|c| {
-                    let c_off = c * dim;
-                    let mut violation_sq = 0.0f32;
-                    for d in 0..dim {
-                        let diff = (centers[sub_off + d] - centers[c_off + d]).abs();
-                        let v = diff + offsets[sub_off + d] - offsets[c_off + d];
-                        let rv = v.max(0.0);
-                        violation_sq += rv * rv;
-                    }
-                    (c, violation_sq.sqrt())
+                    let c_offset = c * dim;
+                    let dist_sq: f32 = (0..dim)
+                        .map(|d| {
+                            let diff = centers[sub_offset + d] - centers[c_offset + d];
+                            diff * diff
+                        })
+                        .sum();
+                    (c, dist_sq.sqrt())
                 })
                 .collect();
             scores.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
@@ -605,10 +594,10 @@ impl CandleElTrainer {
         ))
     }
 
-    /// Evaluate NF1 (C1 ⊓ C2 ⊑ D) by intersection inclusion loss ranking.
+    /// Evaluate NF1 (C1 ⊓ C2 ⊑ D) by intersection-center L2 distance ranking.
     ///
     /// Computes the box intersection of C1 and C2, then ranks all concepts
-    /// by inclusion loss (how well each candidate contains the intersection).
+    /// by L2 distance from the intersection center to find D.
     pub fn evaluate_nf1(
         &self,
         test_axioms: &[(usize, usize, usize)], // (c1, c2, d) triples
@@ -640,11 +629,10 @@ impl CandleElTrainer {
             if c1 >= nc || c2 >= nc || d >= nc {
                 continue;
             }
-            // Compute intersection box: max of mins, min of maxes
+            // Compute intersection center: max of mins, min of maxes
             let c1_off = c1 * dim;
             let c2_off = c2 * dim;
             let mut inter_center = vec![0.0f32; dim];
-            let mut inter_offset = vec![0.0f32; dim];
             for i in 0..dim {
                 let min1 = centers[c1_off + i] - offsets[c1_off + i];
                 let max1 = centers[c1_off + i] + offsets[c1_off + i];
@@ -653,22 +641,20 @@ impl CandleElTrainer {
                 let inter_min = min1.max(min2);
                 let inter_max = max1.min(max2).max(inter_min);
                 inter_center[i] = (inter_min + inter_max) / 2.0;
-                inter_offset[i] = (inter_max - inter_min) / 2.0;
             }
 
-            // Rank by inclusion loss: how well does candidate contain intersection?
+            // Rank all concepts by distance to intersection center
             let mut scores: Vec<(usize, f32)> = (0..nc)
                 .filter(|&c| c != c1 && c != c2)
                 .map(|c| {
                     let c_off = c * dim;
-                    let mut violation_sq = 0.0f32;
-                    for i in 0..dim {
-                        let diff = (inter_center[i] - centers[c_off + i]).abs();
-                        let v = diff + inter_offset[i] - offsets[c_off + i];
-                        let rv = v.max(0.0);
-                        violation_sq += rv * rv;
-                    }
-                    (c, violation_sq.sqrt())
+                    let dist_sq: f32 = (0..dim)
+                        .map(|i| {
+                            let diff = inter_center[i] - centers[c_off + i];
+                            diff * diff
+                        })
+                        .sum();
+                    (c, dist_sq.sqrt())
                 })
                 .collect();
             scores.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
