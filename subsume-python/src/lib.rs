@@ -1765,6 +1765,276 @@ impl PyCandleBoxTrainer {
     }
 }
 
+/// GPU-accelerated EL++ ontology embedding trainer.
+///
+/// Trains box embeddings for EL++ ontology completion using the candle autograd
+/// backend. Supports all 7 axiom types (NF1-NF4, RI6, RI7, DISJ) with
+/// Box2EL-style bump translations and dual-direction negative sampling.
+///
+/// Example::
+///
+///     trainer = subsumer.CandleElTrainer.from_axiom_file("data/GALEN/train.tsv", dim=200)
+///     losses = trainer.fit(epochs=5000, lr=0.01)
+///     results = trainer.evaluate("data/GALEN/test.tsv")
+///     print(results)  # {'nf1': {'h1': ..., 'h10': ..., 'mrr': ...}, ...}
+#[cfg(feature = "candle-backend")]
+#[pyclass(name = "CandleElTrainer")]
+struct PyCandleElTrainer {
+    inner: subsume::trainer::candle_el_trainer::CandleElTrainer,
+    ontology: subsume::el_training::Ontology,
+}
+
+#[cfg(feature = "candle-backend")]
+#[pymethods]
+impl PyCandleElTrainer {
+    /// Load an ontology from a TSV axiom file and create a trainer.
+    ///
+    /// Args:
+    ///     axiom_path: Path to TSV file with NF1-NF4/RI6/RI7/DISJ axioms.
+    ///     dim: Embedding dimension (default: 200).
+    ///     margin: Inclusion loss margin (default: 0.15).
+    ///     neg_dist: Target distance for negatives (default: 5.0).
+    ///     device: One of "cpu", "cuda", "metal" (default: "cpu").
+    #[staticmethod]
+    #[pyo3(signature = (axiom_path, dim=200, margin=0.15, neg_dist=5.0, device="cpu"))]
+    fn from_axiom_file(
+        axiom_path: &str,
+        dim: usize,
+        margin: f32,
+        neg_dist: f32,
+        device: &str,
+    ) -> PyResult<Self> {
+        let dataset = subsume::el_dataset::load_el_axioms(axiom_path)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("{e}")))?;
+        let ontology = subsume::el_training::Ontology::from_el_dataset(&dataset);
+        let nc = ontology.concept_names.len();
+        let nr = ontology.role_names.len();
+
+        let dev = match device {
+            "cpu" => candle_core::Device::Cpu,
+            "cuda" => candle_core::Device::new_cuda(0)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?,
+            "metal" => candle_core::Device::new_metal(0)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?,
+            other => {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "unknown device '{other}', expected 'cpu', 'cuda', or 'metal'"
+                )))
+            }
+        };
+
+        let inner =
+            subsume::trainer::candle_el_trainer::CandleElTrainer::new(nc, nr, dim, margin, neg_dist, &dev)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        Ok(Self { inner, ontology })
+    }
+
+    /// Train on the loaded ontology.
+    ///
+    /// Args:
+    ///     epochs: Number of training epochs.
+    ///     lr: Learning rate (default: 0.01).
+    ///     batch_size: Axioms per batch (default: 512).
+    ///     neg_samples: Negative samples per positive (default: 1).
+    ///     reg_factor: Bump regularization weight (default: 0.4).
+    ///
+    /// Returns:
+    ///     List of per-epoch losses.
+    #[pyo3(signature = (epochs=5000, lr=0.01, batch_size=512, neg_samples=1, reg_factor=0.4))]
+    fn fit(
+        &self,
+        epochs: usize,
+        lr: f64,
+        batch_size: usize,
+        neg_samples: usize,
+        reg_factor: f32,
+    ) -> PyResult<Vec<f32>> {
+        self.inner
+            .fit(&self.ontology, epochs, lr, batch_size, neg_samples, reg_factor)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+    }
+
+    /// Evaluate on a test axiom file. Returns per-NF-type metrics.
+    ///
+    /// Args:
+    ///     test_path: Path to test TSV file.
+    ///     max_per_nf: Maximum axioms to evaluate per NF type (default: 1000).
+    ///
+    /// Returns:
+    ///     Dict with keys "nf1", "nf2", "nf3", "nf4", each mapping to
+    ///     {"h1": float, "h10": float, "mrr": float, "count": int}.
+    #[pyo3(signature = (test_path, max_per_nf=1000))]
+    fn evaluate(&self, py: Python<'_>, test_path: &str, max_per_nf: usize) -> PyResult<PyObject> {
+        let test_ds = subsume::el_dataset::load_el_axioms(test_path)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("{e}")))?;
+
+        let result = pyo3::types::PyDict::new(py);
+
+        // NF1: (c1, c2, d)
+        let nf1_pairs: Vec<(usize, usize, usize)> = test_ds
+            .nf1
+            .iter()
+            .filter_map(|(c1, c2, d)| {
+                let i1 = self.ontology.concept_index.get(c1.as_str())?;
+                let i2 = self.ontology.concept_index.get(c2.as_str())?;
+                let id = self.ontology.concept_index.get(d.as_str())?;
+                Some((*i1, *i2, *id))
+            })
+            .collect();
+        if !nf1_pairs.is_empty() {
+            let n = nf1_pairs.len().min(max_per_nf);
+            let (h1, h10, mrr) = self
+                .inner
+                .evaluate_nf1(&nf1_pairs[..n])
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+            let d = pyo3::types::PyDict::new(py);
+            d.set_item("h1", h1)?;
+            d.set_item("h10", h10)?;
+            d.set_item("mrr", mrr)?;
+            d.set_item("count", n)?;
+            result.set_item("nf1", d)?;
+        }
+
+        // NF2: (sub, sup)
+        let nf2_pairs: Vec<(usize, usize)> = test_ds
+            .nf2
+            .iter()
+            .filter_map(|(c, d)| {
+                let sub = self.ontology.concept_index.get(c.as_str())?;
+                let sup = self.ontology.concept_index.get(d.as_str())?;
+                Some((*sub, *sup))
+            })
+            .collect();
+        if !nf2_pairs.is_empty() {
+            let n = nf2_pairs.len().min(max_per_nf);
+            let (h1, h10, mrr) = self
+                .inner
+                .evaluate_subsumption(&nf2_pairs[..n])
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+            let d = pyo3::types::PyDict::new(py);
+            d.set_item("h1", h1)?;
+            d.set_item("h10", h10)?;
+            d.set_item("mrr", mrr)?;
+            d.set_item("count", n)?;
+            result.set_item("nf2", d)?;
+        }
+
+        // NF3: (sub, role, filler)
+        let nf3_pairs: Vec<(usize, usize, usize)> = test_ds
+            .nf3
+            .iter()
+            .filter_map(|(c, r, d)| {
+                let ic = self.ontology.concept_index.get(c.as_str())?;
+                let ir = self.ontology.role_index.get(r.as_str())?;
+                let id = self.ontology.concept_index.get(d.as_str())?;
+                Some((*ic, *ir, *id))
+            })
+            .collect();
+        if !nf3_pairs.is_empty() {
+            let n = nf3_pairs.len().min(max_per_nf);
+            let (h1, h10, mrr) = self
+                .inner
+                .evaluate_nf3(&nf3_pairs[..n])
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+            let d = pyo3::types::PyDict::new(py);
+            d.set_item("h1", h1)?;
+            d.set_item("h10", h10)?;
+            d.set_item("mrr", mrr)?;
+            d.set_item("count", n)?;
+            result.set_item("nf3", d)?;
+        }
+
+        // NF4: (role, filler, target)
+        let nf4_pairs: Vec<(usize, usize, usize)> = test_ds
+            .nf4
+            .iter()
+            .filter_map(|(r, c, d)| {
+                let ir = self.ontology.role_index.get(r.as_str())?;
+                let ic = self.ontology.concept_index.get(c.as_str())?;
+                let id = self.ontology.concept_index.get(d.as_str())?;
+                Some((*ir, *ic, *id))
+            })
+            .collect();
+        if !nf4_pairs.is_empty() {
+            let n = nf4_pairs.len().min(max_per_nf);
+            let (h1, h10, mrr) = self
+                .inner
+                .evaluate_nf4(&nf4_pairs[..n])
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+            let d = pyo3::types::PyDict::new(py);
+            d.set_item("h1", h1)?;
+            d.set_item("h10", h10)?;
+            d.set_item("mrr", mrr)?;
+            d.set_item("count", n)?;
+            result.set_item("nf4", d)?;
+        }
+
+        Ok(result.into())
+    }
+
+    /// Get concept embeddings as numpy arrays.
+    ///
+    /// Returns:
+    ///     Dict with "concept_names" (list), "centers" (2D array), "offsets" (2D array).
+    fn concept_embeddings<'py>(&self, py: Python<'py>) -> PyResult<PyObject> {
+        let centers: Vec<Vec<f32>> = self
+            .inner
+            .concept_centers
+            .as_tensor()
+            .to_vec2()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let offsets: Vec<Vec<f32>> = self
+            .inner
+            .concept_offsets
+            .as_tensor()
+            .abs()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?
+            .to_vec2()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+
+        let nc = centers.len();
+        let dim = if nc > 0 { centers[0].len() } else { 0 };
+        let c_flat: Vec<f32> = centers.into_iter().flatten().collect();
+        let o_flat: Vec<f32> = offsets.into_iter().flatten().collect();
+
+        let c_arr = ndarray::Array2::from_shape_vec((nc, dim), c_flat)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let o_arr = ndarray::Array2::from_shape_vec((nc, dim), o_flat)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+
+        let dict = pyo3::types::PyDict::new(py);
+        dict.set_item("concept_names", self.ontology.concept_names.clone())?;
+        dict.set_item("centers", c_arr.into_pyarray(py))?;
+        dict.set_item("offsets", o_arr.into_pyarray(py))?;
+        Ok(dict.into())
+    }
+
+    /// Number of concepts in the ontology.
+    #[getter]
+    fn num_concepts(&self) -> usize {
+        self.inner.num_concepts
+    }
+
+    /// Number of roles in the ontology.
+    #[getter]
+    fn num_roles(&self) -> usize {
+        self.inner.num_roles
+    }
+
+    /// Embedding dimension.
+    #[getter]
+    fn dim(&self) -> usize {
+        self.inner.dim
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "CandleElTrainer(concepts={}, roles={}, dim={})",
+            self.inner.num_concepts, self.inner.num_roles, self.inner.dim
+        )
+    }
+}
+
 /// Geometric region embeddings for knowledge graph subsumption.
 ///
 /// Python bindings for the ``subsume`` Rust crate.
@@ -1808,5 +2078,7 @@ fn subsumer(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(train_el_embeddings, m)?)?;
     #[cfg(feature = "candle-backend")]
     m.add_class::<PyCandleBoxTrainer>()?;
+    #[cfg(feature = "candle-backend")]
+    m.add_class::<PyCandleElTrainer>()?;
     Ok(())
 }
