@@ -1,6 +1,6 @@
 [package]
 name = "subsume-python"
-version = "0.7.5"
+version = "0.8.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Python bindings for subsume geometric KG embeddings"
