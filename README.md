@@ -295,13 +295,15 @@ evaluated by center L2 distance ranking (matching Box2EL protocol).
 
 | Dataset | Method | H@1 | H@10 | Config |
 |---|---|---|---|---|
-| GALEN (23K classes) | **subsume** | **0.052** | **0.367** | dim=200, 5000ep, CandleElTrainer |
-| GALEN | Box2EL | 0.03 | 0.30 | dim=200, 5000ep (Jackermeier et al., 2023) |
-| GALEN | ELBE | 0.03 | 0.24 | (Peng et al., 2022) |
-| GALEN | ELEm | 0.01 | 0.16 | (Kulmanov et al., 2019) |
+| GALEN (23K classes) | **subsume** | **0.052** | **0.367** | dim=200, 5000ep |
+| GALEN | Box2EL | 0.03 | 0.30 | Jackermeier et al., 2023 |
+| GALEN | ELBE | 0.03 | 0.24 | Peng et al., 2022 |
+| GO (46K classes) | **subsume** | **0.036** | **0.227** | dim=200, 5000ep |
+| GO | Box2EL | 0.03 | 0.17 | Jackermeier et al., 2023 |
+| GO | ELBE | 0.01 | 0.10 | |
 
-subsume outperforms Box2EL on GALEN NF1 subsumption prediction by 73% on H@1
-and 22% on H@10. Results from `CandleElTrainer` with Box2EL-style bump translations,
+subsume outperforms Box2EL on both GALEN and GO for NF1 subsumption prediction.
+Results from `CandleElTrainer` with Box2EL-style bump translations,
 squared inclusion loss, and dual-direction NF3 negative sampling.
 
 Reproduce: `BACKEND=candle cargo run --features candle-backend --example el_benchmark --release -- data/GALEN`
