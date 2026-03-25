@@ -57,6 +57,14 @@ jobs:
           t2, ids2 = subsumer.ConeEmbeddingTrainer.from_triples(triples)
           r2 = t2.fit(ids2)
           print(f'Cone MRR: {r2[\"mrr\"]:.3f}')
+          # Candle trainers
+          assert hasattr(subsumer, 'CandleBoxTrainer'), 'CandleBoxTrainer missing'
+          assert hasattr(subsumer, 'CandleElTrainer'), 'CandleElTrainer missing'
+          assert hasattr(subsumer, 'CandleConeTrainer'), 'CandleConeTrainer missing'
+          ct = subsumer.CandleConeTrainer(num_entities=10, dim=4)
+          print(repr(ct))
+          cb = subsumer.CandleBoxTrainer(num_entities=10, num_relations=1, dim=4)
+          print(repr(cb))
           print('OK')
           "
 
