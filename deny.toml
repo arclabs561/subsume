@@ -3,10 +3,14 @@
 # Run: cargo deny check
 
 [advisories]
-ignore = []
+ignore = [
+    # paste: unmaintained, transitive via candle->gemm. No replacement available.
+    "RUSTSEC-2024-0436",
+]
 
 [licenses]
-allow = ["MIT", "Apache-2.0", "BSD-2-Clause", "Unicode-3.0", "Unlicense"]
+# Zlib: foldhash (transitive via candle). ISC: libloading (transitive via candle).
+allow = ["MIT", "Apache-2.0", "BSD-2-Clause", "Unicode-3.0", "Unlicense", "Zlib", "ISC"]
 confidence-threshold = 0.8
 
 [licenses.private]
