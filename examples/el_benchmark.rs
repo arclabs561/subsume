@@ -74,22 +74,81 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ontology.role_names.len()
     );
 
-    // Map test concept names to ontology indices (needed for both backends)
+    // Load test axioms for all NF types
     let test_path = data_path.join("test.tsv");
-    let test_pairs: Vec<(usize, usize)> = if test_path.exists() {
-        let test_ds = load_el_axioms(&test_path)?;
-        test_ds
-            .nf2
-            .iter()
-            .filter_map(|(c, d)| {
-                let sub = ontology.concept_index.get(c.as_str())?;
-                let sup = ontology.concept_index.get(d.as_str())?;
-                Some((*sub, *sup))
-            })
-            .collect()
+    let test_ds = if test_path.exists() {
+        Some(load_el_axioms(&test_path)?)
     } else {
-        Vec::new()
+        None
     };
+
+    // Map test axioms to ontology indices
+    let test_nf1: Vec<(usize, usize, usize)> = test_ds
+        .as_ref()
+        .map(|ds| {
+            ds.nf1
+                .iter()
+                .filter_map(|(c1, c2, d)| {
+                    let i1 = ontology.concept_index.get(c1.as_str())?;
+                    let i2 = ontology.concept_index.get(c2.as_str())?;
+                    let id = ontology.concept_index.get(d.as_str())?;
+                    Some((*i1, *i2, *id))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let test_nf2: Vec<(usize, usize)> = test_ds
+        .as_ref()
+        .map(|ds| {
+            ds.nf2
+                .iter()
+                .filter_map(|(c, d)| {
+                    let sub = ontology.concept_index.get(c.as_str())?;
+                    let sup = ontology.concept_index.get(d.as_str())?;
+                    Some((*sub, *sup))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let test_nf3: Vec<(usize, usize, usize)> = test_ds
+        .as_ref()
+        .map(|ds| {
+            ds.nf3
+                .iter()
+                .filter_map(|(c, r, d)| {
+                    let ic = ontology.concept_index.get(c.as_str())?;
+                    let ir = ontology.role_index.get(r.as_str())?;
+                    let id = ontology.concept_index.get(d.as_str())?;
+                    Some((*ic, *ir, *id))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let test_nf4: Vec<(usize, usize, usize)> = test_ds
+        .as_ref()
+        .map(|ds| {
+            ds.nf4
+                .iter()
+                .filter_map(|(r, c, d)| {
+                    let ir = ontology.role_index.get(r.as_str())?;
+                    let ic = ontology.concept_index.get(c.as_str())?;
+                    let id = ontology.concept_index.get(d.as_str())?;
+                    Some((*ir, *ic, *id))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    println!(
+        "Test: {} NF1, {} NF2, {} NF3, {} NF4",
+        test_nf1.len(),
+        test_nf2.len(),
+        test_nf3.len(),
+        test_nf4.len(),
+    );
 
     #[cfg(feature = "candle-backend")]
     if backend == "candle" {
@@ -120,19 +179,58 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         println!("Final loss: {final_loss:.6}");
 
-        if !test_pairs.is_empty() {
-            let eval_size = test_pairs.len().min(1000);
-            println!("\nEval: {eval_size}/{} NF2 test axioms", test_pairs.len());
+        // Evaluate all NF types
+        let eval_cap = 1000;
+        println!("\n=== Evaluation (up to {eval_cap} per NF type) ===");
+
+        if !test_nf1.is_empty() {
+            let n = test_nf1.len().min(eval_cap);
             let eval_start = Instant::now();
-            let (h1, h10, mrr) = trainer.evaluate_subsumption(&test_pairs[..eval_size])?;
-            println!("  Eval time: {:.1}s", eval_start.elapsed().as_secs_f64());
-            println!("  MRR: {mrr:.4}  H@1: {h1:.4}  H@10: {h10:.4}");
+            let (h1, h10, mrr) = trainer.evaluate_nf1(&test_nf1[..n])?;
+            println!(
+                "NF1 (C1 ⊓ C2 ⊑ D):  {n}/{} axioms  MRR={mrr:.4}  H@1={h1:.4}  H@10={h10:.4}  ({:.1}s)",
+                test_nf1.len(),
+                eval_start.elapsed().as_secs_f64()
+            );
+        }
+
+        if !test_nf2.is_empty() {
+            let n = test_nf2.len().min(eval_cap);
+            let eval_start = Instant::now();
+            let (h1, h10, mrr) = trainer.evaluate_subsumption(&test_nf2[..n])?;
+            println!(
+                "NF2 (C ⊑ D):        {n}/{} axioms  MRR={mrr:.4}  H@1={h1:.4}  H@10={h10:.4}  ({:.1}s)",
+                test_nf2.len(),
+                eval_start.elapsed().as_secs_f64()
+            );
+        }
+
+        if !test_nf3.is_empty() {
+            let n = test_nf3.len().min(eval_cap);
+            let eval_start = Instant::now();
+            let (h1, h10, mrr) = trainer.evaluate_nf3(&test_nf3[..n])?;
+            println!(
+                "NF3 (C ⊑ ∃r.D):    {n}/{} axioms  MRR={mrr:.4}  H@1={h1:.4}  H@10={h10:.4}  ({:.1}s)",
+                test_nf3.len(),
+                eval_start.elapsed().as_secs_f64()
+            );
+        }
+
+        if !test_nf4.is_empty() {
+            let n = test_nf4.len().min(eval_cap);
+            let eval_start = Instant::now();
+            let (h1, h10, mrr) = trainer.evaluate_nf4(&test_nf4[..n])?;
+            println!(
+                "NF4 (∃r.C ⊑ D):    {n}/{} axioms  MRR={mrr:.4}  H@1={h1:.4}  H@10={h10:.4}  ({:.1}s)",
+                test_nf4.len(),
+                eval_start.elapsed().as_secs_f64()
+            );
         }
 
         return Ok(());
     }
 
-    // Ndarray backend (default)
+    // Ndarray backend (default) -- NF2 only
     let config = ElTrainingConfig {
         dim,
         epochs,
@@ -156,13 +254,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     println!("Final loss: {final_loss:.6}");
 
-    if !test_pairs.is_empty() {
-        let eval_size = test_pairs.len().min(1000);
-        let test_axioms: Vec<Axiom> = test_pairs[..eval_size]
+    if !test_nf2.is_empty() {
+        let eval_size = test_nf2.len().min(1000);
+        let test_axioms: Vec<Axiom> = test_nf2[..eval_size]
             .iter()
             .map(|&(sub, sup)| Axiom::SubClassOf { sub, sup })
             .collect();
-        println!("\nEval: {eval_size}/{} NF2 test axioms", test_pairs.len());
+        println!("\nEval: {eval_size}/{} NF2 test axioms", test_nf2.len());
         let eval_start = Instant::now();
         let (h1, h10, mrr) = subsume::evaluate_subsumption(&result, &test_axioms);
         println!("  Eval time: {:.1}s", eval_start.elapsed().as_secs_f64());
