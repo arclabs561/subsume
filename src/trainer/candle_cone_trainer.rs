@@ -32,6 +32,9 @@ pub struct CandleConeTrainer {
     pub num_relations: usize,
     /// Inside-distance weight (ConE default: 0.02).
     pub cen: f32,
+    /// Trainable distance modulus (scales the raw distance).
+    /// ConE uses this to adapt the distance scale during training.
+    pub modulus: Var,
     /// Device.
     pub device: Device,
 }
@@ -65,6 +68,9 @@ impl CandleConeTrainer {
             None
         };
 
+        // Trainable modulus: init to 1.0 (raw distance = scaled distance)
+        let modulus = Var::from_tensor(&Tensor::ones(1, candle_core::DType::F32, device)?)?;
+
         Ok(Self {
             axes,
             raw_apertures,
@@ -73,6 +79,7 @@ impl CandleConeTrainer {
             num_entities,
             num_relations,
             cen,
+            modulus,
             device: device.clone(),
         })
     }
@@ -164,7 +171,11 @@ impl CandleConeTrainer {
 
         use candle_nn::{AdamW, Optimizer, ParamsAdamW};
 
-        let mut vars: Vec<Var> = vec![self.axes.clone(), self.raw_apertures.clone()];
+        let mut vars: Vec<Var> = vec![
+            self.axes.clone(),
+            self.raw_apertures.clone(),
+            self.modulus.clone(),
+        ];
         if let Some(r) = &self.rel_offset {
             vars.push(r.clone());
         }
@@ -220,11 +231,12 @@ impl CandleConeTrainer {
             // Positive scores: head cone should contain tail
             let pos_dist = Self::cone_distance(&q_axes, &h_aper, &t_axes, self.cen)?;
 
+            // Scale distance by trainable modulus (adapts distance scale during training)
+            let mod_val = self.modulus.as_tensor().abs()?.clamp(0.01, 100.0)?;
+            let pos_scaled = pos_dist.broadcast_mul(&mod_val)?;
+
             // Direct distance minimization + margin-squared negatives.
-            // This outperforms log-sigmoid loss on WN18RR (MRR 0.079 vs 0.001).
-            // Log-sigmoid saturates because cone distances are bounded and small;
-            // direct loss + relu(margin - neg_dist)^2 provides cleaner gradients.
-            let pos_loss = pos_dist.mean(0)?;
+            let pos_loss = pos_scaled.mean(0)?;
 
             // Margin-squared negatives: push negative distances beyond margin.
             // This produces the best WN18RR numbers (MRR=0.112, H@10=0.354).
@@ -235,10 +247,11 @@ impl CandleConeTrainer {
                 let neg_t = Tensor::from_vec(neg_ids, (bs,), &self.device)?;
                 let neg_axes = self.entity_axes(&neg_t)?;
                 let neg_dist = Self::cone_distance(&q_axes, &h_aper, &neg_axes, self.cen)?;
+                let neg_scaled = neg_dist.broadcast_mul(&mod_val)?;
 
                 // relu(margin - neg_dist)^2: zero when neg is far enough, squared penalty otherwise
-                let margin_t = Tensor::full(margin, neg_dist.shape(), &self.device)?;
-                let gap = margin_t.sub(&neg_dist)?.relu()?;
+                let margin_t = Tensor::full(margin, neg_scaled.shape(), &self.device)?;
+                let gap = margin_t.sub(&neg_scaled)?.relu()?;
                 let neg_loss = gap.sqr()?.mean(0)?;
                 neg_loss_sum = neg_loss_sum.add(&neg_loss)?;
             }
