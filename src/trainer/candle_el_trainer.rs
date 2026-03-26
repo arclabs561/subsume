@@ -3,7 +3,7 @@
 //! Trains box embeddings for EL++ ontology completion using:
 //! - Mini-batch training with per-NF-type balanced sampling (Box2EL-style)
 //! - AdamW optimizer with cosine LR schedule
-//! - Squared inclusion loss (matches Box2EL's `.square().mean()`)
+//! - Inclusion loss: squared for NF2/NF4, unsquared for NF1/NF3 (see ablation notes)
 //! - Disjointness-target negative sampling
 //! - Center L2 distance evaluation (Box2EL protocol)
 //!
@@ -340,10 +340,12 @@ impl CandleElTrainer {
                 let inter_center = inter_min.add(&inter_max)?.affine(0.5, 0.0)?;
                 let inter_offset = inter_max.sub(&inter_min)?.affine(0.5, 0.0)?;
 
-                // Box2EL: inclusion_loss().square().mean() -- uniform across all NF types
+                // NF1 uses unsquared L2 norm (not squared like NF2/NF4).
+                // Box2EL uses squared uniformly, but our bump-based architecture
+                // converges better with gentler NF1/NF3 gradients. Verified by
+                // ablation: squaring NF1 collapses H@1 to 0.000 on all datasets.
                 let nf1_loss =
                     Self::inclusion_loss(&inter_center, &inter_offset, &cd, &od, self.margin)?
-                        .sqr()?
                         .mean(0)?;
                 epoch_loss = epoch_loss.add(&nf1_loss)?;
             }
@@ -392,8 +394,9 @@ impl CandleElTrainer {
                     self.margin,
                 )?;
 
-                // Box2EL: (dist1 + dist2).square().mean() -- square before mean
-                let nf3_loss = dist1.add(&dist2)?.affine(0.5, 0.0)?.sqr()?.mean(0)?;
+                // NF3 uses unsquared L2 norm (same rationale as NF1 above).
+                // Squaring collapses NF3 on GO from H@1=0.260 to 0.003.
+                let nf3_loss = dist1.add(&dist2)?.affine(0.5, 0.0)?.mean(0)?;
 
                 // NF3 negatives: corrupt BOTH head and tail (matching Box2EL exactly).
                 // For each neg sample: replace D with random -> check (C+bump_rand, head_r)
