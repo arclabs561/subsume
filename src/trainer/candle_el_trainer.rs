@@ -470,7 +470,48 @@ impl CandleElTrainer {
                 )?
                 .sqr()?
                 .mean(0)?;
-                epoch_loss = epoch_loss.add(&nf4_loss)?;
+
+                // NF4 negatives: corrupt filler (C) and target (D).
+                let mut nf4_neg_sum = Tensor::zeros((), candle_core::DType::F32, &self.device)?;
+                for _ in 0..negative_samples {
+                    // Corrupt target (D): keep role+filler, replace D with random
+                    let neg_target_ids: Vec<u32> =
+                        (0..bs).map(|_| (lcg(&mut rng) % nc) as u32).collect();
+                    let neg_target_t = Tensor::from_vec(neg_target_ids, (bs,), &self.device)?;
+                    let (c_neg_target, o_neg_target) = self.concept_boxes(&neg_target_t)?;
+
+                    let neg_loss1 = Self::neg_loss_fn(
+                        &c_head_shifted,
+                        &o_head,
+                        &c_neg_target,
+                        &o_neg_target,
+                        self.margin,
+                    )?;
+
+                    // Corrupt filler (C): keep role+target, replace C with random
+                    let neg_filler_ids: Vec<u32> =
+                        (0..bs).map(|_| (lcg(&mut rng) % nc) as u32).collect();
+                    let neg_filler_t = Tensor::from_vec(neg_filler_ids, (bs,), &self.device)?;
+                    let bump_neg_filler = self.concept_bumps(&neg_filler_t)?;
+                    let c_head_neg_shifted = c_head.sub(&bump_neg_filler)?;
+
+                    let neg_loss2 = Self::neg_loss_fn(
+                        &c_head_neg_shifted,
+                        &o_head,
+                        &c_target,
+                        &o_target,
+                        self.margin,
+                    )?;
+
+                    let target1 = Tensor::full(self.neg_dist, neg_loss1.shape(), &self.device)?;
+                    let target2 = Tensor::full(self.neg_dist, neg_loss2.shape(), &self.device)?;
+                    let nl1 = target1.sub(&neg_loss1)?.sqr()?.mean(0)?;
+                    let nl2 = target2.sub(&neg_loss2)?.sqr()?.mean(0)?;
+                    nf4_neg_sum = nf4_neg_sum.add(&nl1)?.add(&nl2)?;
+                }
+
+                let nf4_total = nf4_loss.add(&nf4_neg_sum)?;
+                epoch_loss = epoch_loss.add(&nf4_total)?;
             }
 
             // Regularization: bump norms (Box2EL: reg_factor * mean(||bump||_2))
@@ -863,6 +904,50 @@ impl CandleElTrainer {
             hits10 as f32 / total as f32,
             rr_sum / total as f32,
         ))
+    }
+
+    /// Save model weights to a safetensors file.
+    pub fn save<P: AsRef<std::path::Path>>(&self, path: P) -> Result<()> {
+        let tensors: std::collections::HashMap<String, Tensor> = [
+            (
+                "concept_centers".to_string(),
+                self.concept_centers.as_tensor().clone(),
+            ),
+            (
+                "concept_offsets".to_string(),
+                self.concept_offsets.as_tensor().clone(),
+            ),
+            ("bumps".to_string(), self.bumps.as_tensor().clone()),
+            (
+                "role_heads".to_string(),
+                self.role_heads.as_tensor().clone(),
+            ),
+            (
+                "role_tails".to_string(),
+                self.role_tails.as_tensor().clone(),
+            ),
+        ]
+        .into_iter()
+        .collect();
+        candle_core::safetensors::save(&tensors, path)?;
+        Ok(())
+    }
+
+    /// Load model weights from a safetensors file. Dimensions must match.
+    pub fn load<P: AsRef<std::path::Path>>(&mut self, path: P) -> Result<()> {
+        let tensors = candle_core::safetensors::load(path, &self.device)?;
+        let get = |name: &str| -> Result<Tensor> {
+            tensors
+                .get(name)
+                .cloned()
+                .ok_or_else(|| candle_core::Error::Msg(format!("missing tensor: {name}")))
+        };
+        self.concept_centers = Var::from_tensor(&get("concept_centers")?)?;
+        self.concept_offsets = Var::from_tensor(&get("concept_offsets")?)?;
+        self.bumps = Var::from_tensor(&get("bumps")?)?;
+        self.role_heads = Var::from_tensor(&get("role_heads")?)?;
+        self.role_tails = Var::from_tensor(&get("role_tails")?)?;
+        Ok(())
     }
 }
 
