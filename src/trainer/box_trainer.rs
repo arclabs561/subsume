@@ -402,7 +402,7 @@ pub struct BoxEmbeddingTrainer {
     pub optimizer_states: HashMap<usize, AMSGradState>,
     /// Embedding dimension.
     pub dim: usize,
-    /// Current Gumbel beta, annealed from `config.softplus_beta` to
+    /// Current softplus beta (steepness), annealed from `config.softplus_beta` to
     /// `config.softplus_beta_final` across epochs in `fit()`.
     pub current_beta: f32,
     /// Learned per-relation translation vectors (relation_id -> Vec<f32> of length `dim`).
@@ -1246,7 +1246,7 @@ impl BoxEmbeddingTrainer {
                 state.set_lr(lr);
             }
 
-            // Gumbel beta annealing: linear interpolation from start to end.
+            // Softplus beta annealing: linear interpolation from start to end.
             let progress = if epochs > 1 {
                 epoch as f32 / (epochs - 1) as f32
             } else {

@@ -142,7 +142,11 @@ impl CandleElTrainer {
         norm_sq.affine(1.0, 1e-8)?.sqrt()
     }
 
-    /// Disjointness score: `||relu(|c_a - c_b| - o_a - o_b + margin)||` per sample.
+    /// Disjointness score: same computation as [`neg_loss_fn`].
+    ///
+    /// Kept as a named alias for readability at call sites where the
+    /// semantic intent is measuring box separation rather than negative loss.
+    #[inline]
     fn disjointness_score(
         centers_a: &Tensor,
         offsets_a: &Tensor,
@@ -150,14 +154,7 @@ impl CandleElTrainer {
         offsets_b: &Tensor,
         margin: f32,
     ) -> Result<Tensor> {
-        let diffs = centers_a.sub(centers_b)?.abs()?;
-        let gap = diffs
-            .sub(offsets_a)?
-            .sub(offsets_b)?
-            .affine(1.0, margin as f64)?
-            .relu()?;
-        let norm_sq = gap.sqr()?.sum(1)?;
-        norm_sq.affine(1.0, 1e-8)?.sqrt()
+        Self::neg_loss_fn(centers_a, offsets_a, centers_b, offsets_b, margin)
     }
 
     /// Get concept boxes (center, abs(offset)) for given IDs.
@@ -225,6 +222,7 @@ impl CandleElTrainer {
         let mut nf3_axioms: Vec<(usize, usize, usize)> = Vec::new(); // (sub, role, filler)
         let mut nf4_axioms: Vec<(usize, usize, usize)> = Vec::new(); // (role, filler, target)
 
+        let mut skipped = 0usize;
         for ax in &ontology.axioms {
             match *ax {
                 Axiom::SubClassOf { sub, sup } => nf2_axioms.push((sub, sup)),
@@ -237,8 +235,14 @@ impl CandleElTrainer {
                     filler,
                     target,
                 } => nf4_axioms.push((role, filler, target)),
-                _ => {} // Skip RI6, RI7, Disjoint for now
+                _ => skipped += 1,
             }
+        }
+
+        if skipped > 0 {
+            eprintln!(
+                "CandleElTrainer: skipped {skipped} axioms (RI6, RI7, Disjoint not yet supported)"
+            );
         }
 
         let nc = self.num_concepts;
@@ -336,8 +340,10 @@ impl CandleElTrainer {
                 let inter_center = inter_min.add(&inter_max)?.affine(0.5, 0.0)?;
                 let inter_offset = inter_max.sub(&inter_min)?.affine(0.5, 0.0)?;
 
+                // Box2EL: inclusion_loss().square().mean() -- uniform across all NF types
                 let nf1_loss =
                     Self::inclusion_loss(&inter_center, &inter_offset, &cd, &od, self.margin)?
+                        .sqr()?
                         .mean(0)?;
                 epoch_loss = epoch_loss.add(&nf1_loss)?;
             }
@@ -386,7 +392,8 @@ impl CandleElTrainer {
                     self.margin,
                 )?;
 
-                let nf3_loss = dist1.add(&dist2)?.affine(0.5, 0.0)?.mean(0)?;
+                // Box2EL: (dist1 + dist2).square().mean() -- square before mean
+                let nf3_loss = dist1.add(&dist2)?.affine(0.5, 0.0)?.sqr()?.mean(0)?;
 
                 // NF3 negatives: corrupt BOTH head and tail (matching Box2EL exactly).
                 // For each neg sample: replace D with random -> check (C+bump_rand, head_r)
@@ -933,7 +940,10 @@ impl CandleElTrainer {
         Ok(())
     }
 
-    /// Load model weights from a safetensors file. Dimensions must match.
+    /// Load model weights from a safetensors file.
+    ///
+    /// Validates that loaded tensor shapes match the trainer's
+    /// `(num_concepts, dim)` and `(num_roles, dim * 2)` dimensions.
     pub fn load<P: AsRef<std::path::Path>>(&mut self, path: P) -> Result<()> {
         let tensors = candle_core::safetensors::load(path, &self.device)?;
         let get = |name: &str| -> Result<Tensor> {
@@ -942,11 +952,37 @@ impl CandleElTrainer {
                 .cloned()
                 .ok_or_else(|| candle_core::Error::Msg(format!("missing tensor: {name}")))
         };
-        self.concept_centers = Var::from_tensor(&get("concept_centers")?)?;
-        self.concept_offsets = Var::from_tensor(&get("concept_offsets")?)?;
-        self.bumps = Var::from_tensor(&get("bumps")?)?;
-        self.role_heads = Var::from_tensor(&get("role_heads")?)?;
-        self.role_tails = Var::from_tensor(&get("role_tails")?)?;
+
+        let check = |t: &Tensor, name: &str, expected: &[usize]| -> Result<()> {
+            if t.dims() != expected {
+                return Err(candle_core::Error::Msg(format!(
+                    "{name}: expected shape {expected:?}, got {:?}",
+                    t.dims()
+                )));
+            }
+            Ok(())
+        };
+
+        let concept_shape = &[self.num_concepts, self.dim];
+        let bump_shape = &[self.num_concepts, self.dim];
+        let role_shape = &[self.num_roles, self.dim * 2];
+
+        let cc = get("concept_centers")?;
+        check(&cc, "concept_centers", concept_shape)?;
+        let co = get("concept_offsets")?;
+        check(&co, "concept_offsets", concept_shape)?;
+        let b = get("bumps")?;
+        check(&b, "bumps", bump_shape)?;
+        let rh = get("role_heads")?;
+        check(&rh, "role_heads", role_shape)?;
+        let rt = get("role_tails")?;
+        check(&rt, "role_tails", role_shape)?;
+
+        self.concept_centers = Var::from_tensor(&cc)?;
+        self.concept_offsets = Var::from_tensor(&co)?;
+        self.bumps = Var::from_tensor(&b)?;
+        self.role_heads = Var::from_tensor(&rh)?;
+        self.role_tails = Var::from_tensor(&rt)?;
         Ok(())
     }
 }
@@ -1029,5 +1065,26 @@ mod tests {
             "MRR should be positive on training data, got {mrr}"
         );
         eprintln!("CandleElTrainer eval: H@1={h1:.3} H@10={h10:.3} MRR={mrr:.4}");
+    }
+
+    #[test]
+    fn test_load_rejects_wrong_shape() {
+        let device = Device::Cpu;
+        let trainer = CandleElTrainer::new(10, 2, 8, 0.1, 2.0, &device).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("model.safetensors");
+
+        // Save with current (10, 8) shape
+        trainer.save(&path).unwrap();
+
+        // Create a new trainer with different dimensions
+        let mut wrong = CandleElTrainer::new(20, 2, 8, 0.1, 2.0, &device).unwrap();
+        let err = wrong.load(&path);
+        assert!(err.is_err(), "load should reject shape mismatch");
+        let msg = format!("{}", err.unwrap_err());
+        assert!(
+            msg.contains("expected shape"),
+            "error should name the shape: {msg}"
+        );
     }
 }

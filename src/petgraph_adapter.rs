@@ -45,37 +45,3 @@ where
 
     Dataset::new(triples, Vec::new(), Vec::new())
 }
-
-/// Convert a directed petgraph into a [`Dataset`] with train/valid/test split.
-///
-/// Splits edges into train (80%), valid (10%), test (10%) by edge index order.
-/// For reproducible random splits, shuffle edge indices before calling.
-pub fn from_graph_with_split<N, E>(graph: &petgraph::graph::DiGraph<N, E>) -> Dataset
-where
-    N: ToString,
-    E: ToString,
-{
-    let all_triples: Vec<Triple> = graph
-        .edge_indices()
-        .filter_map(|e| {
-            let (src, dst) = graph.edge_endpoints(e)?;
-            let rel = graph.edge_weight(e)?;
-            Some(Triple::new(
-                graph[src].to_string(),
-                rel.to_string(),
-                graph[dst].to_string(),
-            ))
-        })
-        .collect();
-
-    let n = all_triples.len();
-    let train_end = (n * 8) / 10;
-    let valid_end = train_end + n / 10;
-
-    let mut iter = all_triples.into_iter();
-    let train: Vec<Triple> = iter.by_ref().take(train_end).collect();
-    let valid: Vec<Triple> = iter.by_ref().take(valid_end - train_end).collect();
-    let test: Vec<Triple> = iter.collect();
-
-    Dataset::new(train, valid, test)
-}

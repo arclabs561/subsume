@@ -34,7 +34,7 @@ pub struct CandleBoxTrainer {
     pub num_entities: usize,
     /// Number of relations (0 if identity).
     pub num_relations: usize,
-    /// Gumbel beta parameter for softplus width transform.
+    /// Softplus beta (steepness) for width transform `delta = softplus(exp(log_delta), beta)`.
     pub beta: f32,
     /// Weight for inside distance (0.0 = pure containment violation).
     ///

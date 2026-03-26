@@ -96,9 +96,13 @@
 //! |---------|---------|----------|
 //! | `ndarray-backend` | yes | [`ndarray_backend`] module (also enables `rand`) |
 //! | `candle-backend` | no | `candle_backend` module (GPU via candle) |
+//! | `cuda` | no | CUDA GPU support (implies `candle-backend`) |
 //! | `rand` | yes (via `ndarray-backend`) | Negative sampling utilities in [`trainer`] |
 //! | `hyperbolic` | no | `hyperbolic` module (Poincare ball via `hyperball` + `skel`) |
 //! | `petgraph` | no | `petgraph_adapter` module (convert petgraph graphs to datasets) |
+//! | `sheaf` | no | [`sheaf`] module (sheaf diffusion primitives) |
+//! | `lattix` | no | [`lattix_bridge`] module (RDF/Turtle/CSV/JSON-LD KG loading) |
+//! | `rankops` | no | Re-exports [`rankops`] (rank fusion, nDCG, MAP) |
 //!
 //! # Example
 //!
