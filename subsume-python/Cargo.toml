@@ -20,5 +20,6 @@ candle-core = { version = "0.9", optional = true }
 
 [features]
 candle-backend = ["subsume/candle-backend", "dep:candle-core"]
+cuda = ["candle-backend", "subsume/cuda", "candle-core/cuda"]
 
 [workspace]

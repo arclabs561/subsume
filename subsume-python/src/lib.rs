@@ -1823,9 +1823,10 @@ impl PyCandleElTrainer {
             }
         };
 
-        let inner =
-            subsume::trainer::candle_el_trainer::CandleElTrainer::new(nc, nr, dim, margin, neg_dist, &dev)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let inner = subsume::trainer::candle_el_trainer::CandleElTrainer::new(
+            nc, nr, dim, margin, neg_dist, &dev,
+        )
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(Self { inner, ontology })
     }
 
@@ -1850,7 +1851,14 @@ impl PyCandleElTrainer {
         reg_factor: f32,
     ) -> PyResult<Vec<f32>> {
         self.inner
-            .fit(&self.ontology, epochs, lr, batch_size, neg_samples, reg_factor)
+            .fit(
+                &self.ontology,
+                epochs,
+                lr,
+                batch_size,
+                neg_samples,
+                reg_factor,
+            )
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
     }
 
@@ -2009,6 +2017,84 @@ impl PyCandleElTrainer {
         Ok(dict.into())
     }
 
+    /// Get role embeddings as numpy arrays.
+    ///
+    /// Returns:
+    ///     Dict with "role_names" (list), "head_centers" (2D array),
+    ///     "head_offsets" (2D array), "tail_centers" (2D array), "tail_offsets" (2D array).
+    fn role_embeddings<'py>(&self, py: Python<'py>) -> PyResult<PyObject> {
+        let dim = self.inner.dim;
+        let nr = self.inner.num_roles;
+
+        let heads: Vec<Vec<f32>> = self
+            .inner
+            .role_heads
+            .as_tensor()
+            .to_vec2()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let tails: Vec<Vec<f32>> = self
+            .inner
+            .role_tails
+            .as_tensor()
+            .to_vec2()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+
+        // Role heads/tails are [nr, dim*2] -- first dim cols are center, last dim are offset
+        let mut hc = Vec::with_capacity(nr * dim);
+        let mut ho = Vec::with_capacity(nr * dim);
+        let mut tc = Vec::with_capacity(nr * dim);
+        let mut to_ = Vec::with_capacity(nr * dim);
+        for r in 0..nr {
+            for i in 0..dim {
+                hc.push(heads[r][i]);
+                ho.push(heads[r][dim + i].abs());
+                tc.push(tails[r][i]);
+                to_.push(tails[r][dim + i].abs());
+            }
+        }
+
+        let hc_arr = ndarray::Array2::from_shape_vec((nr, dim), hc)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let ho_arr = ndarray::Array2::from_shape_vec((nr, dim), ho)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let tc_arr = ndarray::Array2::from_shape_vec((nr, dim), tc)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let to_arr = ndarray::Array2::from_shape_vec((nr, dim), to_)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+
+        let dict = pyo3::types::PyDict::new(py);
+        dict.set_item("role_names", self.ontology.role_names.clone())?;
+        dict.set_item("head_centers", hc_arr.into_pyarray(py))?;
+        dict.set_item("head_offsets", ho_arr.into_pyarray(py))?;
+        dict.set_item("tail_centers", tc_arr.into_pyarray(py))?;
+        dict.set_item("tail_offsets", to_arr.into_pyarray(py))?;
+        Ok(dict.into())
+    }
+
+    /// Get per-concept bump vectors as a numpy array.
+    ///
+    /// Returns:
+    ///     Dict with "concept_names" (list) and "bumps" (2D array [nc, dim]).
+    fn bump_vectors<'py>(&self, py: Python<'py>) -> PyResult<PyObject> {
+        let bumps: Vec<Vec<f32>> = self
+            .inner
+            .bumps
+            .as_tensor()
+            .to_vec2()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+
+        let nc = bumps.len();
+        let dim = if nc > 0 { bumps[0].len() } else { 0 };
+        let flat: Vec<f32> = bumps.into_iter().flatten().collect();
+        let arr = ndarray::Array2::from_shape_vec((nc, dim), flat)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+
+        let dict = pyo3::types::PyDict::new(py);
+        dict.set_item("concept_names", self.ontology.concept_names.clone())?;
+        dict.set_item("bumps", arr.into_pyarray(py))?;
+        Ok(dict.into())
+    }
+
     /// Number of concepts in the ontology.
     #[getter]
     fn num_concepts(&self) -> usize {
@@ -2025,6 +2111,26 @@ impl PyCandleElTrainer {
     #[getter]
     fn dim(&self) -> usize {
         self.inner.dim
+    }
+
+    /// Save model weights to a safetensors file.
+    ///
+    /// Args:
+    ///     path: File path (should end in .safetensors).
+    fn save(&self, path: &str) -> PyResult<()> {
+        self.inner
+            .save(path)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))
+    }
+
+    /// Load model weights from a safetensors file.
+    ///
+    /// Args:
+    ///     path: Path to a previously saved .safetensors file.
+    fn load(&mut self, path: &str) -> PyResult<()> {
+        self.inner
+            .load(path)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))
     }
 
     fn __repr__(&self) -> String {
@@ -2073,9 +2179,14 @@ impl PyCandleConeTrainer {
                 )))
             }
         };
-        let inner =
-            subsume::trainer::candle_cone_trainer::CandleConeTrainer::new(num_entities, num_relations, dim, cen, &dev)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let inner = subsume::trainer::candle_cone_trainer::CandleConeTrainer::new(
+            num_entities,
+            num_relations,
+            dim,
+            cen,
+            &dev,
+        )
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(Self { inner })
     }
 
