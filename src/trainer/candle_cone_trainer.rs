@@ -16,15 +16,6 @@
 use candle_core::{Device, Result, Tensor, Var};
 use std::f32::consts::PI;
 
-/// Log-sigmoid: `ln(sigmoid(x)) = -softplus(-x, 1)`, numerically stable.
-fn log_sigmoid(x: &Tensor) -> Result<Tensor> {
-    let neg_x = x.neg()?;
-    let clamped = neg_x.clamp(-20.0, 20.0)?;
-    let exp_neg = clamped.exp()?;
-    let one = Tensor::ones_like(&exp_neg)?;
-    one.add(&exp_neg)?.log()?.neg()
-}
-
 /// GPU-accelerated cone embedding trainer.
 pub struct CandleConeTrainer {
     /// Entity axis angles: `[num_entities, dim]`.
