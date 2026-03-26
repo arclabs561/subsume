@@ -25,10 +25,10 @@ fn env_or<T: std::str::FromStr>(name: &str, default: T) -> T {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let dim: usize = env_or("DIM", 200);
     let epochs: usize = env_or("EPOCHS", 500);
-    let lr: f64 = env_or("LR", 0.001);
-    let neg: usize = env_or("NEG", 64);
+    let lr: f64 = env_or("LR", 0.01);
+    let neg: usize = env_or("NEG", 4);
     let batch: usize = env_or("BATCH", 512);
-    let margin: f32 = env_or("MARGIN", 6.0);
+    let margin: f32 = env_or("MARGIN", 20.0);
     let cen: f32 = env_or("CEN", 0.02);
 
     let device = Device::cuda_if_available(0).unwrap_or(Device::Cpu);
