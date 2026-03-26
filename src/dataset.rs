@@ -125,6 +125,10 @@ impl InternedDataset {
     /// * `test` - Test triples
     /// * `num_entities` - Total entity count (for vocabulary size)
     /// * `num_relations` - Total relation count (for vocabulary size)
+    /// # Panics
+    ///
+    /// Panics if any triple contains an entity ID >= `num_entities` or a
+    /// relation ID >= `num_relations`.
     pub fn from_arrays(
         train: &[(usize, usize, usize)],
         valid: &[(usize, usize, usize)],
@@ -132,6 +136,22 @@ impl InternedDataset {
         num_entities: usize,
         num_relations: usize,
     ) -> Self {
+        let check = |triples: &[(usize, usize, usize)], label: &str| {
+            for (i, &(h, r, t)) in triples.iter().enumerate() {
+                assert!(
+                    h < num_entities && t < num_entities,
+                    "{label}[{i}]: entity ID out of range (h={h}, t={t}, num_entities={num_entities})"
+                );
+                assert!(
+                    r < num_relations,
+                    "{label}[{i}]: relation ID out of range (r={r}, num_relations={num_relations})"
+                );
+            }
+        };
+        check(train, "train");
+        check(valid, "valid");
+        check(test, "test");
+
         let to_ids = |triples: &[(usize, usize, usize)]| -> Vec<TripleIds> {
             triples
                 .iter()
@@ -241,8 +261,13 @@ impl Dataset {
             triples.swap(i, j);
         }
 
-        // Normalize ratios.
+        // Normalize ratios (all must be non-negative).
+        assert!(
+            train_ratio >= 0.0 && valid_ratio >= 0.0 && test_ratio >= 0.0,
+            "split ratios must be non-negative"
+        );
         let total = train_ratio + valid_ratio + test_ratio;
+        assert!(total > 0.0, "at least one split ratio must be positive");
         let train_end = ((train_ratio / total) * n as f64).round() as usize;
         let valid_end = train_end + ((valid_ratio / total) * n as f64).round() as usize;
 

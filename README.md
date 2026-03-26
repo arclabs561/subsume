@@ -61,7 +61,7 @@ GPU-accelerated box operations and a complete training loop. Enable with
 
 ```toml
 [dependencies]
-subsume = { version = "0.7", features = ["ndarray-backend"] }
+subsume = { version = "0.8", features = ["ndarray-backend"] }
 ndarray = "0.16"
 ```
 
