@@ -41,7 +41,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Device: {}", if device.is_cuda() { "CUDA" } else { "CPU" });
     println!("Config: dim={dim}, epochs={epochs}, lr={lr}, neg={neg}, batch={batch}, beta={beta}, margin={margin}, adv_temp={adv_temp}, inside_w={inside_w}, bounds_every={bounds_every}\n");
 
-    let data_path = Path::new("data/WN18RR");
+    let data_dir = std::env::var("DATA").unwrap_or_else(|_| "data/WN18RR".to_string());
+    let data_path = Path::new(&data_dir);
     if !data_path.exists() {
         eprintln!("WN18RR data not found at data/WN18RR/");
         std::process::exit(1);
