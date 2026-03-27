@@ -39,6 +39,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let reg_factor: f32 = env_or("REG_FACTOR", 0.4);
     let neg_samples: usize = env_or("NEG_SAMPLES", 1);
     let batch_size: usize = env_or("BATCH", 512);
+    let nf4_neg_weight: f32 = env_or("NF4_NEG_W", 1.0);
     let backend = std::env::var("BACKEND").unwrap_or_else(|_| "ndarray".to_string());
 
     println!("=== EL++ Box Embedding Benchmark ===");
@@ -158,7 +159,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let nc = ontology.concept_names.len();
         let nr = ontology.role_names.len();
-        let trainer = CandleElTrainer::new(nc, nr, dim, margin, neg_dist, &device)?;
+        let mut trainer = CandleElTrainer::new(nc, nr, dim, margin, neg_dist, &device)?;
+        trainer.nf4_neg_weight = nf4_neg_weight;
 
         let start = Instant::now();
         let losses = trainer.fit(
