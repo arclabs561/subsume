@@ -100,7 +100,10 @@ impl CandleElTrainer {
             num_roles,
             margin,
             neg_dist,
-            nf4_neg_weight: 1.0,
+            // Default 0.0 matches Box2EL (no NF4 negatives). Box2EL only
+            // applies negative sampling to NF3. Setting > 0.0 enables NF4
+            // negatives but competes for gradient bandwidth with NF1/NF3.
+            nf4_neg_weight: 0.0,
             device: device.clone(),
         })
     }
