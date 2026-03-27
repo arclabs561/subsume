@@ -48,6 +48,8 @@ pub struct CandleElTrainer {
     pub margin: f32,
     /// Target separation distance for negatives.
     pub neg_dist: f32,
+    /// Weight for NF4 negative sampling loss (0.0 disables, default 1.0).
+    pub nf4_neg_weight: f32,
     /// Device.
     pub device: Device,
 }
@@ -98,6 +100,7 @@ impl CandleElTrainer {
             num_roles,
             margin,
             neg_dist,
+            nf4_neg_weight: 1.0,
             device: device.clone(),
         })
     }
@@ -520,7 +523,11 @@ impl CandleElTrainer {
                     nf4_neg_sum = nf4_neg_sum.add(&nl1)?.add(&nl2)?;
                 }
 
-                let nf4_total = nf4_loss.add(&nf4_neg_sum)?;
+                let nf4_total = if self.nf4_neg_weight > 0.0 {
+                    nf4_loss.add(&nf4_neg_sum.affine(self.nf4_neg_weight as f64, 0.0)?)?
+                } else {
+                    nf4_loss
+                };
                 epoch_loss = epoch_loss.add(&nf4_total)?;
             }
 
