@@ -193,6 +193,13 @@ pub mod utils;
 /// Diagonal Gaussian box embeddings for taxonomy expansion (TaxoBell).
 pub mod gaussian;
 
+/// Density matrix region embeddings (pure-state quantum embeddings).
+///
+/// Represents concepts as rank-1 density matrices in a complex Hilbert space.
+/// Subsumption via Loewner order, distance via fidelity / Bures metric.
+/// Reference: Garg et al. (2019), "Quantum Embedding of Knowledge for Reasoning" (NeurIPS).
+pub mod density;
+
 /// EL++ ontology embedding primitives (Box2EL / TransBox).
 pub mod el;
 
@@ -281,6 +288,9 @@ pub use metrics::{hits_at_k, mean_rank, mean_reciprocal_rank};
 
 // Re-exports: Gaussian boxes
 pub use gaussian::GaussianBox;
+
+// Re-exports: Density matrix embeddings
+pub use density::DensityRegion;
 
 // Re-exports: EL++ training
 #[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
