@@ -606,11 +606,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ranks.push(rank);
     }
 
-    let mrr = mean_reciprocal_rank(ranks.iter().copied());
-    let h1 = hits_at_k(ranks.iter().copied(), 1);
-    let h3 = hits_at_k(ranks.iter().copied(), 3);
-    let h10 = hits_at_k(ranks.iter().copied(), 10);
-    let mr = mean_rank(ranks.iter().copied());
+    let mrr = mean_reciprocal_rank(&ranks);
+    let h1 = hits_at_k(&ranks, 1);
+    let h3 = hits_at_k(&ranks, 3);
+    let h10 = hits_at_k(&ranks, 10);
+    let mr = mean_rank(&ranks);
 
     println!("  MRR:       {mrr:.4}");
     println!("  Hits@1:    {h1:.4}");
