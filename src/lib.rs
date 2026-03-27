@@ -290,7 +290,7 @@ pub use trainer::candle_trainer::CandleBoxTrainer;
 pub use ndarray;
 
 // Re-exports: evaluation metrics
-pub use metrics::{hits_at_k, mean_rank, mean_reciprocal_rank};
+pub use metrics::{adjusted_mean_rank, hits_at_k, mean_rank, mean_reciprocal_rank};
 
 // Re-exports: Gaussian boxes
 pub use gaussian::GaussianBox;
@@ -353,7 +353,5 @@ pub mod petgraph_adapter;
 /// Bridge from [`lattix`] knowledge graphs to subsume datasets.
 ///
 /// Converts lattix KGs (loaded from N-Triples, Turtle, CSV, JSON-LD)
-/// into subsume datasets for training. Requires the `lattix` feature.
-#[cfg(feature = "lattix")]
-#[cfg_attr(docsrs, doc(cfg(feature = "lattix")))]
+/// into subsume datasets for training.
 pub mod lattix_bridge;

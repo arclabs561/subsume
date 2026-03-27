@@ -331,13 +331,13 @@ where
         .copied()
         .collect();
 
-    let mrr = mean_reciprocal_rank(all_ranks.iter().copied());
-    let tail_mrr = mean_reciprocal_rank(tail_ranks.iter().copied());
-    let head_mrr = mean_reciprocal_rank(head_ranks.iter().copied());
-    let hits_at_1 = hits_at_k(all_ranks.iter().copied(), 1);
-    let hits_at_3 = hits_at_k(all_ranks.iter().copied(), 3);
-    let hits_at_10 = hits_at_k(all_ranks.iter().copied(), 10);
-    let mean_rank_val = mean_rank(all_ranks.iter().copied());
+    let mrr = mean_reciprocal_rank(&all_ranks) as f32;
+    let tail_mrr = mean_reciprocal_rank(&tail_ranks) as f32;
+    let head_mrr = mean_reciprocal_rank(&head_ranks) as f32;
+    let hits_at_1 = hits_at_k(&all_ranks, 1) as f32;
+    let hits_at_3 = hits_at_k(&all_ranks, 3) as f32;
+    let hits_at_10 = hits_at_k(&all_ranks, 10) as f32;
+    let mean_rank_val = mean_rank(&all_ranks) as f32;
 
     // Per-relation aggregation.
     let per_relation = aggregate_per_relation(&per_triple);
@@ -366,8 +366,8 @@ fn aggregate_per_relation(per_triple: &[(&str, usize, usize)]) -> Vec<PerRelatio
         .into_iter()
         .map(|(rel, ranks)| {
             let count = ranks.len() / 2; // number of triples (each contributes 2 ranks)
-            let mrr = mean_reciprocal_rank(ranks.iter().copied());
-            let h10 = hits_at_k(ranks.iter().copied(), 10);
+            let mrr = mean_reciprocal_rank(&ranks) as f32;
+            let h10 = hits_at_k(&ranks, 10) as f32;
             PerRelationResults {
                 relation: rel.to_string(),
                 mrr,
@@ -881,13 +881,13 @@ pub(crate) fn collect_evaluation_results(
         .copied()
         .collect();
 
-    let mrr = mean_reciprocal_rank(all_ranks.iter().copied());
-    let tail_mrr = mean_reciprocal_rank(tail_ranks.iter().copied());
-    let head_mrr = mean_reciprocal_rank(head_ranks.iter().copied());
-    let hits_at_1 = hits_at_k(all_ranks.iter().copied(), 1);
-    let hits_at_3 = hits_at_k(all_ranks.iter().copied(), 3);
-    let hits_at_10 = hits_at_k(all_ranks.iter().copied(), 10);
-    let mean_rank_val = mean_rank(all_ranks.iter().copied());
+    let mrr = mean_reciprocal_rank(&all_ranks) as f32;
+    let tail_mrr = mean_reciprocal_rank(&tail_ranks) as f32;
+    let head_mrr = mean_reciprocal_rank(&head_ranks) as f32;
+    let hits_at_1 = hits_at_k(&all_ranks, 1) as f32;
+    let hits_at_3 = hits_at_k(&all_ranks, 3) as f32;
+    let hits_at_10 = hits_at_k(&all_ranks, 10) as f32;
+    let mean_rank_val = mean_rank(&all_ranks) as f32;
 
     let per_relation = aggregate_per_relation_ids(per_triple);
 
@@ -915,8 +915,8 @@ fn aggregate_per_relation_ids(per_triple: &[(usize, usize, usize)]) -> Vec<PerRe
         .into_iter()
         .map(|(rel, ranks)| {
             let count = ranks.len() / 2;
-            let mrr = mean_reciprocal_rank(ranks.iter().copied());
-            let h10 = hits_at_k(ranks.iter().copied(), 10);
+            let mrr = mean_reciprocal_rank(&ranks) as f32;
+            let h10 = hits_at_k(&ranks, 10) as f32;
             PerRelationResults {
                 relation: rel.to_string(),
                 mrr,

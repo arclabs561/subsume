@@ -747,8 +747,8 @@ salmon\t_hypernym\tanimal";
         ranks.push(rank);
     }
 
-    let mrr = mean_reciprocal_rank(ranks.iter().copied());
-    let h10 = hits_at_k(ranks.iter().copied(), 10);
+    let mrr = mean_reciprocal_rank(&ranks) as f32;
+    let h10 = hits_at_k(&ranks, 10) as f32;
 
     assert!(
         mrr > 0.0,
