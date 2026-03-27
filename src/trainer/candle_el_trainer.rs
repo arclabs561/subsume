@@ -485,45 +485,46 @@ impl CandleElTrainer {
                 .mean(0)?;
 
                 // NF4 negatives: corrupt filler (C) and target (D).
-                let mut nf4_neg_sum = Tensor::zeros((), candle_core::DType::F32, &self.device)?;
-                for _ in 0..negative_samples {
-                    // Corrupt target (D): keep role+filler, replace D with random
-                    let neg_target_ids: Vec<u32> =
-                        (0..bs).map(|_| (lcg(&mut rng) % nc) as u32).collect();
-                    let neg_target_t = Tensor::from_vec(neg_target_ids, (bs,), &self.device)?;
-                    let (c_neg_target, o_neg_target) = self.concept_boxes(&neg_target_t)?;
-
-                    let neg_loss1 = Self::neg_loss_fn(
-                        &c_head_shifted,
-                        &o_head,
-                        &c_neg_target,
-                        &o_neg_target,
-                        self.margin,
-                    )?;
-
-                    // Corrupt filler (C): keep role+target, replace C with random
-                    let neg_filler_ids: Vec<u32> =
-                        (0..bs).map(|_| (lcg(&mut rng) % nc) as u32).collect();
-                    let neg_filler_t = Tensor::from_vec(neg_filler_ids, (bs,), &self.device)?;
-                    let bump_neg_filler = self.concept_bumps(&neg_filler_t)?;
-                    let c_head_neg_shifted = c_head.sub(&bump_neg_filler)?;
-
-                    let neg_loss2 = Self::neg_loss_fn(
-                        &c_head_neg_shifted,
-                        &o_head,
-                        &c_target,
-                        &o_target,
-                        self.margin,
-                    )?;
-
-                    let target1 = Tensor::full(self.neg_dist, neg_loss1.shape(), &self.device)?;
-                    let target2 = Tensor::full(self.neg_dist, neg_loss2.shape(), &self.device)?;
-                    let nl1 = target1.sub(&neg_loss1)?.sqr()?.mean(0)?;
-                    let nl2 = target2.sub(&neg_loss2)?.sqr()?.mean(0)?;
-                    nf4_neg_sum = nf4_neg_sum.add(&nl1)?.add(&nl2)?;
-                }
-
+                // Skipped entirely when nf4_neg_weight == 0.0 to preserve
+                // RNG sequence for other NF types.
                 let nf4_total = if self.nf4_neg_weight > 0.0 {
+                    let mut nf4_neg_sum = Tensor::zeros((), candle_core::DType::F32, &self.device)?;
+                    for _ in 0..negative_samples {
+                        // Corrupt target (D): keep role+filler, replace D with random
+                        let neg_target_ids: Vec<u32> =
+                            (0..bs).map(|_| (lcg(&mut rng) % nc) as u32).collect();
+                        let neg_target_t = Tensor::from_vec(neg_target_ids, (bs,), &self.device)?;
+                        let (c_neg_target, o_neg_target) = self.concept_boxes(&neg_target_t)?;
+
+                        let neg_loss1 = Self::neg_loss_fn(
+                            &c_head_shifted,
+                            &o_head,
+                            &c_neg_target,
+                            &o_neg_target,
+                            self.margin,
+                        )?;
+
+                        // Corrupt filler (C): keep role+target, replace C with random
+                        let neg_filler_ids: Vec<u32> =
+                            (0..bs).map(|_| (lcg(&mut rng) % nc) as u32).collect();
+                        let neg_filler_t = Tensor::from_vec(neg_filler_ids, (bs,), &self.device)?;
+                        let bump_neg_filler = self.concept_bumps(&neg_filler_t)?;
+                        let c_head_neg_shifted = c_head.sub(&bump_neg_filler)?;
+
+                        let neg_loss2 = Self::neg_loss_fn(
+                            &c_head_neg_shifted,
+                            &o_head,
+                            &c_target,
+                            &o_target,
+                            self.margin,
+                        )?;
+
+                        let target1 = Tensor::full(self.neg_dist, neg_loss1.shape(), &self.device)?;
+                        let target2 = Tensor::full(self.neg_dist, neg_loss2.shape(), &self.device)?;
+                        let nl1 = target1.sub(&neg_loss1)?.sqr()?.mean(0)?;
+                        let nl2 = target2.sub(&neg_loss2)?.sqr()?.mean(0)?;
+                        nf4_neg_sum = nf4_neg_sum.add(&nl1)?.add(&nl2)?;
+                    }
                     nf4_loss.add(&nf4_neg_sum.affine(self.nf4_neg_weight as f64, 0.0)?)?
                 } else {
                     nf4_loss
