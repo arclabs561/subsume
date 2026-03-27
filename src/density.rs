@@ -29,6 +29,9 @@
 //! # References
 //!
 //! - Garg et al. (2019), "Quantum Embedding of Knowledge for Reasoning" (NeurIPS)
+//!
+//! # Related crates
+//! - [`qig`]: Full quantum information geometry (eigendecomposition-based fidelity, Bures distance). This module uses simplified pure-state formulas.
 
 use crate::BoxError;
 use serde::{Deserialize, Serialize};
