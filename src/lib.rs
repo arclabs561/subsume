@@ -200,6 +200,12 @@ pub mod gaussian;
 /// Reference: Garg et al. (2019), "Quantum Embedding of Knowledge for Reasoning" (NeurIPS).
 pub mod density;
 
+/// Density matrix EL++ training losses: NF1-NF4 and disjointness losses
+/// using fidelity-based scoring on pure-state density matrices.
+#[cfg(feature = "rand")]
+#[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
+pub mod density_el;
+
 /// EL++ ontology embedding primitives (Box2EL / TransBox).
 pub mod el;
 
@@ -291,6 +297,13 @@ pub use gaussian::GaussianBox;
 
 // Re-exports: Density matrix embeddings
 pub use density::DensityRegion;
+
+// Re-exports: Density matrix EL++ training
+#[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
+#[cfg(feature = "rand")]
+pub use density_el::{
+    disjointness_loss_density, nf1_loss_density, train_density_el, DensityElConfig, DensityElResult,
+};
 
 // Re-exports: EL++ training
 #[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
