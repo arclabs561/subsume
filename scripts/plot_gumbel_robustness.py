@@ -23,7 +23,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # ── Color palette ─────────────────────────────────────────────────────
-BG = "#fafafa"
+BG = "white"
 GRID = "#e5e7eb"
 TEXT = "#374151"
 BLUE = "#3b82f6"
@@ -73,7 +73,6 @@ ax.plot(
     alpha=0.6,
     label="hard box",
 )
-ax.fill_between(x, 0, hard_membership, color=SLATE, alpha=0.04, step="mid")
 
 for beta, col in zip(betas, colors):
     ax.plot(
@@ -114,30 +113,6 @@ ax.tick_params(labelsize=7, colors=SLATE_LIGHT)
 ax = axes[1]
 
 ax.axhline(y=0, color=SLATE, linewidth=1.2, linestyle="--", alpha=0.4)
-
-# Shade the zero-gradient regions for hard box
-ax.axvspan(-3, -0.05, alpha=0.06, color=SLATE)
-ax.axvspan(0.05, 5, alpha=0.06, color=SLATE)
-ax.text(
-    -1.5,
-    0.55,
-    "zero gradient\n(no learning signal)",
-    fontsize=7,
-    color=SLATE,
-    ha="center",
-    va="center",
-    fontstyle="italic",
-)
-ax.text(
-    2.5,
-    0.55,
-    "zero gradient\n(no learning signal)",
-    fontsize=7,
-    color=SLATE,
-    ha="center",
-    va="center",
-    fontstyle="italic",
-)
 
 for beta, col in zip(betas, colors):
     ax.plot(

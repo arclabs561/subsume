@@ -23,7 +23,7 @@ import numpy as np
 from pathlib import Path
 
 # ── Color palette ─────────────────────────────────────────────────────
-BG = "#fafafa"
+BG = "white"
 GRID = "#e5e7eb"
 TEXT = "#374151"
 BLUE = "#3b82f6"
@@ -130,12 +130,7 @@ for ax in axes:
 ax = axes[0]
 ax.semilogy(range(epochs), violations, color=BLUE, linewidth=1.6)
 
-# Shade the region where loss is still high
-convergence_epoch = next(i for i, v in enumerate(violations) if v < 1.0)
-ax.axvspan(0, convergence_epoch, alpha=0.04, color=BLUE)
 ax.axhline(y=1.0, color=SLATE_LIGHT, linewidth=0.6, linestyle=":")
-ax.text(convergence_epoch + 5, 1.2, "violation < 1",
-        fontsize=7, color=SLATE, fontstyle="italic")
 
 ax.set_xlabel("Epoch", fontsize=9, color=TEXT)
 ax.set_ylabel("Total violation (log scale)", fontsize=9, color=TEXT)

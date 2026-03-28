@@ -21,7 +21,7 @@ from matplotlib.lines import Line2D
 import numpy as np
 
 # ── Color palette (muted, academic) ────────────────────────────────────
-BG = "#fafafa"
+BG = "white"
 GRID = "#e5e7eb"
 TEXT = "#374151"
 BLUE = "#3b82f6"
@@ -116,8 +116,6 @@ betas = [0.3, 0.8, 2.0]
 beta_colors = [BLUE, GREEN, AMBER]
 beta_alphas = [1.0, 0.8, 0.6]
 
-# Hard box background fill
-ax.fill_between(x, 0, hard, color=SLATE, alpha=0.06, step="mid")
 ax.plot(x, hard, color=SLATE, linewidth=1.2, linestyle="--",
         alpha=0.5, label="hard box")
 
