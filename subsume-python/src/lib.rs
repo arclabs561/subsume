@@ -579,7 +579,7 @@ impl PyBoxEmbeddingTrainer {
                 .flat_map(|&(h, _, t)| [h, t])
                 .max()
                 .unwrap_or(0);
-            let max_from_boxes = self.inner.boxes.keys().copied().max().unwrap_or(0);
+            let max_from_boxes = self.inner.boxes().keys().copied().max().unwrap_or(0);
             max_from_triples.max(max_from_boxes) + 1
         });
 
@@ -614,7 +614,7 @@ impl PyBoxEmbeddingTrainer {
     ) -> PyResult<(Vec<usize>, Py<PyArray2<f32>>, Py<PyArray2<f32>>)> {
         let (ids, mins_flat, maxs_flat) = self.inner.export_embeddings();
         let n = ids.len();
-        let dim = self.inner.dim;
+        let dim = self.inner.dim();
 
         let mins_nd = ndarray::Array2::from_shape_vec((n, dim), mins_flat)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
@@ -660,7 +660,7 @@ impl PyBoxEmbeddingTrainer {
         })?;
 
         // Apply learned relation translation to head box.
-        let scoring_box = if let Some(trans) = self.inner.relation_translations.get(&relation_id) {
+        let scoring_box = if let Some(trans) = self.inner.relation_translations().get(&relation_id) {
             use subsume::Box as BoxRegion;
             let min_h = box_h.min();
             let max_h = box_h.max();
@@ -699,7 +699,7 @@ impl PyBoxEmbeddingTrainer {
         })?;
 
         // Build the (possibly translated) head box.
-        let scoring_box = if let Some(trans) = self.inner.relation_translations.get(&relation_id) {
+        let scoring_box = if let Some(trans) = self.inner.relation_translations().get(&relation_id) {
             let min_h = base_box.min();
             let max_h = base_box.max();
             let new_min: Vec<f32> = min_h.iter().zip(trans).map(|(m, t)| m + t).collect();
@@ -714,9 +714,9 @@ impl PyBoxEmbeddingTrainer {
             base_box
         };
 
-        let max_id = self.inner.boxes.keys().copied().max().unwrap_or(0);
+        let max_id = self.inner.boxes().keys().copied().max().unwrap_or(0);
         let mut scores = vec![0.0f32; max_id + 1];
-        for (&eid, tb) in &self.inner.boxes {
+        for (&eid, tb) in self.inner.boxes() {
             if let Ok(nb) = tb.to_ndarray_box() {
                 scores[eid] = scoring_box.containment_prob(&nb).unwrap_or(0.0);
             }
@@ -728,8 +728,8 @@ impl PyBoxEmbeddingTrainer {
     fn __repr__(&self) -> String {
         format!(
             "BoxEmbeddingTrainer(dim={}, n_entities={})",
-            self.inner.dim,
-            self.inner.boxes.len()
+            self.inner.dim(),
+            self.inner.boxes().len()
         )
     }
 
@@ -974,7 +974,7 @@ impl PyConeEmbeddingTrainer {
     ) -> PyResult<(Vec<usize>, Py<PyArray2<f32>>, Py<PyArray2<f32>>)> {
         let (ids, axes_flat, apertures_flat) = self.inner.export_embeddings();
         let n = ids.len();
-        let dim = self.inner.dim;
+        let dim = self.inner.dim();
 
         let axes_nd = ndarray::Array2::from_shape_vec((n, dim), axes_flat)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
@@ -1031,7 +1031,7 @@ impl PyConeEmbeddingTrainer {
                 .flat_map(|&(h, _, t)| [h, t])
                 .max()
                 .unwrap_or(0);
-            let max_from_cones = self.inner.cones.keys().copied().max().unwrap_or(0);
+            let max_from_cones = self.inner.cones().keys().copied().max().unwrap_or(0);
             max_from_triples.max(max_from_cones) + 1
         });
 
@@ -1051,8 +1051,8 @@ impl PyConeEmbeddingTrainer {
     fn __repr__(&self) -> String {
         format!(
             "ConeEmbeddingTrainer(dim={}, n_entities={})",
-            self.inner.dim,
-            self.inner.cones.len()
+            self.inner.dim(),
+            self.inner.cones().len()
         )
     }
 
@@ -1622,9 +1622,9 @@ impl PyCandleBoxTrainer {
     ) -> PyResult<Py<PyArray1<f32>>> {
         let hn = head_ids.len();
         let tn = tail_ids.len();
-        let h = candle_core::Tensor::from_vec(head_ids, &[hn], &self.inner.device)
+        let h = candle_core::Tensor::from_vec(head_ids, &[hn], self.inner.device())
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-        let t = candle_core::Tensor::from_vec(tail_ids, &[tn], &self.inner.device)
+        let t = candle_core::Tensor::from_vec(tail_ids, &[tn], self.inner.device())
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         let scores = self
             .inner
@@ -1650,11 +1650,11 @@ impl PyCandleBoxTrainer {
         let hn = head_ids.len();
         let tn = tail_ids.len();
         let rn = rel_ids.len();
-        let h = candle_core::Tensor::from_vec(head_ids, &[hn], &self.inner.device)
+        let h = candle_core::Tensor::from_vec(head_ids, &[hn], self.inner.device())
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-        let t = candle_core::Tensor::from_vec(tail_ids, &[tn], &self.inner.device)
+        let t = candle_core::Tensor::from_vec(tail_ids, &[tn], self.inner.device())
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-        let r = candle_core::Tensor::from_vec(rel_ids, &[rn], &self.inner.device)
+        let r = candle_core::Tensor::from_vec(rel_ids, &[rn], self.inner.device())
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         let scores = self
             .inner
@@ -1752,13 +1752,13 @@ impl PyCandleBoxTrainer {
     fn __repr__(&self) -> String {
         let mut s = format!(
             "CandleBoxTrainer(entities={}, relations={}, dim={}",
-            self.inner.num_entities, self.inner.num_relations, self.inner.dim
+            self.inner.num_entities(), self.inner.num_relations(), self.inner.dim()
         );
-        if self.inner.inside_weight != 0.0 {
-            s.push_str(&format!(", inside_weight={}", self.inner.inside_weight));
+        if self.inner.inside_weight() != 0.0 {
+            s.push_str(&format!(", inside_weight={}", self.inner.inside_weight()));
         }
-        if self.inner.vol_reg != 0.0 {
-            s.push_str(&format!(", vol_reg={}", self.inner.vol_reg));
+        if self.inner.vol_reg() != 0.0 {
+            s.push_str(&format!(", vol_reg={}", self.inner.vol_reg()));
         }
         s.push(')');
         s
@@ -1987,13 +1987,13 @@ impl PyCandleElTrainer {
     fn concept_embeddings<'py>(&self, py: Python<'py>) -> PyResult<PyObject> {
         let centers: Vec<Vec<f32>> = self
             .inner
-            .concept_centers
+            .concept_centers()
             .as_tensor()
             .to_vec2()
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         let offsets: Vec<Vec<f32>> = self
             .inner
-            .concept_offsets
+            .concept_offsets()
             .as_tensor()
             .abs()
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?
@@ -2023,18 +2023,18 @@ impl PyCandleElTrainer {
     ///     Dict with "role_names" (list), "head_centers" (2D array),
     ///     "head_offsets" (2D array), "tail_centers" (2D array), "tail_offsets" (2D array).
     fn role_embeddings<'py>(&self, py: Python<'py>) -> PyResult<PyObject> {
-        let dim = self.inner.dim;
-        let nr = self.inner.num_roles;
+        let dim = self.inner.dim();
+        let nr = self.inner.num_roles();
 
         let heads: Vec<Vec<f32>> = self
             .inner
-            .role_heads
+            .role_heads()
             .as_tensor()
             .to_vec2()
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         let tails: Vec<Vec<f32>> = self
             .inner
-            .role_tails
+            .role_tails()
             .as_tensor()
             .to_vec2()
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
@@ -2078,7 +2078,7 @@ impl PyCandleElTrainer {
     fn bump_vectors<'py>(&self, py: Python<'py>) -> PyResult<PyObject> {
         let bumps: Vec<Vec<f32>> = self
             .inner
-            .bumps
+            .bumps()
             .as_tensor()
             .to_vec2()
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
@@ -2098,19 +2098,19 @@ impl PyCandleElTrainer {
     /// Number of concepts in the ontology.
     #[getter]
     fn num_concepts(&self) -> usize {
-        self.inner.num_concepts
+        self.inner.num_concepts()
     }
 
     /// Number of roles in the ontology.
     #[getter]
     fn num_roles(&self) -> usize {
-        self.inner.num_roles
+        self.inner.num_roles()
     }
 
     /// Embedding dimension.
     #[getter]
     fn dim(&self) -> usize {
-        self.inner.dim
+        self.inner.dim()
     }
 
     /// Save model weights to a safetensors file.
@@ -2136,7 +2136,7 @@ impl PyCandleElTrainer {
     fn __repr__(&self) -> String {
         format!(
             "CandleElTrainer(concepts={}, roles={}, dim={})",
-            self.inner.num_concepts, self.inner.num_roles, self.inner.dim
+            self.inner.num_concepts(), self.inner.num_roles(), self.inner.dim()
         )
     }
 }
@@ -2213,9 +2213,9 @@ impl PyCandleConeTrainer {
     ) -> PyResult<Py<PyArray1<f32>>> {
         let hn = head_ids.len();
         let tn = tail_ids.len();
-        let h = candle_core::Tensor::from_vec(head_ids, &[hn], &self.inner.device)
+        let h = candle_core::Tensor::from_vec(head_ids, &[hn], self.inner.device())
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-        let t = candle_core::Tensor::from_vec(tail_ids, &[tn], &self.inner.device)
+        let t = candle_core::Tensor::from_vec(tail_ids, &[tn], self.inner.device())
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         let scores = self
             .inner
@@ -2249,7 +2249,7 @@ impl PyCandleConeTrainer {
     fn __repr__(&self) -> String {
         format!(
             "CandleConeTrainer(entities={}, relations={}, dim={})",
-            self.inner.num_entities, self.inner.num_relations, self.inner.dim
+            self.inner.num_entities(), self.inner.num_relations(), self.inner.dim()
         )
     }
 }

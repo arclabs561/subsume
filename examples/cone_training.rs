@@ -199,7 +199,7 @@ fn main() {
     entity_ids.sort();
 
     for &id in &entity_ids {
-        let cone = &trainer.cones[&id];
+        let cone = &trainer.cones()[&id];
         let mean_aper = cone.mean_aperture();
         let degrees = mean_aper.to_degrees();
         println!(
@@ -235,7 +235,7 @@ fn main() {
     let mut pos_dists = Vec::new();
     let mut neg_dists = Vec::new();
     for (label, head, tail, expect_low) in &selected_checks {
-        let d = trainer.cones[head].cone_distance(&trainer.cones[tail], cen);
+        let d = trainer.cones()[head].cone_distance(&trainer.cones()[tail], cen);
         let status = if *expect_low { "POS" } else { "NEG" };
         println!("  [{:>3}] {:<30} dist = {:.4}", status, label, d);
         if *expect_low {

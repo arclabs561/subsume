@@ -23,36 +23,36 @@ use candle_core::{Device, Result, Tensor, Var};
 /// GPU-accelerated box embedding trainer.
 pub struct CandleBoxTrainer {
     /// Entity center positions: `[num_entities, dim]`.
-    pub mu: Var,
+    pub(crate) mu: Var,
     /// Entity log-widths: `[num_entities, dim]`.
-    pub log_delta: Var,
+    pub(crate) log_delta: Var,
     /// Per-relation translation offsets: `[num_relations, dim]`.
-    pub rel_offset: Option<Var>,
+    pub(crate) rel_offset: Option<Var>,
     /// Embedding dimension.
-    pub dim: usize,
+    pub(crate) dim: usize,
     /// Number of entities.
-    pub num_entities: usize,
+    pub(crate) num_entities: usize,
     /// Number of relations (0 if identity).
-    pub num_relations: usize,
+    pub(crate) num_relations: usize,
     /// Softplus beta (steepness) for width transform `delta = softplus(exp(log_delta), beta)`.
-    pub beta: f32,
+    pub(crate) beta: f32,
     /// Weight for inside distance (0.0 = pure containment violation).
     ///
     /// BoxE uses both outside distance (penalty for protrusion) and inside
     /// distance (penalty for being off-center when contained). Setting this
     /// to ~0.02-0.1 enables the inside term.
-    pub inside_weight: f32,
+    pub(crate) inside_weight: f32,
     /// Volume regularization weight. Penalizes large entity boxes to
     /// prevent the trivial solution (all boxes grow to contain everything).
     /// Typical values: 0.0001-0.001.
-    pub vol_reg: f32,
+    pub(crate) vol_reg: f32,
     /// How often to recompute entity bounds during training (in batches).
     ///
     /// 0 = once per epoch (fast but stale). N = every N batches.
     /// For WN18RR (~340 batches/epoch), try 50-100.
-    pub bounds_every: usize,
+    pub(crate) bounds_every: usize,
     /// Device (CPU, CUDA, or Metal).
-    pub device: Device,
+    pub(crate) device: Device,
 }
 
 impl CandleBoxTrainer {
@@ -126,6 +126,42 @@ impl CandleBoxTrainer {
     pub fn with_bounds_every(mut self, n: usize) -> Self {
         self.bounds_every = n;
         self
+    }
+
+    /// Embedding dimension.
+    #[must_use]
+    pub fn dim(&self) -> usize {
+        self.dim
+    }
+
+    /// Number of entities.
+    #[must_use]
+    pub fn num_entities(&self) -> usize {
+        self.num_entities
+    }
+
+    /// Number of relations (0 if identity).
+    #[must_use]
+    pub fn num_relations(&self) -> usize {
+        self.num_relations
+    }
+
+    /// Inside distance weight (0.0 = pure containment violation).
+    #[must_use]
+    pub fn inside_weight(&self) -> f32 {
+        self.inside_weight
+    }
+
+    /// Volume regularization weight.
+    #[must_use]
+    pub fn vol_reg(&self) -> f32 {
+        self.vol_reg
+    }
+
+    /// Reference to the device.
+    #[must_use]
+    pub fn device(&self) -> &Device {
+        &self.device
     }
 
     /// Compute (min_all, max_all) for the entire entity table.
