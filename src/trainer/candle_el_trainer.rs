@@ -337,7 +337,7 @@ impl CandleElTrainer {
             let mut rng_nf3 = master_rng.wrapping_add(3);
             let mut rng_nf4 = master_rng.wrapping_add(4);
             lcg(&mut master_rng); // advance master for next epoch
-            // Cosine LR decay (helps convergence even though Box2EL uses constant)
+                                  // Cosine LR decay (helps convergence even though Box2EL uses constant)
             let progress = epoch as f64 / epochs.max(1) as f64;
             let current_lr =
                 lr_min + 0.5 * (lr - lr_min) * (1.0 + (std::f64::consts::PI * progress).cos());
@@ -372,7 +372,8 @@ impl CandleElTrainer {
                 // Negative: Box2EL disjointness target
                 let mut neg_loss_sum = Tensor::zeros((), candle_core::DType::F32, &self.device)?;
                 for _ in 0..negative_samples {
-                    let neg_ids: Vec<u32> = (0..bs).map(|_| (lcg(&mut rng_nf2) % nc) as u32).collect();
+                    let neg_ids: Vec<u32> =
+                        (0..bs).map(|_| (lcg(&mut rng_nf2) % nc) as u32).collect();
                     let neg_t = Tensor::from_vec(neg_ids, (bs,), &self.device)?;
                     let (c_neg, o_neg) = self.concept_boxes(&neg_t)?;
                     let disj =
