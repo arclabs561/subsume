@@ -40,7 +40,7 @@ candle-core = { version = "0.9", optional = true }
 candle-nn = { version = "0.9", optional = true }
 petgraph = { version = "0.7", optional = true }
 rankops = { version = "0.1.4", optional = true }
-lattix = { version = "0.5.4", features = ["formats"] }
+lattix = { version = "0.5.4", features = ["formats"], optional = true }
 
 [features]
 default = ["ndarray-backend"]
@@ -51,6 +51,9 @@ rand = ["dep:rand"]
 petgraph = ["dep:petgraph"]
 rankops = ["dep:rankops"]
 sheaf = []
+lattix = ["dep:lattix"]
+spherical = []
+density = []
 hyperbolic = ["dep:hyperball", "dep:skel", "dep:ndarray"]
 
 [dev-dependencies]

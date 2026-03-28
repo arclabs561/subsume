@@ -242,7 +242,10 @@ impl SphericalEmbedding {
 /// # Errors
 ///
 /// Returns [`BoxError::DimensionMismatch`] if dimensions disagree.
-pub fn rotate(point: &SphericalPoint, relation: &SphericalRelation) -> Result<SphericalPoint, BoxError> {
+pub fn rotate(
+    point: &SphericalPoint,
+    relation: &SphericalRelation,
+) -> Result<SphericalPoint, BoxError> {
     let d = point.dim();
     if relation.dim() != d {
         return Err(BoxError::DimensionMismatch {
@@ -296,9 +299,7 @@ pub fn rotate(point: &SphericalPoint, relation: &SphericalRelation) -> Result<Sp
     }
 
     // Re-normalize to unit sphere to handle float drift.
-    let result = l2_normalize(result).unwrap_or_else(|_| {
-        point.coords.clone()
-    });
+    let result = l2_normalize(result).unwrap_or_else(|_| point.coords.clone());
     Ok(SphericalPoint { coords: result })
 }
 
@@ -541,18 +542,10 @@ mod tests {
             score_triple(&h1, &r, &t1).unwrap(),
             score_triple(&h2, &r, &t2).unwrap(),
         ];
-        let batch = score_batch(
-            &[h1, h2],
-            &[r.clone(), r],
-            &[t1, t2],
-        )
-        .unwrap();
+        let batch = score_batch(&[h1, h2], &[r.clone(), r], &[t1, t2]).unwrap();
 
         for (i, (a, b)) in individual.iter().zip(batch.iter()).enumerate() {
-            assert!(
-                (a - b).abs() < 1e-9,
-                "batch[{i}] = {b}, individual = {a}"
-            );
+            assert!((a - b).abs() < 1e-9, "batch[{i}] = {b}, individual = {a}");
         }
     }
 
@@ -636,10 +629,10 @@ mod proptests {
     use proptest::prelude::*;
 
     fn arb_point(dim: usize) -> impl Strategy<Value = SphericalPoint> {
-        prop::collection::vec(-10.0f32..10.0, dim).prop_filter_map(
-            "non-zero vector",
-            move |coords| SphericalPoint::new(coords).ok(),
-        )
+        prop::collection::vec(-10.0f32..10.0, dim)
+            .prop_filter_map("non-zero vector", move |coords| {
+                SphericalPoint::new(coords).ok()
+            })
     }
 
     fn arb_relation(dim: usize) -> impl Strategy<Value = SphericalRelation> {

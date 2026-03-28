@@ -247,16 +247,6 @@ pub fn trace_distance(a: &DensityRegion, b: &DensityRegion) -> Result<f32, BoxEr
     Ok((1.0 - f).max(0.0).sqrt())
 }
 
-/// Von Neumann entropy of a pure-state density matrix.
-///
-/// Pure states have zero entropy (they are maximally certain).
-/// This is consistent: `S(|v><v|/||v||^2) = -tr(rho ln rho) = 0`
-/// since eigenvalues are `{1, 0, 0, ...}` and `0 ln 0 = 0`.
-#[must_use]
-pub fn von_neumann_entropy(_state: &DensityRegion) -> f32 {
-    0.0
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -395,12 +385,6 @@ mod tests {
 
         let t_self = trace_distance(&a, &a).unwrap();
         assert!(t_self.abs() < 1e-6, "trace_distance(a, a) = {t_self}");
-    }
-
-    #[test]
-    fn von_neumann_entropy_is_zero() {
-        let a = make_real(&[1.0, 2.0, 3.0]);
-        assert_eq!(von_neumann_entropy(&a), 0.0);
     }
 
     #[test]
