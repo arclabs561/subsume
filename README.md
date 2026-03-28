@@ -4,7 +4,7 @@
 [![Documentation](https://docs.rs/subsume/badge.svg)](https://docs.rs/subsume)
 [![CI](https://github.com/arclabs561/subsume/actions/workflows/ci.yml/badge.svg)](https://github.com/arclabs561/subsume/actions/workflows/ci.yml)
 
-Geometric region embeddings for subsumption, entailment, and logical query answering. Boxes, cones, octagons, Gaussians, hyperbolic intervals, and sheaf networks. Ndarray and Candle backends.
+Region embeddings for entailment and set containment.
 
 ![Box embedding concepts](docs/box_concepts.png)
 
