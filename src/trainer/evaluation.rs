@@ -332,8 +332,8 @@ where
         .collect();
 
     let mrr = mean_reciprocal_rank(&all_ranks) as f32;
-    let tail_mrr = mean_reciprocal_rank(tail_ranks) as f32;
-    let head_mrr = mean_reciprocal_rank(head_ranks) as f32;
+    let tail_mrr = mean_reciprocal_rank(&tail_ranks) as f32;
+    let head_mrr = mean_reciprocal_rank(&head_ranks) as f32;
     let hits_at_1 = hits_at_k(&all_ranks, 1) as f32;
     let hits_at_3 = hits_at_k(&all_ranks, 3) as f32;
     let hits_at_10 = hits_at_k(&all_ranks, 10) as f32;
