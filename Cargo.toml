@@ -2,7 +2,7 @@
 name = "subsume"
 version = "0.8.2"
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.87"
 license = "MIT OR Apache-2.0"
 authors = ["Arc <attobop@gmail.com>"]
 description = "Geometric region embeddings (boxes, cones, octagons, Gaussians, hyperbolic intervals, sheaf networks) for subsumption, entailment, and logical query answering"
