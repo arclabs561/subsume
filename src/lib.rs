@@ -101,8 +101,10 @@
 //! | `hyperbolic` | no | `hyperbolic` module (Poincare ball via `hyperball` + `skel`) |
 //! | `petgraph` | no | `petgraph_adapter` module (convert petgraph graphs to datasets) |
 //! | `sheaf` | no | [`sheaf`] module (sheaf diffusion primitives) |
-//! | `lattix` | no | [`lattix_bridge`] module (RDF/Turtle/CSV/JSON-LD KG loading) |
+//! | `lattix` | no | [`lattix_bridge`] module (RDF/Turtle/CSV/JSON-LD KG loading via `lattix`) |
 //! | `rankops` | no | Re-exports [`rankops`] (rank fusion, nDCG, MAP) |
+//! | `spherical` | no | [`spherical`] module (unit-sphere embeddings, experimental) |
+//! | `density` | no | [`density`] + [`density_el`] modules (density matrix embeddings, experimental) |
 //!
 //! # Example
 //!
@@ -198,18 +200,22 @@ pub mod gaussian;
 /// Represents concepts as rank-1 density matrices in a complex Hilbert space.
 /// Subsumption via Loewner order, distance via fidelity / Bures metric.
 /// Reference: Garg et al. (2019), "Quantum Embedding of Knowledge for Reasoning" (NeurIPS).
+#[cfg(feature = "density")]
+#[cfg_attr(docsrs, doc(cfg(feature = "density")))]
 pub mod density;
 
 /// Spherical knowledge graph embeddings on the unit sphere.
 ///
 /// Entities are points on `S^{d-1}` (unit vectors). Relations are axis-angle
 /// rotations. Scoring uses geodesic (great-circle) distance.
+#[cfg(feature = "spherical")]
+#[cfg_attr(docsrs, doc(cfg(feature = "spherical")))]
 pub mod spherical;
 
 /// Density matrix EL++ training losses: NF1-NF4 and disjointness losses
 /// using fidelity-based scoring on pure-state density matrices.
-#[cfg(feature = "rand")]
-#[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
+#[cfg(all(feature = "rand", feature = "density"))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "rand", feature = "density"))))]
 pub mod density_el;
 
 /// EL++ ontology embedding primitives (Box2EL / TransBox).
@@ -302,14 +308,18 @@ pub use metrics::{adjusted_mean_rank, hits_at_k, mean_rank, mean_reciprocal_rank
 pub use gaussian::GaussianBox;
 
 // Re-exports: Density matrix embeddings
+#[cfg(feature = "density")]
+#[cfg_attr(docsrs, doc(cfg(feature = "density")))]
 pub use density::DensityRegion;
 
 // Re-exports: Spherical embeddings
+#[cfg(feature = "spherical")]
+#[cfg_attr(docsrs, doc(cfg(feature = "spherical")))]
 pub use spherical::{SphericalEmbedding, SphericalPoint, SphericalRelation};
 
 // Re-exports: Density matrix EL++ training
-#[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
-#[cfg(feature = "rand")]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "rand", feature = "density"))))]
+#[cfg(all(feature = "rand", feature = "density"))]
 pub use density_el::{
     disjointness_loss_density, nf1_loss_density, train_density_el, DensityElConfig, DensityElResult,
 };
@@ -363,4 +373,6 @@ pub mod petgraph_adapter;
 ///
 /// Converts lattix KGs (loaded from N-Triples, Turtle, CSV, JSON-LD)
 /// into subsume datasets for training.
+#[cfg(feature = "lattix")]
+#[cfg_attr(docsrs, doc(cfg(feature = "lattix")))]
 pub mod lattix_bridge;
