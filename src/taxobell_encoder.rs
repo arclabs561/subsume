@@ -649,11 +649,11 @@ pub fn train_taxobell(
         // Anchor/positive indices: repeat each edge's child/parent n_neg times.
         let anchor_indices: Vec<u32> = child_indices
             .iter()
-            .flat_map(|&idx| std::iter::repeat(idx).take(n_neg))
+            .flat_map(|&idx| std::iter::repeat_n(idx, n_neg))
             .collect();
         let pos_indices: Vec<u32> = parent_indices
             .iter()
-            .flat_map(|&idx| std::iter::repeat(idx).take(n_neg))
+            .flat_map(|&idx| std::iter::repeat_n(idx, n_neg))
             .collect();
 
         // --- Forward pass: encode all nodes once ---
