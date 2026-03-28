@@ -2,7 +2,7 @@
 # https://github.com/repository-settings/app
 
 repository:
-  description: "Geometric box embeddings for containment, entailment, and hierarchical relationship representation"
+  description: "Region embeddings for entailment and set containment"
   homepage: "https://docs.rs/subsume-core"
   private: false
   has_issues: true
