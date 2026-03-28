@@ -1150,19 +1150,6 @@ mod tests {
         }
     }
 
-    #[test]
-    #[allow(unused_variables)] // empty_boxes documents the test structure
-    fn test_evaluate_link_prediction_basic() {
-        // This test requires a backend implementation
-        // We'll test the logic with a mock, but full integration test should be in backend tests
-        // For now, just verify the function signature and error handling
-
-        // Test with empty triples
-        let _empty_boxes: HashMap<String, ()> = HashMap::new();
-        // Can't actually call evaluate_link_prediction without a Box implementation
-        // This test documents the need for integration tests in backend modules
-        // Full integration tests are in subsume/src/trainer_integration_tests.rs
-    }
 
     // -----------------------------------------------------------------------
     // evaluate_link_prediction with NdarrayBox
