@@ -383,13 +383,13 @@ fn cone_training_convergence() {
 
     let avg_parent_aper: f32 = parent_ids
         .iter()
-        .map(|&id| trainer.cones[&id].mean_aperture())
+        .map(|&id| trainer.cones()[&id].mean_aperture())
         .sum::<f32>()
         / parent_ids.len() as f32;
 
     let avg_child_aper: f32 = child_ids
         .iter()
-        .map(|&id| trainer.cones[&id].mean_aperture())
+        .map(|&id| trainer.cones()[&id].mean_aperture())
         .sum::<f32>()
         / child_ids.len() as f32;
 

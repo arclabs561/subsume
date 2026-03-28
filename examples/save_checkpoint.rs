@@ -170,11 +170,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         checkpoint.len(),
         checkpoint.len() as f64 / 1024.0
     );
-    println!("  Entities: {}", trainer.boxes.len());
+    println!("  Entities: {}", trainer.boxes().len());
 
     // --- Verify round-trip ---
     let reloaded: BoxEmbeddingTrainer = serde_json::from_str(&checkpoint)?;
-    assert_eq!(reloaded.boxes.len(), trainer.boxes.len());
+    assert_eq!(reloaded.boxes().len(), trainer.boxes().len());
     println!("  Round-trip: OK");
 
     Ok(())

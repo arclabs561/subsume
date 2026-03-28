@@ -19,27 +19,51 @@ use std::f32::consts::PI;
 /// GPU-accelerated cone embedding trainer.
 pub struct CandleConeTrainer {
     /// Entity axis angles: `[num_entities, dim]`.
-    pub axes: Var,
+    pub(crate) axes: Var,
     /// Entity raw apertures: `[num_entities, dim]` (sigmoid * pi -> actual apertures).
-    pub raw_apertures: Var,
+    pub(crate) raw_apertures: Var,
     /// Per-relation axis translation offsets: `[num_relations, dim]`.
-    pub rel_offset: Option<Var>,
+    pub(crate) rel_offset: Option<Var>,
     /// Embedding dimension.
-    pub dim: usize,
+    pub(crate) dim: usize,
     /// Number of entities.
-    pub num_entities: usize,
+    pub(crate) num_entities: usize,
     /// Number of relations.
-    pub num_relations: usize,
+    pub(crate) num_relations: usize,
     /// Inside-distance weight (ConE default: 0.02).
-    pub cen: f32,
+    pub(crate) cen: f32,
     /// Trainable distance modulus (scales the raw distance).
     /// ConE uses this to adapt the distance scale during training.
-    pub modulus: Var,
+    pub(crate) modulus: Var,
     /// Device.
-    pub device: Device,
+    pub(crate) device: Device,
 }
 
 impl CandleConeTrainer {
+    /// Embedding dimension.
+    #[must_use]
+    pub fn dim(&self) -> usize {
+        self.dim
+    }
+
+    /// Number of entities.
+    #[must_use]
+    pub fn num_entities(&self) -> usize {
+        self.num_entities
+    }
+
+    /// Number of relations.
+    #[must_use]
+    pub fn num_relations(&self) -> usize {
+        self.num_relations
+    }
+
+    /// Reference to the device.
+    #[must_use]
+    pub fn device(&self) -> &Device {
+        &self.device
+    }
+
     /// Create a new cone trainer.
     ///
     /// Axes initialized uniform in [-pi, pi], apertures initialized to mid-range.

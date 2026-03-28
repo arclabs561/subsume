@@ -395,27 +395,59 @@ pub fn compute_analytical_gradients(
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct BoxEmbeddingTrainer {
     /// Training configuration.
-    pub config: TrainingConfig,
+    pub(crate) config: TrainingConfig,
     /// Learned box embeddings per entity.
-    pub boxes: HashMap<usize, TrainableBox>,
+    pub(crate) boxes: HashMap<usize, TrainableBox>,
     /// AMSGrad optimizer state per entity.
-    pub optimizer_states: HashMap<usize, AMSGradState>,
+    pub(crate) optimizer_states: HashMap<usize, AMSGradState>,
     /// Embedding dimension.
-    pub dim: usize,
+    pub(crate) dim: usize,
     /// Current softplus beta (steepness), annealed from `config.softplus_beta` to
     /// `config.softplus_beta_final` across epochs in `fit()`.
-    pub current_beta: f32,
+    pub(crate) current_beta: f32,
     /// Learned per-relation translation vectors (relation_id -> Vec<f32> of length `dim`).
     /// Applied to head box before containment scoring. Initialized to zeros.
     #[serde(default)]
-    pub relation_translations: HashMap<usize, Vec<f32>>,
+    pub(crate) relation_translations: HashMap<usize, Vec<f32>>,
     /// AMSGrad optimizer state for per-relation translation vectors.
     #[serde(default)]
-    pub relation_optimizer_states: HashMap<usize, AMSGradState>,
+    pub(crate) relation_optimizer_states: HashMap<usize, AMSGradState>,
     /// Cached per-relation cardinality statistics for Bernoulli negative sampling.
     /// Computed from training triples when `config.bernoulli_sampling` is true.
     #[serde(skip)]
     pub(crate) relation_cardinalities: HashMap<usize, RelationCardinality>,
+}
+
+impl BoxEmbeddingTrainer {
+    /// Embedding dimension.
+    #[must_use]
+    pub fn dim(&self) -> usize {
+        self.dim
+    }
+
+    /// Training configuration.
+    #[must_use]
+    pub fn config(&self) -> &TrainingConfig {
+        &self.config
+    }
+
+    /// Current softplus beta (steepness).
+    #[must_use]
+    pub fn current_beta(&self) -> f32 {
+        self.current_beta
+    }
+
+    /// Learned box embeddings per entity.
+    #[must_use]
+    pub fn boxes(&self) -> &HashMap<usize, TrainableBox> {
+        &self.boxes
+    }
+
+    /// Learned per-relation translation vectors.
+    #[must_use]
+    pub fn relation_translations(&self) -> &HashMap<usize, Vec<f32>> {
+        &self.relation_translations
+    }
 }
 
 impl BoxEmbeddingTrainer {
