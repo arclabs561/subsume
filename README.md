@@ -10,52 +10,15 @@ Region embeddings for entailment and set containment.
 
 *(a) Containment: nested boxes encode taxonomic is-a relationships. (b) Gumbel soft boundary: temperature controls membership sharpness. (c) Octagon: diagonal constraints cut corners for tighter volume bounds.*
 
-## What it provides
+## Geometries
 
-### Geometric primitives
+Boxes, Gumbel boxes, cones, octagons, Gaussians, and hyperbolic intervals. Each
+implements containment probability, volume, intersection, and distance. CPU
+backend via ndarray, GPU via candle (`features = ["candle-backend"]` or `["cuda"]`).
 
-| Component | What it does |
-|---|---|
-| `Box` trait | Axis-aligned hyperrectangle: volume, containment, overlap, distance |
-| `NdarrayGumbelBox` / `CandleGumbelBox` | Probabilistic boxes via Gumbel random variables (dense gradients, no flat regions; Dasgupta et al., 2020) |
-| `NdarrayCone` | Angular cones in d-dimensional space: containment via aperture, closed under negation (Zhang & Wang, NeurIPS 2021) |
-| `NdarrayOctagon` | Axis-aligned polytopes with diagonal constraints; tighter volume bounds than boxes (Charpenay & Schockaert, IJCAI 2024) |
-| `gaussian` | Diagonal Gaussian boxes: KL divergence (asymmetric containment) and Bhattacharyya coefficient (symmetric overlap) |
-| `hyperbolic` | Poincare ball embeddings and hyperbolic box intervals (via `hyperball`; requires `hyperbolic` feature) |
-| `sheaf` | Sheaf diffusion primitives: stalks, restriction maps, Laplacian (Hansen & Ghrist 2019; Bodnar et al., ICLR 2022; requires `sheaf` feature) |
-
-### Scoring and query answering
-
-| Component | What it does |
-|---|---|
-| `distance` | Query2Box alpha-weighted point-to-box distance (Ren et al., 2020); depth-based (RegD) and boundary distances in backend modules |
-| `fuzzy` | Fuzzy t-norms/t-conorms for logical query answering (FuzzQE, Chen et al., AAAI 2022) |
-| `el` | EL++ ontology embedding: inclusion, intersection (NF1), existential, role chain losses (Box2EL/TransBox) |
-| `el_dataset` | EL++ normalized axiom loader (GALEN, Gene Ontology, Anatomy formats) |
-
-### Taxonomy and training
-
-| Component | What it does |
-|---|---|
-| `taxonomy` | TaxoBell-format dataset loader: `.terms`/`.taxo` parsing, train/val/test splitting |
-| `taxobell` | TaxoBell combined loss: Bhattacharyya triplet + KL containment + volume regularization + sigma clipping |
-| `BoxEmbeddingTrainer` | CPU trainer with analytical gradients, AMSGrad, Bernoulli negative sampling |
-| `CandleBoxTrainer` | GPU trainer with AdamW autograd, cosine LR, self-adversarial NS, inside distance (BoxE-style), volume regularization, filtered evaluation |
-| Evaluation | MRR, Hits@k, Mean Rank (filtered, head + tail prediction) |
-| `lattix_bridge` | Load ontologies from N-Triples, Turtle, CSV, JSON-LD via [`lattix`](https://crates.io/crates/lattix) (optional) |
-| `rankops` | Rank fusion (RRF, CombMNZ), IR evaluation (nDCG, MAP) via [`rankops`](https://crates.io/crates/rankops) (optional) |
-
-### Backends
-
-| Component | What it does |
-|---|---|
-| `NdarrayBox` / `NdarrayGumbelBox` / `NdarrayCone` / `NdarrayOctagon` | CPU backend using `ndarray::Array1<f32>` |
-| `CandleBox` / `CandleGumbelBox` | GPU/Metal backend using `candle_core::Tensor` |
-| `CandleBoxTrainer` | GPU training loop: AdamW + autograd, log-sigmoid loss, per-relation translations |
-
-The ndarray backend has full geometry support. The candle backend provides
-GPU-accelerated box operations and a complete training loop. Enable with
-`features = ["candle-backend"]` or `features = ["cuda"]` for CUDA GPU support.
+Scoring: Query2Box distance, fuzzy t-norms for logical queries, EL++ ontology
+losses (Box2EL/TransBox). Training: CPU trainer with analytical gradients or
+GPU trainer with AdamW autograd. Evaluation: MRR, Hits@k, Mean Rank (filtered).
 
 ## Usage
 
@@ -137,27 +100,13 @@ are `(child, hypernym, parent)`, pass `reverse=True` to `from_triples` or
 ## Examples
 
 ```bash
-cargo run -p subsume --example containment_hierarchy    # taxonomic is-a relationships with nested boxes
-cargo run -p subsume --example gumbel_box_exploration   # Gumbel boxes, soft containment, temperature effects
-cargo run -p subsume --example cone_training            # training cone embeddings on a taxonomy
-cargo run -p subsume --example box_training             # training box embeddings on a 25-entity taxonomy
-cargo run -p subsume --example taxobell_demo            # TaxoBell Gaussian box losses on a mini taxonomy
-cargo run -p subsume --example query2box                # Query2Box: multi-hop queries, box intersection, distance scoring
-cargo run -p subsume --example octagon_demo             # octagon embeddings: diagonal constraints, containment, volume
-cargo run -p subsume --example fuzzy_query              # fuzzy query answering: t-norms, De Morgan duality, rankings
-cargo run -p subsume --example dataset_training --release # full pipeline: WN18RR-format data, train, evaluate
-cargo run -p subsume --example imagenet_hierarchy --release # 252 Tiny ImageNet synsets, volume-depth correlation
-cargo run -p subsume --example save_checkpoint --release           # generate pretrained/wordnet_subset.json checkpoint
-cargo run -p subsume --features hyperbolic --example hyperbolic_demo  # Poincare ball: hierarchy preservation, exponential capacity
-cargo run -p subsume --example wn18rr_training --release  # WN18RR benchmark: 40K entities, 20 epochs
-cargo run -p subsume --example el_training              # EL++ box embeddings on a biomedical-style ontology
-cargo run -p subsume --example gene_ontology --release  # Gene Ontology EL++ axioms: NF1-NF4, subsumption inference
-cargo run -p subsume --example cone_query_answering     # FOL queries with cones: AND, OR, NOT, projection
-cargo run -p subsume --features candle-backend --example taxobell_training  # TaxoBell MLP encoder training (Candle)
-cargo run -p subsume --features candle-backend --example wn18rr_candle --release  # WN18RR GPU training + filtered eval
+cargo run -p subsume --example box_training             # train box embeddings on a 25-entity taxonomy
+cargo run -p subsume --example dataset_training --release # full pipeline: WN18RR data, train, evaluate
+cargo run -p subsume --example el_training              # EL++ ontology embedding
 ```
 
-See [`examples/README.md`](examples/README.md) for a guide to choosing the right example.
+18 examples total covering all geometries, training modes, and query types.
+See [`examples/README.md`](examples/README.md) for the full list.
 
 ## Tests
 
@@ -366,10 +315,6 @@ See `examples/README.md` for all available examples.
 - Mashkova et al. (2024). "DELE: Deductive EL++ Embeddings for Knowledge Base Completion"
 - Yang & Chen (2025). "Achieving Hyperbolic-Like Expressiveness with Arbitrary Euclidean Regions"
 - Mishra et al. (2026). "TaxoBell: Gaussian Box Embeddings for Self-Supervised Taxonomy Expansion" (WWW '26)
-
-## See also
-
-- [`hyperball`](https://crates.io/crates/hyperball) -- hyperbolic geometry primitives (optional; requires `hyperbolic` feature for Poincare ball embeddings)
 
 ## License
 
