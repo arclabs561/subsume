@@ -200,6 +200,12 @@ pub mod gaussian;
 /// Reference: Garg et al. (2019), "Quantum Embedding of Knowledge for Reasoning" (NeurIPS).
 pub mod density;
 
+/// Spherical knowledge graph embeddings on the unit sphere.
+///
+/// Entities are points on `S^{d-1}` (unit vectors). Relations are axis-angle
+/// rotations. Scoring uses geodesic (great-circle) distance.
+pub mod spherical;
+
 /// Density matrix EL++ training losses: NF1-NF4 and disjointness losses
 /// using fidelity-based scoring on pure-state density matrices.
 #[cfg(feature = "rand")]
@@ -297,6 +303,9 @@ pub use gaussian::GaussianBox;
 
 // Re-exports: Density matrix embeddings
 pub use density::DensityRegion;
+
+// Re-exports: Spherical embeddings
+pub use spherical::{SphericalEmbedding, SphericalPoint, SphericalRelation};
 
 // Re-exports: Density matrix EL++ training
 #[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
