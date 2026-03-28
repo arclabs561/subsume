@@ -134,13 +134,33 @@ pub fn compute_cone_analytical_gradients(
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct ConeEmbeddingTrainer {
     /// Training configuration (shared with box trainer).
-    pub config: TrainingConfig,
+    pub(crate) config: TrainingConfig,
     /// Entity ID -> TrainableCone mapping.
-    pub cones: HashMap<usize, TrainableCone>,
+    pub(crate) cones: HashMap<usize, TrainableCone>,
     /// Entity ID -> AMSGradState mapping.
-    pub optimizer_states: HashMap<usize, AMSGradState>,
+    pub(crate) optimizer_states: HashMap<usize, AMSGradState>,
     /// Embedding dimension.
-    pub dim: usize,
+    pub(crate) dim: usize,
+}
+
+impl ConeEmbeddingTrainer {
+    /// Embedding dimension.
+    #[must_use]
+    pub fn dim(&self) -> usize {
+        self.dim
+    }
+
+    /// Training configuration.
+    #[must_use]
+    pub fn config(&self) -> &TrainingConfig {
+        &self.config
+    }
+
+    /// Entity cone embeddings.
+    #[must_use]
+    pub fn cones(&self) -> &HashMap<usize, TrainableCone> {
+        &self.cones
+    }
 }
 
 impl ConeEmbeddingTrainer {

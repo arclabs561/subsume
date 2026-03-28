@@ -209,14 +209,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "\nCheckpoint: {} bytes (serialized {} entity boxes + optimizer state)",
         checkpoint.len(),
-        trainer.boxes.len()
+        trainer.boxes().len()
     );
 
     let restored: BoxEmbeddingTrainer = serde_json::from_str(&checkpoint)?;
-    assert_eq!(restored.boxes.len(), trainer.boxes.len());
+    assert_eq!(restored.boxes().len(), trainer.boxes().len());
     println!(
         "Checkpoint round-trip: OK ({} entities restored)",
-        restored.boxes.len()
+        restored.boxes().len()
     );
 
     Ok(())
