@@ -3,7 +3,7 @@
 
 repository:
   description: "Region embeddings for entailment and set containment"
-  homepage: "https://docs.rs/subsume-core"
+  homepage: "https://docs.rs/subsume"
   private: false
   has_issues: true
   has_wiki: false

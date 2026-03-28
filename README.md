@@ -22,7 +22,7 @@ Region embeddings for entailment and set containment.
 | `NdarrayOctagon` | Axis-aligned polytopes with diagonal constraints; tighter volume bounds than boxes (Charpenay & Schockaert, IJCAI 2024) |
 | `gaussian` | Diagonal Gaussian boxes: KL divergence (asymmetric containment) and Bhattacharyya coefficient (symmetric overlap) |
 | `hyperbolic` | Poincare ball embeddings and hyperbolic box intervals (via `hyperball`; requires `hyperbolic` feature) |
-| `sheaf` | Sheaf diffusion primitives: stalks, restriction maps, Laplacian (Hansen & Ghrist 2019; Bodnar et al., ICLR 2022) |
+| `sheaf` | Sheaf diffusion primitives: stalks, restriction maps, Laplacian (Hansen & Ghrist 2019; Bodnar et al., ICLR 2022; requires `sheaf` feature) |
 
 ### Scoring and query answering
 
