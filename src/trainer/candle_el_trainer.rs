@@ -25,33 +25,100 @@ use crate::el_training::{Axiom, Ontology};
 /// transformations that make centers discriminative for subsumption ranking.
 pub struct CandleElTrainer {
     /// Concept centers: `[num_concepts, dim]`.
-    pub concept_centers: Var,
+    pub(crate) concept_centers: Var,
     /// Concept raw offsets: `[num_concepts, dim]` (abs applied at use).
-    pub concept_offsets: Var,
+    pub(crate) concept_offsets: Var,
     /// Per-concept bump translations: `[num_concepts, dim]`.
     ///
     /// Used in NF3/NF4: concept C is bumped by D's bump vector before
     /// checking inclusion in the role box. This creates directional
     /// subsumption encoding (Box2EL's key architectural contribution).
-    pub bumps: Var,
+    pub(crate) bumps: Var,
     /// Role head boxes: `[num_roles, dim*2]` (center + offset).
-    pub role_heads: Var,
+    pub(crate) role_heads: Var,
     /// Role tail boxes: `[num_roles, dim*2]` (center + offset).
-    pub role_tails: Var,
+    pub(crate) role_tails: Var,
     /// Embedding dimension.
-    pub dim: usize,
+    pub(crate) dim: usize,
     /// Number of concepts.
-    pub num_concepts: usize,
+    pub(crate) num_concepts: usize,
     /// Number of roles.
-    pub num_roles: usize,
+    pub(crate) num_roles: usize,
     /// Margin for inclusion loss.
-    pub margin: f32,
+    pub(crate) margin: f32,
     /// Target separation distance for negatives.
-    pub neg_dist: f32,
+    pub(crate) neg_dist: f32,
     /// Weight for NF4 negative sampling loss (0.0 disables, default 1.0).
-    pub nf4_neg_weight: f32,
+    pub(crate) nf4_neg_weight: f32,
     /// Device.
-    pub device: Device,
+    pub(crate) device: Device,
+}
+
+impl CandleElTrainer {
+    /// Embedding dimension.
+    #[must_use]
+    pub fn dim(&self) -> usize {
+        self.dim
+    }
+
+    /// Number of concepts.
+    #[must_use]
+    pub fn num_concepts(&self) -> usize {
+        self.num_concepts
+    }
+
+    /// Number of roles.
+    #[must_use]
+    pub fn num_roles(&self) -> usize {
+        self.num_roles
+    }
+
+    /// Weight for NF4 negative sampling loss (0.0 disables).
+    #[must_use]
+    pub fn nf4_neg_weight(&self) -> f32 {
+        self.nf4_neg_weight
+    }
+
+    /// Set the NF4 negative sampling weight.
+    pub fn set_nf4_neg_weight(&mut self, w: f32) {
+        self.nf4_neg_weight = w;
+    }
+
+    /// Reference to the device.
+    #[must_use]
+    pub fn device(&self) -> &Device {
+        &self.device
+    }
+
+    /// Concept centers tensor: `[num_concepts, dim]`.
+    #[must_use]
+    pub fn concept_centers(&self) -> &Var {
+        &self.concept_centers
+    }
+
+    /// Concept raw offsets tensor: `[num_concepts, dim]` (abs applied at use).
+    #[must_use]
+    pub fn concept_offsets(&self) -> &Var {
+        &self.concept_offsets
+    }
+
+    /// Per-concept bump translations tensor: `[num_concepts, dim]`.
+    #[must_use]
+    pub fn bumps(&self) -> &Var {
+        &self.bumps
+    }
+
+    /// Role head boxes tensor: `[num_roles, dim*2]` (center + offset).
+    #[must_use]
+    pub fn role_heads(&self) -> &Var {
+        &self.role_heads
+    }
+
+    /// Role tail boxes tensor: `[num_roles, dim*2]` (center + offset).
+    #[must_use]
+    pub fn role_tails(&self) -> &Var {
+        &self.role_tails
+    }
 }
 
 impl CandleElTrainer {
@@ -253,7 +320,7 @@ impl CandleElTrainer {
 
         let nc = self.num_concepts;
         let mut epoch_losses = Vec::with_capacity(epochs);
-        let mut rng: u64 = 42;
+        let mut master_rng: u64 = 42;
         let lcg = |s: &mut u64| -> usize {
             *s = s
                 .wrapping_mul(6364136223846793005)
@@ -263,6 +330,13 @@ impl CandleElTrainer {
 
         let lr_min = lr * 0.01;
         for epoch in 0..epochs {
+            // Branch RNG per NF type so adding/removing random calls in one
+            // NF section doesn't shift the trajectory for other sections.
+            let mut rng_nf2 = master_rng.wrapping_add(1);
+            let mut rng_nf1 = master_rng.wrapping_add(2);
+            let mut rng_nf3 = master_rng.wrapping_add(3);
+            let mut rng_nf4 = master_rng.wrapping_add(4);
+            lcg(&mut master_rng); // advance master for next epoch
             // Cosine LR decay (helps convergence even though Box2EL uses constant)
             let progress = epoch as f64 / epochs.max(1) as f64;
             let current_lr =
@@ -278,7 +352,7 @@ impl CandleElTrainer {
                 let mut sub_ids = Vec::with_capacity(bs);
                 let mut sup_ids = Vec::with_capacity(bs);
                 for _ in 0..bs {
-                    let idx = lcg(&mut rng) % nf2_axioms.len();
+                    let idx = lcg(&mut rng_nf2) % nf2_axioms.len();
                     let (s, d) = nf2_axioms[idx];
                     sub_ids.push(s as u32);
                     sup_ids.push(d as u32);
@@ -298,7 +372,7 @@ impl CandleElTrainer {
                 // Negative: Box2EL disjointness target
                 let mut neg_loss_sum = Tensor::zeros((), candle_core::DType::F32, &self.device)?;
                 for _ in 0..negative_samples {
-                    let neg_ids: Vec<u32> = (0..bs).map(|_| (lcg(&mut rng) % nc) as u32).collect();
+                    let neg_ids: Vec<u32> = (0..bs).map(|_| (lcg(&mut rng_nf2) % nc) as u32).collect();
                     let neg_t = Tensor::from_vec(neg_ids, (bs,), &self.device)?;
                     let (c_neg, o_neg) = self.concept_boxes(&neg_t)?;
                     let disj =
@@ -320,7 +394,7 @@ impl CandleElTrainer {
                 let mut c2_ids = Vec::with_capacity(bs);
                 let mut d_ids = Vec::with_capacity(bs);
                 for _ in 0..bs {
-                    let idx = lcg(&mut rng) % nf1_axioms.len();
+                    let idx = lcg(&mut rng_nf1) % nf1_axioms.len();
                     let (c1, c2, d) = nf1_axioms[idx];
                     c1_ids.push(c1 as u32);
                     c2_ids.push(c2 as u32);
@@ -366,7 +440,7 @@ impl CandleElTrainer {
                 let mut role_ids = Vec::with_capacity(bs);
                 let mut filler_ids = Vec::with_capacity(bs);
                 for _ in 0..bs {
-                    let idx = lcg(&mut rng) % nf3_axioms.len();
+                    let idx = lcg(&mut rng_nf3) % nf3_axioms.len();
                     let (s, r, f) = nf3_axioms[idx];
                     sub_ids.push(s as u32);
                     role_ids.push(r as u32);
@@ -411,7 +485,7 @@ impl CandleElTrainer {
                 for _ in 0..negative_samples {
                     // Corrupt tail (D): keep C, replace D with random
                     let neg_tail_ids: Vec<u32> =
-                        (0..bs).map(|_| (lcg(&mut rng) % nc) as u32).collect();
+                        (0..bs).map(|_| (lcg(&mut rng_nf3) % nc) as u32).collect();
                     let neg_tail_t = Tensor::from_vec(neg_tail_ids, (bs,), &self.device)?;
                     let bump_neg_tail = self.concept_bumps(&neg_tail_t)?;
 
@@ -426,7 +500,7 @@ impl CandleElTrainer {
 
                     // Corrupt head (C): keep D, replace C with random
                     let neg_head_ids: Vec<u32> =
-                        (0..bs).map(|_| (lcg(&mut rng) % nc) as u32).collect();
+                        (0..bs).map(|_| (lcg(&mut rng_nf3) % nc) as u32).collect();
                     let neg_head_t = Tensor::from_vec(neg_head_ids, (bs,), &self.device)?;
                     let (c_neg_head, o_neg_head) = self.concept_boxes(&neg_head_t)?;
 
@@ -458,7 +532,7 @@ impl CandleElTrainer {
                 let mut filler_ids = Vec::with_capacity(bs);
                 let mut target_ids = Vec::with_capacity(bs);
                 for _ in 0..bs {
-                    let idx = lcg(&mut rng) % nf4_axioms.len();
+                    let idx = lcg(&mut rng_nf4) % nf4_axioms.len();
                     let (r, f, t) = nf4_axioms[idx];
                     role_ids.push(r as u32);
                     filler_ids.push(f as u32);
@@ -495,7 +569,7 @@ impl CandleElTrainer {
                     for _ in 0..negative_samples {
                         // Corrupt target (D): keep role+filler, replace D with random
                         let neg_target_ids: Vec<u32> =
-                            (0..bs).map(|_| (lcg(&mut rng) % nc) as u32).collect();
+                            (0..bs).map(|_| (lcg(&mut rng_nf4) % nc) as u32).collect();
                         let neg_target_t = Tensor::from_vec(neg_target_ids, (bs,), &self.device)?;
                         let (c_neg_target, o_neg_target) = self.concept_boxes(&neg_target_t)?;
 
@@ -509,7 +583,7 @@ impl CandleElTrainer {
 
                         // Corrupt filler (C): keep role+target, replace C with random
                         let neg_filler_ids: Vec<u32> =
-                            (0..bs).map(|_| (lcg(&mut rng) % nc) as u32).collect();
+                            (0..bs).map(|_| (lcg(&mut rng_nf4) % nc) as u32).collect();
                         let neg_filler_t = Tensor::from_vec(neg_filler_ids, (bs,), &self.device)?;
                         let bump_neg_filler = self.concept_bumps(&neg_filler_t)?;
                         let c_head_neg_shifted = c_head.sub(&bump_neg_filler)?;
