@@ -14,7 +14,7 @@
 //!
 //! After each gradient step, entity and relation-axis vectors must be
 //! projected back to the unit sphere via L2 normalization
-//! ([`project_to_sphere`]).
+//! (`project_to_sphere`).
 //!
 //! # References
 //!
