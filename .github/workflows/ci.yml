@@ -30,7 +30,7 @@ jobs:
         run: cargo test --features "ndarray-backend,candle-backend,rand,sheaf,rankops,petgraph"
 
       - name: Doc
-        run: cargo doc --features "ndarray-backend,candle-backend,rand,sheaf,rankops,petgraph" --no-deps
+        run: cargo doc --features "ndarray-backend,candle-backend,rand,sheaf,rankops,petgraph,lattix,spherical,density,hyperbolic" --no-deps
         env:
           RUSTDOCFLAGS: -Dwarnings
 
