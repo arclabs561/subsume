@@ -1,7 +1,7 @@
 //! Knowledge graph dataset loading and interning.
 //!
-//! Core types ([`Triple`], [`Dataset`], [`InternedDataset`], [`Vocab`], [`TripleIds`])
-//! and loading functions ([`load_dataset`]) are provided by [`lattix::kge`] and
+//! Core types (`Triple`, `Dataset`, `InternedDataset`, `Vocab`, `TripleIds`)
+//! and loading functions (`load_dataset`) are provided by `lattix::kge` and
 //! re-exported here. This module adds subsume-specific extensions.
 
 // Re-export everything from lattix::kge

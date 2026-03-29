@@ -1,6 +1,6 @@
 //! Composable cone query operators for first-order logical query answering.
 //!
-//! Provides a query algebra over [`NdarrayCone`] embeddings supporting
+//! Provides a query algebra over [`NdarrayCone`](crate::ndarray_backend::NdarrayCone) embeddings supporting
 //! conjunction (intersection), disjunction (union), negation (complement),
 //! and relation projection -- the four operators for answering FOL queries
 //! over knowledge graphs.
@@ -15,7 +15,7 @@ use crate::ndarray_backend::NdarrayCone;
 
 /// A composable first-order logic query over cone embeddings.
 ///
-/// Queries form a tree that evaluates bottom-up to produce [`NdarrayCone`] results.
+/// Queries form a tree that evaluates bottom-up to produce [`NdarrayCone`](crate::ndarray_backend::NdarrayCone) results.
 #[derive(Debug, Clone)]
 pub enum ConeQuery {
     /// A leaf node: a single cone (entity or concept embedding).
