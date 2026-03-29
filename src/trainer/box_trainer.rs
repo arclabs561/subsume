@@ -405,7 +405,7 @@ pub struct BoxEmbeddingTrainer {
     /// Current softplus beta (steepness), annealed from `config.softplus_beta` to
     /// `config.softplus_beta_final` across epochs in `fit()`.
     pub(crate) current_beta: f32,
-    /// Learned per-relation translation vectors (relation_id -> Vec<f32> of length `dim`).
+    /// Learned per-relation translation vectors (relation_id -> `Vec<f32>` of length `dim`).
     /// Applied to head box before containment scoring. Initialized to zeros.
     #[serde(default)]
     pub(crate) relation_translations: HashMap<usize, Vec<f32>>,
