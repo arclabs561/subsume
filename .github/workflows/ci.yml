@@ -29,6 +29,11 @@ jobs:
       - name: Test
         run: cargo test --features "ndarray-backend,candle-backend,rand,sheaf,rankops,petgraph"
 
+      - name: Doc
+        run: cargo doc --features "ndarray-backend,candle-backend,rand,sheaf,rankops,petgraph" --no-deps
+        env:
+          RUSTDOCFLAGS: -Dwarnings
+
   python:
     name: Python bindings
     runs-on: ubuntu-latest
