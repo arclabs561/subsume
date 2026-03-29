@@ -18,7 +18,7 @@
 //! | Fuzzy query answering (t-norms) | [`fuzzy::TNorm`], [`fuzzy::TConorm`], [`fuzzy`] module |
 //! | Load a knowledge graph dataset | [`Dataset`], [`Triple`] |
 //! | Train box embeddings (CPU) | [`BoxEmbeddingTrainer`], [`TrainingConfig`] |
-//! | Train box embeddings (GPU) | [`CandleBoxTrainer`](trainer::candle_trainer::CandleBoxTrainer) (feature = `candle-backend`) |
+//! | Train box embeddings (GPU) | [`CandleBoxTrainer`] (feature = `candle-backend`) |
 //! | Evaluate with link prediction | [`evaluate_link_prediction`], [`CandleBoxTrainer::evaluate`](trainer::candle_trainer::CandleBoxTrainer::evaluate) |
 //!
 //! # Why regions instead of points?
@@ -77,7 +77,7 @@
 //! - [`dataset`] -- load WN18RR, FB15k-237, YAGO3-10, and similar KG datasets
 //! - [`trainable`] -- [`trainable::TrainableBox`] and [`trainable::TrainableCone`] with learnable parameters
 //! - [`trainer`] -- negative sampling, loss computation, link prediction evaluation.
-//!   Includes [`CandleBoxTrainer`](trainer::candle_trainer::CandleBoxTrainer) for GPU training
+//!   Includes [`CandleBoxTrainer`] for GPU training
 //!   with AdamW, cosine LR, self-adversarial NS, and filtered evaluation.
 //! - [`metrics`] -- rank-based metrics (MRR, Hits@k, Mean Rank)
 //! - [`optimizer`] -- AMSGrad state management
