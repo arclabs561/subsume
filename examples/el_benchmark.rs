@@ -8,7 +8,7 @@
 //!
 //! Environment variables:
 //!   DIM=200 EPOCHS=300 LR=0.01 MARGIN=0.15 NEG_DIST=5 REG_FACTOR=0.4
-//!   NEG_SAMPLES=1 BACKEND=ndarray|candle BATCH=512
+//!   NEG_SAMPLES=1 BACKEND=ndarray|candle BATCH=512 COMPARE_EVAL=1
 //!
 //! Expects train.tsv + test.tsv in the data directory (Box2EL TSV format).
 //! Convert from Box2EL numpy with: uv run scripts/convert_box2el.py
@@ -227,6 +227,43 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 test_nf4.len(),
                 eval_start.elapsed().as_secs_f64()
             );
+        }
+
+        // Optional: compare center-distance vs inclusion-based evaluation
+        if std::env::var("COMPARE_EVAL").is_ok() {
+            println!("\n=== Inclusion-based evaluation (uses box offsets) ===");
+
+            if !test_nf2.is_empty() {
+                let n = test_nf2.len().min(eval_cap);
+                let (h1, h10, mrr) = trainer.evaluate_subsumption_by_inclusion(&test_nf2[..n])?;
+                println!(
+                    "NF2 inclusion:       {n} axioms  MRR={mrr:.4}  H@1={h1:.4}  H@10={h10:.4}"
+                );
+            }
+
+            if !test_nf1.is_empty() {
+                let n = test_nf1.len().min(eval_cap);
+                let (h1, h10, mrr) = trainer.evaluate_nf1_by_inclusion(&test_nf1[..n])?;
+                println!(
+                    "NF1 inclusion:       {n} axioms  MRR={mrr:.4}  H@1={h1:.4}  H@10={h10:.4}"
+                );
+            }
+
+            if !test_nf3.is_empty() {
+                let n = test_nf3.len().min(eval_cap);
+                let (h1, h10, mrr) = trainer.evaluate_nf3_by_inclusion(&test_nf3[..n])?;
+                println!(
+                    "NF3 inclusion:       {n} axioms  MRR={mrr:.4}  H@1={h1:.4}  H@10={h10:.4}"
+                );
+            }
+
+            if !test_nf4.is_empty() {
+                let n = test_nf4.len().min(eval_cap);
+                let (h1, h10, mrr) = trainer.evaluate_nf4_by_inclusion(&test_nf4[..n])?;
+                println!(
+                    "NF4 inclusion:       {n} axioms  MRR={mrr:.4}  H@1={h1:.4}  H@10={h10:.4}"
+                );
+            }
         }
 
         return Ok(());
