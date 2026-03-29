@@ -1002,6 +1002,467 @@ impl CandleElTrainer {
         ))
     }
 
+    /// Evaluate subsumption (NF2: C ⊑ D) by inclusion loss ranking.
+    ///
+    /// For each test pair (C, D), ranks all concepts by inclusion loss
+    /// `inclusion_loss(C, candidate)` (lower = better containment) instead
+    /// of center L2 distance. This uses learned box widths in addition to centers.
+    pub fn evaluate_subsumption_by_inclusion(
+        &self,
+        test_axioms: &[(usize, usize)],
+    ) -> Result<(f32, f32, f32)> {
+        let centers: Vec<f32> = self
+            .concept_centers
+            .as_tensor()
+            .to_vec2::<f32>()?
+            .into_iter()
+            .flatten()
+            .collect();
+        let offsets: Vec<f32> = self
+            .concept_offsets
+            .as_tensor()
+            .abs()?
+            .to_vec2::<f32>()?
+            .into_iter()
+            .flatten()
+            .collect();
+        let nc = self.num_concepts;
+        let dim = self.dim;
+        let margin = self.margin;
+
+        let mut hits1 = 0usize;
+        let mut hits10 = 0usize;
+        let mut rr_sum = 0.0f32;
+        let mut total = 0usize;
+
+        for &(sub, sup) in test_axioms {
+            if sub >= nc || sup >= nc {
+                continue;
+            }
+            let sub_off = sub * dim;
+            // inclusion_loss(sub, candidate): |c_sub - c_cand| + o_sub - o_cand - margin, relu, L2
+            let mut scores: Vec<(usize, f32)> = (0..nc)
+                .filter(|&c| c != sub)
+                .map(|c| {
+                    let c_off = c * dim;
+                    let loss_sq: f32 = (0..dim)
+                        .map(|d| {
+                            let diff = (centers[sub_off + d] - centers[c_off + d]).abs();
+                            let v = (diff + offsets[sub_off + d] - offsets[c_off + d] - margin)
+                                .max(0.0);
+                            v * v
+                        })
+                        .sum();
+                    (c, (loss_sq + 1e-8).sqrt())
+                })
+                .collect();
+            scores.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+            let rank = scores
+                .iter()
+                .position(|(c, _)| *c == sup)
+                .map(|p| p + 1)
+                .unwrap_or(nc);
+
+            if rank == 1 {
+                hits1 += 1;
+            }
+            if rank <= 10 {
+                hits10 += 1;
+            }
+            rr_sum += 1.0 / rank as f32;
+            total += 1;
+        }
+
+        if total == 0 {
+            return Ok((0.0, 0.0, 0.0));
+        }
+        Ok((
+            hits1 as f32 / total as f32,
+            hits10 as f32 / total as f32,
+            rr_sum / total as f32,
+        ))
+    }
+
+    /// Evaluate NF1 (C1 ⊓ C2 ⊑ D) by inclusion loss ranking.
+    ///
+    /// Computes the box intersection of C1 and C2, then ranks all concepts
+    /// by `inclusion_loss(intersection, candidate)` instead of center L2 distance.
+    pub fn evaluate_nf1_by_inclusion(
+        &self,
+        test_axioms: &[(usize, usize, usize)],
+    ) -> Result<(f32, f32, f32)> {
+        let centers: Vec<f32> = self
+            .concept_centers
+            .as_tensor()
+            .to_vec2::<f32>()?
+            .into_iter()
+            .flatten()
+            .collect();
+        let offsets: Vec<f32> = self
+            .concept_offsets
+            .as_tensor()
+            .abs()?
+            .to_vec2::<f32>()?
+            .into_iter()
+            .flatten()
+            .collect();
+        let nc = self.num_concepts;
+        let dim = self.dim;
+        let margin = self.margin;
+
+        let mut hits1 = 0usize;
+        let mut hits10 = 0usize;
+        let mut rr_sum = 0.0f32;
+        let mut total = 0usize;
+
+        for &(c1, c2, d) in test_axioms {
+            if c1 >= nc || c2 >= nc || d >= nc {
+                continue;
+            }
+            let c1_off = c1 * dim;
+            let c2_off = c2 * dim;
+            let mut inter_center = vec![0.0f32; dim];
+            let mut inter_offset = vec![0.0f32; dim];
+            for i in 0..dim {
+                let min1 = centers[c1_off + i] - offsets[c1_off + i];
+                let max1 = centers[c1_off + i] + offsets[c1_off + i];
+                let min2 = centers[c2_off + i] - offsets[c2_off + i];
+                let max2 = centers[c2_off + i] + offsets[c2_off + i];
+                let inter_min = min1.max(min2);
+                let inter_max = max1.min(max2).max(inter_min);
+                inter_center[i] = (inter_min + inter_max) / 2.0;
+                inter_offset[i] = (inter_max - inter_min) / 2.0;
+            }
+
+            // inclusion_loss(intersection, candidate)
+            let mut scores: Vec<(usize, f32)> = (0..nc)
+                .filter(|&c| c != c1 && c != c2)
+                .map(|c| {
+                    let c_off = c * dim;
+                    let loss_sq: f32 = (0..dim)
+                        .map(|i| {
+                            let diff = (inter_center[i] - centers[c_off + i]).abs();
+                            let v = (diff + inter_offset[i] - offsets[c_off + i] - margin).max(0.0);
+                            v * v
+                        })
+                        .sum();
+                    (c, (loss_sq + 1e-8).sqrt())
+                })
+                .collect();
+            scores.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+            let rank = scores
+                .iter()
+                .position(|(c, _)| *c == d)
+                .map(|p| p + 1)
+                .unwrap_or(nc);
+
+            if rank == 1 {
+                hits1 += 1;
+            }
+            if rank <= 10 {
+                hits10 += 1;
+            }
+            rr_sum += 1.0 / rank as f32;
+            total += 1;
+        }
+
+        if total == 0 {
+            return Ok((0.0, 0.0, 0.0));
+        }
+        Ok((
+            hits1 as f32 / total as f32,
+            hits10 as f32 / total as f32,
+            rr_sum / total as f32,
+        ))
+    }
+
+    /// Evaluate NF3 (C ⊑ ∃r.D) by inclusion loss ranking.
+    ///
+    /// For each test triple (C, r, D): for each candidate D, compute
+    /// `inclusion_loss(C + bump_D, o_C, head_center, head_offset)` and rank.
+    /// Lower inclusion loss = candidate D's bump brings C more inside the role head box.
+    pub fn evaluate_nf3_by_inclusion(
+        &self,
+        test_axioms: &[(usize, usize, usize)],
+    ) -> Result<(f32, f32, f32)> {
+        let centers: Vec<f32> = self
+            .concept_centers
+            .as_tensor()
+            .to_vec2::<f32>()?
+            .into_iter()
+            .flatten()
+            .collect();
+        let offsets: Vec<f32> = self
+            .concept_offsets
+            .as_tensor()
+            .abs()?
+            .to_vec2::<f32>()?
+            .into_iter()
+            .flatten()
+            .collect();
+        let bump_vecs: Vec<f32> = self
+            .bumps
+            .as_tensor()
+            .to_vec2::<f32>()?
+            .into_iter()
+            .flatten()
+            .collect();
+        let role_heads_data: Vec<f32> = self
+            .role_heads
+            .as_tensor()
+            .to_vec2::<f32>()?
+            .into_iter()
+            .flatten()
+            .collect();
+        let nc = self.num_concepts;
+        let nr = self.num_roles;
+        let dim = self.dim;
+        let margin = self.margin;
+
+        let mut hits1 = 0usize;
+        let mut hits10 = 0usize;
+        let mut rr_sum = 0.0f32;
+        let mut total = 0usize;
+
+        for &(sub, role, filler) in test_axioms {
+            if sub >= nc || filler >= nc || role >= nr {
+                continue;
+            }
+            let sub_off = sub * dim;
+            let rh_off = role * dim * 2;
+            // Role head offset is the second dim elements of the role_heads row
+            // inclusion_loss(C + bump_D, o_C, head_center, head_offset)
+            let mut scores: Vec<(usize, f32)> = (0..nc)
+                .map(|d| {
+                    let bump_off = d * dim;
+                    let loss_sq: f32 = (0..dim)
+                        .map(|i| {
+                            let bumped_center = centers[sub_off + i] + bump_vecs[bump_off + i];
+                            let head_center = role_heads_data[rh_off + i];
+                            let head_offset = role_heads_data[rh_off + dim + i].abs();
+                            let diff = (bumped_center - head_center).abs();
+                            let v = (diff + offsets[sub_off + i] - head_offset - margin).max(0.0);
+                            v * v
+                        })
+                        .sum();
+                    (d, (loss_sq + 1e-8).sqrt())
+                })
+                .collect();
+            scores.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+            let rank = scores
+                .iter()
+                .position(|(c, _)| *c == filler)
+                .map(|p| p + 1)
+                .unwrap_or(nc);
+
+            if rank == 1 {
+                hits1 += 1;
+            }
+            if rank <= 10 {
+                hits10 += 1;
+            }
+            rr_sum += 1.0 / rank as f32;
+            total += 1;
+        }
+
+        if total == 0 {
+            return Ok((0.0, 0.0, 0.0));
+        }
+        Ok((
+            hits1 as f32 / total as f32,
+            hits10 as f32 / total as f32,
+            rr_sum / total as f32,
+        ))
+    }
+
+    /// Evaluate NF4 (∃r.C ⊑ D) by inclusion loss ranking.
+    ///
+    /// For each test triple (r, C, D): compute shifted head = head_r - bump_C,
+    /// then rank all concepts D by `inclusion_loss(shifted_head, o_head, D_center, D_offset)`.
+    pub fn evaluate_nf4_by_inclusion(
+        &self,
+        test_axioms: &[(usize, usize, usize)],
+    ) -> Result<(f32, f32, f32)> {
+        let centers: Vec<f32> = self
+            .concept_centers
+            .as_tensor()
+            .to_vec2::<f32>()?
+            .into_iter()
+            .flatten()
+            .collect();
+        let offsets: Vec<f32> = self
+            .concept_offsets
+            .as_tensor()
+            .abs()?
+            .to_vec2::<f32>()?
+            .into_iter()
+            .flatten()
+            .collect();
+        let bump_vecs: Vec<f32> = self
+            .bumps
+            .as_tensor()
+            .to_vec2::<f32>()?
+            .into_iter()
+            .flatten()
+            .collect();
+        let role_heads_data: Vec<f32> = self
+            .role_heads
+            .as_tensor()
+            .to_vec2::<f32>()?
+            .into_iter()
+            .flatten()
+            .collect();
+        let nc = self.num_concepts;
+        let nr = self.num_roles;
+        let dim = self.dim;
+        let margin = self.margin;
+
+        let mut hits1 = 0usize;
+        let mut hits10 = 0usize;
+        let mut rr_sum = 0.0f32;
+        let mut total = 0usize;
+
+        for &(role, filler, target) in test_axioms {
+            if filler >= nc || target >= nc || role >= nr {
+                continue;
+            }
+            let rh_off = role * dim * 2;
+            let bump_off = filler * dim;
+            // Shifted head: center = head_center - bump_C, offset = head_offset
+            let mut shifted_center = vec![0.0f32; dim];
+            let mut head_offset = vec![0.0f32; dim];
+            for i in 0..dim {
+                shifted_center[i] = role_heads_data[rh_off + i] - bump_vecs[bump_off + i];
+                head_offset[i] = role_heads_data[rh_off + dim + i].abs();
+            }
+
+            // inclusion_loss(shifted_head, candidate)
+            let mut scores: Vec<(usize, f32)> = (0..nc)
+                .map(|c| {
+                    let c_off = c * dim;
+                    let loss_sq: f32 = (0..dim)
+                        .map(|i| {
+                            let diff = (shifted_center[i] - centers[c_off + i]).abs();
+                            let v = (diff + head_offset[i] - offsets[c_off + i] - margin).max(0.0);
+                            v * v
+                        })
+                        .sum();
+                    (c, (loss_sq + 1e-8).sqrt())
+                })
+                .collect();
+            scores.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+            let rank = scores
+                .iter()
+                .position(|(c, _)| *c == target)
+                .map(|p| p + 1)
+                .unwrap_or(nc);
+
+            if rank == 1 {
+                hits1 += 1;
+            }
+            if rank <= 10 {
+                hits10 += 1;
+            }
+            rr_sum += 1.0 / rank as f32;
+            total += 1;
+        }
+
+        if total == 0 {
+            return Ok((0.0, 0.0, 0.0));
+        }
+        Ok((
+            hits1 as f32 / total as f32,
+            hits10 as f32 / total as f32,
+            rr_sum / total as f32,
+        ))
+    }
+
+    /// Run all four inclusion-based evaluations and print a comparison table
+    /// against center-distance evaluation.
+    ///
+    /// Returns `(nf2, nf1, nf3, nf4)` inclusion results as `(h@1, h@10, mrr)` tuples.
+    /// Prints a side-by-side table to stderr for quick comparison.
+    #[allow(clippy::type_complexity)]
+    pub fn evaluate_all_by_inclusion(
+        &self,
+        nf2_test: &[(usize, usize)],
+        nf1_test: &[(usize, usize, usize)],
+        nf3_test: &[(usize, usize, usize)],
+        nf4_test: &[(usize, usize, usize)],
+    ) -> Result<(
+        (f32, f32, f32),
+        (f32, f32, f32),
+        (f32, f32, f32),
+        (f32, f32, f32),
+    )> {
+        // Center-distance baselines
+        let cd_nf2 = if nf2_test.is_empty() {
+            (0.0, 0.0, 0.0)
+        } else {
+            self.evaluate_subsumption(nf2_test)?
+        };
+        let cd_nf1 = if nf1_test.is_empty() {
+            (0.0, 0.0, 0.0)
+        } else {
+            self.evaluate_nf1(nf1_test)?
+        };
+        let cd_nf3 = if nf3_test.is_empty() {
+            (0.0, 0.0, 0.0)
+        } else {
+            self.evaluate_nf3(nf3_test)?
+        };
+        let cd_nf4 = if nf4_test.is_empty() {
+            (0.0, 0.0, 0.0)
+        } else {
+            self.evaluate_nf4(nf4_test)?
+        };
+
+        // Inclusion-based
+        let inc_nf2 = if nf2_test.is_empty() {
+            (0.0, 0.0, 0.0)
+        } else {
+            self.evaluate_subsumption_by_inclusion(nf2_test)?
+        };
+        let inc_nf1 = if nf1_test.is_empty() {
+            (0.0, 0.0, 0.0)
+        } else {
+            self.evaluate_nf1_by_inclusion(nf1_test)?
+        };
+        let inc_nf3 = if nf3_test.is_empty() {
+            (0.0, 0.0, 0.0)
+        } else {
+            self.evaluate_nf3_by_inclusion(nf3_test)?
+        };
+        let inc_nf4 = if nf4_test.is_empty() {
+            (0.0, 0.0, 0.0)
+        } else {
+            self.evaluate_nf4_by_inclusion(nf4_test)?
+        };
+
+        eprintln!("  +---------+-----------------------------+-----------------------------+");
+        eprintln!("  |  NF     |     Center-Distance         |       Inclusion-Loss        |");
+        eprintln!("  |         |  H@1     H@10     MRR       |  H@1     H@10     MRR       |");
+        eprintln!("  +---------+-----------------------------+-----------------------------+");
+        for (label, cd, inc) in [
+            ("NF2", cd_nf2, inc_nf2),
+            ("NF1", cd_nf1, inc_nf1),
+            ("NF3", cd_nf3, inc_nf3),
+            ("NF4", cd_nf4, inc_nf4),
+        ] {
+            eprintln!(
+                "  | {label:<7} | {:.3}    {:.3}    {:.4}    | {:.3}    {:.3}    {:.4}    |",
+                cd.0, cd.1, cd.2, inc.0, inc.1, inc.2,
+            );
+        }
+        eprintln!("  +---------+-----------------------------+-----------------------------+");
+
+        Ok((inc_nf2, inc_nf1, inc_nf3, inc_nf4))
+    }
+
     /// Save model weights to a safetensors file.
     pub fn save<P: AsRef<std::path::Path>>(&self, path: P) -> Result<()> {
         let tensors: std::collections::HashMap<String, Tensor> = [
