@@ -24,7 +24,7 @@ GPU trainer with AdamW autograd. Evaluation: MRR, Hits@k, Mean Rank (filtered).
 
 ```toml
 [dependencies]
-subsume = { version = "0.8", features = ["ndarray-backend"] }
+subsume = { version = "0.9", features = ["ndarray-backend"] }
 ndarray = "0.16"
 ```
 

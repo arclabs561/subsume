@@ -660,7 +660,8 @@ impl PyBoxEmbeddingTrainer {
         })?;
 
         // Apply learned relation translation to head box.
-        let scoring_box = if let Some(trans) = self.inner.relation_translations().get(&relation_id) {
+        let scoring_box = if let Some(trans) = self.inner.relation_translations().get(&relation_id)
+        {
             use subsume::Box as BoxRegion;
             let min_h = box_h.min();
             let max_h = box_h.max();
@@ -699,7 +700,8 @@ impl PyBoxEmbeddingTrainer {
         })?;
 
         // Build the (possibly translated) head box.
-        let scoring_box = if let Some(trans) = self.inner.relation_translations().get(&relation_id) {
+        let scoring_box = if let Some(trans) = self.inner.relation_translations().get(&relation_id)
+        {
             let min_h = base_box.min();
             let max_h = base_box.max();
             let new_min: Vec<f32> = min_h.iter().zip(trans).map(|(m, t)| m + t).collect();
@@ -1752,7 +1754,9 @@ impl PyCandleBoxTrainer {
     fn __repr__(&self) -> String {
         let mut s = format!(
             "CandleBoxTrainer(entities={}, relations={}, dim={}",
-            self.inner.num_entities(), self.inner.num_relations(), self.inner.dim()
+            self.inner.num_entities(),
+            self.inner.num_relations(),
+            self.inner.dim()
         );
         if self.inner.inside_weight() != 0.0 {
             s.push_str(&format!(", inside_weight={}", self.inner.inside_weight()));
@@ -2136,7 +2140,9 @@ impl PyCandleElTrainer {
     fn __repr__(&self) -> String {
         format!(
             "CandleElTrainer(concepts={}, roles={}, dim={})",
-            self.inner.num_concepts(), self.inner.num_roles(), self.inner.dim()
+            self.inner.num_concepts(),
+            self.inner.num_roles(),
+            self.inner.dim()
         )
     }
 }
@@ -2249,7 +2255,9 @@ impl PyCandleConeTrainer {
     fn __repr__(&self) -> String {
         format!(
             "CandleConeTrainer(entities={}, relations={}, dim={})",
-            self.inner.num_entities(), self.inner.num_relations(), self.inner.dim()
+            self.inner.num_entities(),
+            self.inner.num_relations(),
+            self.inner.dim()
         )
     }
 }
