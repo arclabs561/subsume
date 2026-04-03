@@ -492,15 +492,19 @@ impl EmbeddingStore {
         all_params.extend_from_slice(&self.offsets[idx]);
 
         crate::optimizer::apply_amsgrad_step(
-            &mut all_params,
-            &grads,
-            &mut opt.m,
-            &mut opt.v,
-            &mut opt.v_hat,
-            opt.lr,
-            opt.beta1,
-            opt.beta2,
-            opt.epsilon,
+            crate::optimizer::AmsgradSlices {
+                params: &mut all_params,
+                grads: &grads,
+                m: &mut opt.m,
+                v: &mut opt.v,
+                v_hat: &mut opt.v_hat,
+            },
+            &crate::optimizer::AmsgradHyperparams {
+                lr: opt.lr,
+                beta1: opt.beta1,
+                beta2: opt.beta2,
+                epsilon: opt.epsilon,
+            },
             &mut opt.t,
             |p, i| {
                 if i >= dim {

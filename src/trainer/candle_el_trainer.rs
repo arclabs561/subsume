@@ -660,6 +660,7 @@ impl CandleElTrainer {
 
         Ok(epoch_losses)
     }
+}
 
 /// Shared ranking evaluation: for each test item, score all candidates,
 /// find the rank of the target, and accumulate H@1, H@10, MRR.
@@ -715,10 +716,7 @@ impl CandleElTrainer {
     /// For each test pair (C, D), ranks all concepts by L2 distance to C's center
     /// and reports the rank of D. This matches the Box2EL evaluation protocol
     /// where centers encode subsumption hierarchy position.
-    pub fn evaluate_subsumption(
-        &self,
-        test_axioms: &[(usize, usize)],
-    ) -> Result<(f32, f32, f32)> {
+    pub fn evaluate_subsumption(&self, test_axioms: &[(usize, usize)]) -> Result<(f32, f32, f32)> {
         let centers: Vec<f32> = self
             .concept_centers
             .as_tensor()
@@ -729,7 +727,7 @@ impl CandleElTrainer {
         let nc = self.num_concepts;
         let dim = self.dim;
 
-        let items: Vec<[usize; 2]> = test_axioms.iter().map(|[a, b]| [*a, *b]).collect();
+        let items: Vec<[usize; 2]> = test_axioms.iter().map(|(a, b)| [*a, *b]).collect();
         Ok(rank_evaluate(nc, &items, |&[sub, sup]| {
             if sub >= nc || sup >= nc {
                 return None;
@@ -756,10 +754,7 @@ impl CandleElTrainer {
     ///
     /// Computes the box intersection of C1 and C2, then ranks all concepts
     /// by L2 distance from the intersection center to find D.
-    pub fn evaluate_nf1(
-        &self,
-        test_axioms: &[(usize, usize, usize)],
-    ) -> Result<(f32, f32, f32)> {
+    pub fn evaluate_nf1(&self, test_axioms: &[(usize, usize, usize)]) -> Result<(f32, f32, f32)> {
         let centers: Vec<f32> = self
             .concept_centers
             .as_tensor()
@@ -778,7 +773,7 @@ impl CandleElTrainer {
         let nc = self.num_concepts;
         let dim = self.dim;
 
-        let items: Vec<[usize; 3]> = test_axioms.iter().map(|[a, b, c]| [*a, *b, *c]).collect();
+        let items: Vec<[usize; 3]> = test_axioms.iter().map(|(a, b, c)| [*a, *b, *c]).collect();
         Ok(rank_evaluate(nc, &items, |&[c1, c2, d]| {
             if c1 >= nc || c2 >= nc || d >= nc {
                 return None;
@@ -818,10 +813,7 @@ impl CandleElTrainer {
     /// For each test triple (C, r, D): compute C + bump_D for each candidate D,
     /// measure L2 distance to role head center, rank candidates. The candidate D
     /// whose bump brings C closest to the role head wins.
-    pub fn evaluate_nf3(
-        &self,
-        test_axioms: &[(usize, usize, usize)],
-    ) -> Result<(f32, f32, f32)> {
+    pub fn evaluate_nf3(&self, test_axioms: &[(usize, usize, usize)]) -> Result<(f32, f32, f32)> {
         let centers: Vec<f32> = self
             .concept_centers
             .as_tensor()
@@ -847,7 +839,7 @@ impl CandleElTrainer {
         let nr = self.num_roles;
         let dim = self.dim;
 
-        let items: Vec<[usize; 3]> = test_axioms.iter().map(|[a, b, c]| [*a, *b, *c]).collect();
+        let items: Vec<[usize; 3]> = test_axioms.iter().map(|(a, b, c)| [*a, *b, *c]).collect();
         Ok(rank_evaluate(nc, &items, |&[sub, role, filler]| {
             if sub >= nc || filler >= nc || role >= nr {
                 return None;
@@ -876,10 +868,7 @@ impl CandleElTrainer {
     ///
     /// For each test triple (r, C, D): compute head_r - bump_C, then rank all
     /// concepts D by L2 distance from that shifted center to D's center.
-    pub fn evaluate_nf4(
-        &self,
-        test_axioms: &[(usize, usize, usize)],
-    ) -> Result<(f32, f32, f32)> {
+    pub fn evaluate_nf4(&self, test_axioms: &[(usize, usize, usize)]) -> Result<(f32, f32, f32)> {
         let centers: Vec<f32> = self
             .concept_centers
             .as_tensor()
@@ -905,7 +894,7 @@ impl CandleElTrainer {
         let nr = self.num_roles;
         let dim = self.dim;
 
-        let items: Vec<[usize; 3]> = test_axioms.iter().map(|[a, b, c]| [*a, *b, *c]).collect();
+        let items: Vec<[usize; 3]> = test_axioms.iter().map(|(a, b, c)| [*a, *b, *c]).collect();
         Ok(rank_evaluate(nc, &items, |&[role, filler, target]| {
             if filler >= nc || target >= nc || role >= nr {
                 return None;
@@ -958,7 +947,7 @@ impl CandleElTrainer {
         let dim = self.dim;
         let margin = self.margin;
 
-        let items: Vec<[usize; 2]> = test_axioms.iter().map(|[a, b]| [*a, *b]).collect();
+        let items: Vec<[usize; 2]> = test_axioms.iter().map(|(a, b)| [*a, *b]).collect();
         Ok(rank_evaluate(nc, &items, |&[sub, sup]| {
             if sub >= nc || sup >= nc {
                 return None;
@@ -1010,7 +999,7 @@ impl CandleElTrainer {
         let dim = self.dim;
         let margin = self.margin;
 
-        let items: Vec<[usize; 3]> = test_axioms.iter().map(|[a, b, c]| [*a, *b, *c]).collect();
+        let items: Vec<[usize; 3]> = test_axioms.iter().map(|(a, b, c)| [*a, *b, *c]).collect();
         Ok(rank_evaluate(nc, &items, |&[c1, c2, d]| {
             if c1 >= nc || c2 >= nc || d >= nc {
                 return None;
@@ -1091,7 +1080,7 @@ impl CandleElTrainer {
         let dim = self.dim;
         let margin = self.margin;
 
-        let items: Vec<[usize; 3]> = test_axioms.iter().map(|[a, b, c]| [*a, *b, *c]).collect();
+        let items: Vec<[usize; 3]> = test_axioms.iter().map(|(a, b, c)| [*a, *b, *c]).collect();
         Ok(rank_evaluate(nc, &items, |&[sub, role, filler]| {
             if sub >= nc || filler >= nc || role >= nr {
                 return None;
@@ -1161,7 +1150,7 @@ impl CandleElTrainer {
         let dim = self.dim;
         let margin = self.margin;
 
-        let items: Vec<[usize; 3]> = test_axioms.iter().map(|[a, b, c]| [*a, *b, *c]).collect();
+        let items: Vec<[usize; 3]> = test_axioms.iter().map(|(a, b, c)| [*a, *b, *c]).collect();
         Ok(rank_evaluate(nc, &items, |&[role, filler, target]| {
             if filler >= nc || target >= nc || role >= nr {
                 return None;
