@@ -328,7 +328,6 @@ impl CandleElTrainer {
             (*s >> 33) as usize
         };
 
-        let lr_min = lr * 0.01;
         for epoch in 0..epochs {
             // Branch RNG per NF type so adding/removing random calls in one
             // NF section doesn't shift the trajectory for other sections.
@@ -338,9 +337,7 @@ impl CandleElTrainer {
             let mut rng_nf4 = master_rng.wrapping_add(4);
             lcg(&mut master_rng); // advance master for next epoch
                                   // Cosine LR decay (helps convergence even though Box2EL uses constant)
-            let progress = epoch as f64 / epochs.max(1) as f64;
-            let current_lr =
-                lr_min + 0.5 * (lr - lr_min) * (1.0 + (std::f64::consts::PI * progress).cos());
+            let current_lr = crate::optimizer::cosine_lr(epoch, epochs, lr, 0.01);
             opt.set_learning_rate(current_lr);
 
             // Accumulate all NF losses into one tensor (Box2EL does one backward per epoch)
