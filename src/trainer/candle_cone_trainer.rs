@@ -220,8 +220,7 @@ impl CandleConeTrainer {
 
         for epoch in 0..epochs {
             // Cosine LR schedule
-            let progress = epoch as f64 / epochs as f64;
-            let current_lr = lr * (0.01 + 0.99 * (1.0 + (PI as f64 * progress).cos()) / 2.0);
+            let current_lr = crate::optimizer::cosine_lr(epoch, epochs, lr, 0.01);
             opt.set_learning_rate(current_lr);
 
             let bs = batch_size.min(n);

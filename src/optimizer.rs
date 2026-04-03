@@ -146,6 +146,47 @@ pub fn get_learning_rate(
     }
 }
 
+/// Cosine annealing LR for candle trainers: decays from `lr` to `lr * min_frac`
+/// over `epochs` epochs. Matches the formula used by CandleBoxTrainer and
+/// CandleElTrainer.
+pub fn cosine_lr(epoch: usize, epochs: usize, lr: f64, min_frac: f64) -> f64 {
+    let progress = epoch as f64 / epochs.max(1) as f64;
+    let lr_min = lr * min_frac;
+    lr_min + 0.5 * (lr - lr_min) * (1.0 + (std::f64::consts::PI * progress).cos())
+}
+
+/// LCG random number generator state.
+///
+/// Uses the same constants as numpy/PCG for reproducibility.
+pub struct Lcg {
+    /// Internal state.
+    pub state: u64,
+}
+
+impl Lcg {
+    /// Create a new LCG with the given seed.
+    pub fn new(seed: u64) -> Self {
+        Self { state: seed }
+    }
+
+    /// Advance and return a value in `[0, max)`.
+    pub fn next(&mut self, max: usize) -> usize {
+        self.state = self
+            .state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        (self.state >> 33) as usize % max
+    }
+
+    /// Fisher-Yates shuffle using this LCG.
+    pub fn shuffle(&mut self, slice: &mut [usize]) {
+        for i in (1..slice.len()).rev() {
+            let j = self.next(i + 1);
+            slice.swap(i, j);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

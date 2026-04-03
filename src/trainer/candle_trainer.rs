@@ -377,17 +377,7 @@ impl CandleBoxTrainer {
         let mut opt = AdamW::new(vars, params)?;
         let n = train_triples.len();
         let mut epoch_losses = Vec::with_capacity(epochs);
-        let mut rng: u64 = 42;
-
-        // Cosine LR schedule: lr decays from `lr` to `lr * 0.01` over all epochs.
-        let lr_min = lr * 0.01;
-
-        let lcg = |s: &mut u64| -> usize {
-            *s = s
-                .wrapping_mul(6364136223846793005)
-                .wrapping_add(1442695040888963407);
-            (*s >> 33) as usize
-        };
+        let mut rng = crate::optimizer::Lcg::new(42);
 
         // Preload training data as device tensors
         let all_heads: Vec<u32> = train_triples.iter().map(|t| t.0 as u32).collect();
@@ -401,9 +391,10 @@ impl CandleBoxTrainer {
         let use_self_adv = adversarial_temperature > 0.0;
 
         for epoch in 0..epochs {
-            for i in (1..n).rev() {
-                let j = lcg(&mut rng) % (i + 1);
-                indices.swap(i, j);
+            let mut idx: Vec<usize> = (0..n).collect();
+            rng.shuffle(&mut idx);
+            for (i, &v) in idx.iter().enumerate() {
+                indices[i] = v as u32;
             }
 
             let perm = Tensor::from_vec(indices.clone(), (n,), &self.device)?;
@@ -412,9 +403,7 @@ impl CandleBoxTrainer {
             let tails_shuf = tails_gpu.index_select(&perm, 0)?;
 
             // Cosine LR schedule
-            let progress = epoch as f64 / epochs.max(1) as f64;
-            let current_lr =
-                lr_min + 0.5 * (lr - lr_min) * (1.0 + (std::f64::consts::PI * progress).cos());
+            let current_lr = crate::optimizer::cosine_lr(epoch, epochs, lr, 0.01);
             opt.set_learning_rate(current_lr);
 
             let mut total_loss = 0.0f32;
