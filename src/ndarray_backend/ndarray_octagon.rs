@@ -51,6 +51,16 @@ impl NdarrayDiagBounds {
 ///
 /// Each octagon is defined by axis-aligned bounds (min/max per dimension)
 /// plus diagonal bounds on adjacent dimension pairs.
+///
+/// # Why this does not implement the `Box` trait
+///
+/// The [`Box`](crate::box_trait::Box) trait's `containment_prob` method has
+/// no `temperature` parameter. Octagon containment requires a temperature
+/// to produce soft (differentiable) boundaries — the hard containment check
+/// is degenerate (zero volume intersection for non-identical octagons).
+/// Adding `temperature` to the trait would force all implementations (boxes,
+/// cones, Gaussians) to accept a parameter they don't need. Until a better
+/// abstraction is found, `NdarrayOctagon` stands outside the trait hierarchy.
 #[derive(Debug, Clone)]
 pub struct NdarrayOctagon {
     /// Minimum axis-aligned bound per dimension.
@@ -808,6 +818,15 @@ impl NdarrayOctagon {
     }
 
     /// Monte Carlo volume estimate for d > 2.
+    ///
+    /// Uses 10,000 samples with a deterministic LCG (seed `0x12345678`) for
+    /// reproducibility across runs. Results are **noisy** — the standard error
+    /// scales as `1/sqrt(n_samples)`, so expect ~1% relative error for
+    /// well-shaped octagons and significantly more for thin/degenerate ones.
+    ///
+    /// Exact octagon volume in d > 2 is #P-hard; Monte Carlo is the only
+    /// practical option. For d = 2, [`volume_2d`](Self::volume_2d) computes
+    /// the exact area via polygon clipping.
     fn volume_monte_carlo(&self, box_vol: f32) -> Result<f32, OctagonError> {
         let d = self.dim();
         // Use a deterministic quasi-random sequence for reproducibility.
