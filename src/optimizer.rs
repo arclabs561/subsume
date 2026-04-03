@@ -11,6 +11,58 @@ const WARMUP_LR_FRACTION: f32 = 0.1;
 /// Cosine decay floor: LR decays to this fraction of base LR.
 const COSINE_MIN_LR_FRACTION: f32 = 0.1;
 
+/// Apply one AMSGrad step to a flat parameter vector.
+///
+/// `params`, `grads`, `m`, `v`, `v_hat` must all have the same length `n`.
+/// After the parameter update, `clamp` is called on each element with its
+/// index to enforce geometry-specific constraints (e.g. box width bounds,
+/// cone angle limits). Non-finite gradients are sanitized to zero;
+/// non-finite parameters are reset to the value returned by `clamp` at 0.0.
+pub fn apply_amsgrad_step(
+    params: &mut [f32],
+    grads: &[f32],
+    m: &mut [f32],
+    v: &mut [f32],
+    v_hat: &mut [f32],
+    lr: f32,
+    beta1: f32,
+    beta2: f32,
+    epsilon: f32,
+    t: &mut usize,
+    mut clamp: impl FnMut(&mut f32, usize),
+) {
+    let n = params.len();
+    debug_assert_eq!(grads.len(), n);
+    debug_assert_eq!(m.len(), n);
+    debug_assert_eq!(v.len(), n);
+    debug_assert_eq!(v_hat.len(), n);
+
+    *t += 1;
+
+    for i in 0..n {
+        let g = if grads[i].is_finite() { grads[i] } else { 0.0 };
+        m[i] = beta1 * m[i] + (1.0 - beta1) * g;
+        let v_new = beta2 * v[i] + (1.0 - beta2) * g * g;
+        v[i] = v_new;
+        v_hat[i] = v_hat[i].max(v_new);
+    }
+
+    let t_f32 = *t as f32;
+    let bias_correction = 1.0 - beta1.powf(t_f32);
+
+    for i in 0..n {
+        let m_hat = m[i] / bias_correction;
+        let update = lr * m_hat / (v_hat[i].sqrt() + epsilon);
+        params[i] -= update;
+        clamp(&mut params[i], i);
+        if !params[i].is_finite() {
+            let mut fallback = 0.0f32;
+            clamp(&mut fallback, i);
+            params[i] = fallback;
+        }
+    }
+}
+
 /// AMSGrad optimizer state for a single box.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AMSGradState {

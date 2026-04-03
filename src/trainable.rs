@@ -190,50 +190,30 @@ impl TrainableBox {
         grads.extend_from_slice(&grad_mu[..dim]);
         grads.extend_from_slice(&grad_delta[..dim]);
 
-        state.t += 1;
-        let t = state.t as f32;
+        let mut all_params = Vec::with_capacity(n);
+        all_params.extend_from_slice(&self.mu);
+        all_params.extend_from_slice(&self.delta);
 
-        // Update moments for all parameters (mu then delta).
-        // Sanitize non-finite gradients to zero to prevent NaN poisoning the
-        // optimizer state (v_hat accumulates via max, so one NaN is permanent).
-        for (i, &g) in grads.iter().enumerate().take(n) {
-            let g_safe = if g.is_finite() { g } else { 0.0 };
-            state.m[i] = state.beta1 * state.m[i] + (1.0 - state.beta1) * g_safe;
-            let v_new = state.beta2 * state.v[i] + (1.0 - state.beta2) * g_safe * g_safe;
-            state.v[i] = v_new;
-            state.v_hat[i] = state.v_hat[i].max(v_new);
-        }
+        crate::optimizer::apply_amsgrad_step(
+            &mut all_params,
+            &grads,
+            &mut state.m,
+            &mut state.v,
+            &mut state.v_hat,
+            state.lr,
+            state.beta1,
+            state.beta2,
+            state.epsilon,
+            &mut state.t,
+            |p, i| {
+                if i >= dim {
+                    *p = p.clamp(0.05_f32.ln(), 10.0_f32.ln());
+                }
+            },
+        );
 
-        let bias_correction = 1.0 - state.beta1.powf(t);
-
-        // Update mu (indices 0..dim).
-        for i in 0..dim {
-            let m_hat = state.m[i] / bias_correction;
-            let update = state.lr * m_hat / (state.v_hat[i].sqrt() + state.epsilon);
-            self.mu[i] -= update;
-
-            if !self.mu[i].is_finite() {
-                self.mu[i] = 0.0;
-            }
-        }
-
-        // Update delta (indices dim..2*dim).
-        for i in 0..dim {
-            let idx = dim + i;
-            let m_hat = state.m[idx] / bias_correction;
-            let update = state.lr * m_hat / (state.v_hat[idx].sqrt() + state.epsilon);
-            self.delta[i] -= update;
-
-            // Clamp delta to reasonable range (width between 0.05 and 10.0).
-            // The lower bound prevents volume collapse on intermediate nodes:
-            // at dim=16, min volume = 0.05^16 ~ 1.5e-21 (still small, but
-            // above the 1e-30 softplus threshold in compute_pair_loss).
-            self.delta[i] = self.delta[i].clamp(0.05_f32.ln(), 10.0_f32.ln());
-
-            if !self.delta[i].is_finite() {
-                self.delta[i] = 0.5_f32.ln();
-            }
-        }
+        self.mu.copy_from_slice(&all_params[..dim]);
+        self.delta.copy_from_slice(&all_params[dim..]);
     }
 }
 
@@ -495,44 +475,28 @@ impl TrainableCone {
         grads.extend_from_slice(&grad_axes[..dim]);
         grads.extend_from_slice(&grad_apertures[..dim]);
 
-        state.t += 1;
-        let t = state.t as f32;
+        let mut all_params = Vec::with_capacity(n);
+        all_params.extend_from_slice(&self.raw_axes);
+        all_params.extend_from_slice(&self.raw_apertures);
 
-        // Update moments.
-        // Sanitize non-finite gradients to zero to prevent NaN poisoning the
-        // optimizer state (v_hat accumulates via max, so one NaN is permanent).
-        for (i, &g) in grads.iter().enumerate().take(n) {
-            let g_safe = if g.is_finite() { g } else { 0.0 };
-            state.m[i] = state.beta1 * state.m[i] + (1.0 - state.beta1) * g_safe;
-            let v_new = state.beta2 * state.v[i] + (1.0 - state.beta2) * g_safe * g_safe;
-            state.v[i] = v_new;
-            state.v_hat[i] = state.v_hat[i].max(v_new);
-        }
+        crate::optimizer::apply_amsgrad_step(
+            &mut all_params,
+            &grads,
+            &mut state.m,
+            &mut state.v,
+            &mut state.v_hat,
+            state.lr,
+            state.beta1,
+            state.beta2,
+            state.epsilon,
+            &mut state.t,
+            |p, _| {
+                *p = p.clamp(-6.0, 6.0);
+            },
+        );
 
-        let bias_correction = 1.0 - state.beta1.powf(t);
-
-        // Update raw_axes.
-        for i in 0..dim {
-            let m_hat = state.m[i] / bias_correction;
-            let update = state.lr * m_hat / (state.v_hat[i].sqrt() + state.epsilon);
-            self.raw_axes[i] -= update;
-            self.raw_axes[i] = self.raw_axes[i].clamp(-6.0, 6.0);
-            if !self.raw_axes[i].is_finite() {
-                self.raw_axes[i] = 0.0;
-            }
-        }
-
-        // Update raw_apertures.
-        for i in 0..dim {
-            let idx = dim + i;
-            let m_hat = state.m[idx] / bias_correction;
-            let update = state.lr * m_hat / (state.v_hat[idx].sqrt() + state.epsilon);
-            self.raw_apertures[i] -= update;
-            self.raw_apertures[i] = self.raw_apertures[i].clamp(-6.0, 6.0);
-            if !self.raw_apertures[i].is_finite() {
-                self.raw_apertures[i] = 0.0;
-            }
-        }
+        self.raw_axes.copy_from_slice(&all_params[..dim]);
+        self.raw_apertures.copy_from_slice(&all_params[dim..]);
     }
 }
 
