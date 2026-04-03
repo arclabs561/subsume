@@ -483,54 +483,34 @@ impl EmbeddingStore {
         let dim = grad.center.len();
         let opt = &mut self.opts[idx];
 
-        // Pack gradients: [center_grads..., offset_grads...]
-        opt.t += 1;
-        let t = opt.t as f32;
+        let mut grads = Vec::with_capacity(2 * dim);
+        grads.extend_from_slice(&grad.center);
+        grads.extend_from_slice(&grad.offset);
 
-        // Update moments for center
-        for i in 0..dim {
-            let g = grad.center[i];
-            opt.m[i] = opt.beta1 * opt.m[i] + (1.0 - opt.beta1) * g;
-            let v_new = opt.beta2 * opt.v[i] + (1.0 - opt.beta2) * g * g;
-            opt.v[i] = v_new;
-            opt.v_hat[i] = opt.v_hat[i].max(v_new);
-        }
+        let mut all_params = Vec::with_capacity(2 * dim);
+        all_params.extend_from_slice(&self.centers[idx]);
+        all_params.extend_from_slice(&self.offsets[idx]);
 
-        // Update moments for offset
-        for i in 0..dim {
-            let idx_o = dim + i;
-            let g = grad.offset[i];
-            opt.m[idx_o] = opt.beta1 * opt.m[idx_o] + (1.0 - opt.beta1) * g;
-            let v_new = opt.beta2 * opt.v[idx_o] + (1.0 - opt.beta2) * g * g;
-            opt.v[idx_o] = v_new;
-            opt.v_hat[idx_o] = opt.v_hat[idx_o].max(v_new);
-        }
+        crate::optimizer::apply_amsgrad_step(
+            &mut all_params,
+            &grads,
+            &mut opt.m,
+            &mut opt.v,
+            &mut opt.v_hat,
+            opt.lr,
+            opt.beta1,
+            opt.beta2,
+            opt.epsilon,
+            &mut opt.t,
+            |p, i| {
+                if i >= dim {
+                    *p = p.max(0.01);
+                }
+            },
+        );
 
-        let bias_correction = 1.0 - opt.beta1.powf(t);
-
-        // Update center
-        let center = &mut self.centers[idx];
-        for (i, c) in center.iter_mut().enumerate().take(dim) {
-            let m_hat = opt.m[i] / bias_correction;
-            let update = opt.lr * m_hat / (opt.v_hat[i].sqrt() + opt.epsilon);
-            *c -= update;
-            if !c.is_finite() {
-                *c = 0.0;
-            }
-        }
-
-        // Update offset (keep positive)
-        let offset = &mut self.offsets[idx];
-        for (i, o) in offset.iter_mut().enumerate().take(dim) {
-            let idx_o = dim + i;
-            let m_hat = opt.m[idx_o] / bias_correction;
-            let update = opt.lr * m_hat / (opt.v_hat[idx_o].sqrt() + opt.epsilon);
-            *o -= update;
-            *o = o.max(0.01);
-            if !o.is_finite() {
-                *o = 0.5;
-            }
-        }
+        self.centers[idx].copy_from_slice(&all_params[..dim]);
+        self.offsets[idx].copy_from_slice(&all_params[dim..]);
     }
 }
 
