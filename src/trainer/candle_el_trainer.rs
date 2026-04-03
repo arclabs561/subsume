@@ -661,6 +661,55 @@ impl CandleElTrainer {
         Ok(epoch_losses)
     }
 
+/// Shared ranking evaluation: for each test item, score all candidates,
+/// find the rank of the target, and accumulate H@1, H@10, MRR.
+///
+/// `nc` = number of concepts, `dim` = embedding dimension.
+/// `scorer` returns `(target_idx, Vec<(candidate_idx, score)>)` for each test item.
+/// Lower score = better rank.
+fn rank_evaluate<const N: usize>(
+    nc: usize,
+    items: &[[usize; N]],
+    mut scorer: impl FnMut(&[usize; N]) -> Option<(usize, Vec<(usize, f32)>)>,
+) -> (f32, f32, f32) {
+    let mut hits1 = 0usize;
+    let mut hits10 = 0usize;
+    let mut rr_sum = 0.0f32;
+    let mut total = 0usize;
+
+    for item in items {
+        let Some((target, mut scores)) = scorer(item) else {
+            continue;
+        };
+        scores.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let rank = scores
+            .iter()
+            .position(|(c, _)| *c == target)
+            .map(|p| p + 1)
+            .unwrap_or(nc);
+
+        if rank == 1 {
+            hits1 += 1;
+        }
+        if rank <= 10 {
+            hits10 += 1;
+        }
+        rr_sum += 1.0 / rank as f32;
+        total += 1;
+    }
+
+    if total == 0 {
+        return (0.0, 0.0, 0.0);
+    }
+    (
+        hits1 as f32 / total as f32,
+        hits10 as f32 / total as f32,
+        rr_sum / total as f32,
+    )
+}
+
+impl CandleElTrainer {
     /// Evaluate subsumption (NF2: C ⊑ D) by center L2 distance ranking.
     ///
     /// For each test pair (C, D), ranks all concepts by L2 distance to C's center
@@ -668,7 +717,7 @@ impl CandleElTrainer {
     /// where centers encode subsumption hierarchy position.
     pub fn evaluate_subsumption(
         &self,
-        test_axioms: &[(usize, usize)], // (sub, sup) pairs
+        test_axioms: &[(usize, usize)],
     ) -> Result<(f32, f32, f32)> {
         let centers: Vec<f32> = self
             .concept_centers
@@ -680,55 +729,27 @@ impl CandleElTrainer {
         let nc = self.num_concepts;
         let dim = self.dim;
 
-        let mut hits1 = 0usize;
-        let mut hits10 = 0usize;
-        let mut rr_sum = 0.0f32;
-        let mut total = 0usize;
-
-        for &(sub, sup) in test_axioms {
+        let items: Vec<[usize; 2]> = test_axioms.iter().map(|[a, b]| [*a, *b]).collect();
+        Ok(rank_evaluate(nc, &items, |&[sub, sup]| {
             if sub >= nc || sup >= nc {
-                continue;
+                return None;
             }
-            let sub_offset = sub * dim;
-            let mut scores: Vec<(usize, f32)> = (0..nc)
+            let sub_off = sub * dim;
+            let scores: Vec<(usize, f32)> = (0..nc)
                 .filter(|&c| c != sub)
                 .map(|c| {
-                    let c_offset = c * dim;
+                    let c_off = c * dim;
                     let dist_sq: f32 = (0..dim)
                         .map(|d| {
-                            let diff = centers[sub_offset + d] - centers[c_offset + d];
+                            let diff = centers[sub_off + d] - centers[c_off + d];
                             diff * diff
                         })
                         .sum();
                     (c, dist_sq.sqrt())
                 })
                 .collect();
-            scores.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-
-            let rank = scores
-                .iter()
-                .position(|(c, _)| *c == sup)
-                .map(|p| p + 1)
-                .unwrap_or(nc);
-
-            if rank == 1 {
-                hits1 += 1;
-            }
-            if rank <= 10 {
-                hits10 += 1;
-            }
-            rr_sum += 1.0 / rank as f32;
-            total += 1;
-        }
-
-        if total == 0 {
-            return Ok((0.0, 0.0, 0.0));
-        }
-        Ok((
-            hits1 as f32 / total as f32,
-            hits10 as f32 / total as f32,
-            rr_sum / total as f32,
-        ))
+            Some((sup, scores))
+        }))
     }
 
     /// Evaluate NF1 (C1 ⊓ C2 ⊑ D) by intersection-center L2 distance ranking.
@@ -737,7 +758,7 @@ impl CandleElTrainer {
     /// by L2 distance from the intersection center to find D.
     pub fn evaluate_nf1(
         &self,
-        test_axioms: &[(usize, usize, usize)], // (c1, c2, d) triples
+        test_axioms: &[(usize, usize, usize)],
     ) -> Result<(f32, f32, f32)> {
         let centers: Vec<f32> = self
             .concept_centers
@@ -757,16 +778,11 @@ impl CandleElTrainer {
         let nc = self.num_concepts;
         let dim = self.dim;
 
-        let mut hits1 = 0usize;
-        let mut hits10 = 0usize;
-        let mut rr_sum = 0.0f32;
-        let mut total = 0usize;
-
-        for &(c1, c2, d) in test_axioms {
+        let items: Vec<[usize; 3]> = test_axioms.iter().map(|[a, b, c]| [*a, *b, *c]).collect();
+        Ok(rank_evaluate(nc, &items, |&[c1, c2, d]| {
             if c1 >= nc || c2 >= nc || d >= nc {
-                continue;
+                return None;
             }
-            // Compute intersection center: max of mins, min of maxes
             let c1_off = c1 * dim;
             let c2_off = c2 * dim;
             let mut inter_center = vec![0.0f32; dim];
@@ -780,8 +796,7 @@ impl CandleElTrainer {
                 inter_center[i] = (inter_min + inter_max) / 2.0;
             }
 
-            // Rank all concepts by distance to intersection center
-            let mut scores: Vec<(usize, f32)> = (0..nc)
+            let scores: Vec<(usize, f32)> = (0..nc)
                 .filter(|&c| c != c1 && c != c2)
                 .map(|c| {
                     let c_off = c * dim;
@@ -794,32 +809,8 @@ impl CandleElTrainer {
                     (c, dist_sq.sqrt())
                 })
                 .collect();
-            scores.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-
-            let rank = scores
-                .iter()
-                .position(|(c, _)| *c == d)
-                .map(|p| p + 1)
-                .unwrap_or(nc);
-
-            if rank == 1 {
-                hits1 += 1;
-            }
-            if rank <= 10 {
-                hits10 += 1;
-            }
-            rr_sum += 1.0 / rank as f32;
-            total += 1;
-        }
-
-        if total == 0 {
-            return Ok((0.0, 0.0, 0.0));
-        }
-        Ok((
-            hits1 as f32 / total as f32,
-            hits10 as f32 / total as f32,
-            rr_sum / total as f32,
-        ))
+            Some((d, scores))
+        }))
     }
 
     /// Evaluate NF3 (C ⊑ ∃r.D) by bumped-center L2 distance ranking.
@@ -829,7 +820,7 @@ impl CandleElTrainer {
     /// whose bump brings C closest to the role head wins.
     pub fn evaluate_nf3(
         &self,
-        test_axioms: &[(usize, usize, usize)], // (sub, role, filler) triples
+        test_axioms: &[(usize, usize, usize)],
     ) -> Result<(f32, f32, f32)> {
         let centers: Vec<f32> = self
             .concept_centers
@@ -856,21 +847,15 @@ impl CandleElTrainer {
         let nr = self.num_roles;
         let dim = self.dim;
 
-        let mut hits1 = 0usize;
-        let mut hits10 = 0usize;
-        let mut rr_sum = 0.0f32;
-        let mut total = 0usize;
-
-        for &(sub, role, filler) in test_axioms {
+        let items: Vec<[usize; 3]> = test_axioms.iter().map(|[a, b, c]| [*a, *b, *c]).collect();
+        Ok(rank_evaluate(nc, &items, |&[sub, role, filler]| {
             if sub >= nc || filler >= nc || role >= nr {
-                continue;
+                return None;
             }
             let sub_off = sub * dim;
-            // Role head center is first dim elements of the role_heads row
             let rh_off = role * dim * 2;
 
-            // For each candidate D, compute distance of (C_center + bump_D) to role_head_center
-            let mut scores: Vec<(usize, f32)> = (0..nc)
+            let scores: Vec<(usize, f32)> = (0..nc)
                 .map(|d| {
                     let bump_off = d * dim;
                     let dist_sq: f32 = (0..dim)
@@ -883,32 +868,8 @@ impl CandleElTrainer {
                     (d, dist_sq.sqrt())
                 })
                 .collect();
-            scores.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-
-            let rank = scores
-                .iter()
-                .position(|(c, _)| *c == filler)
-                .map(|p| p + 1)
-                .unwrap_or(nc);
-
-            if rank == 1 {
-                hits1 += 1;
-            }
-            if rank <= 10 {
-                hits10 += 1;
-            }
-            rr_sum += 1.0 / rank as f32;
-            total += 1;
-        }
-
-        if total == 0 {
-            return Ok((0.0, 0.0, 0.0));
-        }
-        Ok((
-            hits1 as f32 / total as f32,
-            hits10 as f32 / total as f32,
-            rr_sum / total as f32,
-        ))
+            Some((filler, scores))
+        }))
     }
 
     /// Evaluate NF4 (∃r.C ⊑ D) by shifted-head L2 distance ranking.
@@ -917,7 +878,7 @@ impl CandleElTrainer {
     /// concepts D by L2 distance from that shifted center to D's center.
     pub fn evaluate_nf4(
         &self,
-        test_axioms: &[(usize, usize, usize)], // (role, filler, target) triples
+        test_axioms: &[(usize, usize, usize)],
     ) -> Result<(f32, f32, f32)> {
         let centers: Vec<f32> = self
             .concept_centers
@@ -944,62 +905,29 @@ impl CandleElTrainer {
         let nr = self.num_roles;
         let dim = self.dim;
 
-        let mut hits1 = 0usize;
-        let mut hits10 = 0usize;
-        let mut rr_sum = 0.0f32;
-        let mut total = 0usize;
-
-        for &(role, filler, target) in test_axioms {
+        let items: Vec<[usize; 3]> = test_axioms.iter().map(|[a, b, c]| [*a, *b, *c]).collect();
+        Ok(rank_evaluate(nc, &items, |&[role, filler, target]| {
             if filler >= nc || target >= nc || role >= nr {
-                continue;
+                return None;
             }
-            // Compute shifted head center: head_r - bump_C
             let rh_off = role * dim * 2;
             let bump_off = filler * dim;
-            let mut query_center = vec![0.0f32; dim];
-            for i in 0..dim {
-                query_center[i] = role_heads_data[rh_off + i] - bump_vecs[bump_off + i];
-            }
 
-            // Rank all concepts by distance to query center
-            let mut scores: Vec<(usize, f32)> = (0..nc)
+            let scores: Vec<(usize, f32)> = (0..nc)
                 .map(|c| {
                     let c_off = c * dim;
                     let dist_sq: f32 = (0..dim)
                         .map(|i| {
-                            let diff = query_center[i] - centers[c_off + i];
+                            let query = role_heads_data[rh_off + i] - bump_vecs[bump_off + i];
+                            let diff = query - centers[c_off + i];
                             diff * diff
                         })
                         .sum();
                     (c, dist_sq.sqrt())
                 })
                 .collect();
-            scores.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-
-            let rank = scores
-                .iter()
-                .position(|(c, _)| *c == target)
-                .map(|p| p + 1)
-                .unwrap_or(nc);
-
-            if rank == 1 {
-                hits1 += 1;
-            }
-            if rank <= 10 {
-                hits10 += 1;
-            }
-            rr_sum += 1.0 / rank as f32;
-            total += 1;
-        }
-
-        if total == 0 {
-            return Ok((0.0, 0.0, 0.0));
-        }
-        Ok((
-            hits1 as f32 / total as f32,
-            hits10 as f32 / total as f32,
-            rr_sum / total as f32,
-        ))
+            Some((target, scores))
+        }))
     }
 
     /// Evaluate subsumption (NF2: C ⊑ D) by inclusion loss ranking.
@@ -1030,18 +958,13 @@ impl CandleElTrainer {
         let dim = self.dim;
         let margin = self.margin;
 
-        let mut hits1 = 0usize;
-        let mut hits10 = 0usize;
-        let mut rr_sum = 0.0f32;
-        let mut total = 0usize;
-
-        for &(sub, sup) in test_axioms {
+        let items: Vec<[usize; 2]> = test_axioms.iter().map(|[a, b]| [*a, *b]).collect();
+        Ok(rank_evaluate(nc, &items, |&[sub, sup]| {
             if sub >= nc || sup >= nc {
-                continue;
+                return None;
             }
             let sub_off = sub * dim;
-            // inclusion_loss(sub, candidate): |c_sub - c_cand| + o_sub - o_cand - margin, relu, L2
-            let mut scores: Vec<(usize, f32)> = (0..nc)
+            let scores: Vec<(usize, f32)> = (0..nc)
                 .filter(|&c| c != sub)
                 .map(|c| {
                     let c_off = c * dim;
@@ -1056,32 +979,8 @@ impl CandleElTrainer {
                     (c, (loss_sq + 1e-8).sqrt())
                 })
                 .collect();
-            scores.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-
-            let rank = scores
-                .iter()
-                .position(|(c, _)| *c == sup)
-                .map(|p| p + 1)
-                .unwrap_or(nc);
-
-            if rank == 1 {
-                hits1 += 1;
-            }
-            if rank <= 10 {
-                hits10 += 1;
-            }
-            rr_sum += 1.0 / rank as f32;
-            total += 1;
-        }
-
-        if total == 0 {
-            return Ok((0.0, 0.0, 0.0));
-        }
-        Ok((
-            hits1 as f32 / total as f32,
-            hits10 as f32 / total as f32,
-            rr_sum / total as f32,
-        ))
+            Some((sup, scores))
+        }))
     }
 
     /// Evaluate NF1 (C1 ⊓ C2 ⊑ D) by inclusion loss ranking.
@@ -1111,14 +1010,10 @@ impl CandleElTrainer {
         let dim = self.dim;
         let margin = self.margin;
 
-        let mut hits1 = 0usize;
-        let mut hits10 = 0usize;
-        let mut rr_sum = 0.0f32;
-        let mut total = 0usize;
-
-        for &(c1, c2, d) in test_axioms {
+        let items: Vec<[usize; 3]> = test_axioms.iter().map(|[a, b, c]| [*a, *b, *c]).collect();
+        Ok(rank_evaluate(nc, &items, |&[c1, c2, d]| {
             if c1 >= nc || c2 >= nc || d >= nc {
-                continue;
+                return None;
             }
             let c1_off = c1 * dim;
             let c2_off = c2 * dim;
@@ -1135,8 +1030,7 @@ impl CandleElTrainer {
                 inter_offset[i] = (inter_max - inter_min) / 2.0;
             }
 
-            // inclusion_loss(intersection, candidate)
-            let mut scores: Vec<(usize, f32)> = (0..nc)
+            let scores: Vec<(usize, f32)> = (0..nc)
                 .filter(|&c| c != c1 && c != c2)
                 .map(|c| {
                     let c_off = c * dim;
@@ -1150,32 +1044,8 @@ impl CandleElTrainer {
                     (c, (loss_sq + 1e-8).sqrt())
                 })
                 .collect();
-            scores.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-
-            let rank = scores
-                .iter()
-                .position(|(c, _)| *c == d)
-                .map(|p| p + 1)
-                .unwrap_or(nc);
-
-            if rank == 1 {
-                hits1 += 1;
-            }
-            if rank <= 10 {
-                hits10 += 1;
-            }
-            rr_sum += 1.0 / rank as f32;
-            total += 1;
-        }
-
-        if total == 0 {
-            return Ok((0.0, 0.0, 0.0));
-        }
-        Ok((
-            hits1 as f32 / total as f32,
-            hits10 as f32 / total as f32,
-            rr_sum / total as f32,
-        ))
+            Some((d, scores))
+        }))
     }
 
     /// Evaluate NF3 (C ⊑ ∃r.D) by inclusion loss ranking.
@@ -1221,20 +1091,15 @@ impl CandleElTrainer {
         let dim = self.dim;
         let margin = self.margin;
 
-        let mut hits1 = 0usize;
-        let mut hits10 = 0usize;
-        let mut rr_sum = 0.0f32;
-        let mut total = 0usize;
-
-        for &(sub, role, filler) in test_axioms {
+        let items: Vec<[usize; 3]> = test_axioms.iter().map(|[a, b, c]| [*a, *b, *c]).collect();
+        Ok(rank_evaluate(nc, &items, |&[sub, role, filler]| {
             if sub >= nc || filler >= nc || role >= nr {
-                continue;
+                return None;
             }
             let sub_off = sub * dim;
             let rh_off = role * dim * 2;
-            // Role head offset is the second dim elements of the role_heads row
-            // inclusion_loss(C + bump_D, o_C, head_center, head_offset)
-            let mut scores: Vec<(usize, f32)> = (0..nc)
+
+            let scores: Vec<(usize, f32)> = (0..nc)
                 .map(|d| {
                     let bump_off = d * dim;
                     let loss_sq: f32 = (0..dim)
@@ -1250,32 +1115,8 @@ impl CandleElTrainer {
                     (d, (loss_sq + 1e-8).sqrt())
                 })
                 .collect();
-            scores.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-
-            let rank = scores
-                .iter()
-                .position(|(c, _)| *c == filler)
-                .map(|p| p + 1)
-                .unwrap_or(nc);
-
-            if rank == 1 {
-                hits1 += 1;
-            }
-            if rank <= 10 {
-                hits10 += 1;
-            }
-            rr_sum += 1.0 / rank as f32;
-            total += 1;
-        }
-
-        if total == 0 {
-            return Ok((0.0, 0.0, 0.0));
-        }
-        Ok((
-            hits1 as f32 / total as f32,
-            hits10 as f32 / total as f32,
-            rr_sum / total as f32,
-        ))
+            Some((filler, scores))
+        }))
     }
 
     /// Evaluate NF4 (∃r.C ⊑ D) by inclusion loss ranking.
@@ -1320,65 +1161,32 @@ impl CandleElTrainer {
         let dim = self.dim;
         let margin = self.margin;
 
-        let mut hits1 = 0usize;
-        let mut hits10 = 0usize;
-        let mut rr_sum = 0.0f32;
-        let mut total = 0usize;
-
-        for &(role, filler, target) in test_axioms {
+        let items: Vec<[usize; 3]> = test_axioms.iter().map(|[a, b, c]| [*a, *b, *c]).collect();
+        Ok(rank_evaluate(nc, &items, |&[role, filler, target]| {
             if filler >= nc || target >= nc || role >= nr {
-                continue;
+                return None;
             }
             let rh_off = role * dim * 2;
             let bump_off = filler * dim;
-            // Shifted head: center = head_center - bump_C, offset = head_offset
-            let mut shifted_center = vec![0.0f32; dim];
-            let mut head_offset = vec![0.0f32; dim];
-            for i in 0..dim {
-                shifted_center[i] = role_heads_data[rh_off + i] - bump_vecs[bump_off + i];
-                head_offset[i] = role_heads_data[rh_off + dim + i].abs();
-            }
 
-            // inclusion_loss(shifted_head, candidate)
-            let mut scores: Vec<(usize, f32)> = (0..nc)
+            let scores: Vec<(usize, f32)> = (0..nc)
                 .map(|c| {
                     let c_off = c * dim;
                     let loss_sq: f32 = (0..dim)
                         .map(|i| {
-                            let diff = (shifted_center[i] - centers[c_off + i]).abs();
-                            let v = (diff + head_offset[i] - offsets[c_off + i] - margin).max(0.0);
+                            let shifted_center =
+                                role_heads_data[rh_off + i] - bump_vecs[bump_off + i];
+                            let head_offset = role_heads_data[rh_off + dim + i].abs();
+                            let diff = (shifted_center - centers[c_off + i]).abs();
+                            let v = (diff + head_offset - offsets[c_off + i] - margin).max(0.0);
                             v * v
                         })
                         .sum();
                     (c, (loss_sq + 1e-8).sqrt())
                 })
                 .collect();
-            scores.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-
-            let rank = scores
-                .iter()
-                .position(|(c, _)| *c == target)
-                .map(|p| p + 1)
-                .unwrap_or(nc);
-
-            if rank == 1 {
-                hits1 += 1;
-            }
-            if rank <= 10 {
-                hits10 += 1;
-            }
-            rr_sum += 1.0 / rank as f32;
-            total += 1;
-        }
-
-        if total == 0 {
-            return Ok((0.0, 0.0, 0.0));
-        }
-        Ok((
-            hits1 as f32 / total as f32,
-            hits10 as f32 / total as f32,
-            rr_sum / total as f32,
-        ))
+            Some((target, scores))
+        }))
     }
 
     /// Run all four inclusion-based evaluations and print a comparison table
