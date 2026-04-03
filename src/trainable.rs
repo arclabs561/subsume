@@ -195,15 +195,19 @@ impl TrainableBox {
         all_params.extend_from_slice(&self.delta);
 
         crate::optimizer::apply_amsgrad_step(
-            &mut all_params,
-            &grads,
-            &mut state.m,
-            &mut state.v,
-            &mut state.v_hat,
-            state.lr,
-            state.beta1,
-            state.beta2,
-            state.epsilon,
+            crate::optimizer::AmsgradSlices {
+                params: &mut all_params,
+                grads: &grads,
+                m: &mut state.m,
+                v: &mut state.v,
+                v_hat: &mut state.v_hat,
+            },
+            &crate::optimizer::AmsgradHyperparams {
+                lr: state.lr,
+                beta1: state.beta1,
+                beta2: state.beta2,
+                epsilon: state.epsilon,
+            },
             &mut state.t,
             |p, i| {
                 if i >= dim {
@@ -480,15 +484,19 @@ impl TrainableCone {
         all_params.extend_from_slice(&self.raw_apertures);
 
         crate::optimizer::apply_amsgrad_step(
-            &mut all_params,
-            &grads,
-            &mut state.m,
-            &mut state.v,
-            &mut state.v_hat,
-            state.lr,
-            state.beta1,
-            state.beta2,
-            state.epsilon,
+            crate::optimizer::AmsgradSlices {
+                params: &mut all_params,
+                grads: &grads,
+                m: &mut state.m,
+                v: &mut state.v,
+                v_hat: &mut state.v_hat,
+            },
+            &crate::optimizer::AmsgradHyperparams {
+                lr: state.lr,
+                beta1: state.beta1,
+                beta2: state.beta2,
+                epsilon: state.epsilon,
+            },
             &mut state.t,
             |p, _| {
                 *p = p.clamp(-6.0, 6.0);
