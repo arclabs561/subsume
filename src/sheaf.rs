@@ -11,6 +11,19 @@
 //! It does **not** implement learnable restriction maps or neural architectures --
 //! those would be built on top of these primitives.
 //!
+//! # Performance characteristics
+//!
+//! This module is **experimental** (feature-gated) and optimized for correctness,
+//! not speed:
+//!
+//! - `DenseRestriction::apply` uses O(rows × cols) pure-Rust nested loops for
+//!   matrix multiplication. For production use, switch to `ndarray` matmul.
+//! - `SimpleSheafGraph::edge` scans all edges linearly in O(E). For graphs with
+//!   many edges, use a `HashMap`-based lookup.
+//!
+//! These are acceptable for small graphs (< 1000 nodes) and prototyping, but
+//! should be replaced before using sheaf diffusion in production pipelines.
+//!
 //! # Why Sheaves for Knowledge Graphs?
 //!
 //! Subsumption requires transitivity: if A ⊆ B and B ⊆ C, then A ⊆ C.

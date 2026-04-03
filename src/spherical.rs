@@ -10,6 +10,17 @@
 //!
 //! Lower scores indicate better-matching triples.
 //!
+//! # Rotation semantics for d ≠ 3
+//!
+//! For d = 3, [`rotate`] uses Rodrigues' formula — the standard, unique
+//! 3D rotation about an axis. For d ≠ 3, the rotation is a **generalized
+//! 2D rotation** in the plane spanned by the point's perpendicular component
+//! and the relation axis. This is not a unique rotation in higher dimensions
+//! (there are infinitely many planes of rotation in d > 3). The current
+//! approach is a reasonable heuristic but spherical embeddings are most
+//! meaningful for d = 3. For higher dimensions, treat rotation semantics
+//! as approximate.
+//!
 //! # Projection
 //!
 //! After each gradient step, entity and relation-axis vectors must be
