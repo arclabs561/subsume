@@ -162,7 +162,6 @@ fn fidelity_grads(a_params: &[f32], b_params: &[f32]) -> (Vec<f32>, Vec<f32>, f3
         // dS/d(a_im)
         let ds_da_im = 2.0 * (ip_re * b_im - ip_im * b_re);
 
-        grad_a[i] = (ds_da_re * norm_a_sq - ip_sq * 2.0 * a_re) * inv_denom / norm_a_sq;
         grad_a[i] = ds_da_re * inv_denom - f * 2.0 * a_re / norm_a_sq;
         grad_a[i + 1] = ds_da_im * inv_denom - f * 2.0 * a_im / norm_a_sq;
 
