@@ -244,7 +244,13 @@ fn solve_lower(cholesky: &[f32], dim: usize, b: &[f32]) -> Vec<f32> {
         for j in 0..i {
             sum += get_l(cholesky, dim, i, j) * x[j];
         }
-        x[i] = (b[i] - sum) / get_l(cholesky, dim, i, i);
+        let diag = get_l(cholesky, dim, i, i);
+        // Guard against near-zero diagonal (ill-conditioned Cholesky)
+        if diag.abs() < 1e-8 {
+            x[i] = 0.0;
+        } else {
+            x[i] = (b[i] - sum) / diag;
+        }
     }
     x
 }
