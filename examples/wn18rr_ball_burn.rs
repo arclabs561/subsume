@@ -150,12 +150,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("  epoch {epoch:>4}/{epochs}: loss = {loss:.6}, lr = {epoch_lr:.6}");
 
             if (epoch + 1) % 10 == 0 {
-                // Convert to Ball/BallRelation for evaluation
-                let (entities, relations) = trainer.to_ball_embeddings(&model);
                 let val_sample_size = 200.min(interned.valid.len());
                 let val_sample = &interned.valid[..val_sample_size];
-                let ball_trainer = subsume::trainer::ball_trainer::BallTrainer::new(42);
-                let results = ball_trainer.evaluate(&entities, &relations, val_sample, None);
+                let results = trainer.evaluate(&model, val_sample, None);
                 println!(
                     "    val (sample {val_sample_size}): MRR={:.4}, H@10={:.4}, MR={:.1}",
                     results.mrr, results.hits_at_10, results.mean_rank
@@ -172,10 +169,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Final test evaluation
     println!("\n--- Test Set Evaluation (filtered) ---\n");
-    let (entities, relations) = trainer.to_ball_embeddings(&model);
     let filter = FilteredTripleIndexIds::from_dataset(&interned);
-    let ball_trainer = subsume::trainer::ball_trainer::BallTrainer::new(42);
-    let results = ball_trainer.evaluate(&entities, &relations, &interned.test, Some(&filter));
+    let results = trainer.evaluate(&model, &interned.test, Some(&filter));
     println!("  MRR:       {:.4}", results.mrr);
     println!("  Hits@1:    {:.4}", results.hits_at_1);
     println!("  Hits@3:    {:.4}", results.hits_at_3);

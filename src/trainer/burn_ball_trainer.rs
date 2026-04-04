@@ -375,6 +375,21 @@ impl<B: AutodiffBackend> BurnBallTrainer<B> {
 
         (entities, relations)
     }
+
+    /// Fast evaluation using extracted parameters without burn overhead.
+    ///
+    /// Extracts all entity/relation parameters as flat f32 slices, then computes
+    /// containment scores in O(num_test × num_entities) with minimal overhead.
+    pub fn evaluate(
+        &self,
+        model: &BurnBallModel<B>,
+        test_triples: &[crate::dataset::TripleIds],
+        filter: Option<&crate::trainer::evaluation::FilteredTripleIndexIds>,
+    ) -> crate::trainer::EvaluationResults {
+        let (entities, relations) = self.to_ball_embeddings(model);
+        let ball_trainer = crate::trainer::ball_trainer::BallTrainer::new(0);
+        ball_trainer.evaluate(&entities, &relations, test_triples, filter)
+    }
 }
 
 fn sigmoid<B: Backend, const D: usize>(x: Tensor<B, D>) -> Tensor<B, D> {
