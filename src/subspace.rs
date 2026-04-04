@@ -31,6 +31,7 @@
 //! where P_B is the projection matrix onto B's subspace. For numerical
 //! stability, we check if each basis vector of A projects onto B with
 //! norm close to 1.
+#![allow(missing_docs)]
 
 use crate::BoxError;
 use serde::{Deserialize, Serialize};

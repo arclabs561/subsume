@@ -23,6 +23,7 @@
 //!
 //! - Zhu & Zeng (2025), "Annular Sector Embeddings for Knowledge Graph
 //!   Completion" (arXiv:2506.11099)
+#![allow(missing_docs)]
 
 use crate::BoxError;
 use serde::{Deserialize, Serialize};

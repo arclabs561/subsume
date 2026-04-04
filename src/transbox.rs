@@ -31,6 +31,7 @@
 //!
 //! - Yang, Chen, Sattler (2024), "TransBox: EL++-closed Ontology Embedding"
 //!   (arXiv:2410.14571)
+#![allow(missing_docs)]
 
 use crate::BoxError;
 use serde::{Deserialize, Serialize};

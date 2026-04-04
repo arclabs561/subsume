@@ -2,6 +2,7 @@
 //!
 //! Centralises Adam optimizer state, apply-grad helpers, and Adam
 //! bias-correction so each trainer module need not duplicate them.
+#![allow(missing_docs)]
 
 use std::collections::HashMap;
 
