@@ -40,6 +40,8 @@ pub struct BurnBallModel<B: Backend> {
 /// Burn-based ball trainer using autodiff.
 pub struct BurnBallTrainer<B: AutodiffBackend> {
     _backend: std::marker::PhantomData<B>,
+    /// Per-epoch seed offset for reproducible negative sampling.
+    pub epoch_seed: u64,
 }
 
 impl<B: AutodiffBackend> BurnBallTrainer<B> {
@@ -47,6 +49,7 @@ impl<B: AutodiffBackend> BurnBallTrainer<B> {
     pub fn new() -> Self {
         Self {
             _backend: std::marker::PhantomData,
+            epoch_seed: 0,
         }
     }
 
@@ -141,9 +144,13 @@ impl<B: AutodiffBackend> BurnBallTrainer<B> {
         ranking_loss.mean()
     }
 
-    /// Train for one epoch on a set of triples.
+    /// Train for one epoch using batched gradient descent.
     ///
-    /// Pass in the optimizer to preserve state across epochs.
+    /// Processes triples in batches of `batch_size`, with `n_neg` random negatives
+    /// per triple. Each batch produces one gradient step. This is orders of magnitude
+    /// faster than per-triple SGD for large datasets (e.g. WN18RR 86K triples).
+    ///
+    /// Pass in the optimizer to preserve Adam momentum state across epochs.
     pub fn train_epoch(
         &self,
         model: &mut BurnBallModel<B>,
@@ -155,61 +162,176 @@ impl<B: AutodiffBackend> BurnBallTrainer<B> {
         device: &B::Device,
     ) -> f32 {
         let num_entities = model.entities.center.dims()[0];
-        let mut total_loss = 0.0f32;
-        let mut count = 0usize;
+        let batch_size = if config.batch_size > 0 {
+            config.batch_size
+        } else {
+            512
+        };
+        let n_neg = config.negative_samples.max(1);
+        let k = 10.0f32;
 
-        // Simple RNG for negative sampling (seeded for reproducibility)
-        let mut rng = fastrand::Rng::with_seed(42);
-
+        // Build index arrays for all triples (pre-filter invalid)
+        let mut heads: Vec<i64> = Vec::with_capacity(triples.len());
+        let mut rels: Vec<i64> = Vec::with_capacity(triples.len());
+        let mut tails: Vec<i64> = Vec::with_capacity(triples.len());
         for triple in triples {
-            let head_idx = match entity_to_idx.get(&triple.head) {
-                Some(&i) => i,
-                None => continue,
-            };
-            let rel_idx = match relation_to_idx.get(&triple.relation) {
-                Some(&i) => i,
-                None => continue,
-            };
-            let tail_idx = match entity_to_idx.get(&triple.tail) {
-                Some(&i) => i,
-                None => continue,
-            };
+            if let (Some(&h), Some(&r), Some(&t)) = (
+                entity_to_idx.get(&triple.head),
+                relation_to_idx.get(&triple.relation),
+                entity_to_idx.get(&triple.tail),
+            ) {
+                heads.push(h as i64);
+                rels.push(r as i64);
+                tails.push(t as i64);
+            }
+        }
+        let n = heads.len();
+        if n == 0 {
+            return 0.0;
+        }
 
-            let mut neg_tail_idx = rng.usize(0..num_entities);
-            while neg_tail_idx == tail_idx {
-                neg_tail_idx = rng.usize(0..num_entities);
+        // Shuffle via RNG
+        let mut rng = fastrand::Rng::with_seed(self.epoch_seed.wrapping_add(1));
+        let mut order: Vec<usize> = (0..n).collect();
+        for i in (1..n).rev() {
+            let j = rng.usize(0..=i);
+            order.swap(i, j);
+        }
+
+        let mut total_loss = 0.0f32;
+        let mut batch_count = 0usize;
+
+        for batch_start in (0..n).step_by(batch_size) {
+            let batch_end = (batch_start + batch_size).min(n);
+            let batch_indices = &order[batch_start..batch_end];
+            let bs = batch_indices.len();
+
+            // Build batch tensors for heads/rels/tails
+            let batch_heads: Vec<i64> = batch_indices.iter().map(|&i| heads[i]).collect();
+            let batch_rels: Vec<i64> = batch_indices.iter().map(|&i| rels[i]).collect();
+            let batch_tails: Vec<i64> = batch_indices.iter().map(|&i| tails[i]).collect();
+
+            // Sample n_neg negatives per triple, flattened into [bs * n_neg] tensor
+            let mut neg_tails_flat: Vec<i64> = Vec::with_capacity(bs * n_neg);
+            for &ti in &batch_tails {
+                for _ in 0..n_neg {
+                    let mut neg = rng.usize(0..num_entities) as i64;
+                    while neg == ti {
+                        neg = rng.usize(0..num_entities) as i64;
+                    }
+                    neg_tails_flat.push(neg);
+                }
             }
 
-            let head_ids = Tensor::<B, 1, Int>::from_data([head_idx as i64], device);
-            let rel_ids = Tensor::<B, 1, Int>::from_data([rel_idx as i64], device);
-            let tail_ids = Tensor::<B, 1, Int>::from_data([tail_idx as i64], device);
-            let neg_tail_ids = Tensor::<B, 1, Int>::from_data([neg_tail_idx as i64], device);
+            let head_t = Tensor::<B, 1, Int>::from_data(batch_heads.as_slice(), device);
+            let rel_t = Tensor::<B, 1, Int>::from_data(batch_rels.as_slice(), device);
+            let tail_t = Tensor::<B, 1, Int>::from_data(batch_tails.as_slice(), device);
 
-            let loss = self.compute_loss(
+            // Compute batched loss across all triples and their n_neg negatives
+            let loss = self.compute_batch_loss(
                 model.clone(),
-                head_ids,
-                rel_ids,
-                tail_ids,
-                neg_tail_ids,
+                head_t,
+                rel_t,
+                tail_t,
+                neg_tails_flat,
+                n_neg,
                 config.margin,
-                10.0,
+                k,
+                device,
             );
 
             let loss_val = loss.clone().into_scalar().to_f32();
-            total_loss += loss_val;
-            count += 1;
+            if loss_val.is_finite() {
+                total_loss += loss_val;
+                batch_count += 1;
 
-            let grads = loss.backward();
-            let grads = GradientsParams::from_grads(grads, model);
-            let new_model = optim.step(config.learning_rate as f64, model.clone(), grads);
-            *model = new_model;
+                let grads = loss.backward();
+                let grads = GradientsParams::from_grads(grads, model);
+                let new_model = optim.step(config.learning_rate as f64, model.clone(), grads);
+                *model = new_model;
+            }
         }
 
-        if count == 0 {
+        if batch_count == 0 {
             0.0
         } else {
-            total_loss / count as f32
+            total_loss / batch_count as f32
         }
+    }
+
+    /// Compute batched ranking loss over a batch of triples with multiple negatives.
+    ///
+    /// neg_tail_ids_flat has length bs * n_neg (n_neg negatives per triple in order).
+    fn compute_batch_loss(
+        &self,
+        model: BurnBallModel<B>,
+        head_ids: Tensor<B, 1, Int>,
+        rel_ids: Tensor<B, 1, Int>,
+        tail_ids: Tensor<B, 1, Int>,
+        neg_tail_ids_flat: Vec<i64>,
+        n_neg: usize,
+        margin: f32,
+        k: f32,
+        device: &B::Device,
+    ) -> Tensor<B, 1> {
+        let bs = head_ids.dims()[0];
+
+        // Gather embeddings for positive pairs [bs, d] and [bs, 1]
+        let head_center = model.entities.center.clone().select(0, head_ids.clone());
+        let head_log_r = model.entities.log_radius.clone().select(0, head_ids);
+        let rel_trans = model
+            .relations
+            .translation
+            .clone()
+            .select(0, rel_ids.clone());
+        let rel_log_s = model.relations.log_scale.clone().select(0, rel_ids);
+        let tail_center = model.entities.center.clone().select(0, tail_ids.clone());
+        let tail_log_r = model.entities.log_radius.clone().select(0, tail_ids);
+
+        // Transform head
+        let tc = head_center + rel_trans; // [bs, d]
+        let tr = head_log_r + rel_log_s; // [bs, 1]
+
+        // Positive scores [bs, 1]
+        let pos_dist = (tc.clone() - tail_center)
+            .powf_scalar(2.0)
+            .sum_dim(1)
+            .sqrt();
+        let pos_marg = tail_log_r.exp() - pos_dist - tr.clone().exp();
+        let pos_prob = sigmoid(pos_marg * k);
+        let pos_loss = pos_prob.clamp(1e-6, 1.0 - 1e-6).log().neg(); // [bs, 1]
+
+        // Negatives: process all bs*n_neg at once
+        let bsn = bs * n_neg;
+        let neg_ids = Tensor::<B, 1, Int>::from_data(neg_tail_ids_flat.as_slice(), device);
+        let neg_center = model.entities.center.clone().select(0, neg_ids.clone()); // [bsn, d]
+        let neg_log_r = model.entities.log_radius.clone().select(0, neg_ids); // [bsn, 1]
+
+        // Repeat transformed center/radius n_neg times along dim 0: [bs, d] → [bs*n_neg, d]
+        // burn's repeat([n, 1]) repeats the whole tensor n times: [0,1,...,bs-1,0,1,...,bs-1,...]
+        // We need each row repeated n_neg times: [0,0,...,1,1,...,bs-1,bs-1,...]
+        // Since neg_tail_ids_flat is laid out as [triple0_neg0..neg_k, triple1_neg0..neg_k, ...]
+        // we need tc_rep[i*n_neg + j] = tc[i], so use repeat_each approach.
+        // Workaround: interleave using index tensor
+        let repeat_ids: Vec<i64> = (0..bs)
+            .flat_map(|i| std::iter::repeat(i as i64).take(n_neg))
+            .collect();
+        let repeat_t = Tensor::<B, 1, Int>::from_data(repeat_ids.as_slice(), device);
+        let tc_rep = tc.clone().select(0, repeat_t.clone()); // [bsn, d]
+        let tr_rep = tr.clone().select(0, repeat_t); // [bsn, 1]
+
+        let neg_dist = (tc_rep - neg_center).powf_scalar(2.0).sum_dim(1).sqrt(); // [bsn, 1]
+        let neg_marg = neg_log_r.exp() - neg_dist - tr_rep.exp();
+        let neg_prob = sigmoid(neg_marg * k);
+        let neg_loss = neg_prob.clamp(1e-6, 1.0 - 1e-6).log().neg(); // [bsn, 1]
+
+        // Reshape to [bs, n_neg] and mean over n_neg
+        let neg_loss_reshaped = neg_loss.reshape([bs, n_neg]); // [bs, n_neg]
+        let neg_loss_avg = neg_loss_reshaped.mean_dim(1); // [bs, 1]
+
+        // Ranking loss
+        let ranking = (margin + pos_loss - neg_loss_avg).clamp_min(0.0);
+        ranking.mean()
     }
 
     /// Convert burn model parameters back to Ball/BallRelation types.
