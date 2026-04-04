@@ -26,6 +26,10 @@ pub mod cone_trainer;
 pub mod evaluation;
 /// Negative sampling functions for knowledge graph training.
 pub mod negative_sampling;
+/// Spherical cap embedding trainer with analytical gradients.
+#[cfg(feature = "rand")]
+#[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
+pub mod spherical_cap_trainer;
 
 /// Candle-based box trainer with autograd (GPU-accelerated).
 #[cfg(feature = "candle-backend")]
@@ -508,6 +512,11 @@ pub use cone_trainer::{
 #[cfg(feature = "rand")]
 #[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
 pub use ball_trainer::BallTrainer;
+
+// Spherical cap trainer
+#[cfg(feature = "rand")]
+#[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
+pub use spherical_cap_trainer::SphericalCapTrainer;
 
 /// Backward-compatible alias for [`CpuBoxTrainingConfig`].
 ///

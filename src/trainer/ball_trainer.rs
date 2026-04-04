@@ -47,8 +47,9 @@ impl BallTrainer {
 
         let relations: Vec<BallRelation> = (0..num_relations)
             .map(|_| {
-                let translation: Vec<f32> =
-                    (0..dim).map(|_| self.rng.random_range(-0.01..0.01)).collect();
+                let translation: Vec<f32> = (0..dim)
+                    .map(|_| self.rng.random_range(-0.01..0.01))
+                    .collect();
                 let log_scale: f32 = self.rng.random_range(-0.1..0.1);
                 BallRelation::new(translation, log_scale.exp()).unwrap()
             })
