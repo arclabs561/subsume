@@ -229,7 +229,7 @@ pub enum NegativeSamplingStrategy {
 /// `early_stopping_*`, `warmup_epochs`, `softplus_beta_final`) are configuration
 /// metadata for caller-side training loops (e.g., [`BoxEmbeddingTrainer::fit`]).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct TrainingConfig {
+pub struct CpuBoxTrainingConfig {
     /// Learning rate (default: 1e-3, paper range: 1e-3 to 5e-4)
     pub learning_rate: f32,
     /// Number of training epochs (default: 100)
@@ -358,7 +358,7 @@ pub struct TrainingConfig {
     pub bernoulli_sampling: bool,
 }
 
-impl Default for TrainingConfig {
+impl Default for CpuBoxTrainingConfig {
     fn default() -> Self {
         Self {
             learning_rate: 1e-3, // Paper default: 1e-3 to 5e-4
@@ -384,7 +384,7 @@ impl Default for TrainingConfig {
     }
 }
 
-impl TrainingConfig {
+impl CpuBoxTrainingConfig {
     /// Validate that all fields have sensible values.
     ///
     /// Call after deserialization to catch invalid configs early.
@@ -499,3 +499,9 @@ pub use box_trainer::{compute_analytical_gradients, compute_pair_loss, BoxEmbedd
 pub use cone_trainer::{
     compute_cone_analytical_gradients, compute_cone_pair_loss, ConeEmbeddingTrainer,
 };
+
+/// Backward-compatible alias for [`CpuBoxTrainingConfig`].
+///
+/// This type is only used by CPU trainers (`BoxEmbeddingTrainer`,
+/// `ConeEmbeddingTrainer`). Candle trainers use builder-style constructors.
+pub type TrainingConfig = CpuBoxTrainingConfig;
