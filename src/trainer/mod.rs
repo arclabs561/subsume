@@ -24,6 +24,10 @@ pub mod annular_trainer;
 pub mod ball_trainer;
 /// Box embedding trainer, loss computation, and analytical gradients.
 pub mod box_trainer;
+/// Burn-based ball trainer with autodiff (multi-backend: ndarray/wgpu/tch).
+#[cfg(feature = "burn-ndarray")]
+#[cfg_attr(docsrs, doc(cfg(feature = "burn-ndarray")))]
+pub mod burn_ball_trainer;
 /// Cone embedding trainer, loss computation, and analytical gradients.
 pub mod cone_trainer;
 /// Ellipsoid embedding trainer with analytical gradients.
@@ -553,6 +557,11 @@ pub use transbox_trainer::TransBoxTrainer;
 #[cfg(feature = "rand")]
 #[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
 pub use annular_trainer::AnnularTrainer;
+
+// Burn ball trainer
+#[cfg(feature = "burn-ndarray")]
+#[cfg_attr(docsrs, doc(cfg(feature = "burn-ndarray")))]
+pub use burn_ball_trainer::BurnBallTrainer;
 
 /// Backward-compatible alias for [`CpuBoxTrainingConfig`].
 ///
