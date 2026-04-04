@@ -122,32 +122,49 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         epochs, num_entities, num_relations
     );
 
+    let mut best_val_mrr = 0.0f32;
+    let mut best_epoch = 0usize;
+
     for epoch in 0..epochs {
+        // Cosine LR decay: lr_epoch = lr_min + 0.5*(lr_max - lr_min)*(1 + cos(pi * t/T))
+        let lr_min = lr * 0.01;
+        let t = epoch as f32 / epochs.max(1) as f32;
+        let epoch_lr = lr_min + 0.5 * (lr - lr_min) * (1.0 + (std::f32::consts::PI * t).cos());
+
+        let epoch_config = CpuBoxTrainingConfig {
+            learning_rate: epoch_lr,
+            ..config.clone()
+        };
+
         let loss = trainer.train_epoch(
             &mut entities,
             &mut relations,
             &train_triples,
-            &config,
+            &epoch_config,
             &entity_to_idx,
             &relation_to_idx,
         );
 
         if (epoch + 1) % 10 == 0 || epoch == 0 {
-            println!("  epoch {epoch:>3}/{epochs}: avg_loss = {loss:.6}");
+            println!("  epoch {epoch:>3}/{epochs}: avg_loss = {loss:.6}, lr = {epoch_lr:.5}");
 
             // Quick validation
             if (epoch + 1) % 10 == 0 {
-                let sample_size = 50.min(interned.valid.len());
+                let sample_size = 100.min(interned.valid.len());
                 let val_sample = &interned.valid[..sample_size];
                 let results = trainer.evaluate(&entities, &relations, val_sample, None);
                 println!(
                     "    val (sample {sample_size}): MRR={:.4}, H@10={:.4}, MR={:.1}",
                     results.mrr, results.hits_at_10, results.mean_rank
                 );
+                if results.mrr > best_val_mrr {
+                    best_val_mrr = results.mrr;
+                    best_epoch = epoch;
+                }
             }
         }
     }
-
+    println!("\n  Best val MRR: {best_val_mrr:.4} at epoch {best_epoch}");
     // Final evaluation on test set.
     println!("\n--- Test Set Evaluation ---\n");
     let filter = FilteredTripleIndexIds::from_dataset(&interned);
