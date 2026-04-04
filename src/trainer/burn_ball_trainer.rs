@@ -132,17 +132,22 @@ impl<B: AutodiffBackend> BurnBallTrainer<B> {
         let pos_prob = sigmoid(pos_margin * k);
         let neg_prob = sigmoid(neg_margin * k);
 
+        // Loss = margin - ln(pos_prob) + ln(neg_prob), clamped to >= 0
+        // Minimized when pos_prob is large and neg_prob is small
         let pos_loss = pos_prob.clamp(1e-6, 1.0 - 1e-6).log().neg();
         let neg_score = neg_prob.clamp(1e-6, 1.0 - 1e-6).log().neg();
-        let ranking_loss = (margin + pos_loss.clone() - neg_score).clamp_min(0.0);
+        let ranking_loss = (margin + pos_loss - neg_score).clamp_min(0.0);
 
-        (pos_loss + ranking_loss).mean()
+        ranking_loss.mean()
     }
 
     /// Train for one epoch on a set of triples.
+    ///
+    /// Pass in the optimizer to preserve state across epochs.
     pub fn train_epoch(
         &self,
         model: &mut BurnBallModel<B>,
+        optim: &mut impl Optimizer<BurnBallModel<B>, B>,
         triples: &[Triple],
         config: &CpuBoxTrainingConfig,
         entity_to_idx: &HashMap<String, usize>,
@@ -153,11 +158,8 @@ impl<B: AutodiffBackend> BurnBallTrainer<B> {
         let mut total_loss = 0.0f32;
         let mut count = 0usize;
 
-        // Create optimizer
-        let mut optim = AdamConfig::new().init::<B, BurnBallModel<B>>();
-
-        // Simple RNG for negative sampling
-        let mut rng = fastrand::Rng::new();
+        // Simple RNG for negative sampling (seeded for reproducibility)
+        let mut rng = fastrand::Rng::with_seed(42);
 
         for triple in triples {
             let head_idx = match entity_to_idx.get(&triple.head) {
@@ -349,5 +351,116 @@ mod tests {
         assert_eq!(relations.len(), 2);
         assert_eq!(entities[0].dim(), 4);
         assert!(entities[0].radius() > 0.0);
+    }
+
+    #[test]
+    fn burn_train_and_evaluate_synthetic() {
+        use crate::dataset::{TripleIds, Vocab};
+        use crate::trainer::ball_trainer::BallTrainer;
+
+        let mut vocab = Vocab::default();
+        let e0 = vocab.intern("e0".to_string());
+        let e1 = vocab.intern("e1".to_string());
+        let e2 = vocab.intern("e2".to_string());
+        let e3 = vocab.intern("e3".to_string());
+
+        let triples = vec![
+            Triple {
+                head: "e0".to_string(),
+                relation: "r0".to_string(),
+                tail: "e1".to_string(),
+            },
+            Triple {
+                head: "e2".to_string(),
+                relation: "r0".to_string(),
+                tail: "e3".to_string(),
+            },
+            Triple {
+                head: "e0".to_string(),
+                relation: "r1".to_string(),
+                tail: "e2".to_string(),
+            },
+        ];
+
+        let test_triples = vec![
+            TripleIds {
+                head: e0,
+                relation: 0,
+                tail: e1,
+            },
+            TripleIds {
+                head: e2,
+                relation: 0,
+                tail: e3,
+            },
+            TripleIds {
+                head: e0,
+                relation: 1,
+                tail: e2,
+            },
+        ];
+
+        let entity_map: HashMap<String, usize> = [
+            ("e0".to_string(), 0),
+            ("e1".to_string(), 1),
+            ("e2".to_string(), 2),
+            ("e3".to_string(), 3),
+        ]
+        .into_iter()
+        .collect();
+        let relation_map: HashMap<String, usize> = [("r0".to_string(), 0), ("r1".to_string(), 1)]
+            .into_iter()
+            .collect();
+
+        let device = Default::default();
+        let trainer = BurnBallTrainer::<TestBackend>::new();
+        let mut model = trainer.init_model(4, 2, 4, &device);
+
+        let config = CpuBoxTrainingConfig {
+            learning_rate: 0.05,
+            margin: 1.0,
+            ..Default::default()
+        };
+
+        let mut optim = AdamConfig::new().init::<TestBackend, BurnBallModel<TestBackend>>();
+
+        let mut last_loss = f32::MAX;
+        for epoch in 0..50 {
+            let loss = trainer.train_epoch(
+                &mut model,
+                &mut optim,
+                &triples,
+                &config,
+                &entity_map,
+                &relation_map,
+                &device,
+            );
+            if epoch % 10 == 0 {
+                eprintln!("Burn Epoch {epoch}: loss={loss:.4}");
+            }
+            last_loss = loss;
+        }
+        eprintln!("Burn Final loss: {last_loss:.4}");
+
+        // Convert to Ball/BallRelation and evaluate with the existing eval infra
+        let (entities, relations) = trainer.to_ball_embeddings(&model);
+        let ball_trainer = BallTrainer::new(42);
+        let results = ball_trainer.evaluate(&entities, &relations, &test_triples, None);
+
+        eprintln!(
+            "Burn MRR: {}, Mean rank: {}",
+            results.mrr, results.mean_rank
+        );
+
+        assert!(
+            results.mrr > 0.3,
+            "Burn MRR after training = {}, expected > 0.3",
+            results.mrr
+        );
+        assert!(
+            results.mean_rank <= 3.0,
+            "Burn Mean rank = {}, expected <= 3.0",
+            results.mean_rank
+        );
     }
 }
