@@ -207,6 +207,18 @@ impl SphericalCap {
             }
         }
     }
+
+    /// Mutable access to center (for training).
+    pub fn center_mut(&mut self) -> &mut [f32] {
+        &mut self.center
+    }
+
+    /// Set angular radius from log-tan(theta/2) (for training).
+    pub fn set_log_tan_half(&mut self, log_tan_half: f32) {
+        let clamped = log_tan_half.clamp(-10.0, 10.0);
+        self.angular_radius =
+            (2.0 * clamped.exp().atan()).clamp(0.001, std::f32::consts::PI - 0.001);
+    }
 }
 
 // ---------------------------------------------------------------------------
