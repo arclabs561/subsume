@@ -688,4 +688,3 @@ mod tests {
         assert!((max[1] - 3.0).abs() < 1e-6);
     }
 }
-
