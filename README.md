@@ -10,6 +10,8 @@ Region embeddings for entailment and set containment.
 
 *(a) Containment: nested boxes encode taxonomic is-a relationships. (b) Gumbel soft boundary: temperature controls membership sharpness. (c) Octagon: diagonal constraints cut corners for tighter volume bounds.*
 
+For background on why region embeddings work and how the geometries relate, see [Why Regions, Not Points](https://attobop.net/posts/region-embeddings/).
+
 ## Geometries
 
 Boxes, Gumbel boxes, cones, octagons, Gaussians, and hyperbolic intervals. Each
