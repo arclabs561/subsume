@@ -19,6 +19,10 @@ use std::collections::HashMap;
 pub struct BallTrainer {
     rng: StdRng,
     step: usize,
+    /// Persistent Adam momentum (first moment).
+    adam_m: HashMap<String, f32>,
+    /// Persistent Adam velocity (second moment).
+    adam_v: HashMap<String, f32>,
 }
 
 impl BallTrainer {
@@ -27,6 +31,8 @@ impl BallTrainer {
         Self {
             rng: StdRng::seed_from_u64(seed),
             step: 0,
+            adam_m: HashMap::new(),
+            adam_v: HashMap::new(),
         }
     }
 
@@ -178,10 +184,6 @@ impl BallTrainer {
             indices.swap(i, j);
         }
 
-        // Simple Adam state (flattened for simplicity)
-        let mut m: HashMap<String, f32> = HashMap::new();
-        let mut v: HashMap<String, f32> = HashMap::new();
-
         for &idx in &indices {
             let triple = &triples[idx];
             let head_idx = match entity_to_idx.get(&triple.head) {
@@ -257,8 +259,8 @@ impl BallTrainer {
             // Update head center
             for i in 0..head.dim() {
                 apply_adam(
-                    &mut m,
-                    &mut v,
+                    &mut self.adam_m,
+                    &mut self.adam_v,
                     &format!("h{head_idx}_c{i}"),
                     &mut entities[head_idx].center_mut()[i],
                     grads.head_center[i],
@@ -270,8 +272,8 @@ impl BallTrainer {
                     bias2,
                 );
                 apply_adam(
-                    &mut m,
-                    &mut v,
+                    &mut self.adam_m,
+                    &mut self.adam_v,
                     &format!("t{tail_idx}_c{i}"),
                     &mut entities[tail_idx].center_mut()[i],
                     grads.tail_center[i],
@@ -283,8 +285,8 @@ impl BallTrainer {
                     bias2,
                 );
                 apply_adam(
-                    &mut m,
-                    &mut v,
+                    &mut self.adam_m,
+                    &mut self.adam_v,
                     &format!("r{rel_idx}_t{i}"),
                     &mut relations[rel_idx].translation_mut()[i],
                     grads.relation_translation[i],
@@ -299,8 +301,8 @@ impl BallTrainer {
 
             // Update radii/scale
             update_log_param_adam(
-                &mut m,
-                &mut v,
+                &mut self.adam_m,
+                &mut self.adam_v,
                 &format!("h{head_idx}_lr"),
                 entities[head_idx].log_radius(),
                 grads.head_log_radius,
@@ -314,8 +316,8 @@ impl BallTrainer {
                 &mut entities[head_idx],
             );
             update_log_param_adam(
-                &mut m,
-                &mut v,
+                &mut self.adam_m,
+                &mut self.adam_v,
                 &format!("t{tail_idx}_lr"),
                 entities[tail_idx].log_radius(),
                 grads.tail_log_radius,
@@ -329,8 +331,8 @@ impl BallTrainer {
                 &mut entities[tail_idx],
             );
             update_log_param_adam(
-                &mut m,
-                &mut v,
+                &mut self.adam_m,
+                &mut self.adam_v,
                 &format!("r{rel_idx}_ls"),
                 relations[rel_idx].log_scale(),
                 grads.relation_log_scale,
@@ -773,6 +775,176 @@ mod tests {
             "Mean rank worsened: before={}, after={}",
             results_before.mean_rank,
             results_after.mean_rank
+        );
+    }
+
+    /// Gradient check: compare analytical gradients against finite differences.
+    /// This catches sign errors, missing chain rule terms, and scaling bugs.
+    #[test]
+    fn gradient_check_against_finite_differences() {
+        let head = Ball::new(vec![0.3, -0.2, 0.5], 0.8).unwrap();
+        let relation = BallRelation::new(vec![0.1, -0.1, 0.2], 1.2).unwrap();
+        let tail = Ball::new(vec![0.5, 0.1, 0.3], 1.5).unwrap();
+        let neg_tail = Ball::new(vec![-0.5, 0.8, -0.3], 0.6).unwrap();
+        let margin = 1.0f32;
+        let k = 10.0f32;
+        let eps = 1e-4f32;
+
+        let (base_loss, analytical) =
+            BallTrainer::compute_pair_gradients(&head, &relation, &tail, &neg_tail, margin, k);
+
+        if base_loss <= 1e-8 {
+            return;
+        }
+
+        let compute_loss = |h: &Ball, r: &BallRelation, t: &Ball, nt: &Ball| -> f32 {
+            let pos_t = r.apply(h).unwrap();
+            let pos_p = crate::ball::containment_prob(&pos_t, t, k)
+                .unwrap()
+                .max(1e-10);
+            let neg_t = r.apply(h).unwrap();
+            let neg_p = crate::ball::containment_prob(&neg_t, nt, k)
+                .unwrap()
+                .max(1e-10);
+            (margin - pos_p.ln() + neg_p.ln()).max(0.0)
+        };
+
+        let dim = head.dim();
+        let rel_tol = 0.15;
+        let mut checked = 0;
+
+        // Head center
+        for i in 0..dim {
+            let mut c = head.center().to_vec();
+            c[i] += eps;
+            let h_plus = Ball::new(c.clone(), head.radius()).unwrap();
+            c[i] -= 2.0 * eps;
+            let h_minus = Ball::new(c, head.radius()).unwrap();
+            let numerical = (compute_loss(&h_plus, &relation, &tail, &neg_tail)
+                - compute_loss(&h_minus, &relation, &tail, &neg_tail))
+                / (2.0 * eps);
+            let a = analytical.head_center[i];
+            if a.abs() > 1e-4 || numerical.abs() > 1e-4 {
+                let rel_err = (a - numerical).abs() / a.abs().max(numerical.abs());
+                assert!(
+                    rel_err < rel_tol,
+                    "head_center[{i}]: a={a:.6}, n={numerical:.6}, err={rel_err:.4}"
+                );
+                checked += 1;
+            }
+        }
+
+        // Tail center
+        for i in 0..dim {
+            let mut c = tail.center().to_vec();
+            c[i] += eps;
+            let t_plus = Ball::new(c.clone(), tail.radius()).unwrap();
+            c[i] -= 2.0 * eps;
+            let t_minus = Ball::new(c, tail.radius()).unwrap();
+            let numerical = (compute_loss(&head, &relation, &t_plus, &neg_tail)
+                - compute_loss(&head, &relation, &t_minus, &neg_tail))
+                / (2.0 * eps);
+            let a = analytical.tail_center[i];
+            if a.abs() > 1e-4 || numerical.abs() > 1e-4 {
+                let rel_err = (a - numerical).abs() / a.abs().max(numerical.abs());
+                assert!(
+                    rel_err < rel_tol,
+                    "tail_center[{i}]: a={a:.6}, n={numerical:.6}, err={rel_err:.4}"
+                );
+                checked += 1;
+            }
+        }
+
+        // Head log_radius
+        {
+            let h_plus =
+                Ball::from_log_radius(head.center().to_vec(), head.log_radius() + eps).unwrap();
+            let h_minus =
+                Ball::from_log_radius(head.center().to_vec(), head.log_radius() - eps).unwrap();
+            let numerical = (compute_loss(&h_plus, &relation, &tail, &neg_tail)
+                - compute_loss(&h_minus, &relation, &tail, &neg_tail))
+                / (2.0 * eps);
+            let a = analytical.head_log_radius;
+            if a.abs() > 1e-4 || numerical.abs() > 1e-4 {
+                let rel_err = (a - numerical).abs() / a.abs().max(numerical.abs());
+                assert!(
+                    rel_err < rel_tol,
+                    "head_log_radius: a={a:.6}, n={numerical:.6}, err={rel_err:.4}"
+                );
+                checked += 1;
+            }
+        }
+
+        // Tail log_radius
+        {
+            let t_plus =
+                Ball::from_log_radius(tail.center().to_vec(), tail.log_radius() + eps).unwrap();
+            let t_minus =
+                Ball::from_log_radius(tail.center().to_vec(), tail.log_radius() - eps).unwrap();
+            let numerical = (compute_loss(&head, &relation, &t_plus, &neg_tail)
+                - compute_loss(&head, &relation, &t_minus, &neg_tail))
+                / (2.0 * eps);
+            let a = analytical.tail_log_radius;
+            if a.abs() > 1e-4 || numerical.abs() > 1e-4 {
+                let rel_err = (a - numerical).abs() / a.abs().max(numerical.abs());
+                assert!(
+                    rel_err < rel_tol,
+                    "tail_log_radius: a={a:.6}, n={numerical:.6}, err={rel_err:.4}"
+                );
+                checked += 1;
+            }
+        }
+
+        // Relation translation
+        for i in 0..dim {
+            let mut t = relation.translation().to_vec();
+            t[i] += eps;
+            let r_plus = BallRelation::new(t.clone(), relation.scale()).unwrap();
+            t[i] -= 2.0 * eps;
+            let r_minus = BallRelation::new(t, relation.scale()).unwrap();
+            let numerical = (compute_loss(&head, &r_plus, &tail, &neg_tail)
+                - compute_loss(&head, &r_minus, &tail, &neg_tail))
+                / (2.0 * eps);
+            let a = analytical.relation_translation[i];
+            if a.abs() > 1e-4 || numerical.abs() > 1e-4 {
+                let rel_err = (a - numerical).abs() / a.abs().max(numerical.abs());
+                assert!(
+                    rel_err < rel_tol,
+                    "rel_trans[{i}]: a={a:.6}, n={numerical:.6}, err={rel_err:.4}"
+                );
+                checked += 1;
+            }
+        }
+
+        // Relation log_scale
+        {
+            let r_plus = BallRelation::new(
+                relation.translation().to_vec(),
+                (relation.log_scale() + eps).exp(),
+            )
+            .unwrap();
+            let r_minus = BallRelation::new(
+                relation.translation().to_vec(),
+                (relation.log_scale() - eps).exp(),
+            )
+            .unwrap();
+            let numerical = (compute_loss(&head, &r_plus, &tail, &neg_tail)
+                - compute_loss(&head, &r_minus, &tail, &neg_tail))
+                / (2.0 * eps);
+            let a = analytical.relation_log_scale;
+            if a.abs() > 1e-4 || numerical.abs() > 1e-4 {
+                let rel_err = (a - numerical).abs() / a.abs().max(numerical.abs());
+                assert!(
+                    rel_err < rel_tol,
+                    "rel_log_scale: a={a:.6}, n={numerical:.6}, err={rel_err:.4}"
+                );
+                checked += 1;
+            }
+        }
+
+        assert!(
+            checked >= 3,
+            "gradient check only verified {checked} components (expected >= 3)"
         );
     }
 }
