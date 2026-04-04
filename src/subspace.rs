@@ -378,26 +378,29 @@ pub fn subspace_distance(a: &Subspace, b: &Subspace) -> Result<f32, BoxError> {
         });
     }
 
-    // Compute SVD of A^T * B to get cosines of principal angles
     let k = a.rank.min(b.rank);
     if k == 0 {
         return Ok(0.0);
     }
 
-    // A^T * B is rank_a × rank_b
-    let mut cosines = Vec::with_capacity(k);
+    // Compute M = A^T * B (rank_a × rank_b matrix)
+    let mut m = vec![0.0f32; a.rank * b.rank];
     for i in 0..a.rank {
-        let a_i: Vec<f32> = (0..a.dim).map(|r| a.basis[r * a.rank + i]).collect();
         for j in 0..b.rank {
-            let b_j: Vec<f32> = (0..b.dim).map(|r| b.basis[r * b.rank + j]).collect();
-            let dot: f32 = a_i.iter().zip(b_j.iter()).map(|(&x, &y)| x * y).sum();
-            cosines.push(dot);
+            let mut dot = 0.0f32;
+            for r in 0..a.dim {
+                dot += a.basis[r * a.rank + i] * b.basis[r * b.rank + j];
+            }
+            m[i * b.rank + j] = dot;
         }
     }
 
-    // Simplified: use Frobenius norm of A^T * B as proxy for principal angles
-    // ||A^T * B||_F^2 = sum cos^2(theta_i)
-    let frob_sq: f32 = cosines.iter().map(|c| c * c).sum();
+    // Compute M^T * M (rank_b × rank_b) — its eigenvalues are cos^2(theta_i)
+    // For simplicity, compute singular values via power iteration on M^T * M.
+    // Since we only need sum sin^2(theta_i) = k - sum cos^2(theta_i) = k - ||M||_F^2
+    // when the bases are orthonormal, ||M||_F^2 = sum sigma_i^2 = sum cos^2(theta_i).
+    // This holds because A and B have orthonormal bases.
+    let frob_sq: f32 = m.iter().map(|v| v * v).sum();
     let sin_sq_sum = (k as f32) - frob_sq;
     Ok(sin_sq_sum.max(0.0).sqrt())
 }
@@ -419,26 +422,46 @@ pub fn intersection(a: &Subspace, b: &Subspace) -> Result<Subspace, BoxError> {
         });
     }
 
-    // Simple approach: find vectors in A that are also in B
-    // by checking which basis vectors of A project well onto B
-    let mut shared: Vec<Vec<f32>> = Vec::new();
+    // To find the intersection of A and B, we find vectors that are
+    // simultaneously in both subspaces. Algorithm:
+    // 1. Project each basis vector of A onto B
+    // 2. Keep the projected vectors (which are in B by construction)
+    // 3. Check if they are also in A (by projecting back onto A)
+    // 4. Vectors that survive both projections with high fidelity are in A ∩ B
+    //
+    // More robust: iterate projection P_B * P_A until convergence.
+    // Each application filters out components not in both subspaces.
+    let mut candidates: Vec<Vec<f32>> = Vec::new();
+
+    // Start with A's basis, repeatedly apply P_B then P_A
     for j in 0..a.rank {
-        let v: Vec<f32> = (0..a.dim).map(|i| a.basis[i * a.rank + j]).collect();
-        let proj = project_onto_subspace(&v, b);
-        let overlap: f32 = v.iter().zip(proj.iter()).map(|(&x, &y)| x * y).sum();
-        if overlap > 0.999 {
-            shared.push(v);
+        let mut v: Vec<f32> = (0..a.dim).map(|i| a.basis[i * a.rank + j]).collect();
+
+        // Iterate alternating projections (converges to intersection)
+        for _ in 0..10 {
+            v = project_onto_subspace(&v, b);
+            v = project_onto_subspace(&v, a);
+        }
+
+        let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+        if norm > 0.1 {
+            // Normalize
+            for x in &mut v {
+                *x /= norm;
+            }
+            candidates.push(v);
         }
     }
 
-    if shared.is_empty() {
-        // Return a 1D subspace at origin direction (degenerate)
+    if candidates.is_empty() {
+        // Trivial intersection — return a minimal 1D subspace as a sentinel.
+        // A proper implementation would support 0-dimensional subspaces.
         let mut v = vec![0.0; a.dim];
         v[0] = 1.0;
         return Subspace::new(vec![v]);
     }
 
-    Subspace::new(shared)
+    Subspace::new(candidates)
 }
 
 /// Union (span) of two subspaces.
