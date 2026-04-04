@@ -198,6 +198,25 @@ impl Ellipsoid {
     pub fn log_volume(&self) -> f32 {
         0.5 * self.log_det()
     }
+
+    /// Mutable access to mean vector (for training).
+    pub fn mu_mut(&mut self) -> &mut [f32] {
+        &mut self.mu
+    }
+
+    /// Returns a copy of the log-diagonal of the Cholesky factor (for training).
+    pub fn log_diag(&self) -> Vec<f32> {
+        (0..self.dim)
+            .map(|i| self.cholesky[i * self.dim + i])
+            .collect()
+    }
+
+    /// Set the log-diagonal of the Cholesky factor (for training).
+    pub fn set_log_diag(&mut self, log_diag: &[f32]) {
+        for (i, &v) in log_diag.iter().enumerate() {
+            self.cholesky[i * self.dim + i] = v.clamp(-10.0, 5.0);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

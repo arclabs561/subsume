@@ -22,6 +22,10 @@ pub mod ball_trainer;
 pub mod box_trainer;
 /// Cone embedding trainer, loss computation, and analytical gradients.
 pub mod cone_trainer;
+/// Ellipsoid embedding trainer with analytical gradients.
+#[cfg(feature = "rand")]
+#[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
+pub mod ellipsoid_trainer;
 /// Filtered indices and link prediction evaluation functions.
 pub mod evaluation;
 /// Negative sampling functions for knowledge graph training.
@@ -30,6 +34,10 @@ pub mod negative_sampling;
 #[cfg(feature = "rand")]
 #[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
 pub mod spherical_cap_trainer;
+/// Subspace embedding trainer with analytical gradients.
+#[cfg(feature = "rand")]
+#[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
+pub mod subspace_trainer;
 
 /// Candle-based box trainer with autograd (GPU-accelerated).
 #[cfg(feature = "candle-backend")]
@@ -517,6 +525,16 @@ pub use ball_trainer::BallTrainer;
 #[cfg(feature = "rand")]
 #[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
 pub use spherical_cap_trainer::SphericalCapTrainer;
+
+// Subspace trainer
+#[cfg(feature = "rand")]
+#[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
+pub use subspace_trainer::SubspaceTrainer;
+
+// Ellipsoid trainer
+#[cfg(feature = "rand")]
+#[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
+pub use ellipsoid_trainer::EllipsoidTrainer;
 
 /// Backward-compatible alias for [`CpuBoxTrainingConfig`].
 ///
