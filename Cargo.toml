@@ -41,6 +41,11 @@ candle-nn = { version = "0.9", optional = true }
 petgraph = { version = "0.7", optional = true }
 rankops = { version = "0.1.4", optional = true }
 lattix = { version = "0.6", default-features = false, features = ["kge"] }
+burn = { workspace = true, features = ["autodiff"] }
+burn-ndarray = { workspace = true, optional = true }
+burn-wgpu = { workspace = true, optional = true }
+burn-tch = { workspace = true, optional = true }
+burn-autodiff = { workspace = true, optional = true }
 
 [features]
 default = ["ndarray-backend"]
@@ -48,6 +53,9 @@ ndarray-backend = ["dep:ndarray", "dep:serde_json", "rand"]
 candle-backend = ["dep:candle-core", "dep:candle-nn"]
 cuda = ["candle-backend", "candle-core/cuda"]
 rand = ["dep:rand"]
+burn-ndarray = ["dep:burn-ndarray", "dep:burn-autodiff"]
+burn-wgpu = ["dep:burn-wgpu", "dep:burn-autodiff"]
+burn-tch = ["dep:burn-tch", "dep:burn-autodiff"]
 petgraph = ["dep:petgraph"]
 rankops = ["dep:rankops"]
 sheaf = []
