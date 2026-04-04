@@ -366,6 +366,12 @@ pub use subspace::{Subspace, SubspaceEmbedding};
 // Re-exports: Ellipsoid (full-covariance Gaussian) embeddings
 pub use ellipsoid::Ellipsoid;
 
+// Re-exports: Annular sector embeddings
+pub use annular::{AnnularEmbedding, AnnularRelation, AnnularSector};
+
+// Re-exports: TransBox embeddings
+pub use transbox::{TransBoxConcept, TransBoxModel, TransBoxRole};
+
 // Re-exports: Gaussian boxes
 pub use gaussian::GaussianBox;
 
