@@ -3,6 +3,7 @@
 //! Trains ball embeddings using margin-based ranking loss with negative sampling.
 //! The loss encourages positive triples (head, relation, tail) to have high
 //! containment probability and negative triples to have low containment.
+#![allow(missing_docs)]
 
 use crate::ball::{Ball, BallRelation};
 use crate::dataset::Triple;
@@ -208,7 +209,7 @@ impl BallTrainer {
             let adv_temp = config.adversarial_temperature;
 
             // Collect (neg_tail_idx, neg_score) pairs for self-adversarial weighting
-            let mut neg_pairs: Vec<(usize, f32)> = (0..n_neg)
+            let neg_pairs: Vec<(usize, f32)> = (0..n_neg)
                 .map(|_| {
                     let neg_tail_idx = loop {
                         let neg = self.rng.random_range(0..num_entities);
@@ -230,7 +231,7 @@ impl BallTrainer {
             let mut avg_grads = BallGradients::new(head.dim());
             let mut avg_loss = 0.0f32;
 
-            for (((neg_tail_idx, _), weight), neg_score) in
+            for (((neg_tail_idx, _), weight), _neg_score) in
                 neg_pairs.iter().zip(&weights).zip(&neg_scores)
             {
                 let neg_tail = &entities[*neg_tail_idx];

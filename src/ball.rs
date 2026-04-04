@@ -55,6 +55,7 @@
 //! ```text
 //! ln(V_d(r)) = (d/2) * ln(pi) - ln(Gamma(d/2 + 1)) + d * ln(r)
 //! ```
+#![allow(missing_docs)]
 
 use crate::BoxError;
 use serde::{Deserialize, Serialize};

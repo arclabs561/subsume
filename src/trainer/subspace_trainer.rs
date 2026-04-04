@@ -3,12 +3,12 @@
 //! Trains subspace embeddings using margin-based ranking loss with negative sampling.
 //! Subspaces are parameterized as unconstrained d×k matrices; projection uses
 //! the general formula P = B(B^T B)^{-1} B^T which works for any full-rank basis.
+#![allow(missing_docs)]
 
 use crate::dataset::Triple;
 use crate::subspace::Subspace;
 use crate::trainer::trainer_utils::AdamState;
 use crate::trainer::CpuBoxTrainingConfig;
-use crate::BoxError;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use std::collections::HashMap;
@@ -51,7 +51,7 @@ impl SubspaceTrainer {
     }
 
     /// Compute the score for containment A ⊆ B. Lower is better.
-    pub fn score_containment(a: &Subspace, b: &Subspace, k: f32) -> f32 {
+    pub fn score_containment(a: &Subspace, b: &Subspace, _k: f32) -> f32 {
         let score = match crate::subspace::containment_score(a, b) {
             Ok(s) => s,
             Err(_) => return f32::INFINITY,
@@ -67,7 +67,7 @@ impl SubspaceTrainer {
         tail: &Subspace,
         neg_tail: &Subspace,
         margin: f32,
-        k: f32,
+        _k: f32,
     ) -> (f32, SubspaceGradients) {
         let dim = head.dim();
         let head_rank = head.rank();
@@ -96,8 +96,8 @@ impl SubspaceTrainer {
 
         // d_loss/d_pos_score = -1/pos_score
         // d_loss/d_neg_score = 1/neg_score
-        let d_pos = -1.0 / pos_score;
-        let d_neg = 1.0 / neg_score;
+        let _d_pos = -1.0 / pos_score;
+        let _d_neg = 1.0 / neg_score;
 
         // Compute gradients via numerical differentiation (finite differences)
         // This is simpler and more robust than analytical gradients through
@@ -200,9 +200,9 @@ impl SubspaceTrainer {
         let mut total_loss = 0.0f32;
         let mut count = 0usize;
         let lr = config.learning_rate;
-        let beta1 = self.adam.beta1;
-        let beta2 = self.adam.beta2;
-        let eps = self.adam.eps;
+        let _beta1 = self.adam.beta1;
+        let _beta2 = self.adam.beta2;
+        let _eps = self.adam.eps;
 
         let mut indices: Vec<usize> = (0..triples.len()).collect();
         for i in (1..indices.len()).rev() {
