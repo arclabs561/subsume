@@ -231,9 +231,6 @@ impl EllipsoidTrainer {
         let mut total_loss = 0.0f32;
         let mut count = 0usize;
         let lr = config.learning_rate;
-        let _beta1 = self.adam.beta1;
-        let _beta2 = self.adam.beta2;
-        let _eps = self.adam.eps;
 
         let mut indices: Vec<usize> = (0..triples.len()).collect();
         for i in (1..indices.len()).rev() {
@@ -410,32 +407,6 @@ impl EllipsoidGradients {
             neg_tail_log_diag: vec![0.0; dim],
         }
     }
-}
-
-// ---------------------------------------------------------------------------
-// Adam helpers
-// ---------------------------------------------------------------------------
-
-fn apply_adam(
-    m: &mut HashMap<String, f32>,
-    v: &mut HashMap<String, f32>,
-    key: &str,
-    param: &mut f32,
-    grad: f32,
-    lr: f32,
-    beta1: f32,
-    beta2: f32,
-    eps: f32,
-    bias1: f32,
-    bias2: f32,
-) {
-    let m_val = m.entry(key.to_string()).or_insert(0.0);
-    let v_val = v.entry(key.to_string()).or_insert(0.0);
-    *m_val = beta1 * *m_val + (1.0 - beta1) * grad;
-    *v_val = beta2 * *v_val + (1.0 - beta2) * grad * grad;
-    let m_hat = *m_val / bias1;
-    let v_hat = (*v_val / bias2).max(0.0);
-    *param -= lr * m_hat / (v_hat.sqrt() + eps);
 }
 
 // ---------------------------------------------------------------------------

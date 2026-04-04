@@ -365,11 +365,12 @@ impl SphericalCapTrainer {
             crate::spherical_cap::containment_prob(&transformed, tail, k).unwrap_or(0.0)
         };
 
+        // score_head: head_idx is the candidate head being ranked.
         let score_head = |head_idx: usize, rel_idx: usize, tail_idx: usize| -> f32 {
-            let head = &entities[head_idx];
+            let candidate_head = &entities[head_idx];
             let relation = &relations[rel_idx];
             let tail = &entities[tail_idx];
-            let transformed = match relation.apply(head) {
+            let transformed = match relation.apply(candidate_head) {
                 Ok(t) => t,
                 Err(_) => return 0.0,
             };
@@ -424,59 +425,6 @@ impl CapGradients {
             neg_tail_log_tan_half: 0.0,
         }
     }
-}
-
-// ---------------------------------------------------------------------------
-// Adam helpers
-// ---------------------------------------------------------------------------
-
-fn apply_adam(
-    m: &mut HashMap<String, f32>,
-    v: &mut HashMap<String, f32>,
-    key: &str,
-    param: &mut f32,
-    grad: f32,
-    lr: f32,
-    beta1: f32,
-    beta2: f32,
-    eps: f32,
-    bias1: f32,
-    bias2: f32,
-) {
-    let m_val = m.entry(key.to_string()).or_insert(0.0);
-    let v_val = v.entry(key.to_string()).or_insert(0.0);
-    *m_val = beta1 * *m_val + (1.0 - beta1) * grad;
-    *v_val = beta2 * *v_val + (1.0 - beta2) * grad * grad;
-    let m_hat = *m_val / bias1;
-    let v_hat = (*v_val / bias2).max(0.0);
-    *param -= lr * m_hat / (v_hat.sqrt() + eps);
-}
-
-fn update_log_adam<T, F>(
-    m: &mut HashMap<String, f32>,
-    v: &mut HashMap<String, f32>,
-    key: &str,
-    current_val: f32,
-    grad: f32,
-    lr: f32,
-    beta1: f32,
-    beta2: f32,
-    eps: f32,
-    bias1: f32,
-    bias2: f32,
-    setter: F,
-    target: &mut T,
-) where
-    F: Fn(&mut T, f32),
-{
-    let m_val = m.entry(key.to_string()).or_insert(0.0);
-    let v_val = v.entry(key.to_string()).or_insert(0.0);
-    *m_val = beta1 * *m_val + (1.0 - beta1) * grad;
-    *v_val = beta2 * *v_val + (1.0 - beta2) * grad * grad;
-    let m_hat = *m_val / bias1;
-    let v_hat = (*v_val / bias2).max(0.0);
-    let new_val = current_val - lr * m_hat / (v_hat.sqrt() + eps);
-    setter(target, new_val);
 }
 
 // ---------------------------------------------------------------------------
