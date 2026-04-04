@@ -54,6 +54,7 @@
 //! ```
 //!
 //! where `Sigma_m = 0.5 * (Sigma_1 + Sigma_2)`.
+#![allow(missing_docs)]
 
 use crate::BoxError;
 use serde::{Deserialize, Serialize};

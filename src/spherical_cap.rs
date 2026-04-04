@@ -44,6 +44,7 @@
 //! ```
 //!
 //! Returns a value in [0, pi].
+#![allow(missing_docs)]
 
 use crate::BoxError;
 use serde::{Deserialize, Serialize};

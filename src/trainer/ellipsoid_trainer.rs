@@ -2,12 +2,12 @@
 //!
 //! Trains full-covariance Gaussian (ellipsoid) embeddings using margin-based
 //! ranking loss with negative sampling.
+#![allow(missing_docs)]
 
 use crate::dataset::Triple;
 use crate::ellipsoid::Ellipsoid;
 use crate::trainer::trainer_utils::AdamState;
 use crate::trainer::CpuBoxTrainingConfig;
-use crate::BoxError;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use std::collections::HashMap;
@@ -82,8 +82,8 @@ impl EllipsoidTrainer {
         }
 
         let eps = 1e-4f32;
-        let d_pos = -1.0 / pos_prob;
-        let d_neg = 1.0 / neg_prob;
+        let _d_pos = -1.0 / pos_prob;
+        let _d_neg = 1.0 / neg_prob;
 
         // Gradients w.r.t. head mu
         for i in 0..dim {
@@ -231,9 +231,9 @@ impl EllipsoidTrainer {
         let mut total_loss = 0.0f32;
         let mut count = 0usize;
         let lr = config.learning_rate;
-        let beta1 = self.adam.beta1;
-        let beta2 = self.adam.beta2;
-        let eps = self.adam.eps;
+        let _beta1 = self.adam.beta1;
+        let _beta2 = self.adam.beta2;
+        let _eps = self.adam.eps;
 
         let mut indices: Vec<usize> = (0..triples.len()).collect();
         for i in (1..indices.len()).rev() {
