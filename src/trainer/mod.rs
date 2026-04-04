@@ -14,6 +14,10 @@
 //!   tie-break so `same model + same data => same metrics`.
 //! - **NaNs are treated as hard errors** in evaluation: silently propagating NaNs yields meaningless metrics.
 
+/// Annular sector trainer with finite-difference gradients.
+#[cfg(feature = "rand")]
+#[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
+pub mod annular_trainer;
 /// Ball embedding trainer with analytical gradients.
 #[cfg(feature = "rand")]
 #[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
@@ -38,6 +42,10 @@ pub mod spherical_cap_trainer;
 #[cfg(feature = "rand")]
 #[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
 pub mod subspace_trainer;
+/// TransBox trainer with analytical gradients.
+#[cfg(feature = "rand")]
+#[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
+pub mod transbox_trainer;
 
 /// Candle-based box trainer with autograd (GPU-accelerated).
 #[cfg(feature = "candle-backend")]
@@ -535,6 +543,16 @@ pub use subspace_trainer::SubspaceTrainer;
 #[cfg(feature = "rand")]
 #[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
 pub use ellipsoid_trainer::EllipsoidTrainer;
+
+// TransBox trainer
+#[cfg(feature = "rand")]
+#[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
+pub use transbox_trainer::TransBoxTrainer;
+
+// Annular trainer
+#[cfg(feature = "rand")]
+#[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
+pub use annular_trainer::AnnularTrainer;
 
 /// Backward-compatible alias for [`CpuBoxTrainingConfig`].
 ///
