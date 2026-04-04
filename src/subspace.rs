@@ -197,6 +197,70 @@ impl Subspace {
             .collect()
     }
 
+    /// Get mutable access to all basis vectors as Vec<Vec<f32>> (for training).
+    ///
+    /// Returns a copy of the basis vectors. After modification, use
+    /// [`Subspace::set_basis`] to apply changes and re-orthonormalize.
+    pub fn basis_mut(&self) -> Vec<Vec<f32>> {
+        (0..self.rank)
+            .map(|j| {
+                (0..self.dim)
+                    .map(|i| self.basis[i * self.rank + j])
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// Replace the basis vectors and re-orthonormalize (for training).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BoxError::InvalidBounds`] if all vectors are zero.
+    pub fn set_basis(&mut self, vectors: Vec<Vec<f32>>) -> Result<(), BoxError> {
+        if vectors.is_empty() {
+            return Err(BoxError::InvalidBounds {
+                dim: 0,
+                min: 0.0,
+                max: 0.0,
+            });
+        }
+        // Gram-Schmidt orthonormalization
+        let mut ortho: Vec<Vec<f32>> = Vec::new();
+        for v in &vectors {
+            let mut u = v.clone();
+            for o in &ortho {
+                let dot: f32 = u.iter().zip(o.iter()).map(|(&a, &b)| a * b).sum();
+                for (ui, &oi) in u.iter_mut().zip(o.iter()) {
+                    *ui -= dot * oi;
+                }
+            }
+            let norm: f32 = u.iter().map(|x| x * x).sum::<f32>().sqrt();
+            if norm > 1e-8 {
+                for x in &mut u {
+                    *x /= norm;
+                }
+                ortho.push(u);
+            }
+        }
+        if ortho.is_empty() {
+            return Err(BoxError::InvalidBounds {
+                dim: 0,
+                min: 0.0,
+                max: 0.0,
+            });
+        }
+        let rank = ortho.len();
+        let mut basis = vec![0.0f32; self.dim * rank];
+        for j in 0..rank {
+            for i in 0..self.dim {
+                basis[i * rank + j] = ortho[j][i];
+            }
+        }
+        self.basis = basis;
+        self.rank = rank;
+        Ok(())
+    }
+
     /// Log-volume proxy: `rank * ln(rank) - dim * ln(dim)`.
     ///
     /// Higher rank = larger subspace = more general concept.
