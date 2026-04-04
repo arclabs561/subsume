@@ -525,6 +525,7 @@ impl BallTrainer {
 // Adam helpers
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 fn apply_adam(
     m: &mut HashMap<String, f32>,
     v: &mut HashMap<String, f32>,
@@ -547,6 +548,7 @@ fn apply_adam(
     *param -= lr * m_hat / (v_hat.sqrt() + eps);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn update_log_param_adam<T, F>(
     m: &mut HashMap<String, f32>,
     v: &mut HashMap<String, f32>,
@@ -711,7 +713,6 @@ mod tests {
     #[test]
     fn train_and_evaluate_synthetic() {
         use crate::dataset::{TripleIds, Vocab};
-        use crate::trainer::evaluation::FilteredTripleIndexIds;
 
         let mut vocab = Vocab::default();
         let e0 = vocab.intern("e0".to_string());

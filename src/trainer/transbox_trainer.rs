@@ -11,7 +11,6 @@ use std::collections::HashMap;
 
 pub struct TransBoxTrainer {
     rng: StdRng,
-    step: usize,
     /// Persistent Adam optimizer state.
     adam: AdamState,
 }
@@ -20,7 +19,6 @@ impl TransBoxTrainer {
     pub fn new(seed: u64) -> Self {
         Self {
             rng: StdRng::seed_from_u64(seed),
-            step: 0,
             adam: AdamState::new(),
         }
     }

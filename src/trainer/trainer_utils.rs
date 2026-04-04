@@ -69,6 +69,7 @@ impl AdamState {
     ///
     /// Gets current value, applies Adam update, then calls `setter` with the
     /// new value so the caller can re-apply `exp()` / `clamp` as needed.
+    #[allow(clippy::too_many_arguments)]
     pub fn apply_log<T, F>(
         &mut self,
         key: &str,
