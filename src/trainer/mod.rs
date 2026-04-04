@@ -14,6 +14,10 @@
 //!   tie-break so `same model + same data => same metrics`.
 //! - **NaNs are treated as hard errors** in evaluation: silently propagating NaNs yields meaningless metrics.
 
+/// Ball embedding trainer with analytical gradients.
+#[cfg(feature = "rand")]
+#[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
+pub mod ball_trainer;
 /// Box embedding trainer, loss computation, and analytical gradients.
 pub mod box_trainer;
 /// Cone embedding trainer, loss computation, and analytical gradients.
@@ -499,6 +503,11 @@ pub use box_trainer::{compute_analytical_gradients, compute_pair_loss, BoxEmbedd
 pub use cone_trainer::{
     compute_cone_analytical_gradients, compute_cone_pair_loss, ConeEmbeddingTrainer,
 };
+
+// Ball trainer
+#[cfg(feature = "rand")]
+#[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
+pub use ball_trainer::BallTrainer;
 
 /// Backward-compatible alias for [`CpuBoxTrainingConfig`].
 ///
