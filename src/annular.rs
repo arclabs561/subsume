@@ -323,8 +323,6 @@ impl AnnularEmbedding {
 /// - `r_A_outer <= r_B_outer` (A fits inside B's outer boundary)
 /// - Angular interval of A is contained in B's
 pub fn containment_score(inner: &AnnularSector, outer: &AnnularSector) -> f32 {
-    let two_pi = 2.0 * std::f32::consts::PI;
-
     // Radial containment
     let radial_inner = if outer.r_inner <= inner.r_inner + 1e-6 {
         1.0
@@ -393,7 +391,6 @@ fn angular_containment(a_start: f32, a_end: f32, b_start: f32, b_end: f32) -> f3
 
 /// Check if angle `a` is in the interval [start, end] (circular).
 fn angle_in_interval(a: f32, start: f32, end: f32) -> bool {
-    let two_pi = 2.0 * std::f32::consts::PI;
     if end >= start {
         a >= start - 1e-6 && a <= end + 1e-6
     } else {
@@ -669,6 +666,7 @@ mod tests {
 mod proptests {
     use super::*;
     use proptest::prelude::*;
+    use std::f32::consts::PI;
 
     fn arb_sector() -> impl Strategy<Value = AnnularSector> {
         (
@@ -698,7 +696,7 @@ mod proptests {
             .prop_map(|(rot, rs, as_)| AnnularRelation::new(rot, rs, as_).unwrap())
     }
 
-    proptests! {
+    proptest! {
         #[test]
         fn prop_containment_in_unit_interval(
             (a, b) in arb_sector_pair()
