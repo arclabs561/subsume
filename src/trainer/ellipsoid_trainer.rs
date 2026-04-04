@@ -71,7 +71,7 @@ impl EllipsoidTrainer {
 
         let pos_score = -pos_prob.ln();
         let neg_score = -neg_prob.ln();
-        let loss = (margin - pos_score + neg_score).max(0.0);
+        let loss = (margin + pos_score - neg_score).max(0.0);
 
         if loss <= 1e-8 {
             return (0.0, grads);
@@ -101,7 +101,7 @@ impl EllipsoidTrainer {
             let neg_p = crate::ellipsoid::containment_prob(&perturbed, neg_tail, k)
                 .unwrap_or(neg_prob)
                 .max(1e-10);
-            let loss_p = (margin - (-pos_p.ln()) + (-neg_p.ln())).max(0.0);
+            let loss_p = (margin + (-pos_p.ln()) - (-neg_p.ln())).max(0.0);
             grads.head_mu[i] = (loss_p - loss) / eps;
         }
 
@@ -124,7 +124,7 @@ impl EllipsoidTrainer {
             let neg_p = crate::ellipsoid::containment_prob(&perturbed, neg_tail, k)
                 .unwrap_or(neg_prob)
                 .max(1e-10);
-            let loss_p = (margin - (-pos_p.ln()) + (-neg_p.ln())).max(0.0);
+            let loss_p = (margin + (-pos_p.ln()) - (-neg_p.ln())).max(0.0);
             grads.head_log_diag[i] = (loss_p - loss) / eps;
         }
 
@@ -145,7 +145,7 @@ impl EllipsoidTrainer {
             let pos_p = crate::ellipsoid::containment_prob(head, &perturbed, k)
                 .unwrap_or(pos_prob)
                 .max(1e-10);
-            let loss_p = (margin - (-pos_p.ln()) + neg_score).max(0.0);
+            let loss_p = (margin + (-pos_p.ln()) - neg_score).max(0.0);
             grads.tail_mu[i] = (loss_p - loss) / eps;
         }
 
@@ -165,7 +165,7 @@ impl EllipsoidTrainer {
             let pos_p = crate::ellipsoid::containment_prob(head, &perturbed, k)
                 .unwrap_or(pos_prob)
                 .max(1e-10);
-            let loss_p = (margin - (-pos_p.ln()) + neg_score).max(0.0);
+            let loss_p = (margin + (-pos_p.ln()) - neg_score).max(0.0);
             grads.tail_log_diag[i] = (loss_p - loss) / eps;
         }
 
@@ -187,7 +187,7 @@ impl EllipsoidTrainer {
             let neg_p = crate::ellipsoid::containment_prob(head, &perturbed, k)
                 .unwrap_or(neg_prob)
                 .max(1e-10);
-            let loss_p = (margin - pos_score + (-neg_p.ln())).max(0.0);
+            let loss_p = (margin + pos_score - (-neg_p.ln())).max(0.0);
             grads.neg_tail_mu[i] = (loss_p - loss) / eps;
         }
 
@@ -207,7 +207,7 @@ impl EllipsoidTrainer {
             let neg_p = crate::ellipsoid::containment_prob(head, &perturbed, k)
                 .unwrap_or(neg_prob)
                 .max(1e-10);
-            let loss_p = (margin - pos_score + (-neg_p.ln())).max(0.0);
+            let loss_p = (margin + pos_score - (-neg_p.ln())).max(0.0);
             grads.neg_tail_log_diag[i] = (loss_p - loss) / eps;
         }
 
@@ -383,6 +383,47 @@ impl EllipsoidTrainer {
             total_loss / count as f32
         }
     }
+
+    /// Evaluate the trained model on test triples using filtered link prediction.
+    pub fn evaluate(
+        &self,
+        entities: &[Ellipsoid],
+        test_triples: &[crate::dataset::TripleIds],
+        filter: Option<&crate::trainer::evaluation::FilteredTripleIndexIds>,
+    ) -> crate::trainer::EvaluationResults {
+        let num_entities = entities.len();
+        let k = 10.0;
+
+        let score_tail = |head_idx: usize, _rel_idx: usize, tail_idx: usize| -> f32 {
+            let head = &entities[head_idx];
+            let tail = &entities[tail_idx];
+            crate::ellipsoid::containment_prob(head, tail, k).unwrap_or(0.0)
+        };
+
+        let score_head = |head_idx: usize, _rel_idx: usize, tail_idx: usize| -> f32 {
+            let head = &entities[head_idx];
+            let tail = &entities[tail_idx];
+            crate::ellipsoid::containment_prob(head, tail, k).unwrap_or(0.0)
+        };
+
+        crate::trainer::evaluation::evaluate_link_prediction_generic(
+            test_triples,
+            num_entities,
+            filter,
+            score_head,
+            score_tail,
+        )
+        .unwrap_or_else(|_| crate::trainer::EvaluationResults {
+            mrr: 0.0,
+            head_mrr: 0.0,
+            tail_mrr: 0.0,
+            hits_at_1: 0.0,
+            hits_at_3: 0.0,
+            hits_at_10: 0.0,
+            mean_rank: f32::MAX,
+            per_relation: vec![],
+        })
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -514,5 +555,93 @@ mod tests {
         let loss = trainer.train_epoch(&mut entities, &triples, &config, &entity_map);
 
         assert!(loss.is_finite(), "epoch loss not finite: {loss}");
+    }
+
+    #[test]
+    fn train_and_evaluate_synthetic() {
+        use crate::dataset::{TripleIds, Vocab};
+
+        let mut vocab = Vocab::default();
+        let e0 = vocab.intern("e0".to_string());
+        let e1 = vocab.intern("e1".to_string());
+        let e2 = vocab.intern("e2".to_string());
+        let e3 = vocab.intern("e3".to_string());
+
+        let triples = vec![
+            Triple {
+                head: "e0".to_string(),
+                relation: "r0".to_string(),
+                tail: "e1".to_string(),
+            },
+            Triple {
+                head: "e2".to_string(),
+                relation: "r0".to_string(),
+                tail: "e3".to_string(),
+            },
+            Triple {
+                head: "e0".to_string(),
+                relation: "r1".to_string(),
+                tail: "e2".to_string(),
+            },
+        ];
+
+        let test_triples = vec![
+            TripleIds {
+                head: e0,
+                relation: 0,
+                tail: e1,
+            },
+            TripleIds {
+                head: e2,
+                relation: 0,
+                tail: e3,
+            },
+            TripleIds {
+                head: e0,
+                relation: 1,
+                tail: e2,
+            },
+        ];
+
+        let entity_map: HashMap<String, usize> = [
+            ("e0".to_string(), 0),
+            ("e1".to_string(), 1),
+            ("e2".to_string(), 2),
+            ("e3".to_string(), 3),
+        ]
+        .into_iter()
+        .collect();
+
+        let mut trainer = EllipsoidTrainer::new(42);
+        let mut entities = trainer.init_embeddings(4, 4);
+
+        let config = CpuBoxTrainingConfig {
+            learning_rate: 0.05,
+            margin: 1.0,
+            ..Default::default()
+        };
+
+        let mut last_loss = f32::MAX;
+        for epoch in 0..50 {
+            let loss = trainer.train_epoch(&mut entities, &triples, &config, &entity_map);
+            if epoch % 10 == 0 {
+                eprintln!("Ellipsoid Epoch {epoch}: loss={loss:.4}");
+            }
+            last_loss = loss;
+        }
+        eprintln!("Ellipsoid Final loss: {last_loss:.4}");
+
+        let results = trainer.evaluate(&entities, &test_triples, None);
+
+        assert!(
+            results.mrr > 0.3,
+            "Ellipsoid MRR after training = {}, expected > 0.3",
+            results.mrr
+        );
+        assert!(
+            results.mean_rank < 3.0,
+            "Ellipsoid Mean rank = {}, expected < 3.0",
+            results.mean_rank
+        );
     }
 }
