@@ -25,8 +25,8 @@ pub mod ball_trainer;
 /// Box embedding trainer, loss computation, and analytical gradients.
 pub mod box_trainer;
 /// Burn-based ball trainer with autodiff (multi-backend: ndarray/wgpu/tch).
-#[cfg(feature = "burn-ndarray")]
-#[cfg_attr(docsrs, doc(cfg(feature = "burn-ndarray")))]
+#[cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))))]
 pub mod burn_ball_trainer;
 /// Cone embedding trainer, loss computation, and analytical gradients.
 pub mod cone_trainer;
@@ -386,6 +386,21 @@ pub struct CpuBoxTrainingConfig {
     /// Default: `false` (uniform 50/50 head/tail corruption).
     #[serde(default)]
     pub bernoulli_sampling: bool,
+
+    /// Steepness of the sigmoid in the ball containment scoring function.
+    ///
+    /// `containment_prob = sigmoid(k * margin)` where `margin = r_outer - dist - r_inner`.
+    /// Lower k gives broader gradients (better for random initialisation); higher k
+    /// sharpens the decision boundary. `k=2` is recommended for WN18RR ball training;
+    /// `k=10` matches the CPU ball trainer default.
+    ///
+    /// Default: `2.0`.
+    #[serde(default = "default_sigmoid_k")]
+    pub sigmoid_k: f32,
+}
+
+fn default_sigmoid_k() -> f32 {
+    2.0
 }
 
 impl Default for CpuBoxTrainingConfig {
@@ -410,6 +425,7 @@ impl Default for CpuBoxTrainingConfig {
             symmetric_loss: false,
             self_adversarial: false,
             bernoulli_sampling: false,
+            sigmoid_k: 2.0,
         }
     }
 }
@@ -450,6 +466,12 @@ impl CpuBoxTrainingConfig {
             return Err(BoxError::Internal(format!(
                 "max_grad_norm must be positive and finite, got {}",
                 self.max_grad_norm
+            )));
+        }
+        if !self.sigmoid_k.is_finite() || self.sigmoid_k <= 0.0 {
+            return Err(BoxError::Internal(format!(
+                "sigmoid_k must be positive and finite, got {}",
+                self.sigmoid_k
             )));
         }
         Ok(())
@@ -561,8 +583,8 @@ pub use transbox_trainer::TransBoxTrainer;
 pub use annular_trainer::AnnularTrainer;
 
 // Burn ball trainer
-#[cfg(feature = "burn-ndarray")]
-#[cfg_attr(docsrs, doc(cfg(feature = "burn-ndarray")))]
+#[cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))))]
 pub use burn_ball_trainer::BurnBallTrainer;
 
 /// Backward-compatible alias for [`CpuBoxTrainingConfig`].
