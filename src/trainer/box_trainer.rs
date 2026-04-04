@@ -9,9 +9,9 @@ use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 
 use super::negative_sampling::RelationCardinality;
+use super::{CpuBoxTrainingConfig, NegativeSamplingStrategy, RelationTransform};
 #[cfg(feature = "ndarray-backend")]
 use super::{EvaluationResults, TrainingResult};
-use super::{CpuBoxTrainingConfig, NegativeSamplingStrategy, RelationTransform};
 #[cfg(feature = "ndarray-backend")]
 use crate::trainer::evaluation::evaluate_interned_with_transforms_inner;
 #[cfg(feature = "ndarray-backend")]
