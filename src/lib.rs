@@ -192,6 +192,40 @@ pub use rankops;
 /// Numerical stability: log-space volume, stable sigmoid, Gumbel operations.
 pub mod utils;
 
+/// Ball embeddings for subsumption via Euclidean containment.
+///
+/// Concepts are solid balls `(center, radius)` in R^d. Containment:
+/// `||c_A - c_B|| + r_A <= r_B`. Supports SpherE-style relation transforms
+/// (translate + scale) and RegD depth/boundary dissimilarity scoring.
+///
+/// References:
+/// - SpherE (SIGIR 2024, arXiv:2404.19130): ball embeddings for set retrieval
+/// - RegD (Jan 2025, arXiv:2501.17518): balls isometric to hyperbolic space
+pub mod ball;
+
+/// Spherical cap embeddings for subsumption on the unit sphere.
+///
+/// Concepts are regions on S^{d-1} defined by a center (unit vector)
+/// and an angular radius. Containment: `angle(c_A, c_B) + theta_A <= theta_B`.
+/// This is the spherical analog of ball containment in Euclidean space.
+pub mod spherical_cap;
+
+/// Subspace embeddings for logical operations (conjunction, disjunction, negation).
+///
+/// Concepts are linear subspaces of R^d, represented by orthonormal bases.
+/// Containment via projection, intersection via common subspace, negation
+/// via orthogonal complement.
+///
+/// Reference: Moreira et al. (2025), arXiv:2508.16687
+pub mod subspace;
+
+/// Full-covariance Gaussian embeddings (rotated ellipsoids).
+///
+/// Concepts are multivariate Gaussians with full covariance, parameterized
+/// via Cholesky decomposition. Supports KL divergence (asymmetric containment)
+/// and Bhattacharyya distance (symmetric overlap).
+pub mod ellipsoid;
+
 /// Diagonal Gaussian box embeddings for taxonomy expansion (TaxoBell).
 pub mod gaussian;
 
@@ -303,6 +337,18 @@ pub use ndarray;
 
 // Re-exports: evaluation metrics
 pub use metrics::{adjusted_mean_rank, hits_at_k, mean_rank, mean_reciprocal_rank};
+
+// Re-exports: Ball embeddings
+pub use ball::{Ball, BallEmbedding, BallRelation};
+
+// Re-exports: Spherical cap embeddings
+pub use spherical_cap::{SphericalCap, SphericalCapEmbedding, SphericalCapRelation};
+
+// Re-exports: Subspace embeddings
+pub use subspace::{Subspace, SubspaceEmbedding};
+
+// Re-exports: Ellipsoid (full-covariance Gaussian) embeddings
+pub use ellipsoid::Ellipsoid;
 
 // Re-exports: Gaussian boxes
 pub use gaussian::GaussianBox;
