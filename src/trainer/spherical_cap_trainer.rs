@@ -1,28 +1,23 @@
-//! Ball embedding trainer with analytical gradients.
+//! Spherical cap embedding trainer with analytical gradients.
 //!
-//! Trains ball embeddings using margin-based ranking loss with negative sampling.
-//! The loss encourages positive triples (head, relation, tail) to have high
-//! containment probability and negative triples to have low containment.
+//! Trains spherical cap embeddings using margin-based ranking loss with negative sampling.
 
-use crate::ball::{Ball, BallRelation};
 use crate::dataset::Triple;
+use crate::spherical_cap::{SphericalCap, SphericalCapRelation};
 use crate::trainer::CpuBoxTrainingConfig;
+use crate::BoxError;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use std::collections::HashMap;
 
-// ---------------------------------------------------------------------------
-// Trainer
-// ---------------------------------------------------------------------------
-
-/// Trains ball embeddings using analytical gradients.
-pub struct BallTrainer {
+/// Trains spherical cap embeddings using analytical gradients.
+pub struct SphericalCapTrainer {
     rng: StdRng,
     step: usize,
 }
 
-impl BallTrainer {
-    /// Create a new ball trainer with the given seed.
+impl SphericalCapTrainer {
+    /// Create a new trainer with the given seed.
     pub fn new(seed: u64) -> Self {
         Self {
             rng: StdRng::seed_from_u64(seed),
@@ -36,35 +31,39 @@ impl BallTrainer {
         num_entities: usize,
         num_relations: usize,
         dim: usize,
-    ) -> (Vec<Ball>, Vec<BallRelation>) {
-        let entities: Vec<Ball> = (0..num_entities)
+    ) -> (Vec<SphericalCap>, Vec<SphericalCapRelation>) {
+        let entities: Vec<SphericalCap> = (0..num_entities)
             .map(|_| {
-                let center: Vec<f32> = (0..dim).map(|_| self.rng.random_range(-0.1..0.1)).collect();
-                let log_radius = self.rng.random_range(-1.0..0.0);
-                Ball::from_log_radius(center, log_radius).unwrap()
+                let center: Vec<f32> = (0..dim).map(|_| self.rng.gen_range(-1.0..1.0)).collect();
+                let log_tan_half = self.rng.gen_range(-1.0..0.0);
+                SphericalCap::from_log_tan_half(center, log_tan_half).unwrap()
             })
             .collect();
 
-        let relations: Vec<BallRelation> = (0..num_relations)
+        let relations: Vec<SphericalCapRelation> = (0..num_relations)
             .map(|_| {
-                let translation: Vec<f32> =
-                    (0..dim).map(|_| self.rng.random_range(-0.01..0.01)).collect();
-                let log_scale: f32 = self.rng.random_range(-0.1..0.1);
-                BallRelation::new(translation, log_scale.exp()).unwrap()
+                let axis: Vec<f32> = (0..dim).map(|_| self.rng.gen_range(-1.0..1.0)).collect();
+                let angle = self.rng.gen_range(-0.5..0.5);
+                let log_scale = self.rng.gen_range(-0.2..0.2);
+                SphericalCapRelation::new(axis, angle, log_scale.exp()).unwrap()
             })
             .collect();
 
         (entities, relations)
     }
 
-    /// Compute the score for a triple (head, relation, tail).
-    /// Lower is better.
-    pub fn score_triple(head: &Ball, relation: &BallRelation, tail: &Ball, k: f32) -> f32 {
+    /// Compute the score for a triple. Lower is better.
+    pub fn score_triple(
+        head: &SphericalCap,
+        relation: &SphericalCapRelation,
+        tail: &SphericalCap,
+        k: f32,
+    ) -> f32 {
         let transformed = match relation.apply(head) {
             Ok(t) => t,
             Err(_) => return f32::INFINITY,
         };
-        let prob = match crate::ball::containment_prob(&transformed, tail, k) {
+        let prob = match crate::spherical_cap::containment_prob(&transformed, tail, k) {
             Ok(p) => p,
             Err(_) => return f32::INFINITY,
         };
@@ -72,24 +71,23 @@ impl BallTrainer {
         -prob.ln()
     }
 
-    /// Compute ranking loss for a (positive, negative) pair.
-    /// Returns (loss, gradients).
+    /// Compute ranking loss and gradients for a (positive, negative) pair.
     fn compute_pair_gradients(
-        head: &Ball,
-        relation: &BallRelation,
-        tail: &Ball,
-        neg_tail: &Ball,
+        head: &SphericalCap,
+        relation: &SphericalCapRelation,
+        tail: &SphericalCap,
+        neg_tail: &SphericalCap,
         margin: f32,
         k: f32,
-    ) -> (f32, BallGradients) {
+    ) -> (f32, CapGradients) {
         let dim = head.dim();
-        let mut grads = BallGradients::new(dim);
+        let mut grads = CapGradients::new(dim);
 
         let pos_transformed = match relation.apply(head) {
             Ok(t) => t,
             Err(_) => return (0.0, grads),
         };
-        let pos_prob = match crate::ball::containment_prob(&pos_transformed, tail, k) {
+        let pos_prob = match crate::spherical_cap::containment_prob(&pos_transformed, tail, k) {
             Ok(p) => p.max(1e-10),
             Err(_) => return (0.0, grads),
         };
@@ -98,7 +96,7 @@ impl BallTrainer {
             Ok(t) => t,
             Err(_) => return (0.0, grads),
         };
-        let neg_prob = match crate::ball::containment_prob(&neg_transformed, neg_tail, k) {
+        let neg_prob = match crate::spherical_cap::containment_prob(&neg_transformed, neg_tail, k) {
             Ok(p) => p.max(1e-10),
             Err(_) => return (0.0, grads),
         };
@@ -111,41 +109,59 @@ impl BallTrainer {
             return (0.0, grads);
         }
 
-        let pos_center_dist = center_distance(&pos_transformed, tail);
-        let neg_center_dist = center_distance(&neg_transformed, neg_tail);
+        let pos_dist =
+            crate::spherical_cap::geodesic_distance(pos_transformed.center(), tail.center());
+        let neg_dist =
+            crate::spherical_cap::geodesic_distance(neg_transformed.center(), neg_tail.center());
 
-        let pos_sigmoid_deriv = k * pos_prob * (1.0 - pos_prob);
-        let neg_sigmoid_deriv = k * neg_prob * (1.0 - neg_prob);
+        let pos_deriv = k * pos_prob * (1.0 - pos_prob);
+        let neg_deriv = k * neg_prob * (1.0 - neg_prob);
 
         let d_pos = -1.0 / pos_prob;
         let d_neg = 1.0 / neg_prob;
 
-        if pos_center_dist > 1e-8 {
+        // Gradients w.r.t. transformed head center
+        if pos_dist > 1e-8 {
             for i in 0..dim {
                 let diff = pos_transformed.center()[i] - tail.center()[i];
-                let d_dist = diff / pos_center_dist;
-                grads.head_center[i] += d_pos * pos_sigmoid_deriv * (-d_dist);
-                grads.tail_center[i] += d_pos * pos_sigmoid_deriv * d_dist;
+                let d_dist = diff / pos_dist;
+                grads.head_center[i] += d_pos * pos_deriv * (-d_dist);
             }
         }
-        if neg_center_dist > 1e-8 {
+        if neg_dist > 1e-8 {
             for i in 0..dim {
                 let diff = neg_transformed.center()[i] - neg_tail.center()[i];
-                let d_dist = diff / neg_center_dist;
-                grads.head_center[i] += d_neg * neg_sigmoid_deriv * (-d_dist);
-                grads.neg_tail_center[i] += d_neg * neg_sigmoid_deriv * d_dist;
+                let d_dist = diff / neg_dist;
+                grads.head_center[i] += d_neg * neg_deriv * (-d_dist);
             }
         }
 
-        grads.head_log_radius +=
-            d_pos * pos_sigmoid_deriv * (-1.0) + d_neg * neg_sigmoid_deriv * (-1.0);
-        grads.tail_log_radius += d_pos * pos_sigmoid_deriv;
-        grads.neg_tail_log_radius += d_neg * neg_sigmoid_deriv;
+        // Gradients w.r.t. angular radius
+        grads.head_log_tan_half += d_pos * pos_deriv * (-1.0) + d_neg * neg_deriv * (-1.0);
+        grads.tail_log_tan_half += d_pos * pos_deriv;
+        grads.neg_tail_log_tan_half += d_neg * neg_deriv;
 
-        for i in 0..dim {
-            grads.relation_translation[i] = grads.head_center[i];
+        // Gradients w.r.t. tail center
+        if pos_dist > 1e-8 {
+            for i in 0..dim {
+                let diff = tail.center()[i] - pos_transformed.center()[i];
+                let d_dist = diff / pos_dist;
+                grads.tail_center[i] += d_pos * pos_deriv * (-d_dist);
+            }
         }
-        grads.relation_log_scale = grads.head_log_radius * head.radius();
+        if neg_dist > 1e-8 {
+            for i in 0..dim {
+                let diff = neg_tail.center()[i] - neg_transformed.center()[i];
+                let d_dist = diff / neg_dist;
+                grads.neg_tail_center[i] += d_neg * neg_deriv * (-d_dist);
+            }
+        }
+
+        // Through relation: translation -> center, scale -> angular_radius
+        for i in 0..dim {
+            grads.relation_axis[i] = grads.head_center[i];
+        }
+        grads.relation_log_scale = grads.head_log_tan_half * (head.angular_radius() / 2.0).tan();
 
         (loss, grads)
     }
@@ -153,8 +169,8 @@ impl BallTrainer {
     /// Train for one epoch.
     pub fn train_epoch(
         &mut self,
-        entities: &mut [Ball],
-        relations: &mut [BallRelation],
+        entities: &mut [SphericalCap],
+        relations: &mut [SphericalCapRelation],
         triples: &[Triple],
         config: &CpuBoxTrainingConfig,
         entity_to_idx: &HashMap<String, usize>,
@@ -175,7 +191,6 @@ impl BallTrainer {
             indices.swap(i, j);
         }
 
-        // Simple Adam state (flattened for simplicity)
         let mut m: HashMap<String, f32> = HashMap::new();
         let mut v: HashMap<String, f32> = HashMap::new();
 
@@ -216,7 +231,7 @@ impl BallTrainer {
             let bias1 = 1.0 - beta1.powf(t);
             let bias2 = 1.0 - beta2.powf(t);
 
-            // Update head center
+            // Update centers
             for i in 0..head.dim() {
                 apply_adam(
                     &mut m,
@@ -260,9 +275,9 @@ impl BallTrainer {
                 apply_adam(
                     &mut m,
                     &mut v,
-                    &format!("r{rel_idx}_t{i}"),
-                    &mut relations[rel_idx].translation_mut()[i],
-                    grads.relation_translation[i],
+                    &format!("r{rel_idx}_a{i}"),
+                    &mut relations[rel_idx].axis_mut()[i],
+                    grads.relation_axis[i],
                     lr,
                     beta1,
                     beta2,
@@ -272,53 +287,53 @@ impl BallTrainer {
                 );
             }
 
-            // Update radii/scale
-            update_log_param_adam(
+            // Update angular radii / scale
+            update_log_adam(
                 &mut m,
                 &mut v,
-                &format!("h{head_idx}_lr"),
-                entities[head_idx].log_radius(),
-                grads.head_log_radius,
+                &format!("h{head_idx}_lt"),
+                entities[head_idx].log_tan_half(),
+                grads.head_log_tan_half,
                 lr,
                 beta1,
                 beta2,
                 eps,
                 bias1,
                 bias2,
-                |e, v| e.set_log_radius(v),
+                |e, v| e.set_log_tan_half(v),
                 &mut entities[head_idx],
             );
-            update_log_param_adam(
+            update_log_adam(
                 &mut m,
                 &mut v,
-                &format!("t{tail_idx}_lr"),
-                entities[tail_idx].log_radius(),
-                grads.tail_log_radius,
+                &format!("t{tail_idx}_lt"),
+                entities[tail_idx].log_tan_half(),
+                grads.tail_log_tan_half,
                 lr,
                 beta1,
                 beta2,
                 eps,
                 bias1,
                 bias2,
-                |e, v| e.set_log_radius(v),
+                |e, v| e.set_log_tan_half(v),
                 &mut entities[tail_idx],
             );
-            update_log_param_adam(
+            update_log_adam(
                 &mut m,
                 &mut v,
-                &format!("nt{neg_tail_idx}_lr"),
-                entities[neg_tail_idx].log_radius(),
-                grads.neg_tail_log_radius,
+                &format!("nt{neg_tail_idx}_lt"),
+                entities[neg_tail_idx].log_tan_half(),
+                grads.neg_tail_log_tan_half,
                 lr,
                 beta1,
                 beta2,
                 eps,
                 bias1,
                 bias2,
-                |e, v| e.set_log_radius(v),
+                |e, v| e.set_log_tan_half(v),
                 &mut entities[neg_tail_idx],
             );
-            update_log_param_adam(
+            update_log_adam(
                 &mut m,
                 &mut v,
                 &format!("r{rel_idx}_ls"),
@@ -333,12 +348,67 @@ impl BallTrainer {
                 |r, v| r.set_log_scale(v),
                 &mut relations[rel_idx],
             );
+
+            // Re-normalize centers and axes after gradient update
+            for e in [
+                &mut entities[head_idx],
+                &mut entities[tail_idx],
+                &mut entities[neg_tail_idx],
+            ] {
+                let norm: f32 = e.center().iter().map(|x| x * x).sum::<f32>().sqrt();
+                if norm > 1e-12 {
+                    for x in e.center_mut() {
+                        *x /= norm;
+                    }
+                }
+            }
+            let axis_norm: f32 = relations[rel_idx]
+                .axis()
+                .iter()
+                .map(|x| x * x)
+                .sum::<f32>()
+                .sqrt();
+            if axis_norm > 1e-12 {
+                for x in relations[rel_idx].axis_mut() {
+                    *x /= axis_norm;
+                }
+            }
         }
 
         if count == 0 {
             0.0
         } else {
             total_loss / count as f32
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Gradients
+// ---------------------------------------------------------------------------
+
+struct CapGradients {
+    head_center: Vec<f32>,
+    head_log_tan_half: f32,
+    relation_axis: Vec<f32>,
+    relation_log_scale: f32,
+    tail_center: Vec<f32>,
+    tail_log_tan_half: f32,
+    neg_tail_center: Vec<f32>,
+    neg_tail_log_tan_half: f32,
+}
+
+impl CapGradients {
+    fn new(dim: usize) -> Self {
+        Self {
+            head_center: vec![0.0; dim],
+            head_log_tan_half: 0.0,
+            relation_axis: vec![0.0; dim],
+            relation_log_scale: 0.0,
+            tail_center: vec![0.0; dim],
+            tail_log_tan_half: 0.0,
+            neg_tail_center: vec![0.0; dim],
+            neg_tail_log_tan_half: 0.0,
         }
     }
 }
@@ -369,7 +439,7 @@ fn apply_adam(
     *param -= lr * m_hat / (v_hat.sqrt() + eps);
 }
 
-fn update_log_param_adam<T, F>(
+fn update_log_adam<T, F>(
     m: &mut HashMap<String, f32>,
     v: &mut HashMap<String, f32>,
     key: &str,
@@ -397,63 +467,18 @@ fn update_log_param_adam<T, F>(
 }
 
 // ---------------------------------------------------------------------------
-// Gradients
-// ---------------------------------------------------------------------------
-
-struct BallGradients {
-    head_center: Vec<f32>,
-    head_log_radius: f32,
-    relation_translation: Vec<f32>,
-    relation_log_scale: f32,
-    tail_center: Vec<f32>,
-    tail_log_radius: f32,
-    neg_tail_center: Vec<f32>,
-    neg_tail_log_radius: f32,
-}
-
-impl BallGradients {
-    fn new(dim: usize) -> Self {
-        Self {
-            head_center: vec![0.0; dim],
-            head_log_radius: 0.0,
-            relation_translation: vec![0.0; dim],
-            relation_log_scale: 0.0,
-            tail_center: vec![0.0; dim],
-            tail_log_radius: 0.0,
-            neg_tail_center: vec![0.0; dim],
-            neg_tail_log_radius: 0.0,
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-fn center_distance(a: &Ball, b: &Ball) -> f32 {
-    a.center()
-        .iter()
-        .zip(b.center().iter())
-        .map(|(&x, &y)| {
-            let d = x - y;
-            d * d
-        })
-        .sum::<f32>()
-        .sqrt()
-}
-
-// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ball::Ball;
+    use crate::spherical_cap::SphericalCap;
+    use std::f32::consts::PI;
 
     #[test]
     fn trainer_init() {
-        let mut trainer = BallTrainer::new(42);
+        let mut trainer = SphericalCapTrainer::new(42);
         let (entities, relations) = trainer.init_embeddings(10, 3, 4);
         assert_eq!(entities.len(), 10);
         assert_eq!(relations.len(), 3);
@@ -462,44 +487,44 @@ mod tests {
 
     #[test]
     fn score_triple_identical_is_low() {
-        let head = Ball::new(vec![0.0, 0.0], 1.0).unwrap();
-        let relation = BallRelation::identity(2);
-        let tail = Ball::new(vec![0.0, 0.0], 1.0).unwrap();
-        let score = BallTrainer::score_triple(&head, &relation, &tail, 10.0);
+        let head = SphericalCap::new(vec![1.0, 0.0, 0.0], PI / 4.0).unwrap();
+        let relation = SphericalCapRelation::identity(3);
+        let tail = SphericalCap::new(vec![1.0, 0.0, 0.0], PI / 4.0).unwrap();
+        let score = SphericalCapTrainer::score_triple(&head, &relation, &tail, 10.0);
         assert!(score < 1.0, "identical score = {score}, expected low");
     }
 
     #[test]
     fn score_triple_disjoint_is_high() {
-        let head = Ball::new(vec![0.0, 0.0], 0.5).unwrap();
-        let relation = BallRelation::identity(2);
-        let tail = Ball::new(vec![10.0, 0.0], 0.5).unwrap();
-        let score = BallTrainer::score_triple(&head, &relation, &tail, 10.0);
+        let head = SphericalCap::new(vec![1.0, 0.0, 0.0], 0.1).unwrap();
+        let relation = SphericalCapRelation::identity(3);
+        let tail = SphericalCap::new(vec![-1.0, 0.0, 0.0], 0.1).unwrap();
+        let score = SphericalCapTrainer::score_triple(&head, &relation, &tail, 10.0);
         assert!(score > 5.0, "disjoint score = {score}, expected high");
     }
 
     #[test]
     fn gradients_are_finite() {
-        let head = Ball::new(vec![0.0, 0.0], 1.0).unwrap();
-        let relation = BallRelation::new(vec![0.1, 0.1], 1.0).unwrap();
-        let tail = Ball::new(vec![0.0, 0.0], 2.0).unwrap();
-        let neg_tail = Ball::new(vec![5.0, 0.0], 0.5).unwrap();
+        let head = SphericalCap::new(vec![1.0, 0.0, 0.0], 0.3).unwrap();
+        let relation = SphericalCapRelation::new(vec![0.0, 1.0, 0.0], 0.1, 1.0).unwrap();
+        let tail = SphericalCap::new(vec![1.0, 0.0, 0.0], 0.8).unwrap();
+        let neg_tail = SphericalCap::new(vec![-1.0, 0.0, 0.0], 0.1).unwrap();
 
-        let (loss, grads) =
-            BallTrainer::compute_pair_gradients(&head, &relation, &tail, &neg_tail, 1.0, 10.0);
+        let (loss, grads) = SphericalCapTrainer::compute_pair_gradients(
+            &head, &relation, &tail, &neg_tail, 1.0, 10.0,
+        );
 
         assert!(loss.is_finite(), "loss not finite: {loss}");
         for (i, &g) in grads.head_center.iter().enumerate() {
-            assert!(g.is_finite(), "head_center[{i}] gradient not finite: {g}");
+            assert!(g.is_finite(), "head_center[{i}] not finite: {g}");
         }
-        assert!(grads.head_log_radius.is_finite());
-        assert!(grads.tail_log_radius.is_finite());
+        assert!(grads.head_log_tan_half.is_finite());
         assert!(grads.relation_log_scale.is_finite());
     }
 
     #[test]
     fn train_epoch_runs() {
-        let mut trainer = BallTrainer::new(42);
+        let mut trainer = SphericalCapTrainer::new(42);
         let (mut entities, mut relations) = trainer.init_embeddings(20, 3, 4);
 
         let triples = vec![Triple {
