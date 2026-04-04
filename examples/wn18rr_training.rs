@@ -6,7 +6,7 @@
 //! filtered link prediction metrics (MRR, Hits@k).
 //!
 //! Expects WN18RR data at `data/WN18RR/{train,valid,test}.txt` in TSV format.
-//! Download from: https://github.com/TimDettmers/ConvE
+//! Download with: `python3 scripts/download_wn18rr.py`
 //!
 //! Run: cargo run -p subsume --example wn18rr_training --release
 //!
@@ -23,7 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let data_path = Path::new("data/WN18RR");
     if !data_path.exists() {
         eprintln!("WN18RR data not found at data/WN18RR/");
-        eprintln!("Download from: https://github.com/TimDettmers/ConvE");
+        eprintln!("Run: python3 scripts/download_wn18rr.py");
         eprintln!("Expected files: train.txt, valid.txt, test.txt (tab-separated)");
         std::process::exit(1);
     }

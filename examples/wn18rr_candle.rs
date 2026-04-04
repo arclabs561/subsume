@@ -45,6 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let data_path = Path::new(&data_dir);
     if !data_path.exists() {
         eprintln!("WN18RR data not found at data/WN18RR/");
+        eprintln!("Run: python3 scripts/download_wn18rr.py");
         std::process::exit(1);
     }
 
