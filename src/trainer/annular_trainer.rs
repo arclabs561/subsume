@@ -2,6 +2,7 @@
 
 use crate::annular::{AnnularRelation, AnnularSector};
 use crate::dataset::Triple;
+use crate::trainer::trainer_utils::AdamState;
 use crate::trainer::CpuBoxTrainingConfig;
 use crate::BoxError;
 use rand::rngs::StdRng;
@@ -11,6 +12,8 @@ use std::collections::HashMap;
 pub struct AnnularTrainer {
     rng: StdRng,
     step: usize,
+    /// Persistent Adam optimizer state.
+    adam: AdamState,
 }
 
 impl AnnularTrainer {
@@ -18,6 +21,7 @@ impl AnnularTrainer {
         Self {
             rng: StdRng::seed_from_u64(seed),
             step: 0,
+            adam: AdamState::new(),
         }
     }
 
@@ -220,16 +224,14 @@ impl AnnularTrainer {
         let mut total_loss = 0.0f32;
         let mut count = 0usize;
         let lr = config.learning_rate;
-        let beta1 = 0.9f32;
-        let beta2 = 0.999f32;
-        let eps = 1e-8f32;
+        let beta1 = self.adam.beta1;
+        let beta2 = self.adam.beta2;
+        let eps = self.adam.eps;
         let mut indices: Vec<usize> = (0..triples.len()).collect();
         for i in (1..indices.len()).rev() {
             let j = self.rng.random_range(0..=i);
             indices.swap(i, j);
         }
-        let mut m: HashMap<String, f32> = HashMap::new();
-        let mut v: HashMap<String, f32> = HashMap::new();
 
         for &idx in &indices {
             let triple = &triples[idx];
@@ -245,306 +247,171 @@ impl AnnularTrainer {
                 Some(&i) => i,
                 None => continue,
             };
-            let nti = loop {
-                let n = self.rng.random_range(0..num_entities);
-                if n != ti {
-                    break n;
-                }
-            };
+            // Multi-negative sampling with uniform weights
+            let n_neg = config.negative_samples.max(1);
+            let w = 1.0 / n_neg as f32;
+            let mut ag = AnnularGradients::new();
+            let mut avg_loss = 0.0f32;
 
-            let head = &entities[hi];
-            let rel = &relations[ri];
-            let tail = &entities[ti];
-            let neg_tail = &entities[nti];
-            let (loss, grads) =
-                Self::compute_pair_gradients(head, rel, tail, neg_tail, config.margin);
-            total_loss += loss;
+            for _ in 0..n_neg {
+                let nti = loop {
+                    let n = self.rng.random_range(0..num_entities);
+                    if n != ti {
+                        break n;
+                    }
+                };
+                let head = &entities[hi];
+                let rel = &relations[ri];
+                let tail = &entities[ti];
+                let neg_tail = &entities[nti];
+                let (loss, grads) =
+                    Self::compute_pair_gradients(head, rel, tail, neg_tail, config.margin);
+                avg_loss += w * loss;
+                ag.head_center_re += w * grads.head_center_re;
+                ag.head_center_im += w * grads.head_center_im;
+                ag.head_r_inner += w * grads.head_r_inner;
+                ag.head_r_outer += w * grads.head_r_outer;
+                ag.head_theta_start += w * grads.head_theta_start;
+                ag.head_theta_end += w * grads.head_theta_end;
+                ag.rel_rotation += w * grads.rel_rotation;
+                ag.rel_radial_scale += w * grads.rel_radial_scale;
+                ag.rel_angular_scale += w * grads.rel_angular_scale;
+                ag.tail_center_re += w * grads.tail_center_re;
+                ag.tail_center_im += w * grads.tail_center_im;
+                ag.tail_r_inner += w * grads.tail_r_inner;
+                ag.tail_r_outer += w * grads.tail_r_outer;
+                ag.tail_theta_start += w * grads.tail_theta_start;
+                ag.tail_theta_end += w * grads.tail_theta_end;
+            }
+            total_loss += avg_loss;
             count += 1;
-            self.step += 1;
-            let t = self.step as f32;
-            let bias1 = 1.0 - beta1.powf(t);
-            let bias2 = 1.0 - beta2.powf(t);
+            let (bias1, bias2) = self.adam.tick();
 
-            apply_adam(
-                &mut m,
-                &mut v,
+            self.adam.apply(
                 &format!("h{hi}_cre"),
                 entities[hi].center_re_mut(),
-                grads.head_center_re,
+                ag.head_center_re,
                 lr,
-                beta1,
-                beta2,
-                eps,
                 bias1,
                 bias2,
             );
-            apply_adam(
-                &mut m,
-                &mut v,
+            self.adam.apply(
                 &format!("h{hi}_cim"),
                 entities[hi].center_im_mut(),
-                grads.head_center_im,
+                ag.head_center_im,
                 lr,
-                beta1,
-                beta2,
-                eps,
                 bias1,
                 bias2,
             );
-            apply_adam(
-                &mut m,
-                &mut v,
+            self.adam.apply(
                 &format!("h{hi}_ri"),
                 entities[hi].r_inner_mut(),
-                grads.head_r_inner,
+                ag.head_r_inner,
                 lr,
-                beta1,
-                beta2,
-                eps,
                 bias1,
                 bias2,
             );
-            apply_adam(
-                &mut m,
-                &mut v,
+            self.adam.apply(
                 &format!("h{hi}_ro"),
                 entities[hi].r_outer_mut(),
-                grads.head_r_outer,
+                ag.head_r_outer,
                 lr,
-                beta1,
-                beta2,
-                eps,
                 bias1,
                 bias2,
             );
-            apply_adam(
-                &mut m,
-                &mut v,
+            self.adam.apply(
                 &format!("h{hi}_ts"),
                 entities[hi].theta_start_mut(),
-                grads.head_theta_start,
+                ag.head_theta_start,
                 lr,
-                beta1,
-                beta2,
-                eps,
                 bias1,
                 bias2,
             );
-            apply_adam(
-                &mut m,
-                &mut v,
+            self.adam.apply(
                 &format!("h{hi}_te"),
                 entities[hi].theta_end_mut(),
-                grads.head_theta_end,
+                ag.head_theta_end,
                 lr,
-                beta1,
-                beta2,
-                eps,
                 bias1,
                 bias2,
             );
             entities[hi].clamp_valid();
 
-            apply_adam(
-                &mut m,
-                &mut v,
+            self.adam.apply(
                 &format!("r{ri}_rot"),
                 relations[ri].rotation_mut(),
-                grads.rel_rotation,
+                ag.rel_rotation,
                 lr,
-                beta1,
-                beta2,
-                eps,
                 bias1,
                 bias2,
             );
-            apply_adam(
-                &mut m,
-                &mut v,
+            self.adam.apply(
                 &format!("r{ri}_rs"),
                 relations[ri].radial_scale_mut(),
-                grads.rel_radial_scale,
+                ag.rel_radial_scale,
                 lr,
-                beta1,
-                beta2,
-                eps,
                 bias1,
                 bias2,
             );
-            apply_adam(
-                &mut m,
-                &mut v,
+            self.adam.apply(
                 &format!("r{ri}_as"),
                 relations[ri].angular_scale_mut(),
-                grads.rel_angular_scale,
+                ag.rel_angular_scale,
                 lr,
-                beta1,
-                beta2,
-                eps,
                 bias1,
                 bias2,
             );
             relations[ri].clamp_valid();
 
-            apply_adam(
-                &mut m,
-                &mut v,
+            self.adam.apply(
                 &format!("t{ti}_cre"),
                 entities[ti].center_re_mut(),
-                grads.tail_center_re,
+                ag.tail_center_re,
                 lr,
-                beta1,
-                beta2,
-                eps,
                 bias1,
                 bias2,
             );
-            apply_adam(
-                &mut m,
-                &mut v,
+            self.adam.apply(
                 &format!("t{ti}_cim"),
                 entities[ti].center_im_mut(),
-                grads.tail_center_im,
+                ag.tail_center_im,
                 lr,
-                beta1,
-                beta2,
-                eps,
                 bias1,
                 bias2,
             );
-            apply_adam(
-                &mut m,
-                &mut v,
+            self.adam.apply(
                 &format!("t{ti}_ri"),
                 entities[ti].r_inner_mut(),
-                grads.tail_r_inner,
+                ag.tail_r_inner,
                 lr,
-                beta1,
-                beta2,
-                eps,
                 bias1,
                 bias2,
             );
-            apply_adam(
-                &mut m,
-                &mut v,
+            self.adam.apply(
                 &format!("t{ti}_ro"),
                 entities[ti].r_outer_mut(),
-                grads.tail_r_outer,
+                ag.tail_r_outer,
                 lr,
-                beta1,
-                beta2,
-                eps,
                 bias1,
                 bias2,
             );
-            apply_adam(
-                &mut m,
-                &mut v,
+            self.adam.apply(
                 &format!("t{ti}_ts"),
                 entities[ti].theta_start_mut(),
-                grads.tail_theta_start,
+                ag.tail_theta_start,
                 lr,
-                beta1,
-                beta2,
-                eps,
                 bias1,
                 bias2,
             );
-            apply_adam(
-                &mut m,
-                &mut v,
+            self.adam.apply(
                 &format!("t{ti}_te"),
                 entities[ti].theta_end_mut(),
-                grads.tail_theta_end,
+                ag.tail_theta_end,
                 lr,
-                beta1,
-                beta2,
-                eps,
                 bias1,
                 bias2,
             );
             entities[ti].clamp_valid();
-
-            apply_adam(
-                &mut m,
-                &mut v,
-                &format!("nt{nti}_cre"),
-                entities[nti].center_re_mut(),
-                grads.neg_tail_center_re,
-                lr,
-                beta1,
-                beta2,
-                eps,
-                bias1,
-                bias2,
-            );
-            apply_adam(
-                &mut m,
-                &mut v,
-                &format!("nt{nti}_cim"),
-                entities[nti].center_im_mut(),
-                grads.neg_tail_center_im,
-                lr,
-                beta1,
-                beta2,
-                eps,
-                bias1,
-                bias2,
-            );
-            apply_adam(
-                &mut m,
-                &mut v,
-                &format!("nt{nti}_ri"),
-                entities[nti].r_inner_mut(),
-                grads.neg_tail_r_inner,
-                lr,
-                beta1,
-                beta2,
-                eps,
-                bias1,
-                bias2,
-            );
-            apply_adam(
-                &mut m,
-                &mut v,
-                &format!("nt{nti}_ro"),
-                entities[nti].r_outer_mut(),
-                grads.neg_tail_r_outer,
-                lr,
-                beta1,
-                beta2,
-                eps,
-                bias1,
-                bias2,
-            );
-            apply_adam(
-                &mut m,
-                &mut v,
-                &format!("nt{nti}_ts"),
-                entities[nti].theta_start_mut(),
-                grads.neg_tail_theta_start,
-                lr,
-                beta1,
-                beta2,
-                eps,
-                bias1,
-                bias2,
-            );
-            apply_adam(
-                &mut m,
-                &mut v,
-                &format!("nt{nti}_te"),
-                entities[nti].theta_end_mut(),
-                grads.neg_tail_theta_end,
-                lr,
-                beta1,
-                beta2,
-                eps,
-                bias1,
-                bias2,
-            );
-            entities[nti].clamp_valid();
         }
         if count == 0 {
             0.0

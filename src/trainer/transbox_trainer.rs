@@ -1,6 +1,7 @@
 //! TransBox trainer with finite-difference gradients.
 
 use crate::dataset::Triple;
+use crate::trainer::trainer_utils::AdamState;
 use crate::trainer::CpuBoxTrainingConfig;
 use crate::transbox::{TransBoxConcept, TransBoxRole};
 use crate::BoxError;
@@ -11,6 +12,8 @@ use std::collections::HashMap;
 pub struct TransBoxTrainer {
     rng: StdRng,
     step: usize,
+    /// Persistent Adam optimizer state.
+    adam: AdamState,
 }
 
 impl TransBoxTrainer {
@@ -18,6 +21,7 @@ impl TransBoxTrainer {
         Self {
             rng: StdRng::seed_from_u64(seed),
             step: 0,
+            adam: AdamState::new(),
         }
     }
 
@@ -281,16 +285,14 @@ impl TransBoxTrainer {
         let mut total_loss = 0.0f32;
         let mut count = 0usize;
         let lr = config.learning_rate;
-        let beta1 = 0.9f32;
-        let beta2 = 0.999f32;
-        let eps = 1e-8f32;
+        let beta1 = self.adam.beta1;
+        let beta2 = self.adam.beta2;
+        let eps = self.adam.eps;
         let mut indices: Vec<usize> = (0..triples.len()).collect();
         for i in (1..indices.len()).rev() {
             let j = self.rng.random_range(0..=i);
             indices.swap(i, j);
         }
-        let mut m: HashMap<String, f32> = HashMap::new();
-        let mut v: HashMap<String, f32> = HashMap::new();
 
         for &idx in &indices {
             let triple = &triples[idx];
@@ -306,129 +308,92 @@ impl TransBoxTrainer {
                 Some(&i) => i,
                 None => continue,
             };
-            let neg_tail_idx = loop {
-                let neg = self.rng.random_range(0..num_entities);
-                if neg != tail_idx {
-                    break neg;
-                }
-            };
+            // Multi-negative sampling with uniform weights
+            let n_neg = config.negative_samples.max(1);
+            let w = 1.0 / n_neg as f32;
+            let dim = concepts[head_idx].dim();
 
-            let head = &concepts[head_idx];
-            let role = &roles[rel_idx];
-            let tail = &concepts[tail_idx];
-            let neg_tail = &concepts[neg_tail_idx];
-            let (loss, grads) =
-                Self::compute_pair_gradients(head, role, tail, neg_tail, config.margin);
-            total_loss += loss;
+            let mut avg_hc = vec![0.0f32; dim];
+            let mut avg_ho = vec![0.0f32; dim];
+            let mut avg_rc = vec![0.0f32; dim];
+            let mut avg_ro = vec![0.0f32; dim];
+            let mut avg_tc = vec![0.0f32; dim];
+            let mut avg_to = vec![0.0f32; dim];
+            let mut avg_loss = 0.0f32;
+
+            for _ in 0..n_neg {
+                let neg_tail_idx = loop {
+                    let neg = self.rng.random_range(0..num_entities);
+                    if neg != tail_idx {
+                        break neg;
+                    }
+                };
+                let head = &concepts[head_idx];
+                let role = &roles[rel_idx];
+                let tail = &concepts[tail_idx];
+                let neg_tail = &concepts[neg_tail_idx];
+                let (loss, grads) =
+                    Self::compute_pair_gradients(head, role, tail, neg_tail, config.margin);
+                avg_loss += w * loss;
+                for i in 0..dim {
+                    avg_hc[i] += w * grads.head_center[i];
+                    avg_ho[i] += w * grads.head_offset[i];
+                    avg_rc[i] += w * grads.role_center[i];
+                    avg_ro[i] += w * grads.role_offset[i];
+                    avg_tc[i] += w * grads.tail_center[i];
+                    avg_to[i] += w * grads.tail_offset[i];
+                }
+            }
+            total_loss += avg_loss;
             count += 1;
-            self.step += 1;
-            let t = self.step as f32;
-            let bias1 = 1.0 - beta1.powf(t);
-            let bias2 = 1.0 - beta2.powf(t);
-            let dim = head.dim();
+            let (bias1, bias2) = self.adam.tick();
 
             for i in 0..dim {
-                apply_adam(
-                    &mut m,
-                    &mut v,
+                self.adam.apply(
                     &format!("h{head_idx}_c{i}"),
                     &mut concepts[head_idx].center_mut()[i],
-                    grads.head_center[i],
+                    avg_hc[i],
                     lr,
-                    beta1,
-                    beta2,
-                    eps,
                     bias1,
                     bias2,
                 );
-                apply_adam(
-                    &mut m,
-                    &mut v,
+                self.adam.apply(
                     &format!("h{head_idx}_o{i}"),
                     &mut concepts[head_idx].offset_mut()[i],
-                    grads.head_offset[i],
+                    avg_ho[i],
                     lr,
-                    beta1,
-                    beta2,
-                    eps,
                     bias1,
                     bias2,
                 );
-                apply_adam(
-                    &mut m,
-                    &mut v,
+                self.adam.apply(
                     &format!("r{rel_idx}_c{i}"),
                     &mut roles[rel_idx].center_mut()[i],
-                    grads.role_center[i],
+                    avg_rc[i],
                     lr,
-                    beta1,
-                    beta2,
-                    eps,
                     bias1,
                     bias2,
                 );
-                apply_adam(
-                    &mut m,
-                    &mut v,
+                self.adam.apply(
                     &format!("r{rel_idx}_o{i}"),
                     &mut roles[rel_idx].offset_mut()[i],
-                    grads.role_offset[i],
+                    avg_ro[i],
                     lr,
-                    beta1,
-                    beta2,
-                    eps,
                     bias1,
                     bias2,
                 );
-                apply_adam(
-                    &mut m,
-                    &mut v,
+                self.adam.apply(
                     &format!("t{tail_idx}_c{i}"),
                     &mut concepts[tail_idx].center_mut()[i],
-                    grads.tail_center[i],
+                    avg_tc[i],
                     lr,
-                    beta1,
-                    beta2,
-                    eps,
                     bias1,
                     bias2,
                 );
-                apply_adam(
-                    &mut m,
-                    &mut v,
+                self.adam.apply(
                     &format!("t{tail_idx}_o{i}"),
                     &mut concepts[tail_idx].offset_mut()[i],
-                    grads.tail_offset[i],
+                    avg_to[i],
                     lr,
-                    beta1,
-                    beta2,
-                    eps,
-                    bias1,
-                    bias2,
-                );
-                apply_adam(
-                    &mut m,
-                    &mut v,
-                    &format!("nt{neg_tail_idx}_c{i}"),
-                    &mut concepts[neg_tail_idx].center_mut()[i],
-                    grads.neg_tail_center[i],
-                    lr,
-                    beta1,
-                    beta2,
-                    eps,
-                    bias1,
-                    bias2,
-                );
-                apply_adam(
-                    &mut m,
-                    &mut v,
-                    &format!("nt{neg_tail_idx}_o{i}"),
-                    &mut concepts[neg_tail_idx].offset_mut()[i],
-                    grads.neg_tail_offset[i],
-                    lr,
-                    beta1,
-                    beta2,
-                    eps,
                     bias1,
                     bias2,
                 );
@@ -440,9 +405,6 @@ impl TransBoxTrainer {
                 *x = x.max(0.0);
             }
             for x in concepts[tail_idx].offset_mut() {
-                *x = x.max(0.0);
-            }
-            for x in concepts[neg_tail_idx].offset_mut() {
                 *x = x.max(0.0);
             }
         }

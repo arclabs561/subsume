@@ -32,7 +32,7 @@
 //! For soft containment (differentiable scoring):
 //!
 //! ```text
-//! P(A ⊆ B) = sigmoid(k * (theta_B - angle(c_A, c_B) - theta_A))
+//! P(A ⊆ B) = crate::utils::stable_sigmoid(k * (theta_B - angle(c_A, c_B) - theta_A))
 //! ```
 //!
 //! # Angular distance
@@ -414,7 +414,7 @@ pub fn geodesic_distance(a: &[f32], b: &[f32]) -> f32 {
 /// Soft containment probability: P(inner ⊆ outer).
 ///
 /// ```text
-/// P = sigmoid(k * (theta_outer - angle(c_inner, c_outer) - theta_inner))
+/// P = crate::utils::stable_sigmoid(k * (theta_outer - angle(c_inner, c_outer) - theta_inner))
 /// ```
 ///
 /// # Errors
@@ -433,7 +433,7 @@ pub fn containment_prob(
     }
     let dist = geodesic_distance(&inner.center, &outer.center);
     let margin = outer.angular_radius - dist - inner.angular_radius;
-    Ok(sigmoid(k * margin))
+    Ok(crate::utils::stable_sigmoid(k * margin))
 }
 
 /// Angular surface distance between two caps.
@@ -503,15 +503,6 @@ pub fn score_triple(
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
-
-fn sigmoid(x: f32) -> f32 {
-    if x >= 0.0 {
-        1.0 / (1.0 + (-x).exp())
-    } else {
-        let ex = x.exp();
-        ex / (1.0 + ex)
-    }
-}
 
 /// Rotate a vector by angle `theta` around a unit axis vector.
 ///
@@ -642,7 +633,7 @@ mod tests {
     fn containment_identical_is_half() {
         let a = SphericalCap::new(vec![1.0, 0.0, 0.0], PI / 4.0).unwrap();
         let p = containment_prob(&a, &a, 10.0).unwrap();
-        // margin = 0, sigmoid(0) = 0.5
+        // margin = 0, crate::utils::stable_sigmoid(0) = 0.5
         assert!((p - 0.5).abs() < 1e-4);
     }
 
@@ -651,7 +642,7 @@ mod tests {
         let inner = SphericalCap::new(vec![1.0, 0.0, 0.0], 0.1).unwrap();
         let outer = SphericalCap::new(vec![1.0, 0.0, 0.0], 1.0).unwrap();
         let p = containment_prob(&inner, &outer, 10.0).unwrap();
-        // margin = 1.0 - 0 - 0.1 = 0.9, sigmoid(9) ≈ 1
+        // margin = 1.0 - 0 - 0.1 = 0.9, crate::utils::stable_sigmoid(9) ≈ 1
         assert!(p > 0.99, "nested containment = {p}, expected > 0.99");
     }
 
@@ -660,7 +651,7 @@ mod tests {
         let a = SphericalCap::new(vec![1.0, 0.0, 0.0], 0.1).unwrap();
         let b = SphericalCap::new(vec![-1.0, 0.0, 0.0], 0.1).unwrap();
         let p = containment_prob(&a, &b, 10.0).unwrap();
-        // angle = pi, margin = 0.1 - pi - 0.1 = -pi, sigmoid(-31) ≈ 0
+        // angle = pi, margin = 0.1 - pi - 0.1 = -pi, crate::utils::stable_sigmoid(-31) ≈ 0
         assert!(p < 1e-4, "disjoint containment = {p}, expected ~0");
     }
 
@@ -854,12 +845,12 @@ mod tests {
 
     #[test]
     fn sigmoid_large_positive() {
-        assert!((sigmoid(100.0) - 1.0).abs() < 1e-4);
+        assert!((crate::utils::stable_sigmoid(100.0) - 1.0).abs() < 1e-4);
     }
 
     #[test]
     fn sigmoid_large_negative() {
-        assert!(sigmoid(-100.0).abs() < 1e-4);
+        assert!(crate::utils::stable_sigmoid(-100.0).abs() < 1e-4);
     }
 }
 
