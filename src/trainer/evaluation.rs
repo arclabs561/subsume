@@ -201,7 +201,7 @@ fn rank_among_entities<B, F>(
     filter_known: Option<&HashSet<String>>,
 ) -> Result<usize, crate::BoxError>
 where
-    B: crate::Box<Scalar = f32>,
+    B: crate::Box,
     F: Fn(&B) -> Result<f32, crate::BoxError>,
 {
     let target_box = match entity_boxes.get(target) {
@@ -271,7 +271,7 @@ pub(crate) fn evaluate_link_prediction_inner<B>(
     filter: Option<&FilteredTripleIndex>,
 ) -> Result<EvaluationResults, crate::BoxError>
 where
-    B: crate::Box<Scalar = f32>,
+    B: crate::Box,
 {
     // The generic (string-keyed) path only supports Identity transforms.
     // Non-Identity transforms require constructing translated boxes from concrete
@@ -404,7 +404,7 @@ pub(crate) fn rank_among_entities_interned<B>(
     scores_buf: &mut Vec<f32>,
 ) -> Result<usize, crate::BoxError>
 where
-    B: crate::Box<Scalar = f32>,
+    B: crate::Box,
 {
     const CHUNK: usize = 4096;
 
@@ -552,10 +552,8 @@ pub(crate) fn rank_with_translated_query_forward(
 ) -> Result<usize, crate::BoxError> {
     use crate::Box as BoxTrait;
 
-    let (new_min, new_max) = transform.apply_to_bounds(
-        query_box.min().as_slice().unwrap_or(&[]),
-        query_box.max().as_slice().unwrap_or(&[]),
-    );
+    let (new_min, new_max) =
+        transform.apply_to_bounds(query_box.min().as_slice(), query_box.max().as_slice());
     let translated = crate::ndarray_backend::NdarrayBox::new(
         ndarray::Array1::from_vec(new_min),
         ndarray::Array1::from_vec(new_max),
@@ -655,10 +653,8 @@ pub(crate) fn rank_with_translated_query_reverse(
         }
     };
 
-    let (new_min, new_max) = inverse_transform.apply_to_bounds(
-        query_box.min().as_slice().unwrap_or(&[]),
-        query_box.max().as_slice().unwrap_or(&[]),
-    );
+    let (new_min, new_max) =
+        inverse_transform.apply_to_bounds(query_box.min().as_slice(), query_box.max().as_slice());
     let translated = crate::ndarray_backend::NdarrayBox::new(
         ndarray::Array1::from_vec(new_min),
         ndarray::Array1::from_vec(new_max),
@@ -741,7 +737,7 @@ pub(crate) fn evaluate_link_prediction_interned_inner<B>(
     filter: Option<&FilteredTripleIndexIds>,
 ) -> Result<EvaluationResults, crate::BoxError>
 where
-    B: crate::Box<Scalar = f32>,
+    B: crate::Box,
 {
     let mut tail_ranks = Vec::with_capacity(test_triples.len());
     let mut head_ranks = Vec::with_capacity(test_triples.len());
@@ -979,13 +975,13 @@ fn aggregate_per_relation_ids(per_triple: &[(usize, usize, usize)]) -> Vec<PerRe
 ///
 /// # Note
 ///
-/// This function requires `B::Scalar = f32`. For other scalar types, use backend-specific evaluation functions.
+/// This function works with any `Box` implementation.
 pub fn evaluate_link_prediction<B>(
     test_triples: &[Triple],
     entity_boxes: &HashMap<String, B>,
 ) -> Result<EvaluationResults, crate::BoxError>
 where
-    B: crate::Box<Scalar = f32>,
+    B: crate::Box,
 {
     evaluate_link_prediction_inner(test_triples, entity_boxes, None, None)
 }
@@ -1001,7 +997,7 @@ pub fn evaluate_link_prediction_filtered<B>(
     filter: &FilteredTripleIndex,
 ) -> Result<EvaluationResults, crate::BoxError>
 where
-    B: crate::Box<Scalar = f32>,
+    B: crate::Box,
 {
     evaluate_link_prediction_inner(test_triples, entity_boxes, None, Some(filter))
 }
@@ -1016,7 +1012,7 @@ pub fn evaluate_link_prediction_interned<B>(
     entities: &crate::dataset::Vocab,
 ) -> Result<EvaluationResults, crate::BoxError>
 where
-    B: crate::Box<Scalar = f32>,
+    B: crate::Box,
 {
     evaluate_link_prediction_interned_inner(test_triples, entity_boxes, entities, None)
 }
@@ -1029,7 +1025,7 @@ pub fn evaluate_link_prediction_interned_filtered<B>(
     filter: &FilteredTripleIndexIds,
 ) -> Result<EvaluationResults, crate::BoxError>
 where
-    B: crate::Box<Scalar = f32>,
+    B: crate::Box,
 {
     evaluate_link_prediction_interned_inner(test_triples, entity_boxes, entities, Some(filter))
 }

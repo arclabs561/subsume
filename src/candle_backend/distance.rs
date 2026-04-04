@@ -34,14 +34,8 @@ pub fn vector_to_box_distance(point: &Tensor, box_: &CandleBox) -> Result<f32, B
     let point_data = point
         .to_vec1::<f32>()
         .map_err(|e| BoxError::Internal(e.to_string()))?;
-    let min_data = box_
-        .min()
-        .to_vec1::<f32>()
-        .map_err(|e| BoxError::Internal(e.to_string()))?;
-    let max_data = box_
-        .max()
-        .to_vec1::<f32>()
-        .map_err(|e| BoxError::Internal(e.to_string()))?;
+    let min_data = box_.min();
+    let max_data = box_.max();
 
     // For axis-aligned boxes, compute distance to nearest point on box boundary
     let mut dist_sq = 0.0;
@@ -77,22 +71,10 @@ pub fn boundary_distance(outer: &CandleBox, inner: &CandleBox) -> Result<Option<
     }
 
     // Convert tensors to vectors for computation
-    let outer_min_data = outer
-        .min()
-        .to_vec1::<f32>()
-        .map_err(|e| BoxError::Internal(e.to_string()))?;
-    let outer_max_data = outer
-        .max()
-        .to_vec1::<f32>()
-        .map_err(|e| BoxError::Internal(e.to_string()))?;
-    let inner_min_data = inner
-        .min()
-        .to_vec1::<f32>()
-        .map_err(|e| BoxError::Internal(e.to_string()))?;
-    let inner_max_data = inner
-        .max()
-        .to_vec1::<f32>()
-        .map_err(|e| BoxError::Internal(e.to_string()))?;
+    let outer_min_data = outer.min();
+    let outer_max_data = outer.max();
+    let inner_min_data = inner.min();
+    let inner_max_data = inner.max();
 
     // For axis-aligned boxes, boundary distance is the minimum distance from
     // any point in inner to the boundary of outer
