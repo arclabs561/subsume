@@ -167,6 +167,19 @@ impl TransBoxRole {
         Ok(Self { center, offset })
     }
 
+    #[must_use]
+    pub fn dim(&self) -> usize {
+        self.center.len()
+    }
+
+    pub fn center(&self) -> &[f32] {
+        &self.center
+    }
+
+    pub fn offset(&self) -> &[f32] {
+        &self.offset
+    }
+
     /// Apply this role to a concept, returning the transformed concept.
     ///
     /// TransBox uses additive composition:
@@ -686,7 +699,7 @@ mod proptests {
         (arb_concept(dim), arb_concept(dim))
     }
 
-    proptests! {
+    proptest! {
         #[test]
         fn prop_inclusion_loss_nonneg(
             (a, b) in arb_concept_pair(4)
