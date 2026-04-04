@@ -61,11 +61,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(1.0);
+    let neg: usize = std::env::var("NEG")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(10);
 
     let num_entities = interned.entities.len();
     let num_relations = interned.relations.len();
 
-    println!("\nConfig: dim={dim}, epochs={epochs}, lr={lr}, margin={margin}");
+    println!("\nConfig: dim={dim}, epochs={epochs}, lr={lr}, margin={margin}, neg={neg}");
 
     // Build entity/relation maps
     let mut entity_to_idx: HashMap<String, usize> = HashMap::new();
@@ -101,6 +105,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         learning_rate: lr,
         margin,
         epochs,
+        negative_samples: neg,
         ..Default::default()
     };
 

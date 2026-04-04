@@ -197,22 +197,57 @@ impl BallTrainer {
                 None => continue,
             };
 
-            let neg_tail_idx = loop {
-                let neg = self.rng.random_range(0..num_entities);
-                if neg != tail_idx {
-                    break neg;
-                }
-            };
-
             let head = &entities[head_idx];
             let relation = &relations[rel_idx];
             let tail = &entities[tail_idx];
-            let neg_tail = &entities[neg_tail_idx];
 
-            let (loss, grads) =
-                Self::compute_pair_gradients(head, relation, tail, neg_tail, config.margin, k);
-            total_loss += loss;
+            // Generate multiple negatives and average gradients
+            let n_neg = config.negative_samples.max(1);
+            let mut avg_grads = BallGradients::new(head.dim());
+            let mut avg_loss = 0.0f32;
+
+            for _ in 0..n_neg {
+                let neg_tail_idx = loop {
+                    let neg = self.rng.random_range(0..num_entities);
+                    if neg != tail_idx {
+                        break neg;
+                    }
+                };
+                let neg_tail = &entities[neg_tail_idx];
+
+                let (loss, grads) =
+                    Self::compute_pair_gradients(head, relation, tail, neg_tail, config.margin, k);
+                avg_loss += loss;
+
+                for i in 0..head.dim() {
+                    avg_grads.head_center[i] += grads.head_center[i];
+                    avg_grads.tail_center[i] += grads.tail_center[i];
+                    avg_grads.neg_tail_center[i] += grads.neg_tail_center[i];
+                    avg_grads.relation_translation[i] += grads.relation_translation[i];
+                }
+                avg_grads.head_log_radius += grads.head_log_radius;
+                avg_grads.tail_log_radius += grads.tail_log_radius;
+                avg_grads.neg_tail_log_radius += grads.neg_tail_log_radius;
+                avg_grads.relation_log_scale += grads.relation_log_scale;
+            }
+
+            // Average over negatives
+            let scale = 1.0 / n_neg as f32;
+            for i in 0..head.dim() {
+                avg_grads.head_center[i] *= scale;
+                avg_grads.tail_center[i] *= scale;
+                avg_grads.neg_tail_center[i] *= scale;
+                avg_grads.relation_translation[i] *= scale;
+            }
+            avg_grads.head_log_radius *= scale;
+            avg_grads.tail_log_radius *= scale;
+            avg_grads.neg_tail_log_radius *= scale;
+            avg_grads.relation_log_scale *= scale;
+
+            total_loss += avg_loss * scale;
             count += 1;
+
+            let grads = avg_grads;
 
             self.step += 1;
             let t = self.step as f32;
@@ -240,19 +275,6 @@ impl BallTrainer {
                     &format!("t{tail_idx}_c{i}"),
                     &mut entities[tail_idx].center_mut()[i],
                     grads.tail_center[i],
-                    lr,
-                    beta1,
-                    beta2,
-                    eps,
-                    bias1,
-                    bias2,
-                );
-                apply_adam(
-                    &mut m,
-                    &mut v,
-                    &format!("nt{neg_tail_idx}_c{i}"),
-                    &mut entities[neg_tail_idx].center_mut()[i],
-                    grads.neg_tail_center[i],
                     lr,
                     beta1,
                     beta2,
@@ -305,21 +327,6 @@ impl BallTrainer {
                 bias2,
                 |e, v| e.set_log_radius(v),
                 &mut entities[tail_idx],
-            );
-            update_log_param_adam(
-                &mut m,
-                &mut v,
-                &format!("nt{neg_tail_idx}_lr"),
-                entities[neg_tail_idx].log_radius(),
-                grads.neg_tail_log_radius,
-                lr,
-                beta1,
-                beta2,
-                eps,
-                bias1,
-                bias2,
-                |e, v| e.set_log_radius(v),
-                &mut entities[neg_tail_idx],
             );
             update_log_param_adam(
                 &mut m,
