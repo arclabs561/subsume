@@ -22,7 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let data_path = Path::new("data/WN18RR");
     if !data_path.exists() {
         eprintln!("WN18RR data not found at data/WN18RR/");
-        eprintln!("Download from: https://github.com/TimDettmers/ConvE");
+        eprintln!("Run: python3 scripts/download_wn18rr.py");
         eprintln!("Expected files: train.txt, valid.txt, test.txt (tab-separated)");
         std::process::exit(1);
     }
@@ -69,11 +69,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(0.0);
+    let train_limit: usize = std::env::var("TRAIN_LIMIT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(interned.train.len());
+    let report_every: usize = std::env::var("REPORT_EVERY")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(10);
+    let k_scale: f32 = std::env::var("K")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(2.0);
 
     let num_entities = interned.entities.len();
     let num_relations = interned.relations.len();
 
-    println!("\nConfig: dim={dim}, epochs={epochs}, lr={lr}, margin={margin}, neg={neg}, adv_temp={adv_temp}");
+    println!("\nConfig: dim={dim}, epochs={epochs}, lr={lr}, margin={margin}, neg={neg}, adv_temp={adv_temp}, k={k_scale}, train_limit={train_limit}, report_every={report_every}");
 
     // Build entity/relation maps
     let mut entity_to_idx: HashMap<String, usize> = HashMap::new();
@@ -90,7 +102,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Convert interned triples back to Triple (string) format for the trainer
-    let train_triples: Vec<subsume::dataset::Triple> = interned
+    let train_triples_all: Vec<subsume::dataset::Triple> = interned
         .train
         .iter()
         .filter_map(|t| {
@@ -104,6 +116,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             })
         })
         .collect();
+    let train_triples = train_triples_all
+        .into_iter()
+        .take(train_limit)
+        .collect::<Vec<_>>();
 
     let config = CpuBoxTrainingConfig {
         learning_rate: lr,
@@ -111,6 +127,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         epochs,
         negative_samples: neg,
         adversarial_temperature: adv_temp,
+        sigmoid_k: k_scale,
         ..Default::default()
     };
 
@@ -145,11 +162,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &relation_to_idx,
         );
 
-        if (epoch + 1) % 10 == 0 || epoch == 0 {
+        if (epoch + 1) % report_every == 0 || epoch == 0 {
             println!("  epoch {epoch:>3}/{epochs}: avg_loss = {loss:.6}, lr = {epoch_lr:.5}");
 
             // Quick validation
-            if (epoch + 1) % 10 == 0 {
+            if (epoch + 1) % report_every == 0 {
                 let sample_size = 100.min(interned.valid.len());
                 let val_sample = &interned.valid[..sample_size];
                 let results = trainer.evaluate(&entities, &relations, val_sample, None);

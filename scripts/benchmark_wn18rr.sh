@@ -41,8 +41,8 @@ echo "Config: dim=$DIM epochs=$EPOCHS lr=$LR neg=$NEG self_adv=$SELF_ADV"
 echo ""
 
 if [ ! -f data/WN18RR/train.txt ]; then
-    echo "ERROR: WN18RR data not found at data/WN18RR/"
-    exit 1
+    echo "WN18RR data not found, downloading..."
+    python3 scripts/download_wn18rr.py
 fi
 
 cargo build --release --example wn18rr_training 2>&1
