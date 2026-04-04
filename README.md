@@ -304,7 +304,7 @@ See `examples/README.md` for all available examples.
 - Boratko et al. (2021). "Box Embeddings: An open-source library for representation learning using geometric structures" (EMNLP Demo)
 - Chen et al. (2021). "Probabilistic Box Embeddings for Uncertain Knowledge Graph Reasoning" (BEUrRE, ACL 2021)
 - Gebhart, Hansen & Schrater (2021). "Knowledge Sheaves: A Sheaf-Theoretic Framework for Knowledge Graph Embedding"
-- Zhang & Wang (2021). "ConE: Cone Embeddings for Multi-Hop Reasoning over Knowledge Graphs"
+- Zhang et al. (2021). "ConE: Cone Embeddings for Multi-Hop Reasoning over Knowledge Graphs"
 - Chen et al. (2022). "Fuzzy Logic Based Logical Query Answering on Knowledge Graphs"
 - Jackermeier et al. (2023). "Dual Box Embeddings for the Description Logic EL++"
 - Yang, Chen & Sattler (2024). "TransBox: EL++-closed Ontology Embedding"

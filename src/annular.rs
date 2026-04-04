@@ -197,6 +197,34 @@ impl AnnularSector {
     pub fn area_proxy(&self) -> f32 {
         self.angular_span() * (self.r_outer * self.r_outer - self.r_inner * self.r_inner)
     }
+
+    pub fn center_re_mut(&mut self) -> &mut f32 {
+        &mut self.center_re
+    }
+    pub fn center_im_mut(&mut self) -> &mut f32 {
+        &mut self.center_im
+    }
+    pub fn r_inner_mut(&mut self) -> &mut f32 {
+        &mut self.r_inner
+    }
+    pub fn r_outer_mut(&mut self) -> &mut f32 {
+        &mut self.r_outer
+    }
+    pub fn theta_start_mut(&mut self) -> &mut f32 {
+        &mut self.theta_start
+    }
+    pub fn theta_end_mut(&mut self) -> &mut f32 {
+        &mut self.theta_end
+    }
+
+    /// Clamp parameters to valid ranges after gradient updates.
+    pub fn clamp_valid(&mut self) {
+        self.r_inner = self.r_inner.max(0.01);
+        self.r_outer = self.r_outer.max(self.r_inner + 0.01);
+        let two_pi = 2.0 * std::f32::consts::PI;
+        self.theta_start = self.theta_start.rem_euclid(two_pi);
+        self.theta_end = self.theta_end.rem_euclid(two_pi);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -247,6 +275,19 @@ impl AnnularRelation {
         }
     }
 
+    #[must_use]
+    pub fn rotation(&self) -> f32 {
+        self.rotation
+    }
+    #[must_use]
+    pub fn radial_scale(&self) -> f32 {
+        self.radial_scale
+    }
+    #[must_use]
+    pub fn angular_scale(&self) -> f32 {
+        self.angular_scale
+    }
+
     /// Apply this relation to a sector.
     pub fn apply(&self, sector: &AnnularSector) -> AnnularSector {
         let two_pi = 2.0 * std::f32::consts::PI;
@@ -275,6 +316,22 @@ impl AnnularRelation {
             theta_start: new_theta_start,
             theta_end: new_theta_end,
         }
+    }
+
+    pub fn rotation_mut(&mut self) -> &mut f32 {
+        &mut self.rotation
+    }
+    pub fn radial_scale_mut(&mut self) -> &mut f32 {
+        &mut self.radial_scale
+    }
+    pub fn angular_scale_mut(&mut self) -> &mut f32 {
+        &mut self.angular_scale
+    }
+
+    /// Clamp parameters to valid ranges after gradient updates.
+    pub fn clamp_valid(&mut self) {
+        self.radial_scale = self.radial_scale.max(0.01);
+        self.angular_scale = self.angular_scale.max(0.01);
     }
 }
 
