@@ -267,6 +267,17 @@ impl BallRelation {
         &mut self.translation
     }
 
+    /// Returns a reference to the translation vector.
+    pub fn translation(&self) -> &[f32] {
+        &self.translation
+    }
+
+    /// Returns the scale factor.
+    #[must_use]
+    pub fn scale(&self) -> f32 {
+        self.scale
+    }
+
     /// Log-scale (for training stability).
     #[must_use]
     pub fn log_scale(&self) -> f32 {
