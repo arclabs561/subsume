@@ -46,6 +46,8 @@ pub mod spherical_cap_trainer;
 #[cfg(feature = "rand")]
 #[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
 pub mod subspace_trainer;
+/// Shared Adam state and self-adversarial weighting utilities.
+pub mod trainer_utils;
 /// TransBox trainer with analytical gradients.
 #[cfg(feature = "rand")]
 #[cfg_attr(docsrs, doc(cfg(feature = "rand")))]

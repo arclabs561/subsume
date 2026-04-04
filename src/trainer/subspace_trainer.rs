@@ -6,6 +6,7 @@
 
 use crate::dataset::Triple;
 use crate::subspace::Subspace;
+use crate::trainer::trainer_utils::AdamState;
 use crate::trainer::CpuBoxTrainingConfig;
 use crate::BoxError;
 use rand::rngs::StdRng;
@@ -16,6 +17,8 @@ use std::collections::HashMap;
 pub struct SubspaceTrainer {
     rng: StdRng,
     step: usize,
+    /// Persistent Adam optimizer state.
+    adam: AdamState,
 }
 
 impl SubspaceTrainer {
@@ -24,6 +27,7 @@ impl SubspaceTrainer {
         Self {
             rng: StdRng::seed_from_u64(seed),
             step: 0,
+            adam: AdamState::new(),
         }
     }
 
@@ -196,18 +200,15 @@ impl SubspaceTrainer {
         let mut total_loss = 0.0f32;
         let mut count = 0usize;
         let lr = config.learning_rate;
-        let beta1 = 0.9f32;
-        let beta2 = 0.999f32;
-        let eps = 1e-8f32;
+        let beta1 = self.adam.beta1;
+        let beta2 = self.adam.beta2;
+        let eps = self.adam.eps;
 
         let mut indices: Vec<usize> = (0..triples.len()).collect();
         for i in (1..indices.len()).rev() {
             let j = self.rng.random_range(0..=i);
             indices.swap(i, j);
         }
-
-        let mut m: HashMap<String, f32> = HashMap::new();
-        let mut v: HashMap<String, f32> = HashMap::new();
 
         for &idx in &indices {
             let triple = &triples[idx];
@@ -220,40 +221,79 @@ impl SubspaceTrainer {
                 None => continue,
             };
 
-            let neg_tail_idx = loop {
+            let neg_tail_idx_first = loop {
                 let neg = self.rng.random_range(0..num_entities);
                 if neg != tail_idx {
                     break neg;
                 }
             };
 
+            // Multi-negative sampling with uniform weights
+            let n_neg = config.negative_samples.max(1);
+            let w = 1.0 / n_neg as f32;
             let head = &entities[head_idx];
             let tail = &entities[tail_idx];
-            let neg_tail = &entities[neg_tail_idx];
+            let mut avg_head_basis: Vec<Vec<f32>> =
+                (0..head.rank()).map(|_| vec![0.0; head.dim()]).collect();
+            let mut avg_tail_basis: Vec<Vec<f32>> =
+                (0..tail.rank()).map(|_| vec![0.0; tail.dim()]).collect();
+            let mut avg_loss = 0.0f32;
 
-            let (loss, grads) =
-                Self::compute_pair_gradients(head, tail, neg_tail, config.margin, 10.0);
-            total_loss += loss;
+            for neg_i in 0..n_neg {
+                let neg_tail_idx = if neg_i == 0 {
+                    neg_tail_idx_first
+                } else {
+                    loop {
+                        let neg = self.rng.random_range(0..num_entities);
+                        if neg != tail_idx {
+                            break neg;
+                        }
+                    }
+                };
+                let neg_tail = &entities[neg_tail_idx];
+                let head = &entities[head_idx];
+                let tail = &entities[tail_idx];
+                let (loss, grads) =
+                    Self::compute_pair_gradients(head, tail, neg_tail, config.margin, 10.0);
+                avg_loss += w * loss;
+                for j in 0..grads.head_basis.len() {
+                    for i in 0..grads.head_basis[j].len() {
+                        avg_head_basis[j][i] += w * grads.head_basis[j][i];
+                    }
+                }
+                for j in 0..grads.tail_basis.len() {
+                    for i in 0..grads.tail_basis[j].len() {
+                        avg_tail_basis[j][i] += w * grads.tail_basis[j][i];
+                    }
+                }
+            }
+            total_loss += avg_loss;
             count += 1;
 
-            self.step += 1;
-            let t = self.step as f32;
-            let bias1 = 1.0 - beta1.powf(t);
-            let bias2 = 1.0 - beta2.powf(t);
+            // Fake grads struct with averaged values for update
+            struct FakeGrads {
+                head_basis: Vec<Vec<f32>>,
+                tail_basis: Vec<Vec<f32>>,
+                neg_tail_basis: Vec<Vec<f32>>,
+            }
+            let grads = FakeGrads {
+                head_basis: avg_head_basis,
+                tail_basis: avg_tail_basis,
+                neg_tail_basis: vec![],
+            };
+            let head = &entities[head_idx];
+            let tail = &entities[tail_idx];
+
+            let (bias1, bias2) = self.adam.tick();
 
             // Update head basis
             for j in 0..head.rank() {
                 for i in 0..head.dim() {
-                    apply_adam(
-                        &mut m,
-                        &mut v,
+                    self.adam.apply(
                         &format!("h{head_idx}_{j}_{i}"),
                         &mut entities[head_idx].basis_mut()[j][i],
                         grads.head_basis[j][i],
                         lr,
-                        beta1,
-                        beta2,
-                        eps,
                         bias1,
                         bias2,
                     );
@@ -263,35 +303,11 @@ impl SubspaceTrainer {
             // Update tail basis
             for j in 0..tail.rank() {
                 for i in 0..tail.dim() {
-                    apply_adam(
-                        &mut m,
-                        &mut v,
+                    self.adam.apply(
                         &format!("t{tail_idx}_{j}_{i}"),
                         &mut entities[tail_idx].basis_mut()[j][i],
                         grads.tail_basis[j][i],
                         lr,
-                        beta1,
-                        beta2,
-                        eps,
-                        bias1,
-                        bias2,
-                    );
-                }
-            }
-
-            // Update neg_tail basis
-            for j in 0..neg_tail.rank() {
-                for i in 0..neg_tail.dim() {
-                    apply_adam(
-                        &mut m,
-                        &mut v,
-                        &format!("nt{neg_tail_idx}_{j}_{i}"),
-                        &mut entities[neg_tail_idx].basis_mut()[j][i],
-                        grads.neg_tail_basis[j][i],
-                        lr,
-                        beta1,
-                        beta2,
-                        eps,
                         bias1,
                         bias2,
                     );

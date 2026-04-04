@@ -4,6 +4,7 @@
 
 use crate::dataset::Triple;
 use crate::spherical_cap::{SphericalCap, SphericalCapRelation};
+use crate::trainer::trainer_utils::AdamState;
 use crate::trainer::CpuBoxTrainingConfig;
 use crate::BoxError;
 use rand::rngs::StdRng;
@@ -14,6 +15,8 @@ use std::collections::HashMap;
 pub struct SphericalCapTrainer {
     rng: StdRng,
     step: usize,
+    /// Persistent Adam optimizer state.
+    adam: AdamState,
 }
 
 impl SphericalCapTrainer {
@@ -22,6 +25,7 @@ impl SphericalCapTrainer {
         Self {
             rng: StdRng::seed_from_u64(seed),
             step: 0,
+            adam: AdamState::new(),
         }
     }
 
@@ -181,18 +185,15 @@ impl SphericalCapTrainer {
         let mut total_loss = 0.0f32;
         let mut count = 0usize;
         let lr = config.learning_rate;
-        let beta1 = 0.9f32;
-        let beta2 = 0.999f32;
-        let eps = 1e-8f32;
+        let beta1 = self.adam.beta1;
+        let beta2 = self.adam.beta2;
+        let eps = self.adam.eps;
 
         let mut indices: Vec<usize> = (0..triples.len()).collect();
         for i in (1..indices.len()).rev() {
             let j = self.rng.random_range(0..=i);
             indices.swap(i, j);
         }
-
-        let mut m: HashMap<String, f32> = HashMap::new();
-        let mut v: HashMap<String, f32> = HashMap::new();
 
         for &idx in &indices {
             let triple = &triples[idx];
@@ -209,148 +210,107 @@ impl SphericalCapTrainer {
                 None => continue,
             };
 
-            let neg_tail_idx = loop {
-                let neg = self.rng.random_range(0..num_entities);
-                if neg != tail_idx {
-                    break neg;
-                }
-            };
-
             let head = &entities[head_idx];
             let relation = &relations[rel_idx];
             let tail = &entities[tail_idx];
-            let neg_tail = &entities[neg_tail_idx];
 
-            let (loss, grads) =
-                Self::compute_pair_gradients(head, relation, tail, neg_tail, config.margin, k);
-            total_loss += loss;
+            // Multi-negative sampling with uniform weights
+            let n_neg = config.negative_samples.max(1);
+            let w = 1.0 / n_neg as f32;
+            let mut avg_grads = CapGradients::new(head.dim());
+            let mut avg_loss = 0.0f32;
+
+            for _ in 0..n_neg {
+                let neg_tail_idx = loop {
+                    let neg = self.rng.random_range(0..num_entities);
+                    if neg != tail_idx {
+                        break neg;
+                    }
+                };
+                let neg_tail = &entities[neg_tail_idx];
+                let (loss, grads) =
+                    Self::compute_pair_gradients(head, relation, tail, neg_tail, config.margin, k);
+                avg_loss += w * loss;
+                for i in 0..head.dim() {
+                    avg_grads.head_center[i] += w * grads.head_center[i];
+                    avg_grads.tail_center[i] += w * grads.tail_center[i];
+                    avg_grads.neg_tail_center[i] += w * grads.neg_tail_center[i];
+                    avg_grads.relation_axis[i] += w * grads.relation_axis[i];
+                }
+                avg_grads.head_log_tan_half += w * grads.head_log_tan_half;
+                avg_grads.tail_log_tan_half += w * grads.tail_log_tan_half;
+                avg_grads.neg_tail_log_tan_half += w * grads.neg_tail_log_tan_half;
+                avg_grads.relation_log_scale += w * grads.relation_log_scale;
+            }
+
+            total_loss += avg_loss;
             count += 1;
+            let grads = avg_grads;
 
-            self.step += 1;
-            let t = self.step as f32;
-            let bias1 = 1.0 - beta1.powf(t);
-            let bias2 = 1.0 - beta2.powf(t);
+            let (bias1, bias2) = self.adam.tick();
 
             // Update centers
             for i in 0..head.dim() {
-                apply_adam(
-                    &mut m,
-                    &mut v,
+                self.adam.apply(
                     &format!("h{head_idx}_c{i}"),
                     &mut entities[head_idx].center_mut()[i],
                     grads.head_center[i],
                     lr,
-                    beta1,
-                    beta2,
-                    eps,
                     bias1,
                     bias2,
                 );
-                apply_adam(
-                    &mut m,
-                    &mut v,
+                self.adam.apply(
                     &format!("t{tail_idx}_c{i}"),
                     &mut entities[tail_idx].center_mut()[i],
                     grads.tail_center[i],
                     lr,
-                    beta1,
-                    beta2,
-                    eps,
                     bias1,
                     bias2,
                 );
-                apply_adam(
-                    &mut m,
-                    &mut v,
-                    &format!("nt{neg_tail_idx}_c{i}"),
-                    &mut entities[neg_tail_idx].center_mut()[i],
-                    grads.neg_tail_center[i],
-                    lr,
-                    beta1,
-                    beta2,
-                    eps,
-                    bias1,
-                    bias2,
-                );
-                apply_adam(
-                    &mut m,
-                    &mut v,
+                self.adam.apply(
                     &format!("r{rel_idx}_a{i}"),
                     &mut relations[rel_idx].axis_mut()[i],
                     grads.relation_axis[i],
                     lr,
-                    beta1,
-                    beta2,
-                    eps,
                     bias1,
                     bias2,
                 );
             }
 
-            // Update angular radii / scale
-            update_log_adam(
-                &mut m,
-                &mut v,
+            // Update angular radii / scale (head, tail, relation only — neg_tail skipped for multi-neg)
+            self.adam.apply_log(
                 &format!("h{head_idx}_lt"),
                 entities[head_idx].log_tan_half(),
                 grads.head_log_tan_half,
                 lr,
-                beta1,
-                beta2,
-                eps,
                 bias1,
                 bias2,
                 |e, v| e.set_log_tan_half(v),
                 &mut entities[head_idx],
             );
-            update_log_adam(
-                &mut m,
-                &mut v,
+            self.adam.apply_log(
                 &format!("t{tail_idx}_lt"),
                 entities[tail_idx].log_tan_half(),
                 grads.tail_log_tan_half,
                 lr,
-                beta1,
-                beta2,
-                eps,
                 bias1,
                 bias2,
                 |e, v| e.set_log_tan_half(v),
                 &mut entities[tail_idx],
             );
-            update_log_adam(
-                &mut m,
-                &mut v,
-                &format!("nt{neg_tail_idx}_lt"),
-                entities[neg_tail_idx].log_tan_half(),
-                grads.neg_tail_log_tan_half,
-                lr,
-                beta1,
-                beta2,
-                eps,
-                bias1,
-                bias2,
-                |e, v| e.set_log_tan_half(v),
-                &mut entities[neg_tail_idx],
-            );
-            update_log_adam(
-                &mut m,
-                &mut v,
+            self.adam.apply_log(
                 &format!("r{rel_idx}_ls"),
                 relations[rel_idx].log_scale(),
                 grads.relation_log_scale,
                 lr,
-                beta1,
-                beta2,
-                eps,
                 bias1,
                 bias2,
                 |r, v| r.set_log_scale(v),
                 &mut relations[rel_idx],
             );
 
-            // Re-normalize centers and axes after gradient update
-            for idx in [head_idx, tail_idx, neg_tail_idx] {
+            // Re-normalize centers and axes after gradient update (head and tail only)
+            for idx in [head_idx, tail_idx] {
                 let norm: f32 = entities[idx]
                     .center()
                     .iter()

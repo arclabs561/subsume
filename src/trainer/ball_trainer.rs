@@ -203,50 +203,55 @@ impl BallTrainer {
             let relation = &relations[rel_idx];
             let tail = &entities[tail_idx];
 
-            // Generate multiple negatives and average gradients
+            // Generate multiple negatives
             let n_neg = config.negative_samples.max(1);
+            let adv_temp = config.adversarial_temperature;
+
+            // Collect (neg_tail_idx, neg_score) pairs for self-adversarial weighting
+            let mut neg_pairs: Vec<(usize, f32)> = (0..n_neg)
+                .map(|_| {
+                    let neg_tail_idx = loop {
+                        let neg = self.rng.random_range(0..num_entities);
+                        if neg != tail_idx {
+                            break neg;
+                        }
+                    };
+                    let neg_score = Self::score_triple(head, relation, &entities[neg_tail_idx], k);
+                    (neg_tail_idx, neg_score)
+                })
+                .collect();
+
+            // Self-adversarial weights: weight harder negatives more
+            let neg_scores: Vec<f32> = neg_pairs.iter().map(|(_, s)| *s).collect();
+            let weights =
+                crate::trainer::trainer_utils::self_adversarial_weights(&neg_scores, adv_temp);
+
+            // Accumulate weighted gradients
             let mut avg_grads = BallGradients::new(head.dim());
             let mut avg_loss = 0.0f32;
 
-            for _ in 0..n_neg {
-                let neg_tail_idx = loop {
-                    let neg = self.rng.random_range(0..num_entities);
-                    if neg != tail_idx {
-                        break neg;
-                    }
-                };
-                let neg_tail = &entities[neg_tail_idx];
-
+            for (((neg_tail_idx, _), weight), neg_score) in
+                neg_pairs.iter().zip(&weights).zip(&neg_scores)
+            {
+                let neg_tail = &entities[*neg_tail_idx];
                 let (loss, grads) =
                     Self::compute_pair_gradients(head, relation, tail, neg_tail, config.margin, k);
-                avg_loss += loss;
+                let w = weight;
+                avg_loss += w * loss;
 
                 for i in 0..head.dim() {
-                    avg_grads.head_center[i] += grads.head_center[i];
-                    avg_grads.tail_center[i] += grads.tail_center[i];
-                    avg_grads.neg_tail_center[i] += grads.neg_tail_center[i];
-                    avg_grads.relation_translation[i] += grads.relation_translation[i];
+                    avg_grads.head_center[i] += w * grads.head_center[i];
+                    avg_grads.tail_center[i] += w * grads.tail_center[i];
+                    avg_grads.neg_tail_center[i] += w * grads.neg_tail_center[i];
+                    avg_grads.relation_translation[i] += w * grads.relation_translation[i];
                 }
-                avg_grads.head_log_radius += grads.head_log_radius;
-                avg_grads.tail_log_radius += grads.tail_log_radius;
-                avg_grads.neg_tail_log_radius += grads.neg_tail_log_radius;
-                avg_grads.relation_log_scale += grads.relation_log_scale;
+                avg_grads.head_log_radius += w * grads.head_log_radius;
+                avg_grads.tail_log_radius += w * grads.tail_log_radius;
+                avg_grads.neg_tail_log_radius += w * grads.neg_tail_log_radius;
+                avg_grads.relation_log_scale += w * grads.relation_log_scale;
             }
 
-            // Average over negatives
-            let scale = 1.0 / n_neg as f32;
-            for i in 0..head.dim() {
-                avg_grads.head_center[i] *= scale;
-                avg_grads.tail_center[i] *= scale;
-                avg_grads.neg_tail_center[i] *= scale;
-                avg_grads.relation_translation[i] *= scale;
-            }
-            avg_grads.head_log_radius *= scale;
-            avg_grads.tail_log_radius *= scale;
-            avg_grads.neg_tail_log_radius *= scale;
-            avg_grads.relation_log_scale *= scale;
-
-            total_loss += avg_loss * scale;
+            total_loss += avg_loss;
             count += 1;
 
             let grads = avg_grads;
