@@ -5,6 +5,7 @@
 
 use crate::dataset::Triple;
 use crate::ellipsoid::Ellipsoid;
+use crate::trainer::trainer_utils::AdamState;
 use crate::trainer::CpuBoxTrainingConfig;
 use crate::BoxError;
 use rand::rngs::StdRng;
@@ -15,6 +16,8 @@ use std::collections::HashMap;
 pub struct EllipsoidTrainer {
     rng: StdRng,
     step: usize,
+    /// Persistent Adam optimizer state.
+    adam: AdamState,
 }
 
 impl EllipsoidTrainer {
@@ -23,6 +26,7 @@ impl EllipsoidTrainer {
         Self {
             rng: StdRng::seed_from_u64(seed),
             step: 0,
+            adam: AdamState::new(),
         }
     }
 
@@ -227,18 +231,15 @@ impl EllipsoidTrainer {
         let mut total_loss = 0.0f32;
         let mut count = 0usize;
         let lr = config.learning_rate;
-        let beta1 = 0.9f32;
-        let beta2 = 0.999f32;
-        let eps = 1e-8f32;
+        let beta1 = self.adam.beta1;
+        let beta2 = self.adam.beta2;
+        let eps = self.adam.eps;
 
         let mut indices: Vec<usize> = (0..triples.len()).collect();
         for i in (1..indices.len()).rev() {
             let j = self.rng.random_range(0..=i);
             indices.swap(i, j);
         }
-
-        let mut m: HashMap<String, f32> = HashMap::new();
-        let mut v: HashMap<String, f32> = HashMap::new();
 
         for &idx in &indices {
             let triple = &triples[idx];
@@ -251,57 +252,60 @@ impl EllipsoidTrainer {
                 None => continue,
             };
 
-            let neg_tail_idx = loop {
-                let neg = self.rng.random_range(0..num_entities);
-                if neg != tail_idx {
-                    break neg;
+            // Multi-negative sampling with uniform weights
+            let n_neg = config.negative_samples.max(1);
+            let w = 1.0 / n_neg as f32;
+            let dim = entities[head_idx].dim();
+
+            let mut avg_head_mu = vec![0.0f32; dim];
+            let mut avg_head_ld = vec![0.0f32; dim];
+            let mut avg_tail_mu = vec![0.0f32; dim];
+            let mut avg_tail_ld = vec![0.0f32; dim];
+            let mut avg_loss = 0.0f32;
+
+            for _ in 0..n_neg {
+                let neg_tail_idx = loop {
+                    let neg = self.rng.random_range(0..num_entities);
+                    if neg != tail_idx {
+                        break neg;
+                    }
+                };
+                let head = &entities[head_idx];
+                let tail = &entities[tail_idx];
+                let neg_tail = &entities[neg_tail_idx];
+                let (loss, grads) =
+                    Self::compute_pair_gradients(head, tail, neg_tail, config.margin, k);
+                avg_loss += w * loss;
+                for i in 0..dim {
+                    avg_head_mu[i] += w * grads.head_mu[i];
+                    avg_head_ld[i] += w * grads.head_log_diag[i];
+                    avg_tail_mu[i] += w * grads.tail_mu[i];
+                    avg_tail_ld[i] += w * grads.tail_log_diag[i];
                 }
-            };
-
-            let head = &entities[head_idx];
-            let tail = &entities[tail_idx];
-            let neg_tail = &entities[neg_tail_idx];
-
-            let (loss, grads) =
-                Self::compute_pair_gradients(head, tail, neg_tail, config.margin, k);
-            total_loss += loss;
+            }
+            total_loss += avg_loss;
             count += 1;
 
-            self.step += 1;
-            let t = self.step as f32;
-            let bias1 = 1.0 - beta1.powf(t);
-            let bias2 = 1.0 - beta2.powf(t);
-
-            let dim = head.dim();
+            let (bias1, bias2) = self.adam.tick();
 
             // Update head
             for i in 0..dim {
-                apply_adam(
-                    &mut m,
-                    &mut v,
+                self.adam.apply(
                     &format!("h{head_idx}_m{i}"),
                     &mut entities[head_idx].mu_mut()[i],
-                    grads.head_mu[i],
+                    avg_head_mu[i],
                     lr,
-                    beta1,
-                    beta2,
-                    eps,
                     bias1,
                     bias2,
                 );
             }
             let mut head_ld = entities[head_idx].log_diag();
             for i in 0..dim {
-                apply_adam(
-                    &mut m,
-                    &mut v,
+                self.adam.apply(
                     &format!("h{head_idx}_ld{i}"),
                     &mut head_ld[i],
-                    grads.head_log_diag[i],
+                    avg_head_ld[i],
                     lr,
-                    beta1,
-                    beta2,
-                    eps,
                     bias1,
                     bias2,
                 );
@@ -310,71 +314,27 @@ impl EllipsoidTrainer {
 
             // Update tail
             for i in 0..dim {
-                apply_adam(
-                    &mut m,
-                    &mut v,
+                self.adam.apply(
                     &format!("t{tail_idx}_m{i}"),
                     &mut entities[tail_idx].mu_mut()[i],
-                    grads.tail_mu[i],
+                    avg_tail_mu[i],
                     lr,
-                    beta1,
-                    beta2,
-                    eps,
                     bias1,
                     bias2,
                 );
             }
             let mut tail_ld = entities[tail_idx].log_diag();
             for i in 0..dim {
-                apply_adam(
-                    &mut m,
-                    &mut v,
+                self.adam.apply(
                     &format!("t{tail_idx}_ld{i}"),
                     &mut tail_ld[i],
-                    grads.tail_log_diag[i],
+                    avg_tail_ld[i],
                     lr,
-                    beta1,
-                    beta2,
-                    eps,
                     bias1,
                     bias2,
                 );
             }
             entities[tail_idx].set_log_diag(&tail_ld);
-
-            // Update neg_tail
-            for i in 0..dim {
-                apply_adam(
-                    &mut m,
-                    &mut v,
-                    &format!("nt{neg_tail_idx}_m{i}"),
-                    &mut entities[neg_tail_idx].mu_mut()[i],
-                    grads.neg_tail_mu[i],
-                    lr,
-                    beta1,
-                    beta2,
-                    eps,
-                    bias1,
-                    bias2,
-                );
-            }
-            let mut neg_tail_ld = entities[neg_tail_idx].log_diag();
-            for i in 0..dim {
-                apply_adam(
-                    &mut m,
-                    &mut v,
-                    &format!("nt{neg_tail_idx}_ld{i}"),
-                    &mut neg_tail_ld[i],
-                    grads.neg_tail_log_diag[i],
-                    lr,
-                    beta1,
-                    beta2,
-                    eps,
-                    bias1,
-                    bias2,
-                );
-            }
-            entities[neg_tail_idx].set_log_diag(&neg_tail_ld);
         }
 
         if count == 0 {

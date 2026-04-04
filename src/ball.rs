@@ -27,7 +27,7 @@
 //! For soft containment (differentiable scoring):
 //!
 //! ```text
-//! P(A ⊆ B) = sigmoid(k * (r_B - ||c_A - c_B|| - r_A))
+//! P(A ⊆ B) = crate::utils::stable_sigmoid(k * (r_B - ||c_A - c_B|| - r_A))
 //! ```
 //!
 //! where `k` is a sharpness parameter (higher = harder boundary).
@@ -379,7 +379,7 @@ fn center_distance(a: &Ball, b: &Ball) -> f32 {
 /// Soft containment probability: P(inner ⊆ outer).
 ///
 /// ```text
-/// P = sigmoid(k * (r_outer - ||c_inner - c_outer|| - r_inner))
+/// P = crate::utils::stable_sigmoid(k * (r_outer - ||c_inner - c_outer|| - r_inner))
 /// ```
 ///
 /// Returns a value in (0, 1). Values near 1.0 indicate strong containment;
@@ -402,7 +402,7 @@ pub fn containment_prob(inner: &Ball, outer: &Ball, k: f32) -> Result<f32, BoxEr
     }
     let dist = center_distance(inner, outer);
     let margin = outer.radius - dist - inner.radius;
-    Ok(sigmoid(k * margin))
+    Ok(crate::utils::stable_sigmoid(k * margin))
 }
 
 /// Surface distance between two balls.
@@ -556,16 +556,6 @@ pub fn regd_score(outer: &Ball, inner: &Ball, alpha: f32, p: f32) -> Result<f32,
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
-
-/// Numerically stable sigmoid function.
-fn sigmoid(x: f32) -> f32 {
-    if x >= 0.0 {
-        1.0 / (1.0 + (-x).exp())
-    } else {
-        let ex = x.exp();
-        ex / (1.0 + ex)
-    }
-}
 
 /// Natural log of the Gamma function.
 ///
@@ -845,17 +835,17 @@ mod tests {
 
     #[test]
     fn sigmoid_large_positive() {
-        assert!((sigmoid(100.0) - 1.0).abs() < 1e-4);
+        assert!((crate::utils::stable_sigmoid(100.0) - 1.0).abs() < 1e-4);
     }
 
     #[test]
     fn sigmoid_large_negative() {
-        assert!(sigmoid(-100.0).abs() < 1e-4);
+        assert!(crate::utils::stable_sigmoid(-100.0).abs() < 1e-4);
     }
 
     #[test]
     fn sigmoid_zero() {
-        assert!((sigmoid(0.0) - 0.5).abs() < 1e-6);
+        assert!((crate::utils::stable_sigmoid(0.0) - 0.5).abs() < 1e-6);
     }
 
     // --- RegD tests ---

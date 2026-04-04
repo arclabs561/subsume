@@ -398,7 +398,7 @@ pub fn bhattacharyya_distance(a: &Ellipsoid, b: &Ellipsoid) -> Result<f32, BoxEr
     Ok(mahal_term + log_det_term)
 }
 
-/// Containment probability (soft): sigmoid(-k * KL(child || parent)).
+/// Containment probability (soft): crate::utils::stable_sigmoid(-k * KL(child || parent)).
 ///
 /// High values indicate strong containment.
 ///
@@ -407,7 +407,7 @@ pub fn bhattacharyya_distance(a: &Ellipsoid, b: &Ellipsoid) -> Result<f32, BoxEr
 /// Returns [`BoxError::DimensionMismatch`] if dimensions differ.
 pub fn containment_prob(child: &Ellipsoid, parent: &Ellipsoid, k: f32) -> Result<f32, BoxError> {
     let kl = kl_divergence(child, parent)?;
-    Ok(sigmoid(-k * kl))
+    Ok(crate::utils::stable_sigmoid(-k * kl))
 }
 
 /// Surface distance proxy: sqrt(KL(child || parent) + KL(parent || child)).
@@ -426,15 +426,6 @@ pub fn surface_distance(a: &Ellipsoid, b: &Ellipsoid) -> Result<f32, BoxError> {
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
-
-fn sigmoid(x: f32) -> f32 {
-    if x >= 0.0 {
-        1.0 / (1.0 + (-x).exp())
-    } else {
-        let ex = x.exp();
-        ex / (1.0 + ex)
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -544,14 +535,14 @@ mod tests {
     fn containment_prob_identical_is_half() {
         let e = Ellipsoid::from_log_diagonal(vec![0.0, 0.0], vec![0.0, 0.0]).unwrap();
         let p = containment_prob(&e, &e, 1.0).unwrap();
-        // KL = 0, sigmoid(0) = 0.5
+        // KL = 0, crate::utils::stable_sigmoid(0) = 0.5
         assert!((p - 0.5).abs() < 1e-4);
     }
 
     #[test]
     fn containment_prob_near_identical_is_half() {
-        // KL(child||parent) >= 0 always, so sigmoid(-KL) <= 0.5.
-        // For near-identical distributions, KL ≈ 0, sigmoid(0) = 0.5.
+        // KL(child||parent) >= 0 always, so crate::utils::stable_sigmoid(-KL) <= 0.5.
+        // For near-identical distributions, KL ≈ 0, crate::utils::stable_sigmoid(0) = 0.5.
         let child = Ellipsoid::from_log_diagonal(vec![0.0, 0.0], vec![-0.01, -0.01]).unwrap();
         let parent = Ellipsoid::from_log_diagonal(vec![0.0, 0.0], vec![0.0, 0.0]).unwrap();
         let p = containment_prob(&child, &parent, 1.0).unwrap();
@@ -563,7 +554,7 @@ mod tests {
 
     #[test]
     fn containment_prob_widely_different_is_low() {
-        // Child much narrower than parent: KL is moderate positive, sigmoid(-KL) < 0.5.
+        // Child much narrower than parent: KL is moderate positive, crate::utils::stable_sigmoid(-KL) < 0.5.
         let child = Ellipsoid::from_log_diagonal(vec![0.0, 0.0], vec![-3.0, -3.0]).unwrap();
         let parent = Ellipsoid::from_log_diagonal(vec![0.0, 0.0], vec![0.0, 0.0]).unwrap();
         let p = containment_prob(&child, &parent, 1.0).unwrap();
@@ -599,12 +590,12 @@ mod tests {
 
     #[test]
     fn sigmoid_large_positive() {
-        assert!((sigmoid(100.0) - 1.0).abs() < 1e-4);
+        assert!((crate::utils::stable_sigmoid(100.0) - 1.0).abs() < 1e-4);
     }
 
     #[test]
     fn sigmoid_large_negative() {
-        assert!(sigmoid(-100.0).abs() < 1e-4);
+        assert!(crate::utils::stable_sigmoid(-100.0).abs() < 1e-4);
     }
 }
 
