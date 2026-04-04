@@ -302,8 +302,11 @@ impl AnnularRelation {
         let new_r_inner = sector.r_inner * self.radial_scale;
         let new_r_outer = sector.r_outer * self.radial_scale;
 
-        // Scale angular span around the midpoint
-        let mid = (sector.theta_start + sector.theta_end) / 2.0;
+        // Scale angular span around the circular midpoint
+        // Use circular mean: mid = atan2(sin(start)+sin(end), cos(start)+cos(end))
+        let mid = (sector.theta_start.sin() + sector.theta_end.sin())
+            .atan2(sector.theta_start.cos() + sector.theta_end.cos())
+            .rem_euclid(two_pi);
         let half_span = sector.angular_span() * self.angular_scale / 2.0;
         let new_theta_start = (mid - half_span).rem_euclid(two_pi);
         let new_theta_end = (mid + half_span).rem_euclid(two_pi);

@@ -513,33 +513,27 @@ fn sigmoid(x: f32) -> f32 {
     }
 }
 
-/// Rotate a vector by angle `theta` in the plane spanned by the vector
-/// and a unit axis vector.
+/// Rotate a vector by angle `theta` around a unit axis vector.
 ///
-/// For a vector v and unit axis a:
-/// - Decompose v into parallel and perpendicular components: v = v_par + v_perp
-/// - v_par = (v . a) * a
-/// - v_perp = v - v_par
-/// - rotated = v_par + cos(theta) * v_perp + sin(theta) * ||v_perp|| * a
+/// For 3D: uses Rodrigues' rotation formula (exact).
+/// For general d: rotates in the plane spanned by v_perp and the
+/// component of axis orthogonal to v_perp.
 fn rotate_vector(v: &[f32], axis: &[f32], angle: f32) -> Vec<f32> {
     debug_assert_eq!(v.len(), axis.len());
     let d = v.len();
-
     let dot: f32 = v.iter().zip(axis.iter()).map(|(&x, &y)| x * y).sum();
-    let v_norm = v.iter().map(|x| x * x).sum::<f32>().sqrt();
 
-    if v_norm < 1e-12 {
-        return v.to_vec();
-    }
-
-    // Parallel component
+    // Parallel component: v_par = (v . a) * a
     let v_par: Vec<f32> = axis.iter().map(|&a| a * dot).collect();
-    // Perpendicular component
-    let v_perp: Vec<f32> = v.iter().zip(v_par.iter()).map(|(&v, &p)| v - p).collect();
+    // Perpendicular component: v_perp = v - v_par
+    let v_perp: Vec<f32> = v
+        .iter()
+        .zip(v_par.iter())
+        .map(|(&vi, &pi)| vi - pi)
+        .collect();
     let perp_norm = v_perp.iter().map(|x| x * x).sum::<f32>().sqrt();
 
     if perp_norm < 1e-12 {
-        // v is parallel to axis, no rotation possible
         return v.to_vec();
     }
 
@@ -547,34 +541,43 @@ fn rotate_vector(v: &[f32], axis: &[f32], angle: f32) -> Vec<f32> {
     let sin_a = angle.sin();
 
     if d == 3 {
-        // Rodrigues' formula: v_rot = v_par + cos(a)*v_perp + sin(a)*(axis × v_perp)
+        // Rodrigues' formula: v_rot = v*cos(a) + (axis × v)*sin(a) + axis*(axis·v)*(1-cos(a))
         let cross = [
-            axis[1] * v_perp[2] - axis[2] * v_perp[1],
-            axis[2] * v_perp[0] - axis[0] * v_perp[2],
-            axis[0] * v_perp[1] - axis[1] * v_perp[0],
+            axis[1] * v[2] - axis[2] * v[1],
+            axis[2] * v[0] - axis[0] * v[2],
+            axis[0] * v[1] - axis[1] * v[0],
         ];
-        v_par
-            .iter()
-            .zip(v_perp.iter())
-            .zip(cross.iter())
-            .map(|((&vp, &vpe), &cr)| vp + cos_a * vpe + sin_a * cr)
+        (0..3)
+            .map(|i| v[i] * cos_a + cross[i] * sin_a + axis[i] * dot * (1.0 - cos_a))
             .collect()
     } else {
-        // For d != 3: rotate in the plane spanned by v_perp and a perpendicular
-        // direction. We use the Gram-Schmidt approach: find a unit vector
-        // orthogonal to both axis and v_perp by rotating v_perp in the
-        // (v_perp, axis)-plane by 90 degrees.
-        // This is a generalized rotation that preserves the angle with the axis.
-        let w: Vec<f32> = axis
+        // General d: rotate v_perp in the plane (v_perp_hat, w_hat)
+        let v_perp_hat: Vec<f32> = v_perp.iter().map(|&x| x / perp_norm).collect();
+
+        // w = component of axis orthogonal to v_perp_hat
+        let w_dot: f32 = axis
             .iter()
-            .zip(v_perp.iter())
-            .map(|(&a, &vp)| (a * perp_norm - vp * dot) / perp_norm)
+            .zip(v_perp_hat.iter())
+            .map(|(&a, &vp)| a * vp)
+            .sum();
+        let mut w: Vec<f32> = axis
+            .iter()
+            .zip(v_perp_hat.iter())
+            .map(|(&a, &vp)| a - w_dot * vp)
             .collect();
+        let w_norm = w.iter().map(|x| x * x).sum::<f32>().sqrt();
+        if w_norm < 1e-12 {
+            return v.to_vec();
+        }
+        for x in &mut w {
+            *x /= w_norm;
+        }
+
         v_par
             .iter()
-            .zip(v_perp.iter())
+            .zip(v_perp_hat.iter())
             .zip(w.iter())
-            .map(|((&vp, &vpe), &we)| vp + cos_a * vpe + sin_a * we)
+            .map(|((&vp, &vph), &wi)| vp + perp_norm * (cos_a * vph + sin_a * wi))
             .collect()
     }
 }
