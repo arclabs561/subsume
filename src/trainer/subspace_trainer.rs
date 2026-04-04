@@ -16,7 +16,6 @@ use std::collections::HashMap;
 /// Trains subspace embeddings using analytical gradients.
 pub struct SubspaceTrainer {
     rng: StdRng,
-    step: usize,
     /// Persistent Adam optimizer state.
     adam: AdamState,
 }
@@ -26,7 +25,6 @@ impl SubspaceTrainer {
     pub fn new(seed: u64) -> Self {
         Self {
             rng: StdRng::seed_from_u64(seed),
-            step: 0,
             adam: AdamState::new(),
         }
     }
@@ -253,14 +251,14 @@ impl SubspaceTrainer {
                 let (loss, grads) =
                     Self::compute_pair_gradients(head, tail, neg_tail, config.margin, 10.0);
                 avg_loss += w * loss;
-                for j in 0..grads.head_basis.len() {
-                    for i in 0..grads.head_basis[j].len() {
-                        avg_head_basis[j][i] += w * grads.head_basis[j][i];
+                for (j, hb) in grads.head_basis.iter().enumerate() {
+                    for (i, &g) in hb.iter().enumerate() {
+                        avg_head_basis[j][i] += w * g;
                     }
                 }
-                for j in 0..grads.tail_basis.len() {
-                    for i in 0..grads.tail_basis[j].len() {
-                        avg_tail_basis[j][i] += w * grads.tail_basis[j][i];
+                for (j, tb) in grads.tail_basis.iter().enumerate() {
+                    for (i, &g) in tb.iter().enumerate() {
+                        avg_tail_basis[j][i] += w * g;
                     }
                 }
             }
@@ -271,12 +269,10 @@ impl SubspaceTrainer {
             struct FakeGrads {
                 head_basis: Vec<Vec<f32>>,
                 tail_basis: Vec<Vec<f32>>,
-                neg_tail_basis: Vec<Vec<f32>>,
             }
             let grads = FakeGrads {
                 head_basis: avg_head_basis,
                 tail_basis: avg_tail_basis,
-                neg_tail_basis: vec![],
             };
             let head = &entities[head_idx];
             let tail = &entities[tail_idx];

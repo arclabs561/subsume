@@ -14,7 +14,6 @@ use std::collections::HashMap;
 /// Trains spherical cap embeddings using analytical gradients.
 pub struct SphericalCapTrainer {
     rng: StdRng,
-    step: usize,
     /// Persistent Adam optimizer state.
     adam: AdamState,
 }
@@ -24,7 +23,6 @@ impl SphericalCapTrainer {
     pub fn new(seed: u64) -> Self {
         Self {
             rng: StdRng::seed_from_u64(seed),
-            step: 0,
             adam: AdamState::new(),
         }
     }
@@ -38,17 +36,17 @@ impl SphericalCapTrainer {
     ) -> (Vec<SphericalCap>, Vec<SphericalCapRelation>) {
         let entities: Vec<SphericalCap> = (0..num_entities)
             .map(|_| {
-                let center: Vec<f32> = (0..dim).map(|_| self.rng.gen_range(-1.0..1.0)).collect();
-                let log_tan_half = self.rng.gen_range(-1.0..0.0);
+                let center: Vec<f32> = (0..dim).map(|_| self.rng.random_range(-1.0..1.0)).collect();
+                let log_tan_half = self.rng.random_range(-1.0..0.0);
                 SphericalCap::from_log_tan_half(center, log_tan_half).unwrap()
             })
             .collect();
 
         let relations: Vec<SphericalCapRelation> = (0..num_relations)
             .map(|_| {
-                let axis: Vec<f32> = (0..dim).map(|_| self.rng.gen_range(-1.0..1.0)).collect();
-                let angle = self.rng.gen_range(-0.5..0.5);
-                let log_scale: f32 = self.rng.gen_range(-0.2..0.2);
+                let axis: Vec<f32> = (0..dim).map(|_| self.rng.random_range(-1.0..1.0)).collect();
+                let angle = self.rng.random_range(-0.5..0.5);
+                let log_scale: f32 = self.rng.random_range(-0.2..0.2);
                 SphericalCapRelation::new(axis, angle, log_scale.exp()).unwrap()
             })
             .collect();
@@ -141,7 +139,7 @@ impl SphericalCapTrainer {
         }
 
         // Gradients w.r.t. angular radius
-        grads.head_log_tan_half += d_pos * pos_deriv * (-1.0) + d_neg * neg_deriv * (-1.0);
+        grads.head_log_tan_half += -(d_pos * pos_deriv) + -(d_neg * neg_deriv);
         grads.tail_log_tan_half += d_pos * pos_deriv;
         grads.neg_tail_log_tan_half += d_neg * neg_deriv;
 

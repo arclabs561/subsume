@@ -15,7 +15,6 @@ use std::collections::HashMap;
 /// Trains ellipsoid embeddings using analytical gradients.
 pub struct EllipsoidTrainer {
     rng: StdRng,
-    step: usize,
     /// Persistent Adam optimizer state.
     adam: AdamState,
 }
@@ -25,7 +24,6 @@ impl EllipsoidTrainer {
     pub fn new(seed: u64) -> Self {
         Self {
             rng: StdRng::seed_from_u64(seed),
-            step: 0,
             adam: AdamState::new(),
         }
     }
@@ -286,22 +284,22 @@ impl EllipsoidTrainer {
             let (bias1, bias2) = self.adam.tick();
 
             // Update head
-            for i in 0..dim {
+            for (i, &g) in avg_head_mu.iter().enumerate() {
                 self.adam.apply(
                     &format!("h{head_idx}_m{i}"),
                     &mut entities[head_idx].mu_mut()[i],
-                    avg_head_mu[i],
+                    g,
                     lr,
                     bias1,
                     bias2,
                 );
             }
             let mut head_ld = entities[head_idx].log_diag();
-            for i in 0..dim {
+            for (i, &g) in avg_head_ld.iter().enumerate() {
                 self.adam.apply(
                     &format!("h{head_idx}_ld{i}"),
                     &mut head_ld[i],
-                    avg_head_ld[i],
+                    g,
                     lr,
                     bias1,
                     bias2,
@@ -310,22 +308,22 @@ impl EllipsoidTrainer {
             entities[head_idx].set_log_diag(&head_ld);
 
             // Update tail
-            for i in 0..dim {
+            for (i, &g) in avg_tail_mu.iter().enumerate() {
                 self.adam.apply(
                     &format!("t{tail_idx}_m{i}"),
                     &mut entities[tail_idx].mu_mut()[i],
-                    avg_tail_mu[i],
+                    g,
                     lr,
                     bias1,
                     bias2,
                 );
             }
             let mut tail_ld = entities[tail_idx].log_diag();
-            for i in 0..dim {
+            for (i, &g) in avg_tail_ld.iter().enumerate() {
                 self.adam.apply(
                     &format!("t{tail_idx}_ld{i}"),
                     &mut tail_ld[i],
-                    avg_tail_ld[i],
+                    g,
                     lr,
                     bias1,
                     bias2,

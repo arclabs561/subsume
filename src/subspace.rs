@@ -91,7 +91,7 @@ impl Subspace {
             });
         }
         let dim = vectors[0].len();
-        for (_i, v) in vectors.iter().enumerate() {
+        for v in vectors.iter() {
             if v.len() != dim {
                 return Err(BoxError::DimensionMismatch {
                     expected: dim,
@@ -159,6 +159,7 @@ impl Subspace {
     /// # Errors
     ///
     /// Returns [`BoxError::DimensionMismatch`] if `basis.len() != dim * rank`.
+    #[allow(unsafe_code)]
     pub unsafe fn from_orthonormal(
         basis: Vec<f32>,
         dim: usize,
@@ -356,7 +357,7 @@ pub fn containment_score(a: &Subspace, b: &Subspace) -> Result<f32, BoxError> {
     }
 
     let avg_residual = total_residual / (k as f32);
-    Ok((1.0 - avg_residual).max(0.0).min(1.0))
+    Ok((1.0 - avg_residual).clamp(0.0, 1.0))
 }
 
 /// Distance between two subspaces via principal angles.
@@ -584,17 +585,17 @@ fn project_onto_subspace(v: &[f32], subspace: &Subspace) -> Vec<f32> {
 
     // Compute coefficients: B_basis^T * v
     let mut coeffs = vec![0.0f32; rank];
-    for j in 0..rank {
-        for i in 0..dim {
-            coeffs[j] += subspace.basis[i * rank + j] * v[i];
+    for (j, coeff) in coeffs.iter_mut().enumerate() {
+        for (i, &vi) in v.iter().enumerate().take(dim) {
+            *coeff += subspace.basis[i * rank + j] * vi;
         }
     }
 
     // Reconstruct: B_basis * coeffs
     let mut result = vec![0.0f32; dim];
-    for j in 0..rank {
-        for i in 0..dim {
-            result[i] += subspace.basis[i * rank + j] * coeffs[j];
+    for (j, &cj) in coeffs.iter().enumerate() {
+        for (i, res) in result.iter_mut().enumerate() {
+            *res += subspace.basis[i * rank + j] * cj;
         }
     }
     result
