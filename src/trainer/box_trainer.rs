@@ -11,7 +11,7 @@ use rand::{Rng, SeedableRng};
 use super::negative_sampling::RelationCardinality;
 #[cfg(feature = "ndarray-backend")]
 use super::{EvaluationResults, TrainingResult};
-use super::{NegativeSamplingStrategy, RelationTransform, TrainingConfig};
+use super::{CpuBoxTrainingConfig, NegativeSamplingStrategy, RelationTransform};
 #[cfg(feature = "ndarray-backend")]
 use crate::trainer::evaluation::evaluate_interned_with_transforms_inner;
 #[cfg(feature = "ndarray-backend")]
@@ -32,7 +32,7 @@ pub fn compute_pair_loss(
     box_a: &TrainableBox,
     box_b: &TrainableBox,
     is_positive: bool,
-    config: &TrainingConfig,
+    config: &CpuBoxTrainingConfig,
 ) -> f32 {
     let a = box_a.to_box();
     let b = box_b.to_box();
@@ -123,7 +123,7 @@ pub fn compute_analytical_gradients(
     box_a: &TrainableBox,
     box_b: &TrainableBox,
     is_positive: bool,
-    config: &TrainingConfig,
+    config: &CpuBoxTrainingConfig,
 ) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>) {
     let a = box_a.to_box();
     let b = box_b.to_box();
@@ -385,7 +385,7 @@ pub fn compute_analytical_gradients(
 /// ```rust,ignore
 /// use subsume::{BoxEmbeddingTrainer, TrainingConfig, Dataset};
 ///
-/// let config = TrainingConfig { learning_rate: 0.01, ..Default::default() };
+/// let config = CpuBoxTrainingConfig { learning_rate: 0.01, ..Default::default() };
 /// let mut trainer = BoxEmbeddingTrainer::new(config, 16); // dim=16
 /// // Add training triples...
 /// for epoch in 0..100 {
@@ -395,7 +395,7 @@ pub fn compute_analytical_gradients(
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct BoxEmbeddingTrainer {
     /// Training configuration.
-    pub(crate) config: TrainingConfig,
+    pub(crate) config: CpuBoxTrainingConfig,
     /// Learned box embeddings per entity.
     pub(crate) boxes: HashMap<usize, TrainableBox>,
     /// AMSGrad optimizer state per entity.
@@ -427,7 +427,7 @@ impl BoxEmbeddingTrainer {
 
     /// Training configuration.
     #[must_use]
-    pub fn config(&self) -> &TrainingConfig {
+    pub fn config(&self) -> &CpuBoxTrainingConfig {
         &self.config
     }
 
@@ -454,10 +454,10 @@ impl BoxEmbeddingTrainer {
     /// Create a new box embedding trainer.
     ///
     /// This constructor does not validate the config (it cannot return `Result`
-    /// without a breaking API change). Call [`TrainingConfig::validate`] after
+    /// without a breaking API change). Call [`CpuBoxTrainingConfig::validate`] after
     /// deserializing a config from an untrusted source. [`fit`](Self::fit)
     /// validates automatically before training.
-    pub fn new(config: TrainingConfig, dim: usize) -> Self {
+    pub fn new(config: CpuBoxTrainingConfig, dim: usize) -> Self {
         let current_beta = config.softplus_beta;
         Self {
             config,
@@ -528,7 +528,7 @@ impl BoxEmbeddingTrainer {
         r: usize,
         t: usize,
         all_entities: &[usize],
-        config: &TrainingConfig,
+        config: &CpuBoxTrainingConfig,
         rng: &mut impl Rng,
     ) -> (usize, usize) {
         let corrupt_head = match &config.negative_strategy {
@@ -1362,7 +1362,7 @@ mod tests {
 
     #[test]
     fn compute_pair_loss_positive_prefers_containment_over_disjoint() {
-        let cfg = TrainingConfig::default();
+        let cfg = CpuBoxTrainingConfig::default();
 
         // A: large box around origin
         let a = TrainableBox::new(vec![0.0, 0.0], vec![2.0_f32.ln(), 2.0_f32.ln()]).unwrap();
@@ -1384,7 +1384,7 @@ mod tests {
 
     #[test]
     fn compute_pair_loss_negative_penalizes_overlap_above_margin() {
-        let cfg = TrainingConfig {
+        let cfg = CpuBoxTrainingConfig {
             margin: 0.2,
             negative_weight: 1.0,
             ..Default::default()
@@ -1413,7 +1413,7 @@ mod tests {
 
     #[test]
     fn training_config_default_values_are_sane() {
-        let cfg = TrainingConfig::default();
+        let cfg = CpuBoxTrainingConfig::default();
         assert!(cfg.learning_rate > 0.0 && cfg.learning_rate < 1.0);
         assert!(cfg.epochs > 0);
         assert!(cfg.batch_size > 0);
@@ -1487,7 +1487,7 @@ mod tests {
 
     #[test]
     fn compute_pair_loss_identical_boxes_positive_is_finite() {
-        let cfg = TrainingConfig::default();
+        let cfg = CpuBoxTrainingConfig::default();
         let a = TrainableBox::new(vec![0.0, 0.0], vec![1.0, 1.0]).unwrap();
         let loss = compute_pair_loss(&a, &a.clone(), true, &cfg);
         assert!(
@@ -1498,12 +1498,12 @@ mod tests {
 
     #[test]
     fn compute_pair_loss_negative_weight_scales_loss() {
-        let cfg_w1 = TrainingConfig {
+        let cfg_w1 = CpuBoxTrainingConfig {
             negative_weight: 1.0,
             margin: 0.01,
             ..Default::default()
         };
-        let cfg_w2 = TrainingConfig {
+        let cfg_w2 = CpuBoxTrainingConfig {
             negative_weight: 2.0,
             margin: 0.01,
             ..Default::default()
@@ -1532,7 +1532,7 @@ mod tests {
     fn analytical_gradients_negative_pair_returns_zeros() {
         // For negative pairs, the current gradient implementation returns zeros
         // (only positive pairs produce non-zero gradients).
-        let cfg = TrainingConfig::default();
+        let cfg = CpuBoxTrainingConfig::default();
         let a = TrainableBox::new(vec![0.0, 0.0], vec![1.0, 1.0]).unwrap();
         let b = TrainableBox::new(vec![5.0, 5.0], vec![1.0, 1.0]).unwrap();
         let (g_mu_a, g_delta_a, g_mu_b, g_delta_b) =
@@ -1547,7 +1547,7 @@ mod tests {
 
     #[test]
     fn analytical_gradients_positive_disjoint_pushes_centers() {
-        let cfg = TrainingConfig::default();
+        let cfg = CpuBoxTrainingConfig::default();
         // Two disjoint boxes: centers far apart.
         let a = TrainableBox::new(vec![0.0], vec![0.1_f32.ln()]).unwrap();
         let b = TrainableBox::new(vec![10.0], vec![0.1_f32.ln()]).unwrap();
@@ -1584,7 +1584,7 @@ mod tests {
         // They overlap but A doesn't fully contain B.
         let mut a = TrainableBox::new(vec![0.0, 0.0], vec![0.5, 0.5]).unwrap();
         let mut b = TrainableBox::new(vec![1.0, 1.0], vec![0.5, 0.5]).unwrap();
-        let cfg = TrainingConfig {
+        let cfg = CpuBoxTrainingConfig {
             regularization: 0.0,
             ..Default::default()
         };
@@ -1616,7 +1616,7 @@ mod tests {
         // a finite-difference approximation.
         let a = TrainableBox::new(vec![0.0, 0.0], vec![0.5, 0.5]).unwrap();
         let b = TrainableBox::new(vec![1.0, 1.0], vec![0.5, 0.5]).unwrap();
-        let cfg = TrainingConfig {
+        let cfg = CpuBoxTrainingConfig {
             regularization: 0.0,
             ..Default::default()
         };
@@ -1656,7 +1656,7 @@ mod tests {
     fn gradcheck_analytical_vs_finite_difference() {
         // Disable gradient norm clipping so analytical gradients are unmodified.
         // Use non-zero regularization to exercise that path too.
-        let cfg = TrainingConfig {
+        let cfg = CpuBoxTrainingConfig {
             regularization: 0.001,
             max_grad_norm: f32::MAX,
             softplus_beta: 10.0,
@@ -1770,7 +1770,7 @@ mod tests {
             box_b in arb_box(8),
             is_positive in any::<bool>()
         ) {
-            let config = TrainingConfig::default();
+            let config = CpuBoxTrainingConfig::default();
             let loss = compute_pair_loss(&box_a, &box_b, is_positive, &config);
             prop_assert!(loss >= 0.0);
         }
@@ -1781,7 +1781,7 @@ mod tests {
             box_b in arb_box(8),
             is_positive in any::<bool>()
         ) {
-            let config = TrainingConfig::default();
+            let config = CpuBoxTrainingConfig::default();
             let (g_mu_a, g_delta_a, g_mu_b, g_delta_b) =
                 compute_analytical_gradients(&box_a, &box_b, is_positive, &config);
 
@@ -1821,7 +1821,7 @@ mod tests {
             margin in 0.0f32..2.0,
             negative_weight in 0.1f32..5.0,
         ) {
-            let config = TrainingConfig {
+            let config = CpuBoxTrainingConfig {
                 regularization,
                 margin,
                 negative_weight,
@@ -1838,20 +1838,20 @@ mod tests {
 
     #[test]
     fn self_adversarial_config_default_is_off() {
-        let cfg = TrainingConfig::default();
+        let cfg = CpuBoxTrainingConfig::default();
         assert!(!cfg.self_adversarial);
         assert!((cfg.adversarial_temperature - 1.0).abs() < 1e-6);
     }
 
     #[test]
     fn self_adversarial_serde_roundtrip() {
-        let cfg = TrainingConfig {
+        let cfg = CpuBoxTrainingConfig {
             self_adversarial: true,
             adversarial_temperature: 0.5,
             ..Default::default()
         };
         let json = serde_json::to_string(&cfg).unwrap();
-        let restored: TrainingConfig = serde_json::from_str(&json).unwrap();
+        let restored: CpuBoxTrainingConfig = serde_json::from_str(&json).unwrap();
         assert!(restored.self_adversarial);
         assert!((restored.adversarial_temperature - 0.5).abs() < 1e-6);
     }
@@ -1860,7 +1860,7 @@ mod tests {
     fn self_adversarial_serde_missing_field_defaults_to_false() {
         // Backward compat: old JSON without self_adversarial should deserialize fine.
         let json = r#"{"learning_rate":0.001,"epochs":100,"batch_size":512,"negative_samples":1,"negative_strategy":"CorruptTail","margin":1.0,"early_stopping_patience":10,"early_stopping_min_delta":0.001,"regularization":0.0001,"warmup_epochs":10,"negative_weight":1.0,"gumbel_beta":10.0,"gumbel_beta_final":50.0,"max_grad_norm":10.0,"adversarial_temperature":1.0,"use_infonce":false}"#;
-        let cfg: TrainingConfig = serde_json::from_str(json).unwrap();
+        let cfg: CpuBoxTrainingConfig = serde_json::from_str(json).unwrap();
         assert!(!cfg.self_adversarial);
     }
 
@@ -1871,7 +1871,7 @@ mod tests {
         let triples = vec![(0, 0, 1), (0, 0, 2), (1, 0, 3), (2, 0, 3)];
 
         let run = |self_adv: bool| -> f32 {
-            let config = TrainingConfig {
+            let config = CpuBoxTrainingConfig {
                 negative_samples: 3,
                 self_adversarial: self_adv,
                 adversarial_temperature: 2.0,
