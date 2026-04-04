@@ -18,6 +18,15 @@ pub struct RelationCardinality {
     pub hpt: f32,
 }
 
+/// Relation-specific entity pools derived from training data.
+#[derive(Debug, Clone, Default)]
+pub struct RelationEntityPools {
+    /// Unique head entities observed with this relation.
+    pub heads: Vec<usize>,
+    /// Unique tail entities observed with this relation.
+    pub tails: Vec<usize>,
+}
+
 impl RelationCardinality {
     /// Probability of corrupting the head entity.
     ///
@@ -65,6 +74,68 @@ pub fn compute_relation_cardinalities(
             (r, RelationCardinality { tph, hpt })
         })
         .collect()
+}
+
+/// Compute unique head/tail entity pools per relation from interned triples.
+///
+/// These pools are useful for type-constrained negative sampling: sample a
+/// corrupted head from heads observed with the same relation, or a corrupted
+/// tail from the corresponding tail pool. When a relation is too sparse, the
+/// caller should fall back to the full entity set.
+pub fn compute_relation_entity_pools(
+    triples: &[(usize, usize, usize)],
+) -> HashMap<usize, RelationEntityPools> {
+    let mut stats: HashMap<usize, (HashSet<usize>, HashSet<usize>)> = HashMap::new();
+
+    for &(h, r, t) in triples {
+        let entry = stats
+            .entry(r)
+            .or_insert_with(|| (HashSet::new(), HashSet::new()));
+        entry.0.insert(h);
+        entry.1.insert(t);
+    }
+
+    stats
+        .into_iter()
+        .map(|(r, (heads, tails))| {
+            let mut heads: Vec<usize> = heads.into_iter().collect();
+            let mut tails: Vec<usize> = tails.into_iter().collect();
+            heads.sort_unstable();
+            tails.sort_unstable();
+            (r, RelationEntityPools { heads, tails })
+        })
+        .collect()
+}
+
+/// Sample an index from `candidates`, excluding `exclude` if present.
+///
+/// `sample_index` should return an index in `0..candidates.len()`. The helper
+/// makes a few random attempts before falling back to the first valid entry.
+pub fn sample_excluding<F>(
+    candidates: &[usize],
+    exclude: usize,
+    mut sample_index: F,
+) -> Option<usize>
+where
+    F: FnMut(usize) -> usize,
+{
+    if candidates.is_empty() {
+        return None;
+    }
+
+    for _ in 0..8 {
+        let idx = sample_index(candidates.len());
+        if let Some(&candidate) = candidates.get(idx) {
+            if candidate != exclude {
+                return Some(candidate);
+            }
+        }
+    }
+
+    candidates
+        .iter()
+        .copied()
+        .find(|&candidate| candidate != exclude)
 }
 
 #[cfg(test)]
@@ -147,6 +218,25 @@ mod tests {
         let c1 = cards.get(&1).unwrap();
         assert!((c0.tph - 3.0).abs() < 1e-6);
         assert!((c1.hpt - 3.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn compute_relation_entity_pools_deduplicates_and_sorts() {
+        let triples = vec![(2, 0, 3), (1, 0, 3), (2, 0, 4), (1, 0, 4)];
+        let pools = compute_relation_entity_pools(&triples);
+        let p = pools.get(&0).expect("relation 0 should exist");
+        assert_eq!(p.heads, vec![1, 2]);
+        assert_eq!(p.tails, vec![3, 4]);
+    }
+
+    #[test]
+    fn sample_excluding_skips_target_and_falls_back() {
+        let candidates = vec![3, 4, 5];
+        let picked = sample_excluding(&candidates, 4, |_| 1).expect("should pick valid candidate");
+        assert_ne!(picked, 4);
+
+        let singleton = vec![7];
+        assert_eq!(sample_excluding(&singleton, 7, |_| 0), None);
     }
 
     #[test]
