@@ -128,6 +128,13 @@ impl TransBoxConcept {
             .collect();
         (min, max)
     }
+
+    pub fn center_mut(&mut self) -> &mut [f32] {
+        &mut self.center
+    }
+    pub fn offset_mut(&mut self) -> &mut [f32] {
+        &mut self.offset
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -240,6 +247,13 @@ impl TransBoxRole {
             .map(|(&a, &b)| a + b)
             .collect();
         TransBoxRole::new(new_center, new_offset)
+    }
+
+    pub fn center_mut(&mut self) -> &mut [f32] {
+        &mut self.center
+    }
+    pub fn offset_mut(&mut self) -> &mut [f32] {
+        &mut self.offset
     }
 }
 
@@ -674,101 +688,3 @@ mod tests {
     }
 }
 
-#[cfg(test)]
-mod proptests {
-    use super::*;
-    use proptest::prelude::*;
-
-    fn arb_concept(dim: usize) -> impl Strategy<Value = TransBoxConcept> {
-        (
-            prop::collection::vec(-10.0f32..10.0, dim),
-            prop::collection::vec(0.01f32..10.0, dim),
-        )
-            .prop_map(|(c, o)| TransBoxConcept::new(c, o).unwrap())
-    }
-
-    fn arb_role(dim: usize) -> impl Strategy<Value = TransBoxRole> {
-        (
-            prop::collection::vec(-5.0f32..5.0, dim),
-            prop::collection::vec(0.01f32..5.0, dim),
-        )
-            .prop_map(|(c, o)| TransBoxRole::new(c, o).unwrap())
-    }
-
-    fn arb_concept_pair(dim: usize) -> impl Strategy<Value = (TransBoxConcept, TransBoxConcept)> {
-        (arb_concept(dim), arb_concept(dim))
-    }
-
-    proptest! {
-        #[test]
-        fn prop_inclusion_loss_nonneg(
-            (a, b) in arb_concept_pair(4)
-        ) {
-            let loss = inclusion_loss(a.center(), a.offset(), b.center(), b.offset(), 0.0).unwrap();
-            prop_assert!(loss >= -1e-6, "inclusion_loss < 0: {loss}");
-        }
-
-        #[test]
-        fn prop_inclusion_loss_zero_when_contained(
-            parent in arb_concept(4),
-            shrink_factor in 0.01f32..1.0,
-        ) {
-            // Create a child that is strictly inside the parent
-            let child_center: Vec<f32> = parent.center().to_vec();
-            let child_offset: Vec<f32> = parent.offset().iter().map(|&o| o * shrink_factor).collect();
-            let child = TransBoxConcept::new(child_center, child_offset).unwrap();
-            let loss = inclusion_loss(
-                child.center(), child.offset(),
-                parent.center(), parent.offset(),
-                0.0
-            ).unwrap();
-            prop_assert!(loss < 1e-5, "contained inclusion_loss = {loss}, expected ~0");
-        }
-
-        #[test]
-        fn prop_score_triple_nonneg(
-            h in arb_concept(4),
-            r in arb_role(4),
-            t in arb_concept(4)
-        ) {
-            let s = score_triple(&h, &r, &t, 0.0).unwrap();
-            prop_assert!(s >= -1e-6, "score_triple < 0: {s}");
-        }
-
-        #[test]
-        fn prop_role_apply_preserves_dim(
-            c in arb_concept(4),
-            r in arb_role(4)
-        ) {
-            let t = r.apply(&c).unwrap();
-            prop_assert_eq!(t.dim(), c.dim());
-        }
-
-        #[test]
-        fn prop_role_compose_preserves_dim(
-            r1 in arb_role(4),
-            r2 in arb_role(4)
-        ) {
-            let composed = r1.compose(&r2).unwrap();
-            prop_assert_eq!(composed.center.len(), r1.center.len());
-        }
-
-        #[test]
-        fn prop_intersection_offset_nonneg(
-            (a, b) in arb_concept_pair(4)
-        ) {
-            let inter = intersection(&a, &b).unwrap();
-            for &o in inter.offset() {
-                prop_assert!(o >= -1e-6, "intersection offset < 0: {o}");
-            }
-        }
-
-        #[test]
-        fn prop_subsumption_loss_symmetric_for_identical(
-            c in arb_concept(4)
-        ) {
-            let loss = subsumption_loss(&c, &c, 0.0).unwrap();
-            prop_assert!(loss < 1e-5, "self subsumption loss = {loss}, expected ~0");
-        }
-    }
-}

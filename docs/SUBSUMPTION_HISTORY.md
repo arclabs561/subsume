@@ -45,6 +45,30 @@ of containment.
 
 ---
 
+### 1.5. Order embeddings (2016)
+
+Vendrov, Kiros, Fidler, and Urtasun (2016, ICLR) had the right instinct: embed
+the partial order directly into the geometry. They mapped concepts into the
+non-negative orthant and imposed the reverse product order: x is more general
+than y if x_i <= y_i for every coordinate. Each point implicitly defines an
+infinite cone toward the origin -- everything inside the cone is more specific.
+Transitivity holds by construction.
+
+**Training objective**: margin-based order-violation penalty
+`E(x, y) = ||max(0, y - x)||^2`.
+
+**Results**: ~40% relative accuracy improvement over symmetric embeddings on
+WordNet hypernymy and textual entailment (Vendrov et al., 2016, Table 2).
+
+**Limitation**: Still points, still unbounded cones. Vilnis et al. (2018) proved
+a strong negative result: any probability measure placed on order-embedding cones
+**cannot capture negative correlation**. If "Mammal" and "Reptile" are both under
+"Animal," their cones necessarily overlap -- you cannot express that they are
+mutually exclusive. This impossibility is what motivated the switch to boxes:
+disjoint boxes represent disjoint concepts directly.
+
+---
+
 ### 2. Hard boxes (2018)
 
 Vilnis et al. (2018, ACL) introduced box lattice measures: represent entities as
@@ -71,7 +95,6 @@ box configurations produce identical loss values.
 
 **Failure modes**: Gradient sparsity at initialization (randomly placed boxes
 are usually disjoint). Requires careful initialization or curriculum strategies.
-Cannot represent negative correlation between concepts.
 
 ---
 
@@ -194,7 +217,7 @@ accumulates error through double negation.
 
 ### 8. Cones for negation (2021)
 
-Zhang & Wang (2021, NeurIPS) introduced ConE: represent queries as Cartesian
+Zhang et al. (2021, NeurIPS) introduced ConE: represent queries as Cartesian
 products of two-dimensional cones (angular sectors). The complement of a cone
 is another cone, giving exact geometric negation without approximation.
 Intersection of cones is a cone (take the tighter angular bounds).
@@ -212,7 +235,7 @@ distance proportional to angular gap.
 - ConE was the first geometry-based model to achieve exact closure under all
   three Boolean operations (AND, OR, NOT).
 
-Source: Zhang & Wang (2021, NeurIPS) Table 2.
+Source: Zhang et al. (2021, NeurIPS) Table 2.
 
 **Limitation**: The 2D-sector decomposition limits expressiveness per dimension
 pair. ConE is designed for query answering, not direct link prediction.
@@ -528,6 +551,7 @@ Lacerda+ 2024 (Strong faithfulness, ELH) -- Li+ 2019 (Smoothed boxes, ICLR) --
 Mashkova+ 2024 (DELE) -- Mishra+ 2026 (TaxoBell, WWW) --
 Nickel & Kiela 2017 (Poincare, NeurIPS) --
 Ren+ 2020a (Query2Box, ICLR) -- Ren & Leskovec 2020b (BetaE, NeurIPS) --
-Sun+ 2019 (RotatE, ICLR) -- Vilnis+ 2018 (Box lattice, ACL) --
+Sun+ 2019 (RotatE, ICLR) -- Vendrov+ 2016 (Order embeddings, ICLR) --
+Vilnis+ 2018 (Box lattice, ACL) --
 Yang & Chen 2024 (TransBox, WWW 2025) -- Yang & Chen 2025 (RegD) --
 Zhang & Wang 2021 (ConE, NeurIPS).
