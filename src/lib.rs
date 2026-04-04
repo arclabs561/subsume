@@ -226,6 +226,22 @@ pub mod subspace;
 /// and Bhattacharyya distance (symmetric overlap).
 pub mod ellipsoid;
 
+/// TransBox: EL++-closed box embeddings with translational composition.
+///
+/// Concepts and roles as boxes with additive composition. Handles many-to-many
+/// relations and complex role compositions while preserving EL++ semantics.
+///
+/// Reference: Yang, Chen, Sattler (2024), arXiv:2410.14571
+pub mod transbox;
+
+/// Annular sector embeddings for knowledge graph completion.
+///
+/// Concepts as ring-shaped regions in the complex plane. Combines rotation-based
+/// relations with region uncertainty, handling 1-N/N-1/N-N relations.
+///
+/// Reference: Zhu & Zeng (2025), arXiv:2506.11099
+pub mod annular;
+
 /// Diagonal Gaussian box embeddings for taxonomy expansion (TaxoBell).
 pub mod gaussian;
 
