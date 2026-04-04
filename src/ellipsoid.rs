@@ -242,8 +242,8 @@ fn solve_lower(cholesky: &[f32], dim: usize, b: &[f32]) -> Vec<f32> {
     let mut x = vec![0.0f32; dim];
     for i in 0..dim {
         let mut sum = 0.0f32;
-        for j in 0..i {
-            sum += get_l(cholesky, dim, i, j) * x[j];
+        for (j, &xj) in x.iter().enumerate().take(i) {
+            sum += get_l(cholesky, dim, i, j) * xj;
         }
         let diag = get_l(cholesky, dim, i, i);
         // Guard against near-zero diagonal (ill-conditioned Cholesky)

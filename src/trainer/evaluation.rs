@@ -1119,9 +1119,7 @@ where
                 }
             }
             let cand_score = score_tail(h, r, candidate);
-            if cand_score > tail_score {
-                tail_rank += 1;
-            } else if cand_score == tail_score && candidate < t {
+            if cand_score > tail_score || (cand_score == tail_score && candidate < t) {
                 tail_rank += 1;
             }
         }
@@ -1142,9 +1140,7 @@ where
                 }
             }
             let cand_score = score_head(candidate, r, t);
-            if cand_score > head_score {
-                head_rank += 1;
-            } else if cand_score == head_score && candidate < h {
+            if cand_score > head_score || (cand_score == head_score && candidate < h) {
                 head_rank += 1;
             }
         }
