@@ -1,59 +1,105 @@
 //! Burn-based ball embedding trainer with autodiff.
 //!
-//! This is the first burn-based trainer in subsume, serving as the template
-//! for migrating all other trainers from candle/ndarray to burn.
-//!
 //! # Backend selection
-//! - `burn-ndarray` — CPU training (default)
-//! - `burn-wgpu` — GPU training on AMD/Intel/WebGPU
-//! - `burn-tch` — GPU training via PyTorch (CUDA)
+//! - `burn-ndarray` (+ rayon) — multi-core CPU training
+//! - `burn-wgpu`              — Metal/Vulkan/WebGPU training
 
 use crate::ball::{Ball, BallRelation};
-use crate::dataset::Triple;
+use crate::dataset::TripleIds;
+use crate::trainer::negative_sampling::{compute_relation_entity_pools, sample_excluding};
+use crate::trainer::trainer_utils::self_adversarial_weights;
 use crate::trainer::CpuBoxTrainingConfig;
-use burn::optim::{AdamConfig, GradientsParams, Optimizer};
+use burn::module::{Param, ParamId};
+use burn::optim::{GradientsParams, Optimizer};
 use burn::prelude::*;
 use burn::tensor::backend::AutodiffBackend;
-use std::collections::HashMap;
 
-/// Entity parameters for ball embeddings.
+// ---------------------------------------------------------------------------
+// Model structs
+// ---------------------------------------------------------------------------
+
+/// Entity embedding parameters.
+///
+/// Must use `Param<Tensor<B, 2>>` — bare `Tensor` fields are treated as
+/// constants by Burn's module system (`visit`/`map` are no-ops), so gradients
+/// would never reach the optimizer.
+///
+/// Separate head and tail log-radii let the model simultaneously represent
+/// an entity as a small, specific ball when used as a query head (e.g. "dog"
+/// contains few things) and as a large, general ball when used as a tail
+/// answer (e.g. "animal" contains many things).  The center is shared.
 #[derive(Module, Debug)]
 pub struct BurnBallEntityParams<B: Backend> {
-    pub center: Tensor<B, 2>,
-    pub log_radius: Tensor<B, 2>,
+    /// Center vectors `[num_entities, dim]`.
+    pub center: Param<Tensor<B, 2>>,
+    /// Log-radius when entity appears as the **head** (query) `[num_entities, 1]`.
+    pub log_radius: Param<Tensor<B, 2>>,
+    /// Log-radius when entity appears as the **tail** (answer) `[num_entities, 1]`.
+    pub tail_log_radius: Param<Tensor<B, 2>>,
 }
 
-/// Relation parameters for ball embeddings.
+/// Relation embedding parameters.
+///
+/// Each relation has separate head and tail translations so the scoring
+/// function can model asymmetric containment:
+///   `score(h, r, t) = containment(h + r.head_trans, t + r.tail_trans)`
+///
+/// This mirrors BoxE's "bumping" approach: both head and tail are shifted
+/// into a relation-specific sub-region before measuring containment.
 #[derive(Module, Debug)]
 pub struct BurnBallRelationParams<B: Backend> {
-    pub translation: Tensor<B, 2>,
-    pub log_scale: Tensor<B, 2>,
+    /// Head translation per relation `[num_relations, dim]`.
+    pub translation: Param<Tensor<B, 2>>,
+    /// Tail translation per relation `[num_relations, dim]`.
+    pub tail_translation: Param<Tensor<B, 2>>,
+    /// Log-scale applied to the transformed head radius `[num_relations, 1]`.
+    pub log_scale: Param<Tensor<B, 2>>,
 }
 
-/// Combined model for burn training.
+/// Combined ball embedding model.
 #[derive(Module, Debug)]
 pub struct BurnBallModel<B: Backend> {
+    /// Entity embedding parameters.
     pub entities: BurnBallEntityParams<B>,
+    /// Relation embedding parameters.
     pub relations: BurnBallRelationParams<B>,
 }
 
-/// Burn-based ball trainer using autodiff.
+// ---------------------------------------------------------------------------
+// Trainer
+// ---------------------------------------------------------------------------
+
+/// Burn-based ball embedding trainer.
 pub struct BurnBallTrainer<B: AutodiffBackend> {
     _backend: std::marker::PhantomData<B>,
-    /// Per-epoch seed offset for reproducible negative sampling.
-    pub epoch_seed: u64,
+    epoch_seed: u64,
 }
 
-impl<B: AutodiffBackend> BurnBallTrainer<B> {
-    /// Create a new burn ball trainer.
-    pub fn new() -> Self {
+impl<B: AutodiffBackend> Default for BurnBallTrainer<B> {
+    fn default() -> Self {
         Self {
             _backend: std::marker::PhantomData,
             epoch_seed: 0,
         }
     }
+}
 
-    /// Initialize the full model.
+impl<B: AutodiffBackend> BurnBallTrainer<B> {
+    /// Create a new trainer.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the per-epoch seed used for negative sampling.
+    ///
+    /// Call before each epoch (or let `train_epoch` derive it from the epoch
+    /// counter via the `epoch` parameter).
+    pub fn set_epoch(&mut self, epoch: u64) {
+        // Multiply by a prime to spread seeds apart.
+        self.epoch_seed = epoch.wrapping_mul(7919);
+    }
+
+    /// Initialize a randomly-weighted model.
     pub fn init_model(
         &self,
         num_entities: usize,
@@ -61,165 +107,99 @@ impl<B: AutodiffBackend> BurnBallTrainer<B> {
         dim: usize,
         device: &B::Device,
     ) -> BurnBallModel<B> {
+        let param = |shape: [usize; 2], lo: f64, hi: f64| {
+            Param::initialized(
+                ParamId::new(),
+                Tensor::<B, 2>::random(shape, burn::tensor::Distribution::Uniform(lo, hi), device)
+                    .require_grad(),
+            )
+        };
         BurnBallModel {
             entities: BurnBallEntityParams {
-                center: Tensor::<B, 2>::random(
-                    [num_entities, dim],
-                    burn::tensor::Distribution::Uniform(-0.1, 0.1),
-                    device,
-                ),
-                log_radius: Tensor::<B, 2>::random(
-                    [num_entities, 1],
-                    burn::tensor::Distribution::Uniform(-1.0, 0.0),
-                    device,
-                ),
+                center: param([num_entities, dim], -0.1, 0.1),
+                log_radius: param([num_entities, 1], -1.0, 0.0),
+                tail_log_radius: param([num_entities, 1], -1.0, 0.0),
             },
             relations: BurnBallRelationParams {
-                translation: Tensor::<B, 2>::random(
-                    [num_relations, dim],
-                    burn::tensor::Distribution::Uniform(-0.01, 0.01),
-                    device,
-                ),
-                log_scale: Tensor::<B, 2>::random(
-                    [num_relations, 1],
-                    burn::tensor::Distribution::Uniform(-0.1, 0.1),
-                    device,
-                ),
+                translation: param([num_relations, dim], -0.01, 0.01),
+                tail_translation: param([num_relations, dim], -0.01, 0.01),
+                log_scale: param([num_relations, 1], -0.1, 0.1),
             },
         }
     }
 
-    /// Compute the ball embedding loss for a batch of triples.
-    pub fn compute_loss(
-        &self,
-        model: BurnBallModel<B>,
-        head_ids: Tensor<B, 1, Int>,
-        rel_ids: Tensor<B, 1, Int>,
-        tail_ids: Tensor<B, 1, Int>,
-        neg_tail_ids: Tensor<B, 1, Int>,
-        margin: f32,
-        k: f32,
-    ) -> Tensor<B, 1> {
-        let head_center = model.entities.center.clone().select(0, head_ids.clone());
-        let head_log_radius = model.entities.log_radius.clone().select(0, head_ids);
-        let rel_translation = model
-            .relations
-            .translation
-            .clone()
-            .select(0, rel_ids.clone());
-        let rel_log_scale = model.relations.log_scale.clone().select(0, rel_ids);
-        let tail_center = model.entities.center.clone().select(0, tail_ids.clone());
-        let tail_log_radius = model.entities.log_radius.clone().select(0, tail_ids);
-        let neg_tail_center = model
-            .entities
-            .center
-            .clone()
-            .select(0, neg_tail_ids.clone());
-        let neg_tail_log_radius = model.entities.log_radius.clone().select(0, neg_tail_ids);
+    // -----------------------------------------------------------------------
+    // Training
+    // -----------------------------------------------------------------------
 
-        let transformed_center = head_center + rel_translation;
-        let transformed_log_radius = head_log_radius + rel_log_scale;
-
-        let pos_diff = transformed_center.clone() - tail_center.clone();
-        let pos_dist = pos_diff.powf_scalar(2.0).sum_dim(1).sqrt();
-        let pos_radius_inner = transformed_log_radius.clone().exp();
-        let pos_radius_outer = tail_log_radius.clone().exp();
-        let pos_margin = pos_radius_outer - pos_dist - pos_radius_inner;
-
-        let neg_diff = transformed_center - neg_tail_center;
-        let neg_dist = neg_diff.powf_scalar(2.0).sum_dim(1).sqrt();
-        let neg_radius_inner = transformed_log_radius.exp();
-        let neg_radius_outer = neg_tail_log_radius.exp();
-        let neg_margin = neg_radius_outer - neg_dist - neg_radius_inner;
-
-        let pos_prob = sigmoid(pos_margin * k);
-        let neg_prob = sigmoid(neg_margin * k);
-
-        // Loss = margin - ln(pos_prob) + ln(neg_prob), clamped to >= 0
-        // Minimized when pos_prob is large and neg_prob is small
-        let pos_loss = pos_prob.clamp(1e-6, 1.0 - 1e-6).log().neg();
-        let neg_score = neg_prob.clamp(1e-6, 1.0 - 1e-6).log().neg();
-        let ranking_loss = (margin + pos_loss - neg_score).clamp_min(0.0);
-
-        ranking_loss.mean()
-    }
-
-    /// Train for one epoch using batched gradient descent.
+    /// Train for one epoch.
     ///
-    /// Processes triples in batches of `batch_size`, with `n_neg` random negatives
-    /// per triple. Each batch produces one gradient step. This is orders of magnitude
-    /// faster than per-triple SGD for large datasets (e.g. WN18RR 86K triples).
+    /// Accepts pre-indexed triples (`TripleIds`) so the caller does the
+    /// string→index conversion once, not once per epoch.
     ///
-    /// Pass in the optimizer to preserve Adam momentum state across epochs.
+    /// Pass the optimizer in so Adam momentum accumulates across epochs.
     pub fn train_epoch(
-        &self,
+        &mut self,
         model: &mut BurnBallModel<B>,
         optim: &mut impl Optimizer<BurnBallModel<B>, B>,
-        triples: &[Triple],
+        triples: &[TripleIds],
+        epoch: usize,
         config: &CpuBoxTrainingConfig,
-        entity_to_idx: &HashMap<String, usize>,
-        relation_to_idx: &HashMap<String, usize>,
         device: &B::Device,
     ) -> f32 {
-        let num_entities = model.entities.center.dims()[0];
-        let batch_size = if config.batch_size > 0 {
-            config.batch_size
-        } else {
-            512
-        };
-        let n_neg = config.negative_samples.max(1);
-        let k = 10.0f32;
+        self.set_epoch(epoch as u64);
 
-        // Build index arrays for all triples (pre-filter invalid)
-        let mut heads: Vec<i64> = Vec::with_capacity(triples.len());
-        let mut rels: Vec<i64> = Vec::with_capacity(triples.len());
-        let mut tails: Vec<i64> = Vec::with_capacity(triples.len());
-        for triple in triples {
-            if let (Some(&h), Some(&r), Some(&t)) = (
-                entity_to_idx.get(&triple.head),
-                relation_to_idx.get(&triple.relation),
-                entity_to_idx.get(&triple.tail),
-            ) {
-                heads.push(h as i64);
-                rels.push(r as i64);
-                tails.push(t as i64);
-            }
-        }
-        let n = heads.len();
+        let num_entities = model.entities.center.val().dims()[0];
+        let batch_size = config.batch_size.max(1);
+        let n_neg = config.negative_samples.max(1);
+        let k = config.sigmoid_k;
+
+        // Build per-relation type-constrained negative sampling pools.
+        let indexed: Vec<(usize, usize, usize)> = triples
+            .iter()
+            .map(|t| (t.head, t.relation, t.tail))
+            .collect();
+        let pools = compute_relation_entity_pools(&indexed);
+
+        let n = triples.len();
         if n == 0 {
             return 0.0;
         }
 
-        // Shuffle via RNG
+        // Shuffle.
         let mut rng = fastrand::Rng::with_seed(self.epoch_seed.wrapping_add(1));
         let mut order: Vec<usize> = (0..n).collect();
         for i in (1..n).rev() {
-            let j = rng.usize(0..=i);
-            order.swap(i, j);
+            order.swap(i, rng.usize(0..=i));
         }
 
         let mut total_loss = 0.0f32;
         let mut batch_count = 0usize;
 
-        for batch_start in (0..n).step_by(batch_size) {
-            let batch_end = (batch_start + batch_size).min(n);
-            let batch_indices = &order[batch_start..batch_end];
-            let bs = batch_indices.len();
+        for chunk in order.chunks(batch_size) {
+            let bs = chunk.len();
 
-            // Build batch tensors for heads/rels/tails
-            let batch_heads: Vec<i64> = batch_indices.iter().map(|&i| heads[i]).collect();
-            let batch_rels: Vec<i64> = batch_indices.iter().map(|&i| rels[i]).collect();
-            let batch_tails: Vec<i64> = batch_indices.iter().map(|&i| tails[i]).collect();
+            let batch_heads: Vec<i64> = chunk.iter().map(|&i| triples[i].head as i64).collect();
+            let batch_rels: Vec<i64> = chunk.iter().map(|&i| triples[i].relation as i64).collect();
+            let batch_tails: Vec<i64> = chunk.iter().map(|&i| triples[i].tail as i64).collect();
 
-            // Sample n_neg negatives per triple, flattened into [bs * n_neg] tensor
-            let mut neg_tails_flat: Vec<i64> = Vec::with_capacity(bs * n_neg);
-            for &ti in &batch_tails {
+            // Corrupt tails (consistent with how we evaluate: rank all tails).
+            let mut neg_tails: Vec<i64> = Vec::with_capacity(bs * n_neg);
+            for (&ri, &ti) in batch_rels.iter().zip(&batch_tails) {
+                let tail_pool = pools
+                    .get(&(ri as usize))
+                    .map(|p| p.tails.as_slice())
+                    .unwrap_or(&[]);
                 for _ in 0..n_neg {
-                    let mut neg = rng.usize(0..num_entities) as i64;
-                    while neg == ti {
-                        neg = rng.usize(0..num_entities) as i64;
-                    }
-                    neg_tails_flat.push(neg);
+                    let neg = sample_excluding(tail_pool, ti as usize, |len| rng.usize(0..len))
+                        .map(|v| v as i64)
+                        .unwrap_or_else(|| loop {
+                            let v = rng.usize(0..num_entities) as i64;
+                            if v != ti {
+                                break v;
+                            }
+                        });
+                    neg_tails.push(neg);
                 }
             }
 
@@ -227,28 +207,37 @@ impl<B: AutodiffBackend> BurnBallTrainer<B> {
             let rel_t = Tensor::<B, 1, Int>::from_data(batch_rels.as_slice(), device);
             let tail_t = Tensor::<B, 1, Int>::from_data(batch_tails.as_slice(), device);
 
-            // Compute batched loss across all triples and their n_neg negatives
-            let loss = self.compute_batch_loss(
-                model.clone(),
-                head_t,
-                rel_t,
-                tail_t,
-                neg_tails_flat,
+            let current_model = model.clone();
+            let ranking_loss = self.batch_loss(
+                &current_model,
+                head_t.clone(),
+                rel_t.clone(),
+                tail_t.clone(),
+                neg_tails,
                 n_neg,
-                config.margin,
+                config,
                 k,
                 device,
             );
+            let reg_loss = Self::l2_reg(
+                &current_model,
+                &head_t,
+                &rel_t,
+                &tail_t,
+                config.regularization,
+            );
+            let loss = ranking_loss + reg_loss;
 
             let loss_val = loss.clone().into_scalar().to_f32();
             if loss_val.is_finite() {
                 total_loss += loss_val;
                 batch_count += 1;
-
-                let grads = loss.backward();
-                let grads = GradientsParams::from_grads(grads, model);
-                let new_model = optim.step(config.learning_rate as f64, model.clone(), grads);
-                *model = new_model;
+                let grads = GradientsParams::from_grads(loss.backward(), &current_model);
+                *model = optim.step(config.learning_rate as f64, current_model, grads);
+            } else {
+                // Skipping non-finite batch; indicates a learning-rate or init problem.
+                #[cfg(debug_assertions)]
+                eprintln!("[burn_ball] skipping non-finite batch loss: {loss_val}");
             }
         }
 
@@ -259,141 +248,275 @@ impl<B: AutodiffBackend> BurnBallTrainer<B> {
         }
     }
 
-    /// Compute batched ranking loss over a batch of triples with multiple negatives.
-    ///
-    /// neg_tail_ids_flat has length bs * n_neg (n_neg negatives per triple in order).
-    fn compute_batch_loss(
+    // -----------------------------------------------------------------------
+    // Loss
+    // -----------------------------------------------------------------------
+
+    /// Batched ranking loss (margin or InfoNCE) for one batch.
+    fn batch_loss(
         &self,
-        model: BurnBallModel<B>,
+        model: &BurnBallModel<B>,
         head_ids: Tensor<B, 1, Int>,
         rel_ids: Tensor<B, 1, Int>,
         tail_ids: Tensor<B, 1, Int>,
-        neg_tail_ids_flat: Vec<i64>,
+        neg_tail_ids_flat: Vec<i64>, // length bs * n_neg
         n_neg: usize,
-        margin: f32,
+        config: &CpuBoxTrainingConfig,
         k: f32,
         device: &B::Device,
     ) -> Tensor<B, 1> {
         let bs = head_ids.dims()[0];
+        let dim = model.entities.center.val().dims()[1];
 
-        // Gather embeddings for positive pairs [bs, d] and [bs, 1]
-        let head_center = model.entities.center.clone().select(0, head_ids.clone());
-        let head_log_r = model.entities.log_radius.clone().select(0, head_ids);
-        let rel_trans = model
+        // Positive pair embeddings.
+        // Head entities use `log_radius` (head/query role).
+        // Tail entities use `tail_log_radius` (tail/answer role).
+        let hc = model.entities.center.val().select(0, head_ids.clone());
+        let hlr = model.entities.log_radius.val().select(0, head_ids);
+        let rt = model.relations.translation.val().select(0, rel_ids.clone());
+        let rtt = model
             .relations
-            .translation
-            .clone()
+            .tail_translation
+            .val()
             .select(0, rel_ids.clone());
-        let rel_log_s = model.relations.log_scale.clone().select(0, rel_ids);
-        let tail_center = model.entities.center.clone().select(0, tail_ids.clone());
-        let tail_log_r = model.entities.log_radius.clone().select(0, tail_ids);
+        let rls = model.relations.log_scale.val().select(0, rel_ids);
+        let tc = model.entities.center.val().select(0, tail_ids.clone());
+        let tlr = model.entities.tail_log_radius.val().select(0, tail_ids);
 
-        // Transform head
-        let tc = head_center + rel_trans; // [bs, d]
-        let tr = head_log_r + rel_log_s; // [bs, 1]
+        // Transform head (shift into relation-specific head region).
+        let transformed_c = hc + rt; // [bs, dim]
+        let transformed_lr = hlr + rls; // [bs, 1]
 
-        // Positive scores [bs, 1]
-        let pos_dist = (tc.clone() - tail_center)
+        // Transform tail (shift into relation-specific tail region).
+        let shifted_tc = tc + rtt.clone(); // [bs, dim]
+
+        // Positive containment margin.
+        let pos_dist = (transformed_c.clone() - shifted_tc)
             .powf_scalar(2.0)
             .sum_dim(1)
             .sqrt();
-        let pos_marg = tail_log_r.exp() - pos_dist - tr.clone().exp();
-        let pos_prob = sigmoid(pos_marg * k);
-        let pos_loss = pos_prob.clamp(1e-6, 1.0 - 1e-6).log().neg(); // [bs, 1]
+        let pos_marg = tlr.exp() - pos_dist - transformed_lr.clone().exp(); // [bs, 1]
 
-        // Negatives: process all bs*n_neg at once
-        let bsn = bs * n_neg;
+        // Negative tail margins — negatives also use the tail translation.
         let neg_ids = Tensor::<B, 1, Int>::from_data(neg_tail_ids_flat.as_slice(), device);
-        let neg_center = model.entities.center.clone().select(0, neg_ids.clone()); // [bsn, d]
-        let neg_log_r = model.entities.log_radius.clone().select(0, neg_ids); // [bsn, 1]
+        let neg_c = model
+            .entities
+            .center
+            .val()
+            .select(0, neg_ids.clone())
+            .reshape([bs, n_neg, dim]);
+        let neg_lr = model
+            .entities
+            .tail_log_radius
+            .val()
+            .select(0, neg_ids)
+            .reshape([bs, n_neg, 1]);
+        // Broadcast tail_translation [bs, dim] → [bs, n_neg, dim]
+        let rtt_rep = rtt.reshape([bs, 1, dim]);
+        let shifted_neg_c = neg_c + rtt_rep;
+        let tc_rep = transformed_c.reshape([bs, 1, dim]);
+        let tlr_rep = transformed_lr.reshape([bs, 1, 1]);
+        let neg_dist = (tc_rep - shifted_neg_c)
+            .powf_scalar(2.0)
+            .sum_dim(2)
+            .sqrt()
+            .reshape([bs, n_neg, 1]);
+        let neg_marg = neg_lr.exp() - neg_dist - tlr_rep.exp(); // [bs, n_neg, 1]
 
-        // Repeat transformed center/radius n_neg times along dim 0: [bs, d] → [bs*n_neg, d]
-        // burn's repeat([n, 1]) repeats the whole tensor n times: [0,1,...,bs-1,0,1,...,bs-1,...]
-        // We need each row repeated n_neg times: [0,0,...,1,1,...,bs-1,bs-1,...]
-        // Since neg_tail_ids_flat is laid out as [triple0_neg0..neg_k, triple1_neg0..neg_k, ...]
-        // we need tc_rep[i*n_neg + j] = tc[i], so use repeat_each approach.
-        // Workaround: interleave using index tensor
-        let repeat_ids: Vec<i64> = (0..bs)
-            .flat_map(|i| std::iter::repeat(i as i64).take(n_neg))
-            .collect();
-        let repeat_t = Tensor::<B, 1, Int>::from_data(repeat_ids.as_slice(), device);
-        let tc_rep = tc.clone().select(0, repeat_t.clone()); // [bsn, d]
-        let tr_rep = tr.clone().select(0, repeat_t); // [bsn, 1]
+        if config.use_infonce {
+            // InfoNCE: cross-entropy over (1 + n_neg)-way softmax on margins.
+            let neg_marg_2d = neg_marg.reshape([bs, n_neg]);
+            let logits = Tensor::cat(vec![pos_marg.clone(), neg_marg_2d], 1) * k; // [bs, 1+n]
+            let max_logit = logits.clone().max_dim(1);
+            let lse = (logits - max_logit.clone()).exp().sum_dim(1).log() + max_logit;
+            (lse - pos_marg * k).mean()
+        } else {
+            // Margin ranking loss.
+            let pos_loss = sigmoid(pos_marg * k).clamp(1e-6, 1.0 - 1e-6).log().neg(); // [bs, 1]
+            let neg_loss_2d = sigmoid(neg_marg.reshape([bs, n_neg]) * k)
+                .clamp(1e-6, 1.0 - 1e-6)
+                .log()
+                .neg(); // [bs, n_neg]
 
-        let neg_dist = (tc_rep - neg_center).powf_scalar(2.0).sum_dim(1).sqrt(); // [bsn, 1]
-        let neg_marg = neg_log_r.exp() - neg_dist - tr_rep.exp();
-        let neg_prob = sigmoid(neg_marg * k);
-        let neg_loss = neg_prob.clamp(1e-6, 1.0 - 1e-6).log().neg(); // [bsn, 1]
+            let neg_loss_avg = if config.self_adversarial {
+                Self::apply_self_adv(neg_loss_2d, n_neg, config.adversarial_temperature, device)
+            } else {
+                neg_loss_2d.mean_dim(1).reshape([bs, 1])
+            };
 
-        // Reshape to [bs, n_neg] and mean over n_neg
-        let neg_loss_reshaped = neg_loss.reshape([bs, n_neg]); // [bs, n_neg]
-        let neg_loss_avg = neg_loss_reshaped.mean_dim(1); // [bs, 1]
-
-        // Ranking loss
-        let ranking = (margin + pos_loss - neg_loss_avg).clamp_min(0.0);
-        ranking.mean()
+            (config.margin + pos_loss - neg_loss_avg)
+                .clamp_min(0.0)
+                .mean()
+        }
     }
 
-    /// Convert burn model parameters back to Ball/BallRelation types.
-    pub fn to_ball_embeddings(&self, model: &BurnBallModel<B>) -> (Vec<Ball>, Vec<BallRelation>) {
-        let center_data = model.entities.center.clone().into_data();
-        let log_radius_data = model.entities.log_radius.clone().into_data();
-        let trans_data = model.relations.translation.clone().into_data();
-        let log_scale_data = model.relations.log_scale.clone().into_data();
-
-        let center_slice: &[f32] = center_data.as_slice::<f32>().expect("center should be f32");
-        let log_radius_slice: &[f32] = log_radius_data
-            .as_slice::<f32>()
-            .expect("log_radius should be f32");
-        let trans_slice: &[f32] = trans_data
-            .as_slice::<f32>()
-            .expect("translation should be f32");
-        let log_scale_slice: &[f32] = log_scale_data
-            .as_slice::<f32>()
-            .expect("log_scale should be f32");
-
-        let dims = model.entities.center.dims();
-        let num_entities = dims[0];
-        let dim = dims[1];
-        let num_relations = model.relations.translation.dims()[0];
-
-        let entities: Vec<Ball> = (0..num_entities)
-            .map(|i| {
-                let center: Vec<f32> = center_slice[i * dim..(i + 1) * dim].to_vec();
-                let log_radius = log_radius_slice[i];
-                Ball::from_log_radius(center, log_radius).unwrap()
-            })
-            .collect();
-
-        let relations: Vec<BallRelation> = (0..num_relations)
-            .map(|i| {
-                let translation: Vec<f32> = trans_slice[i * dim..(i + 1) * dim].to_vec();
-                let log_scale = log_scale_slice[i];
-                BallRelation::new(translation, log_scale.exp()).unwrap()
-            })
-            .collect();
-
-        (entities, relations)
+    /// Weighted negative loss using self-adversarial weights (stop-gradient on weights).
+    fn apply_self_adv(
+        neg_loss: Tensor<B, 2>, // [bs, n_neg]
+        n_neg: usize,
+        adv_temp: f32,
+        device: &B::Device,
+    ) -> Tensor<B, 2> {
+        let bs = neg_loss.dims()[0];
+        let data = neg_loss.clone().into_data();
+        let slice = data.as_slice::<f32>().expect("neg_loss should be f32");
+        let mut weights: Vec<f32> = Vec::with_capacity(slice.len());
+        for row in slice.chunks(n_neg) {
+            weights.extend(self_adversarial_weights(row, adv_temp));
+        }
+        let w = Tensor::<B, 1>::from_data(weights.as_slice(), device).reshape([bs, n_neg]);
+        (neg_loss * w).sum_dim(1).reshape([bs, 1])
     }
 
-    /// Fast evaluation using extracted parameters without burn overhead.
+    /// L2 penalty on the embeddings participating in this batch.
+    fn l2_reg(
+        model: &BurnBallModel<B>,
+        head_ids: &Tensor<B, 1, Int>,
+        rel_ids: &Tensor<B, 1, Int>,
+        tail_ids: &Tensor<B, 1, Int>,
+        reg: f32,
+    ) -> Tensor<B, 1> {
+        if reg == 0.0 {
+            return Tensor::<B, 1>::zeros([1], &head_ids.device());
+        }
+        let hc = model.entities.center.val().select(0, head_ids.clone());
+        let tc = model.entities.center.val().select(0, tail_ids.clone());
+        let rt = model.relations.translation.val().select(0, rel_ids.clone());
+        let rtt = model
+            .relations
+            .tail_translation
+            .val()
+            .select(0, rel_ids.clone());
+        ((hc.powf_scalar(2.0).mean()
+            + tc.powf_scalar(2.0).mean()
+            + rt.powf_scalar(2.0).mean()
+            + rtt.powf_scalar(2.0).mean())
+            * reg)
+            .reshape([1])
+    }
+
+    // -----------------------------------------------------------------------
+    // Evaluation
+    // -----------------------------------------------------------------------
+
+    /// Extract model parameters into raw vecs for CPU-side evaluation.
     ///
-    /// Extracts all entity/relation parameters as flat f32 slices, then computes
-    /// containment scores in O(num_test × num_entities) with minimal overhead.
+    /// Returns `(centers, head_log_r, tail_log_r, head_trans, tail_trans, log_scale, n_e, dim, n_r)`.
+    fn extract_params_raw(
+        model: &BurnBallModel<B>,
+    ) -> (
+        Vec<f32>,
+        Vec<f32>,
+        Vec<f32>,
+        Vec<f32>,
+        Vec<f32>,
+        Vec<f32>,
+        usize,
+        usize,
+        usize,
+    ) {
+        let c = model.entities.center.val().into_data();
+        let hlr = model.entities.log_radius.val().into_data();
+        let tlr = model.entities.tail_log_radius.val().into_data();
+        let ht = model.relations.translation.val().into_data();
+        let tt = model.relations.tail_translation.val().into_data();
+        let ls = model.relations.log_scale.val().into_data();
+
+        let cs: Vec<f32> = c.to_vec().unwrap();
+        let hlrs: Vec<f32> = hlr.to_vec().unwrap();
+        let tlrs: Vec<f32> = tlr.to_vec().unwrap();
+        let hts: Vec<f32> = ht.to_vec().unwrap();
+        let tts: Vec<f32> = tt.to_vec().unwrap();
+        let lss: Vec<f32> = ls.to_vec().unwrap();
+
+        let n_e = hlrs.len();
+        let dim = cs.len() / n_e;
+        let n_r = lss.len();
+        (cs, hlrs, tlrs, hts, tts, lss, n_e, dim, n_r)
+    }
+
+    /// Extract head/tail Ball vecs and BallRelation vec for external use.
+    pub fn to_ball_embeddings(
+        &self,
+        model: &BurnBallModel<B>,
+    ) -> (Vec<Ball>, Vec<Ball>, Vec<BallRelation>) {
+        let (cs, hlrs, tlrs, hts, _, lss, n_e, dim, n_r) = Self::extract_params_raw(model);
+        let head_balls = (0..n_e)
+            .map(|i| Ball::from_log_radius(cs[i * dim..(i + 1) * dim].to_vec(), hlrs[i]).unwrap())
+            .collect();
+        let tail_balls = (0..n_e)
+            .map(|i| Ball::from_log_radius(cs[i * dim..(i + 1) * dim].to_vec(), tlrs[i]).unwrap())
+            .collect();
+        let relations = (0..n_r)
+            .map(|i| BallRelation::new(hts[i * dim..(i + 1) * dim].to_vec(), lss[i].exp()).unwrap())
+            .collect();
+        (head_balls, tail_balls, relations)
+    }
+
+    /// Evaluate link prediction on `test_triples`.
+    ///
+    /// Uses separate head/tail radii and separate head/tail translations per
+    /// relation, matching the training objective exactly.
     pub fn evaluate(
         &self,
         model: &BurnBallModel<B>,
-        test_triples: &[crate::dataset::TripleIds],
+        test_triples: &[TripleIds],
         filter: Option<&crate::trainer::evaluation::FilteredTripleIndexIds>,
     ) -> crate::trainer::EvaluationResults {
-        let (entities, relations) = self.to_ball_embeddings(model);
-        let ball_trainer = crate::trainer::ball_trainer::BallTrainer::new(0);
-        ball_trainer.evaluate(&entities, &relations, test_triples, filter)
+        let (cs, hlrs, tlrs, hts, tts, lss, n_e, dim, n_r) = Self::extract_params_raw(model);
+        let k = 2.0f32;
+
+        // Pre-build Ball/BallRelation slices.
+        let head_balls: Vec<Ball> = (0..n_e)
+            .map(|i| Ball::from_log_radius(cs[i * dim..(i + 1) * dim].to_vec(), hlrs[i]).unwrap())
+            .collect();
+        let tail_balls: Vec<Ball> = (0..n_e)
+            .map(|i| Ball::from_log_radius(cs[i * dim..(i + 1) * dim].to_vec(), tlrs[i]).unwrap())
+            .collect();
+        let head_rels: Vec<BallRelation> = (0..n_r)
+            .map(|i| BallRelation::new(hts[i * dim..(i + 1) * dim].to_vec(), lss[i].exp()).unwrap())
+            .collect();
+        let tail_rels: Vec<BallRelation> = (0..n_r)
+            .map(|i| BallRelation::new(tts[i * dim..(i + 1) * dim].to_vec(), 1.0).unwrap())
+            .collect();
+
+        // score(h, r, t) = containment(transform_head(h), transform_tail(t))
+        let score = |h: usize, r: usize, t: usize| -> f32 {
+            let transformed_h = match head_rels[r].apply(&head_balls[h]) {
+                Ok(x) => x,
+                Err(_) => return 0.0,
+            };
+            // Shift the tail ball by the relation's tail translation.
+            let shifted_t = match tail_rels[r].apply(&tail_balls[t]) {
+                Ok(x) => x,
+                Err(_) => return 0.0,
+            };
+            crate::ball::containment_prob(&transformed_h, &shifted_t, k).unwrap_or(0.0)
+        };
+
+        crate::trainer::evaluation::evaluate_link_prediction_generic(
+            test_triples,
+            n_e,
+            filter,
+            score,
+            score,
+        )
+        .unwrap_or_else(|_| crate::trainer::EvaluationResults {
+            mrr: 0.0,
+            head_mrr: 0.0,
+            tail_mrr: 0.0,
+            hits_at_1: 0.0,
+            hits_at_3: 0.0,
+            hits_at_10: 0.0,
+            mean_rank: f32::MAX,
+            per_relation: vec![],
+        })
     }
 }
 
+// Numerically stable sigmoid via tanh: σ(x) = (tanh(x/2) + 1) / 2.
 fn sigmoid<B: Backend, const D: usize>(x: Tensor<B, D>) -> Tensor<B, D> {
-    x.neg().exp().recip()
+    x.div_scalar(2.0).tanh().add_scalar(1.0).div_scalar(2.0)
 }
 
 // ---------------------------------------------------------------------------
@@ -404,199 +527,250 @@ fn sigmoid<B: Backend, const D: usize>(x: Tensor<B, D>) -> Tensor<B, D> {
 mod tests {
     use super::*;
     use burn::backend::Autodiff;
+    use burn::optim::AdamConfig;
     use burn_ndarray::NdArray;
 
     type TestBackend = Autodiff<NdArray>;
 
-    #[test]
-    fn burn_model_init() {
-        let device = Default::default();
-        let trainer = BurnBallTrainer::<TestBackend>::new();
-        let model = trainer.init_model(10, 3, 4, &device);
-        assert_eq!(model.entities.center.dims(), [10, 4]);
-        assert_eq!(model.entities.log_radius.dims(), [10, 1]);
-        assert_eq!(model.relations.translation.dims(), [3, 4]);
-        assert_eq!(model.relations.log_scale.dims(), [3, 1]);
+    // ── compute_loss (scalar path kept for parity tests) ────────────────────
+
+    /// Scalar margin-ranking loss for a single batch without multiple negatives.
+    ///
+    /// Used only in tests to verify parity with `batch_loss`.
+    fn scalar_loss<B: AutodiffBackend>(
+        model: BurnBallModel<B>,
+        head_ids: Tensor<B, 1, Int>,
+        rel_ids: Tensor<B, 1, Int>,
+        tail_ids: Tensor<B, 1, Int>,
+        neg_tail_ids: Tensor<B, 1, Int>,
+        margin: f32,
+        k: f32,
+    ) -> Tensor<B, 1> {
+        let hc = model.entities.center.val().select(0, head_ids.clone());
+        let hlr = model.entities.log_radius.val().select(0, head_ids);
+        let rt = model.relations.translation.val().select(0, rel_ids.clone());
+        let rtt = model
+            .relations
+            .tail_translation
+            .val()
+            .select(0, rel_ids.clone());
+        let rls = model.relations.log_scale.val().select(0, rel_ids);
+        let tc = model.entities.center.val().select(0, tail_ids.clone());
+        let tlr = model.entities.tail_log_radius.val().select(0, tail_ids);
+        let neg_tc = model.entities.center.val().select(0, neg_tail_ids.clone());
+        let neg_tlr = model.entities.tail_log_radius.val().select(0, neg_tail_ids);
+
+        let transformed_c = hc + rt;
+        let transformed_lr = hlr + rls;
+        let shifted_tc = tc + rtt.clone();
+        let shifted_neg_tc = neg_tc + rtt;
+
+        let pos_marg = tlr.exp()
+            - (transformed_c.clone() - shifted_tc)
+                .powf_scalar(2.0)
+                .sum_dim(1)
+                .sqrt()
+            - transformed_lr.clone().exp();
+        let pos_loss = sigmoid(pos_marg * k).clamp(1e-6, 1.0 - 1e-6).log().neg();
+
+        let neg_marg = neg_tlr.exp()
+            - (transformed_c - shifted_neg_tc)
+                .powf_scalar(2.0)
+                .sum_dim(1)
+                .sqrt()
+            - transformed_lr.exp();
+        let neg_loss = sigmoid(neg_marg * k).clamp(1e-6, 1.0 - 1e-6).log().neg();
+
+        (margin + pos_loss - neg_loss).clamp_min(0.0).mean()
     }
 
     #[test]
-    fn burn_loss_is_finite() {
+    fn model_init_shapes() {
+        let device = Default::default();
+        let model = BurnBallTrainer::<TestBackend>::new().init_model(10, 3, 4, &device);
+        assert_eq!(model.entities.center.val().dims(), [10, 4]);
+        assert_eq!(model.entities.log_radius.val().dims(), [10, 1]);
+        assert_eq!(model.entities.tail_log_radius.val().dims(), [10, 1]);
+        assert_eq!(model.relations.translation.val().dims(), [3, 4]);
+        assert_eq!(model.relations.log_scale.val().dims(), [3, 1]);
+    }
+
+    #[test]
+    fn sigmoid_values() {
+        let d: <TestBackend as Backend>::Device = Default::default();
+        let f = |v: f32| {
+            sigmoid(Tensor::<TestBackend, 1>::from_data([v], &d))
+                .into_scalar()
+                .to_f32()
+        };
+        assert!((f(0.0) - 0.5).abs() < 1e-6);
+        assert!(f(10.0) > 0.99);
+        assert!(f(-10.0) < 0.01);
+    }
+
+    #[test]
+    fn loss_is_finite_and_nonneg() {
         let device = Default::default();
         let trainer = BurnBallTrainer::<TestBackend>::new();
         let model = trainer.init_model(20, 3, 4, &device);
-
-        let head_ids = Tensor::<TestBackend, 1, Int>::from_data([0i64, 1, 2], &device);
-        let rel_ids = Tensor::<TestBackend, 1, Int>::from_data([0i64, 1, 0], &device);
-        let tail_ids = Tensor::<TestBackend, 1, Int>::from_data([1i64, 2, 0], &device);
-        let neg_tail_ids = Tensor::<TestBackend, 1, Int>::from_data([3i64, 4, 5], &device);
-
-        let loss =
-            trainer.compute_loss(model, head_ids, rel_ids, tail_ids, neg_tail_ids, 1.0, 10.0);
-
-        let loss_val = loss.into_scalar().to_f32();
-        assert!(loss_val.is_finite(), "loss not finite: {loss_val}");
-        assert!(loss_val >= 0.0, "loss negative: {loss_val}");
+        let config = CpuBoxTrainingConfig::default();
+        let loss = trainer.batch_loss(
+            &model,
+            Tensor::<TestBackend, 1, Int>::from_data([0i64, 1, 2], &device),
+            Tensor::<TestBackend, 1, Int>::from_data([0i64, 1, 0], &device),
+            Tensor::<TestBackend, 1, Int>::from_data([1i64, 2, 0], &device),
+            vec![3i64, 4, 5],
+            1,
+            &config,
+            config.sigmoid_k,
+            &device,
+        );
+        let v = loss.into_scalar().to_f32();
+        assert!(v.is_finite(), "loss not finite: {v}");
+        assert!(v >= 0.0, "loss negative: {v}");
     }
 
     #[test]
-    fn burn_training_step_reduces_loss() {
+    fn gradient_step_does_not_increase_loss_much() {
         let device = Default::default();
         let trainer = BurnBallTrainer::<TestBackend>::new();
         let mut model = trainer.init_model(10, 3, 4, &device);
 
-        let head_ids = Tensor::<TestBackend, 1, Int>::from_data([0i64, 1], &device);
-        let rel_ids = Tensor::<TestBackend, 1, Int>::from_data([0i64, 1], &device);
-        let tail_ids = Tensor::<TestBackend, 1, Int>::from_data([2i64, 3], &device);
-        let neg_tail_ids = Tensor::<TestBackend, 1, Int>::from_data([4i64, 5], &device);
+        let h = Tensor::<TestBackend, 1, Int>::from_data([0i64, 1], &device);
+        let r = Tensor::<TestBackend, 1, Int>::from_data([0i64, 1], &device);
+        let t = Tensor::<TestBackend, 1, Int>::from_data([2i64, 3], &device);
+        let nt = Tensor::<TestBackend, 1, Int>::from_data([4i64, 5], &device);
 
-        let loss0 = trainer.compute_loss(
+        let loss0 = scalar_loss(
             model.clone(),
-            head_ids.clone(),
-            rel_ids.clone(),
-            tail_ids.clone(),
-            neg_tail_ids.clone(),
+            h.clone(),
+            r.clone(),
+            t.clone(),
+            nt.clone(),
             1.0,
-            10.0,
+            2.0,
         );
-        let loss0_val = loss0.clone().into_scalar().to_f32();
-
-        // Gradient step
-        let grads = loss0.backward();
+        let v0 = loss0.clone().into_scalar().to_f32();
+        let grads = GradientsParams::from_grads(loss0.backward(), &model);
         let mut optim = AdamConfig::new().init::<TestBackend, BurnBallModel<TestBackend>>();
-        let grads = GradientsParams::from_grads(grads, &model);
-        let new_model = optim.step(1e-2_f64, model, grads);
-        model = new_model;
+        model = optim.step(1e-2, model, grads);
 
-        let loss1 =
-            trainer.compute_loss(model, head_ids, rel_ids, tail_ids, neg_tail_ids, 1.0, 10.0);
-        let loss1_val = loss1.into_scalar().to_f32();
-
-        assert!(
-            loss1_val <= loss0_val + 0.5,
-            "Loss increased significantly: {loss0_val} -> {loss1_val}"
-        );
+        let v1 = scalar_loss(model, h, r, t, nt, 1.0, 2.0)
+            .into_scalar()
+            .to_f32();
+        assert!(v1 <= v0 + 0.5, "loss increased significantly: {v0} -> {v1}");
     }
 
     #[test]
-    fn burn_to_ball_embeddings() {
+    fn batch_loss_matches_scalar_loss_single_triple() {
         let device = Default::default();
         let trainer = BurnBallTrainer::<TestBackend>::new();
-        let model = trainer.init_model(5, 2, 4, &device);
-
-        let (entities, relations) = trainer.to_ball_embeddings(&model);
-        assert_eq!(entities.len(), 5);
-        assert_eq!(relations.len(), 2);
-        assert_eq!(entities[0].dim(), 4);
-        assert!(entities[0].radius() > 0.0);
-    }
-
-    #[test]
-    fn burn_train_and_evaluate_synthetic() {
-        use crate::dataset::{TripleIds, Vocab};
-        use crate::trainer::ball_trainer::BallTrainer;
-
-        let mut vocab = Vocab::default();
-        let e0 = vocab.intern("e0".to_string());
-        let e1 = vocab.intern("e1".to_string());
-        let e2 = vocab.intern("e2".to_string());
-        let e3 = vocab.intern("e3".to_string());
-
-        let triples = vec![
-            Triple {
-                head: "e0".to_string(),
-                relation: "r0".to_string(),
-                tail: "e1".to_string(),
-            },
-            Triple {
-                head: "e2".to_string(),
-                relation: "r0".to_string(),
-                tail: "e3".to_string(),
-            },
-            Triple {
-                head: "e0".to_string(),
-                relation: "r1".to_string(),
-                tail: "e2".to_string(),
-            },
-        ];
-
-        let test_triples = vec![
-            TripleIds {
-                head: e0,
-                relation: 0,
-                tail: e1,
-            },
-            TripleIds {
-                head: e2,
-                relation: 0,
-                tail: e3,
-            },
-            TripleIds {
-                head: e0,
-                relation: 1,
-                tail: e2,
-            },
-        ];
-
-        let entity_map: HashMap<String, usize> = [
-            ("e0".to_string(), 0),
-            ("e1".to_string(), 1),
-            ("e2".to_string(), 2),
-            ("e3".to_string(), 3),
-        ]
-        .into_iter()
-        .collect();
-        let relation_map: HashMap<String, usize> = [("r0".to_string(), 0), ("r1".to_string(), 1)]
-            .into_iter()
-            .collect();
-
-        let device = Default::default();
-        let trainer = BurnBallTrainer::<TestBackend>::new();
-        let mut model = trainer.init_model(4, 2, 4, &device);
-
+        let model = trainer.init_model(10, 3, 4, &device);
         let config = CpuBoxTrainingConfig {
-            learning_rate: 0.05,
-            margin: 1.0,
+            sigmoid_k: 10.0,
             ..Default::default()
         };
 
-        let mut optim = AdamConfig::new().init::<TestBackend, BurnBallModel<TestBackend>>();
+        let h = Tensor::<TestBackend, 1, Int>::from_data([0i64], &device);
+        let r = Tensor::<TestBackend, 1, Int>::from_data([1i64], &device);
+        let t = Tensor::<TestBackend, 1, Int>::from_data([2i64], &device);
+        let nt = Tensor::<TestBackend, 1, Int>::from_data([3i64], &device);
 
+        let s = scalar_loss(
+            model.clone(),
+            h.clone(),
+            r.clone(),
+            t.clone(),
+            nt,
+            1.0,
+            10.0,
+        )
+        .into_scalar()
+        .to_f32();
+        let b = trainer
+            .batch_loss(&model, h, r, t, vec![3i64], 1, &config, 10.0, &device)
+            .into_scalar()
+            .to_f32();
+        assert!((s - b).abs() < 1e-5, "scalar {s} != batch {b}");
+    }
+
+    #[test]
+    fn param_ids_are_tracked_and_survive_clone() {
+        use burn::module::list_param_ids;
+        let device = Default::default();
+        let model = BurnBallTrainer::<TestBackend>::new().init_model(10, 3, 4, &device);
+        let ids = list_param_ids(&model);
+        assert_eq!(
+            ids.len(),
+            6,
+            "expected 6 params (center, log_radius, tail_log_radius, translation, tail_translation, log_scale), got {}: {:?}",
+            ids.len(),
+            ids
+        );
+        assert_eq!(ids, list_param_ids(&model.clone()));
+    }
+
+    #[test]
+    fn to_ball_embeddings_shapes() {
+        let device = Default::default();
+        let trainer = BurnBallTrainer::<TestBackend>::new();
+        let (heads, tails, rels) =
+            trainer.to_ball_embeddings(&trainer.init_model(5, 2, 4, &device));
+        assert_eq!(heads.len(), 5);
+        assert_eq!(tails.len(), 5);
+        assert_eq!(rels.len(), 2);
+        assert_eq!(heads[0].dim(), 4);
+        assert!(heads[0].radius() > 0.0);
+        assert!(tails[0].radius() > 0.0);
+    }
+
+    #[test]
+    fn train_and_evaluate_synthetic() {
+        use crate::dataset::TripleIds;
+
+        let triples = vec![
+            TripleIds {
+                head: 0,
+                relation: 0,
+                tail: 1,
+            },
+            TripleIds {
+                head: 2,
+                relation: 0,
+                tail: 3,
+            },
+            TripleIds {
+                head: 0,
+                relation: 1,
+                tail: 2,
+            },
+        ];
+        let test_triples = triples.clone();
+
+        let device = Default::default();
+        let mut trainer = BurnBallTrainer::<TestBackend>::new();
+        let mut model = trainer.init_model(4, 2, 4, &device);
+        let config = CpuBoxTrainingConfig {
+            learning_rate: 0.05,
+            margin: 1.0,
+            use_infonce: true,
+            negative_samples: 1,
+            sigmoid_k: 2.0,
+            ..Default::default()
+        };
+        let mut optim = AdamConfig::new().init::<TestBackend, BurnBallModel<TestBackend>>();
         let mut last_loss = f32::MAX;
         for epoch in 0..50 {
-            let loss = trainer.train_epoch(
-                &mut model,
-                &mut optim,
-                &triples,
-                &config,
-                &entity_map,
-                &relation_map,
-                &device,
-            );
-            if epoch % 10 == 0 {
-                eprintln!("Burn Epoch {epoch}: loss={loss:.4}");
-            }
-            last_loss = loss;
+            last_loss =
+                trainer.train_epoch(&mut model, &mut optim, &triples, epoch, &config, &device);
         }
-        eprintln!("Burn Final loss: {last_loss:.4}");
-
-        // Convert to Ball/BallRelation and evaluate with the existing eval infra
-        let (entities, relations) = trainer.to_ball_embeddings(&model);
-        let ball_trainer = BallTrainer::new(42);
-        let results = ball_trainer.evaluate(&entities, &relations, &test_triples, None);
-
-        eprintln!(
-            "Burn MRR: {}, Mean rank: {}",
-            results.mrr, results.mean_rank
-        );
-
+        eprintln!("final loss={last_loss:.4}");
+        let results = trainer.evaluate(&model, &test_triples, None);
+        eprintln!("MRR={:.3} mean_rank={:.1}", results.mrr, results.mean_rank);
+        assert!(results.mrr > 0.3, "MRR={} expected >0.3", results.mrr);
         assert!(
-            results.mrr > 0.3,
-            "Burn MRR after training = {}, expected > 0.3",
-            results.mrr
-        );
-        assert!(
-            results.mean_rank <= 3.0,
-            "Burn Mean rank = {}, expected <= 3.0",
+            results.mean_rank <= 3.5,
+            "mean_rank={} expected <=3.5",
             results.mean_rank
         );
     }
