@@ -1054,6 +1054,156 @@ pub fn evaluate_link_prediction_interned_with_transforms(
     )
 }
 
+/// Generic link prediction evaluation using arbitrary scoring functions.
+///
+/// This is the evaluation path for geometries that don't implement the `Box` trait
+/// (balls, spherical caps, subspaces, ellipsoids, etc.). Instead of using
+/// `containment_prob`, the caller provides scoring functions for head and tail prediction.
+///
+/// # Scoring convention
+/// - `score_tail(head_idx, rel_idx, tail_idx) -> f32`: higher = better match for tail
+/// - `score_head(head_idx, rel_idx, tail_idx) -> f32`: higher = better match for head
+///
+/// Both functions receive entity indices and should return scores in a consistent range.
+/// The evaluation ranks all candidates by score and computes MRR, Hits@k, Mean Rank.
+pub fn evaluate_link_prediction_generic<FH, FT>(
+    test_triples: &[crate::dataset::TripleIds],
+    num_entities: usize,
+    filter: Option<&FilteredTripleIndexIds>,
+    score_head: FH,
+    score_tail: FT,
+) -> Result<EvaluationResults, crate::BoxError>
+where
+    FH: Fn(usize, usize, usize) -> f32,
+    FT: Fn(usize, usize, usize) -> f32,
+{
+    use crate::metrics::{hits_at_k, mean_rank, mean_reciprocal_rank};
+
+    if test_triples.is_empty() {
+        return Ok(EvaluationResults {
+            mrr: f32::NAN,
+            head_mrr: f32::NAN,
+            tail_mrr: f32::NAN,
+            hits_at_1: f32::NAN,
+            hits_at_3: f32::NAN,
+            hits_at_10: f32::NAN,
+            mean_rank: f32::NAN,
+            per_relation: vec![],
+        });
+    }
+
+    let mut all_ranks: Vec<usize> = Vec::with_capacity(test_triples.len() * 2);
+    let mut head_ranks: Vec<usize> = Vec::with_capacity(test_triples.len());
+    let mut tail_ranks: Vec<usize> = Vec::with_capacity(test_triples.len());
+    let mut per_triple_rel: Vec<(String, usize, usize)> = Vec::with_capacity(test_triples.len());
+
+    let known_tails = filter.map(|f| &f.tails_by_head_rel);
+    let known_heads = filter.map(|f| &f.heads_by_tail_rel);
+
+    for triple in test_triples {
+        let h = triple.head;
+        let r = triple.relation;
+        let t = triple.tail;
+
+        // Tail prediction: rank t among all entities
+        let tail_score = score_tail(h, r, t);
+        let mut tail_rank = 1;
+        for candidate in 0..num_entities {
+            if candidate == t {
+                continue;
+            }
+            // Filtered: skip known-true candidates
+            if let Some(kt) = known_tails {
+                if kt.get(&(h, r)).is_some_and(|s| s.contains(&candidate)) {
+                    continue;
+                }
+            }
+            let cand_score = score_tail(h, r, candidate);
+            if cand_score > tail_score {
+                tail_rank += 1;
+            } else if cand_score == tail_score && candidate < t {
+                tail_rank += 1;
+            }
+        }
+        tail_ranks.push(tail_rank);
+        all_ranks.push(tail_rank);
+
+        // Head prediction: rank h among all entities
+        let head_score = score_head(h, r, t);
+        let mut head_rank = 1;
+        for candidate in 0..num_entities {
+            if candidate == h {
+                continue;
+            }
+            // Filtered: skip known-true candidates
+            if let Some(kh) = known_heads {
+                if kh.get(&(t, r)).is_some_and(|s| s.contains(&candidate)) {
+                    continue;
+                }
+            }
+            let cand_score = score_head(candidate, r, t);
+            if cand_score > head_score {
+                head_rank += 1;
+            } else if cand_score == head_score && candidate < h {
+                head_rank += 1;
+            }
+        }
+        head_ranks.push(head_rank);
+        all_ranks.push(head_rank);
+
+        per_triple_rel.push((r.to_string(), tail_rank, head_rank));
+    }
+
+    let mrr = mean_reciprocal_rank(&all_ranks) as f32;
+    let head_mrr = mean_reciprocal_rank(&head_ranks) as f32;
+    let tail_mrr = mean_reciprocal_rank(&tail_ranks) as f32;
+    let hits_at_1 = hits_at_k(&all_ranks, 1) as f32;
+    let hits_at_3 = hits_at_k(&all_ranks, 3) as f32;
+    let hits_at_10 = hits_at_k(&all_ranks, 10) as f32;
+    let mean_rank_val = mean_rank(&all_ranks) as f32;
+
+    let per_relation = aggregate_per_relation_generic(&per_triple_rel);
+
+    Ok(EvaluationResults {
+        mrr,
+        head_mrr,
+        tail_mrr,
+        hits_at_1,
+        hits_at_3,
+        hits_at_10,
+        mean_rank: mean_rank_val,
+        per_relation,
+    })
+}
+
+fn aggregate_per_relation_generic(
+    per_triple: &[(String, usize, usize)],
+) -> Vec<PerRelationResults> {
+    use crate::metrics::{hits_at_k, mean_reciprocal_rank};
+    let mut by_rel: HashMap<String, Vec<usize>> = HashMap::new();
+    for (rel, t_rank, h_rank) in per_triple {
+        let ranks = by_rel.entry(rel.clone()).or_default();
+        ranks.push(*t_rank);
+        ranks.push(*h_rank);
+    }
+    let mut results: Vec<PerRelationResults> = by_rel
+        .into_iter()
+        .map(|(rel, ranks)| {
+            let count = ranks.len() / 2;
+            let mrr = mean_reciprocal_rank(&ranks) as f32;
+            let h10 = hits_at_k(&ranks, 10) as f32;
+            PerRelationResults {
+                relation: rel,
+                mrr,
+                hits_at_10: h10,
+                count,
+            }
+        })
+        .collect();
+    results.sort_by(|a, b| a.relation.cmp(&b.relation));
+    results
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -106,7 +106,9 @@ impl BallTrainer {
 
         let pos_score = -pos_prob.ln();
         let neg_score = -neg_prob.ln();
-        let loss = (margin - pos_score + neg_score).max(0.0);
+        // Loss = margin + pos_score - neg_score = margin - ln(pos_prob) + ln(neg_prob)
+        // Minimized when pos_prob is large and neg_prob is small.
+        let loss = (margin + pos_score - neg_score).max(0.0);
 
         if loss <= 1e-8 {
             return (0.0, grads);
@@ -342,6 +344,64 @@ impl BallTrainer {
             total_loss / count as f32
         }
     }
+
+    /// Evaluate the trained model on test triples using filtered link prediction.
+    ///
+    /// Uses the generic evaluation infrastructure with ball-specific scoring:
+    /// - Tail prediction: score = containment_prob(transform(head, relation), candidate)
+    /// - Head prediction: score = containment_prob(transform(candidate, relation), tail)
+    ///
+    /// Higher containment probability = better rank.
+    pub fn evaluate(
+        &self,
+        entities: &[Ball],
+        relations: &[BallRelation],
+        test_triples: &[crate::dataset::TripleIds],
+        filter: Option<&crate::trainer::evaluation::FilteredTripleIndexIds>,
+    ) -> crate::trainer::EvaluationResults {
+        let num_entities = entities.len();
+        let k = 10.0;
+
+        let score_tail = |head_idx: usize, rel_idx: usize, tail_idx: usize| -> f32 {
+            let head = &entities[head_idx];
+            let relation = &relations[rel_idx];
+            let tail = &entities[tail_idx];
+            let transformed = match relation.apply(head) {
+                Ok(t) => t,
+                Err(_) => return 0.0,
+            };
+            crate::ball::containment_prob(&transformed, tail, k).unwrap_or(0.0)
+        };
+
+        let score_head = |head_idx: usize, rel_idx: usize, tail_idx: usize| -> f32 {
+            let head = &entities[head_idx];
+            let relation = &relations[rel_idx];
+            let tail = &entities[tail_idx];
+            let transformed = match relation.apply(head) {
+                Ok(t) => t,
+                Err(_) => return 0.0,
+            };
+            crate::ball::containment_prob(&transformed, tail, k).unwrap_or(0.0)
+        };
+
+        crate::trainer::evaluation::evaluate_link_prediction_generic(
+            test_triples,
+            num_entities,
+            filter,
+            score_head,
+            score_tail,
+        )
+        .unwrap_or_else(|_| crate::trainer::EvaluationResults {
+            mrr: 0.0,
+            head_mrr: 0.0,
+            tail_mrr: 0.0,
+            hits_at_1: 0.0,
+            hits_at_3: 0.0,
+            hits_at_10: 0.0,
+            mean_rank: f32::MAX,
+            per_relation: vec![],
+        })
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -529,5 +589,183 @@ mod tests {
         );
 
         assert!(loss.is_finite(), "epoch loss not finite: {loss}");
+    }
+
+    #[test]
+    fn train_and_evaluate_synthetic() {
+        use crate::dataset::{TripleIds, Vocab};
+        use crate::trainer::evaluation::FilteredTripleIndexIds;
+
+        let mut vocab = Vocab::default();
+        let e0 = vocab.intern("e0".to_string());
+        let e1 = vocab.intern("e1".to_string());
+        let e2 = vocab.intern("e2".to_string());
+        let e3 = vocab.intern("e3".to_string());
+        let r0 = 0usize;
+        let r1 = 1usize;
+
+        let triples = vec![
+            Triple {
+                head: "e0".to_string(),
+                relation: "r0".to_string(),
+                tail: "e1".to_string(),
+            },
+            Triple {
+                head: "e2".to_string(),
+                relation: "r0".to_string(),
+                tail: "e3".to_string(),
+            },
+            Triple {
+                head: "e0".to_string(),
+                relation: "r1".to_string(),
+                tail: "e2".to_string(),
+            },
+        ];
+
+        let test_triples = vec![
+            TripleIds {
+                head: e0,
+                relation: r0,
+                tail: e1,
+            },
+            TripleIds {
+                head: e2,
+                relation: r0,
+                tail: e3,
+            },
+            TripleIds {
+                head: e0,
+                relation: r1,
+                tail: e2,
+            },
+        ];
+
+        let entity_map: HashMap<String, usize> = [
+            ("e0".to_string(), 0),
+            ("e1".to_string(), 1),
+            ("e2".to_string(), 2),
+            ("e3".to_string(), 3),
+        ]
+        .into_iter()
+        .collect();
+        let relation_map: HashMap<String, usize> = [("r0".to_string(), 0), ("r1".to_string(), 1)]
+            .into_iter()
+            .collect();
+
+        let mut trainer = BallTrainer::new(42);
+        let (mut entities, mut relations) = trainer.init_embeddings(4, 2, 4);
+
+        let config = CpuBoxTrainingConfig {
+            learning_rate: 0.05,
+            margin: 1.0,
+            epochs: 100,
+            ..Default::default()
+        };
+
+        let mut last_loss = f32::MAX;
+        for epoch in 0..50 {
+            let loss = trainer.train_epoch(
+                &mut entities,
+                &mut relations,
+                &triples,
+                &config,
+                &entity_map,
+                &relation_map,
+            );
+            if epoch % 10 == 0 {
+                eprintln!("Epoch {epoch}: loss={loss:.4}");
+            }
+            last_loss = loss;
+        }
+        eprintln!("Final loss: {last_loss:.4}");
+
+        let results = trainer.evaluate(&entities, &relations, &test_triples, None);
+
+        assert!(
+            results.mrr > 0.3,
+            "MRR after training = {}, expected > 0.3 (random ≈ 0.25)",
+            results.mrr
+        );
+        assert!(
+            results.mean_rank < 3.0,
+            "Mean rank = {}, expected < 3.0",
+            results.mean_rank
+        );
+    }
+
+    #[test]
+    fn train_improves_eval_metrics() {
+        use crate::dataset::{TripleIds, Vocab};
+
+        let mut vocab = Vocab::default();
+        let e0 = vocab.intern("e0".to_string());
+        let e1 = vocab.intern("e1".to_string());
+        let e2 = vocab.intern("e2".to_string());
+
+        let triples = vec![
+            Triple {
+                head: "e0".to_string(),
+                relation: "r0".to_string(),
+                tail: "e1".to_string(),
+            },
+            Triple {
+                head: "e0".to_string(),
+                relation: "r0".to_string(),
+                tail: "e2".to_string(),
+            },
+        ];
+
+        let test_triples = vec![
+            TripleIds {
+                head: e0,
+                relation: 0,
+                tail: e1,
+            },
+            TripleIds {
+                head: e0,
+                relation: 0,
+                tail: e2,
+            },
+        ];
+
+        let entity_map: HashMap<String, usize> = [
+            ("e0".to_string(), 0),
+            ("e1".to_string(), 1),
+            ("e2".to_string(), 2),
+        ]
+        .into_iter()
+        .collect();
+        let relation_map: HashMap<String, usize> = [("r0".to_string(), 0)].into_iter().collect();
+
+        let mut trainer = BallTrainer::new(42);
+        let (mut entities, mut relations) = trainer.init_embeddings(3, 1, 4);
+
+        let results_before = trainer.evaluate(&entities, &relations, &test_triples, None);
+
+        let config = CpuBoxTrainingConfig {
+            learning_rate: 0.05,
+            margin: 1.0,
+            ..Default::default()
+        };
+
+        for _epoch in 0..30 {
+            let _ = trainer.train_epoch(
+                &mut entities,
+                &mut relations,
+                &triples,
+                &config,
+                &entity_map,
+                &relation_map,
+            );
+        }
+
+        let results_after = trainer.evaluate(&entities, &relations, &test_triples, None);
+
+        assert!(
+            results_after.mean_rank <= results_before.mean_rank + 0.5,
+            "Mean rank worsened: before={}, after={}",
+            results_before.mean_rank,
+            results_after.mean_rank
+        );
     }
 }
