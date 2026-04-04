@@ -44,7 +44,7 @@ impl SphericalCapTrainer {
             .map(|_| {
                 let axis: Vec<f32> = (0..dim).map(|_| self.rng.gen_range(-1.0..1.0)).collect();
                 let angle = self.rng.gen_range(-0.5..0.5);
-                let log_scale = self.rng.gen_range(-0.2..0.2);
+                let log_scale: f32 = self.rng.gen_range(-0.2..0.2);
                 SphericalCapRelation::new(axis, angle, log_scale.exp()).unwrap()
             })
             .collect();
@@ -350,14 +350,15 @@ impl SphericalCapTrainer {
             );
 
             // Re-normalize centers and axes after gradient update
-            for e in [
-                &mut entities[head_idx],
-                &mut entities[tail_idx],
-                &mut entities[neg_tail_idx],
-            ] {
-                let norm: f32 = e.center().iter().map(|x| x * x).sum::<f32>().sqrt();
+            for idx in [head_idx, tail_idx, neg_tail_idx] {
+                let norm: f32 = entities[idx]
+                    .center()
+                    .iter()
+                    .map(|x| x * x)
+                    .sum::<f32>()
+                    .sqrt();
                 if norm > 1e-12 {
-                    for x in e.center_mut() {
+                    for x in entities[idx].center_mut() {
                         *x /= norm;
                     }
                 }
