@@ -38,14 +38,11 @@ impl CandleGumbelBox {
 }
 
 impl Box for CandleGumbelBox {
-    type Scalar = f32;
-    type Vector = Tensor;
-
-    fn min(&self) -> &Self::Vector {
+    fn min(&self) -> Vec<f32> {
         self.inner.min()
     }
 
-    fn max(&self) -> &Self::Vector {
+    fn max(&self) -> Vec<f32> {
         self.inner.max()
     }
 
@@ -58,16 +55,10 @@ impl Box for CandleGumbelBox {
     /// Uses the stored temperature from construction.
     ///
     /// Per dimension: `softplus(Z - z - 2*gamma*T, beta=1/T)`
-    fn volume(&self) -> std::result::Result<Self::Scalar, BoxError> {
+    fn volume(&self) -> Result<f32, BoxError> {
         let t = self.inner.temperature;
-        let mins = self
-            .min()
-            .to_vec1::<f32>()
-            .map_err(|e| BoxError::Internal(e.to_string()))?;
-        let maxs = self
-            .max()
-            .to_vec1::<f32>()
-            .map_err(|e| BoxError::Internal(e.to_string()))?;
+        let mins = self.min();
+        let maxs = self.max();
         let (_, vol) = bessel_log_volume(&mins, &maxs, t, t);
         Ok(vol)
     }
@@ -81,7 +72,7 @@ impl Box for CandleGumbelBox {
     ///
     /// The LSE intersection provides smooth gradients at box boundaries,
     /// approaching the hard intersection as T -> 0.
-    fn intersection(&self, other: &Self) -> std::result::Result<Self, BoxError> {
+    fn intersection(&self, other: &Self) -> Result<Self, BoxError> {
         if self.dim() != other.dim() {
             return Err(BoxError::DimensionMismatch {
                 expected: self.dim(),
@@ -92,22 +83,10 @@ impl Box for CandleGumbelBox {
         let t = self.inner.temperature;
         let n = self.dim();
 
-        let self_min = self
-            .min()
-            .to_vec1::<f32>()
-            .map_err(|e| BoxError::Internal(e.to_string()))?;
-        let self_max = self
-            .max()
-            .to_vec1::<f32>()
-            .map_err(|e| BoxError::Internal(e.to_string()))?;
-        let other_min = other
-            .min()
-            .to_vec1::<f32>()
-            .map_err(|e| BoxError::Internal(e.to_string()))?;
-        let other_max = other
-            .max()
-            .to_vec1::<f32>()
-            .map_err(|e| BoxError::Internal(e.to_string()))?;
+        let self_min = self.min();
+        let self_max = self.max();
+        let other_min = other.min();
+        let other_max = other.max();
 
         let mut new_min = Vec::with_capacity(n);
         let mut new_max = Vec::with_capacity(n);
@@ -117,11 +96,11 @@ impl Box for CandleGumbelBox {
             new_max.push(gumbel_lse_max(self_max[d], other_max[d], t));
         }
 
-        let device = self.min().device();
+        let device = candle_core::Device::Cpu;
         let min_tensor =
-            Tensor::new(&new_min[..], device).map_err(|e| BoxError::Internal(e.to_string()))?;
+            Tensor::new(&new_min[..], &device).map_err(|e| BoxError::Internal(e.to_string()))?;
         let max_tensor =
-            Tensor::new(&new_max[..], device).map_err(|e| BoxError::Internal(e.to_string()))?;
+            Tensor::new(&new_max[..], &device).map_err(|e| BoxError::Internal(e.to_string()))?;
 
         // No hard clipping: softplus volume handles "flipped" boxes (z > Z)
         // gracefully by returning near-zero volume.
@@ -135,7 +114,7 @@ impl Box for CandleGumbelBox {
     /// Uses the stored temperature from construction.
     ///
     /// `P(other inside self) = Vol(self cap other) / Vol(other)`
-    fn containment_prob(&self, other: &Self) -> std::result::Result<Self::Scalar, BoxError> {
+    fn containment_prob(&self, other: &Self) -> Result<f32, BoxError> {
         let inter = self.intersection(other)?;
         let inter_vol = inter.volume()?;
         let other_vol = other.volume()?;
@@ -148,7 +127,7 @@ impl Box for CandleGumbelBox {
     /// Overlap probability using Gumbel volume and LSE intersection.
     ///
     /// `P(self cap other != empty) = Vol(self cap other) / Vol(self cup other)`
-    fn overlap_prob(&self, other: &Self) -> std::result::Result<Self::Scalar, BoxError> {
+    fn overlap_prob(&self, other: &Self) -> Result<f32, BoxError> {
         let inter = self.intersection(other)?;
         let inter_vol = inter.volume()?;
         let self_vol = self.volume()?;
@@ -160,17 +139,17 @@ impl Box for CandleGumbelBox {
         Ok((inter_vol / union_vol).clamp(0.0, 1.0))
     }
 
-    fn union(&self, other: &Self) -> std::result::Result<Self, BoxError> {
+    fn union(&self, other: &Self) -> Result<Self, BoxError> {
         Ok(Self {
             inner: self.inner.union(&other.inner)?,
         })
     }
 
-    fn center(&self) -> std::result::Result<Self::Vector, BoxError> {
+    fn center(&self) -> Result<Vec<f32>, BoxError> {
         self.inner.center()
     }
 
-    fn distance(&self, other: &Self) -> std::result::Result<Self::Scalar, BoxError> {
+    fn distance(&self, other: &Self) -> Result<f32, BoxError> {
         self.inner.distance(&other.inner)
     }
 
@@ -210,14 +189,8 @@ impl CandleGumbelBox {
         let point_data = point
             .to_vec1::<f32>()
             .map_err(|e| BoxError::Internal(e.to_string()))?;
-        let min_data = self
-            .min()
-            .to_vec1::<f32>()
-            .map_err(|e| BoxError::Internal(e.to_string()))?;
-        let max_data = self
-            .max()
-            .to_vec1::<f32>()
-            .map_err(|e| BoxError::Internal(e.to_string()))?;
+        let min_data = self.min();
+        let max_data = self.max();
 
         let mut prob = 1.0;
         for (i, &coord) in point_data.iter().enumerate() {
@@ -235,11 +208,11 @@ impl CandleGumbelBox {
 
         // Use LCG for pseudo-random sampling to avoid rand dependency conflicts.
         // Note: LCG has known limitations but is sufficient for non-cryptographic use.
-        let device = self.min().device();
+        let device = candle_core::Device::Cpu;
         let dim = self.dim();
 
-        let min_data = self.min().to_vec1::<f32>().unwrap_or_default();
-        let max_data = self.max().to_vec1::<f32>().unwrap_or_default();
+        let min_data = self.min();
+        let max_data = self.max();
 
         let mut seed = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -260,13 +233,13 @@ impl CandleGumbelBox {
             samples.push(value);
         }
 
-        Tensor::new(&*samples, device).unwrap_or_else(|e| {
+        Tensor::new(&*samples, &device).unwrap_or_else(|e| {
             // Fallback: return center point if tensor creation fails
             // This should be rare - only occurs if device allocation fails
             let center: Vec<f32> = (0..dim)
                 .map(|i| (min_data[i] + max_data[i]) / 2.0)
                 .collect();
-            Tensor::new(&*center, device).unwrap_or_else(|_| {
+            Tensor::new(&*center, &device).unwrap_or_else(|_| {
                 // If fallback also fails, try creating zero tensor on same device
                 // This is better than panicking, though indicates serious device issues
                 eprintln!(
@@ -275,7 +248,7 @@ impl CandleGumbelBox {
                 );
                 // Return a zero tensor - this is a degraded state but better than panic
                 // If this also fails, we have no choice but to panic (indicates system failure)
-                Tensor::zeros(&[dim], candle_core::DType::F32, device)
+                Tensor::zeros(&[dim], candle_core::DType::F32, &device)
                     .unwrap_or_else(|_| {
                         panic!(
                             "CRITICAL: Cannot create any tensor on device {:?}. System may be out of memory or device unavailable. Original error: {}",

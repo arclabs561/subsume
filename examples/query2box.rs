@@ -66,7 +66,7 @@ fn rank_by_distance<'a>(
         .iter()
         .map(|(name, b)| {
             // Use center of candidate box as the entity point.
-            let center: Array1<f32> = (b.min() + b.max()) * 0.5;
+            let center: Array1<f32> = b.center().unwrap().into();
             let d = query2box_distance(query, &center, alpha).unwrap_or(f32::INFINITY);
             (*name, d)
         })
@@ -250,7 +250,7 @@ fn main() -> Result<(), subsume::BoxError> {
 
     // Show how alpha affects ranking
     println!("  Alpha sensitivity: distance for Paris across alpha values\n");
-    let paris_center: Array1<f32> = (paris.min() + paris.max()) * 0.5;
+    let paris_center: Array1<f32> = paris.center().unwrap().into();
     for &a in &[0.0, 0.02, 0.1, 0.5, 1.0] {
         let d = query2box_distance(&france, &paris_center, a)?;
         println!("    alpha={a:.2}: dist={d:.4}");
