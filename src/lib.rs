@@ -287,8 +287,8 @@ pub use dataset::{Dataset, DatasetError, Triple};
 // Re-exports: training
 pub use trainer::{
     compute_relation_cardinalities, evaluate_link_prediction, BoxEmbeddingTrainer,
-    ConeEmbeddingTrainer, EvaluationResults, RelationCardinality, RelationTransform,
-    TrainingConfig, TrainingResult,
+    ConeEmbeddingTrainer, CpuBoxTrainingConfig, EvaluationResults, RelationCardinality,
+    RelationTransform, TrainingConfig, TrainingResult,
 };
 
 // Re-export: CandleBoxTrainer (GPU training)

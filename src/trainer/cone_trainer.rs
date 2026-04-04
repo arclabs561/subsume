@@ -3,7 +3,7 @@ use crate::trainable::TrainableCone;
 use crate::BoxError;
 use std::collections::{HashMap, HashSet};
 
-use super::TrainingConfig;
+use super::CpuBoxTrainingConfig;
 
 /// Inside-distance weight for cone containment scoring (ConE default).
 const CONE_CENTER_WEIGHT: f32 = 0.02;
@@ -22,7 +22,7 @@ pub fn compute_cone_pair_loss(
     cone_a: &TrainableCone,
     cone_b: &TrainableCone,
     is_positive: bool,
-    config: &TrainingConfig,
+    config: &CpuBoxTrainingConfig,
 ) -> f32 {
     let dense_a = cone_a.to_cone();
     let dense_b = cone_b.to_cone();
@@ -67,7 +67,7 @@ pub fn compute_cone_analytical_gradients(
     cone_a: &TrainableCone,
     cone_b: &TrainableCone,
     is_positive: bool,
-    config: &TrainingConfig,
+    config: &CpuBoxTrainingConfig,
 ) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>) {
     let dim = cone_a.dim();
     let mut grad_axes_a = vec![0.0f32; dim];
@@ -134,7 +134,7 @@ pub fn compute_cone_analytical_gradients(
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct ConeEmbeddingTrainer {
     /// Training configuration (shared with box trainer).
-    pub(crate) config: TrainingConfig,
+    pub(crate) config: CpuBoxTrainingConfig,
     /// Entity ID -> TrainableCone mapping.
     pub(crate) cones: HashMap<usize, TrainableCone>,
     /// Entity ID -> AMSGradState mapping.
@@ -152,7 +152,7 @@ impl ConeEmbeddingTrainer {
 
     /// Training configuration.
     #[must_use]
-    pub fn config(&self) -> &TrainingConfig {
+    pub fn config(&self) -> &CpuBoxTrainingConfig {
         &self.config
     }
 
@@ -169,7 +169,7 @@ impl ConeEmbeddingTrainer {
     /// If `initial_embeddings` is provided, each vector is used as the initial
     /// per-dimension axis values (apertures start at pi/2).
     pub fn new(
-        config: TrainingConfig,
+        config: CpuBoxTrainingConfig,
         dim: usize,
         initial_embeddings: Option<HashMap<usize, Vec<f32>>>,
     ) -> Self {
@@ -552,7 +552,7 @@ mod tests {
 
     #[test]
     fn cone_pair_loss_positive_prefers_containment() {
-        let cfg = TrainingConfig::default();
+        let cfg = CpuBoxTrainingConfig::default();
 
         // A: wide cone, B_in: narrow cone with same axes (contained)
         let a = TrainableCone::new(vec![0.0, 0.0], vec![2.0, 2.0]).unwrap(); // wide aperture
@@ -573,7 +573,7 @@ mod tests {
 
     #[test]
     fn cone_trainer_train_step_does_not_panic() {
-        let cfg = TrainingConfig::default();
+        let cfg = CpuBoxTrainingConfig::default();
         let mut trainer = ConeEmbeddingTrainer::new(cfg, 4, None);
         let loss = trainer.train_step(0, 1, true);
         assert!(loss.is_finite(), "loss must be finite, got {}", loss);
@@ -588,7 +588,7 @@ mod tests {
 
     #[test]
     fn cone_trainer_reduces_loss_over_steps() {
-        let cfg = TrainingConfig {
+        let cfg = CpuBoxTrainingConfig {
             learning_rate: 0.01,
             regularization: 0.0,
             ..Default::default()
