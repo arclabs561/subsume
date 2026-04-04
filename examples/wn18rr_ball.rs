@@ -65,11 +65,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(10);
+    let adv_temp: f32 = std::env::var("ADV_TEMP")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0.0);
 
     let num_entities = interned.entities.len();
     let num_relations = interned.relations.len();
 
-    println!("\nConfig: dim={dim}, epochs={epochs}, lr={lr}, margin={margin}, neg={neg}");
+    println!("\nConfig: dim={dim}, epochs={epochs}, lr={lr}, margin={margin}, neg={neg}, adv_temp={adv_temp}");
 
     // Build entity/relation maps
     let mut entity_to_idx: HashMap<String, usize> = HashMap::new();
@@ -106,6 +110,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         margin,
         epochs,
         negative_samples: neg,
+        adversarial_temperature: adv_temp,
         ..Default::default()
     };
 
