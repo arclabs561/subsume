@@ -188,6 +188,16 @@ impl Ball {
         let log_r_term = d * self.radius.ln();
         log_pi_term - log_gamma + log_r_term
     }
+
+    /// Mutable access to center coordinates (for training).
+    pub fn center_mut(&mut self) -> &mut [f32] {
+        &mut self.center
+    }
+
+    /// Set the radius from a log-radius value (for training).
+    pub fn set_log_radius(&mut self, log_radius: f32) {
+        self.radius = log_radius.clamp(-10.0, 5.0).exp();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -250,6 +260,22 @@ impl BallRelation {
             .collect();
         let new_radius = ball.radius * self.scale;
         Ball::new(new_center, new_radius)
+    }
+
+    /// Mutable access to translation (for training).
+    pub fn translation_mut(&mut self) -> &mut [f32] {
+        &mut self.translation
+    }
+
+    /// Log-scale (for training stability).
+    #[must_use]
+    pub fn log_scale(&self) -> f32 {
+        self.scale.ln()
+    }
+
+    /// Set the scale from a log-scale value (for training).
+    pub fn set_log_scale(&mut self, log_scale: f32) {
+        self.scale = log_scale.clamp(-5.0, 5.0).exp();
     }
 }
 
