@@ -82,22 +82,19 @@ impl CandleBox {
 }
 
 impl Box for CandleBox {
-    type Scalar = f32;
-    type Vector = Tensor;
-
-    fn min(&self) -> &Self::Vector {
-        &self.min
+    fn min(&self) -> Vec<f32> {
+        self.min.to_vec1().unwrap_or_default()
     }
 
-    fn max(&self) -> &Self::Vector {
-        &self.max
+    fn max(&self) -> Vec<f32> {
+        self.max.to_vec1().unwrap_or_default()
     }
 
     fn dim(&self) -> usize {
         self.min.dims().iter().product()
     }
 
-    fn volume(&self) -> std::result::Result<Self::Scalar, BoxError> {
+    fn volume(&self) -> Result<f32, BoxError> {
         // Volume = ∏(max\[i\] - min\[i\])
         let diff = self
             .max
@@ -150,7 +147,7 @@ impl Box for CandleBox {
         Self::new(intersection_min, intersection_max, self.temperature)
     }
 
-    fn containment_prob(&self, other: &Self) -> std::result::Result<Self::Scalar, BoxError> {
+    fn containment_prob(&self, other: &Self) -> Result<f32, BoxError> {
         if self.dim() != other.dim() {
             return Err(BoxError::DimensionMismatch {
                 expected: self.dim(),
@@ -170,7 +167,7 @@ impl Box for CandleBox {
         Ok((intersection_vol / other_vol).clamp(0.0, 1.0))
     }
 
-    fn overlap_prob(&self, other: &Self) -> std::result::Result<Self::Scalar, BoxError> {
+    fn overlap_prob(&self, other: &Self) -> Result<f32, BoxError> {
         // P(self ∩ other ≠ ∅) = intersection_volume / union_volume
         // Using inclusion-exclusion: P(A ∩ B ≠ ∅) = intersection_vol(A, B) / union_vol(A, B)
         let intersection = self.intersection(other)?;
@@ -208,7 +205,7 @@ impl Box for CandleBox {
         Self::new(union_min, union_max, self.temperature)
     }
 
-    fn center(&self) -> std::result::Result<Self::Vector, BoxError> {
+    fn center(&self) -> Result<Vec<f32>, BoxError> {
         // Center = (min + max) / 2
         let sum = self
             .min
@@ -219,10 +216,10 @@ impl Box for CandleBox {
         let center = sum
             .broadcast_div(&two)
             .map_err(|e| BoxError::Internal(e.to_string()))?;
-        Ok(center)
+        Ok(center.to_vec1().unwrap_or_default())
     }
 
-    fn distance(&self, other: &Self) -> std::result::Result<Self::Scalar, BoxError> {
+    fn distance(&self, other: &Self) -> Result<f32, BoxError> {
         if self.dim() != other.dim() {
             return Err(BoxError::DimensionMismatch {
                 expected: self.dim(),
@@ -420,10 +417,10 @@ mod tests {
         assert_eq!(original.dim(), restored.dim());
 
         // Verify min/max coordinates match.
-        let orig_min: Vec<f32> = original.min().to_vec1().unwrap();
-        let rest_min: Vec<f32> = restored.min().to_vec1().unwrap();
-        let orig_max: Vec<f32> = original.max().to_vec1().unwrap();
-        let rest_max: Vec<f32> = restored.max().to_vec1().unwrap();
+        let orig_min = original.min();
+        let rest_min = restored.min();
+        let orig_max = original.max();
+        let rest_max = restored.max();
         assert_eq!(orig_min, rest_min);
         assert_eq!(orig_max, rest_max);
 

@@ -160,22 +160,19 @@ impl NdarrayBox {
 }
 
 impl Box for NdarrayBox {
-    type Scalar = f32;
-    type Vector = Array1<f32>;
-
-    fn min(&self) -> &Self::Vector {
-        &self.min
+    fn min(&self) -> Vec<f32> {
+        self.min.as_slice().unwrap_or(&[]).to_vec()
     }
 
-    fn max(&self) -> &Self::Vector {
-        &self.max
+    fn max(&self) -> Vec<f32> {
+        self.max.as_slice().unwrap_or(&[]).to_vec()
     }
 
     fn dim(&self) -> usize {
         self.min.len()
     }
 
-    fn volume(&self) -> Result<Self::Scalar, BoxError> {
+    fn volume(&self) -> Result<f32, BoxError> {
         use crate::utils::log_space_volume;
 
         // Hard box volume: product of side lengths (Vilnis et al., 2018).
@@ -237,7 +234,7 @@ impl Box for NdarrayBox {
         )
     }
 
-    fn containment_prob(&self, other: &Self) -> Result<Self::Scalar, BoxError> {
+    fn containment_prob(&self, other: &Self) -> Result<f32, BoxError> {
         // Containment probability: P(other ⊆ self) = Vol(self ∩ other) / Vol(other).
         //
         // IMPORTANT: this is a hot path (training + evaluation). Constructing an explicit
@@ -306,11 +303,7 @@ impl Box for NdarrayBox {
         }
     }
 
-    fn containment_prob_many(
-        &self,
-        others: &[Self],
-        out: &mut [Self::Scalar],
-    ) -> Result<(), BoxError> {
+    fn containment_prob_many(&self, others: &[Self], out: &mut [f32]) -> Result<(), BoxError> {
         if out.len() < others.len() {
             return Err(BoxError::Internal(format!(
                 "output buffer too small: need {}, got {}",
@@ -386,7 +379,7 @@ impl Box for NdarrayBox {
         Ok(())
     }
 
-    fn overlap_prob(&self, other: &Self) -> Result<Self::Scalar, BoxError> {
+    fn overlap_prob(&self, other: &Self) -> Result<f32, BoxError> {
         // Overlap probability: Vol(self ∩ other) / Vol(self ∪ other).
         //
         // Same optimization as `containment_prob`: avoid allocating an intersection box.
@@ -484,8 +477,8 @@ impl Box for NdarrayBox {
         Self::new(union_min, union_max, self.temperature)
     }
 
-    fn center(&self) -> Result<Self::Vector, BoxError> {
-        let center: Array1<f32> = self
+    fn center(&self) -> Result<Vec<f32>, BoxError> {
+        let center: Vec<f32> = self
             .min
             .iter()
             .zip(self.max.iter())
@@ -494,7 +487,7 @@ impl Box for NdarrayBox {
         Ok(center)
     }
 
-    fn distance(&self, other: &Self) -> Result<Self::Scalar, BoxError> {
+    fn distance(&self, other: &Self) -> Result<f32, BoxError> {
         if self.dim() != other.dim() {
             return Err(BoxError::DimensionMismatch {
                 expected: self.dim(),

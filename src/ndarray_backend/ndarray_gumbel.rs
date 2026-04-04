@@ -54,14 +54,11 @@ impl NdarrayGumbelBox {
 }
 
 impl Box for NdarrayGumbelBox {
-    type Scalar = f32;
-    type Vector = Array1<f32>;
-
-    fn min(&self) -> &Self::Vector {
+    fn min(&self) -> Vec<f32> {
         self.inner.min()
     }
 
-    fn max(&self) -> &Self::Vector {
+    fn max(&self) -> Vec<f32> {
         self.inner.max()
     }
 
@@ -78,11 +75,11 @@ impl Box for NdarrayGumbelBox {
     ///
     /// This provides smooth gradients even for near-empty boxes, solving the local
     /// identifiability problem that motivates Gumbel boxes in the first place.
-    fn volume(&self) -> Result<Self::Scalar, BoxError> {
+    fn volume(&self) -> Result<f32, BoxError> {
         let t = self.inner.temperature;
-        let mins = self.min().as_slice().unwrap();
-        let maxs = self.max().as_slice().unwrap();
-        let (_, vol) = bessel_log_volume(mins, maxs, t, t);
+        let mins = self.min();
+        let maxs = self.max();
+        let (_, vol) = bessel_log_volume(&mins, &maxs, t, t);
         Ok(vol)
     }
 
@@ -126,7 +123,7 @@ impl Box for NdarrayGumbelBox {
     /// Uses the stored temperature from construction; uses the stored temperature from construction.
     ///
     /// `P(other inside self) = Vol(self cap other) / Vol(other)`
-    fn containment_prob(&self, other: &Self) -> Result<Self::Scalar, BoxError> {
+    fn containment_prob(&self, other: &Self) -> Result<f32, BoxError> {
         let inter = self.intersection(other)?;
         let inter_vol = inter.volume()?;
         let other_vol = other.volume()?;
@@ -139,7 +136,7 @@ impl Box for NdarrayGumbelBox {
     /// Overlap probability using Gumbel volume and LSE intersection.
     ///
     /// `P(self cap other != empty) = Vol(self cap other) / Vol(self cup other)`
-    fn overlap_prob(&self, other: &Self) -> Result<Self::Scalar, BoxError> {
+    fn overlap_prob(&self, other: &Self) -> Result<f32, BoxError> {
         let inter = self.intersection(other)?;
         let inter_vol = inter.volume()?;
         let self_vol = self.volume()?;
@@ -157,11 +154,11 @@ impl Box for NdarrayGumbelBox {
         })
     }
 
-    fn center(&self) -> Result<Self::Vector, BoxError> {
+    fn center(&self) -> Result<Vec<f32>, BoxError> {
         self.inner.center()
     }
 
-    fn distance(&self, other: &Self) -> Result<Self::Scalar, BoxError> {
+    fn distance(&self, other: &Self) -> Result<f32, BoxError> {
         self.inner.distance(&other.inner)
     }
 

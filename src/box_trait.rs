@@ -74,11 +74,6 @@
 /// - `use subsume::Box as BoxRegion;` (recommended)
 /// - Qualify calls as `subsume::Box` or `<T as subsume::Box>::method()`
 ///
-/// # Type Parameters
-///
-/// - `Scalar`: The scalar type (e.g., `f32`, `Tensor`)
-/// - `Vector`: The vector type (e.g., `Vec<f32>`, `Tensor`)
-///
 /// # Invariants
 ///
 /// - `min\[i\] <= max\[i\]` for all dimensions i
@@ -110,17 +105,11 @@
 /// assert!(prob > 0.9); // hypothesis is contained in premise
 /// ```
 pub trait Box: Sized {
-    /// Scalar type for probabilities, volumes, etc.
-    type Scalar: Clone + Copy + PartialOrd;
-
-    /// Vector type for min/max bounds.
-    type Vector: Clone;
-
     /// Get the minimum bound in each dimension.
-    fn min(&self) -> &Self::Vector;
+    fn min(&self) -> Vec<f32>;
 
     /// Get the maximum bound in each dimension.
-    fn max(&self) -> &Self::Vector;
+    fn max(&self) -> Vec<f32>;
 
     /// Get the number of dimensions.
     fn dim(&self) -> usize;
@@ -145,7 +134,7 @@ pub trait Box: Sized {
     ///
     /// Bounds are validated at construction time, so this cannot fail
     /// under normal usage.
-    fn volume(&self) -> Result<Self::Scalar, BoxError>;
+    fn volume(&self) -> Result<f32, BoxError>;
 
     /// Compute the intersection of two boxes.
     ///
@@ -240,7 +229,7 @@ pub trait Box: Sized {
     /// # Errors
     ///
     /// Returns `BoxError::DimensionMismatch` if boxes have different dimensions.
-    fn containment_prob(&self, other: &Self) -> Result<Self::Scalar, BoxError>;
+    fn containment_prob(&self, other: &Self) -> Result<f32, BoxError>;
 
     /// Compute the probability that `self` contains `other` (fast path).
     ///
@@ -253,7 +242,7 @@ pub trait Box: Sized {
     /// Backends can override this method to compute intersection volume directly (no allocation),
     /// or to batch the computation when evaluating a query against many candidates.
     #[inline]
-    fn containment_prob_fast(&self, other: &Self) -> Result<Self::Scalar, BoxError> {
+    fn containment_prob_fast(&self, other: &Self) -> Result<f32, BoxError> {
         self.containment_prob(other)
     }
 
@@ -269,11 +258,7 @@ pub trait Box: Sized {
     ///
     /// Returns `BoxError::Internal` if `out.len() < others.len()`.
     #[inline]
-    fn containment_prob_many(
-        &self,
-        others: &[Self],
-        out: &mut [Self::Scalar],
-    ) -> Result<(), BoxError> {
+    fn containment_prob_many(&self, others: &[Self], out: &mut [f32]) -> Result<(), BoxError> {
         if out.len() < others.len() {
             return Err(BoxError::Internal(format!(
                 "output buffer too small: need {}, got {}",
@@ -343,7 +328,7 @@ pub trait Box: Sized {
     ///
     /// Returns `BoxError::DimensionMismatch` if boxes have different dimensions.
     ///
-    fn overlap_prob(&self, other: &Self) -> Result<Self::Scalar, BoxError>;
+    fn overlap_prob(&self, other: &Self) -> Result<f32, BoxError>;
 
     /// Compute the union of two boxes.
     ///
@@ -362,7 +347,7 @@ pub trait Box: Sized {
     /// # Errors
     ///
     /// Returns `BoxError::Internal` if center computation fails.
-    fn center(&self) -> Result<Self::Vector, BoxError>;
+    fn center(&self) -> Result<Vec<f32>, BoxError>;
 
     /// Compute the minimum distance between two boxes.
     ///
@@ -372,7 +357,7 @@ pub trait Box: Sized {
     /// # Errors
     ///
     /// Returns `BoxError::DimensionMismatch` if boxes have different dimensions.
-    fn distance(&self, other: &Self) -> Result<Self::Scalar, BoxError>;
+    fn distance(&self, other: &Self) -> Result<f32, BoxError>;
 
     /// Truncate the box to the first `k` dimensions (Matryoshka principle).
     ///

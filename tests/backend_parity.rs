@@ -109,8 +109,8 @@ fn check_parity(dim: usize, temperature: f32) {
     let ci = ca.intersection(&cc).unwrap();
     let ni_min: Vec<f32> = ni.min().iter().copied().collect();
     let ni_max: Vec<f32> = ni.max().iter().copied().collect();
-    let ci_min: Vec<f32> = ci.min().to_vec1::<f32>().unwrap();
-    let ci_max: Vec<f32> = ci.max().to_vec1::<f32>().unwrap();
+    let ci_min: Vec<f32> = ci.min();
+    let ci_max: Vec<f32> = ci.max();
     for i in 0..dim {
         assert_close(&format!("{tag} isect_min[{i}]"), ni_min[i], ci_min[i]);
         assert_close(&format!("{tag} isect_max[{i}]"), ni_max[i], ci_max[i]);
@@ -220,8 +220,8 @@ fn check_extended_parity(dim: usize, temperature: f32) {
     let cu = ca.union(&cc).unwrap();
     let nu_min: Vec<f32> = nu.min().iter().copied().collect();
     let nu_max: Vec<f32> = nu.max().iter().copied().collect();
-    let cu_min: Vec<f32> = cu.min().to_vec1::<f32>().unwrap();
-    let cu_max: Vec<f32> = cu.max().to_vec1::<f32>().unwrap();
+    let cu_min: Vec<f32> = cu.min();
+    let cu_max: Vec<f32> = cu.max();
     for i in 0..dim {
         assert_close(&format!("{tag} union_min[{i}]"), nu_min[i], cu_min[i]);
         assert_close(&format!("{tag} union_max[{i}]"), nu_max[i], cu_max[i]);
@@ -235,7 +235,7 @@ fn check_extended_parity(dim: usize, temperature: f32) {
 
     // -- center --
     let nc_center: Vec<f32> = na.center().unwrap().iter().copied().collect();
-    let cc_center: Vec<f32> = ca.center().unwrap().to_vec1::<f32>().unwrap();
+    let cc_center: Vec<f32> = ca.center().unwrap();
     for i in 0..dim {
         assert_close(&format!("{tag} center[{i}]"), nc_center[i], cc_center[i]);
     }
@@ -322,9 +322,9 @@ fn gumbel_parity_intersection() {
         let ci = ca.intersection(&cb).unwrap();
 
         let ni_min: Vec<f32> = ni.min().iter().copied().collect();
-        let ci_min: Vec<f32> = ci.min().to_vec1::<f32>().unwrap();
+        let ci_min: Vec<f32> = ci.min();
         let ni_max: Vec<f32> = ni.max().iter().copied().collect();
-        let ci_max: Vec<f32> = ci.max().to_vec1::<f32>().unwrap();
+        let ci_max: Vec<f32> = ci.max();
 
         for d in 0..2 {
             assert_close(
