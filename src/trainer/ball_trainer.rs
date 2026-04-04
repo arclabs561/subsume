@@ -7,6 +7,7 @@
 
 use crate::ball::{Ball, BallRelation};
 use crate::dataset::Triple;
+use crate::trainer::negative_sampling::{compute_relation_entity_pools, sample_excluding};
 use crate::trainer::CpuBoxTrainingConfig;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -81,7 +82,46 @@ impl BallTrainer {
     }
 
     /// Compute ranking loss for a (positive, negative) pair.
-    /// Returns (loss, gradients).
+    /// Compute per-triple margin-ranking loss and analytical gradients.
+    ///
+    /// # Derivation
+    ///
+    /// Given:
+    /// ```text
+    /// transformed.center   = head.center + relation.translation
+    /// transformed.log_r    = head.log_r  + relation.log_scale
+    /// transformed.radius   = exp(transformed.log_r)
+    ///
+    /// margin_pos = tail.radius − dist(transformed.center, tail.center) − transformed.radius
+    /// margin_neg = neg_tail.radius − dist(transformed.center, neg_tail.center) − transformed.radius
+    ///
+    /// prob_pos = σ(k · margin_pos)
+    /// prob_neg = σ(k · margin_neg)
+    ///
+    /// L = max(0,  margin − ln prob_pos + ln prob_neg)
+    /// ```
+    ///
+    /// Chain rule (when L > 0):
+    /// ```text
+    /// ∂L/∂head.center_i       = d_pos · σ'_pos · (−diff_pos_i / dist_pos)
+    ///                          + d_neg · σ'_neg · (−diff_neg_i / dist_neg)
+    ///
+    /// ∂L/∂relation.translation_i  = same as head.center_i  (enters identically)
+    ///
+    /// ∂L/∂tail.center_i       = d_pos · σ'_pos · (+diff_pos_i / dist_pos)
+    ///
+    /// ∂L/∂neg_tail.center_i   = d_neg · σ'_neg · (+diff_neg_i / dist_neg)
+    ///
+    /// ∂L/∂head.log_r          = (d_pos · σ'_pos + d_neg · σ'_neg) · (−transformed.radius)
+    ///
+    /// ∂L/∂relation.log_scale  = same as head.log_r  (enters identically via transformed.log_r)
+    ///
+    /// ∂L/∂tail.log_r          = d_pos · σ'_pos · (+tail.radius)
+    ///
+    /// ∂L/∂neg_tail.log_r      = d_neg · σ'_neg · (+neg_tail.radius)
+    /// ```
+    /// where d_pos = −1/prob_pos, d_neg = +1/prob_neg,
+    ///       σ'(x) = k · σ(x) · (1 − σ(x)).
     fn compute_pair_gradients(
         head: &Ball,
         relation: &BallRelation,
@@ -93,69 +133,67 @@ impl BallTrainer {
         let dim = head.dim();
         let mut grads = BallGradients::new(dim);
 
-        let pos_transformed = match relation.apply(head) {
+        // Both positive and negative share the same transformed head ball.
+        let transformed = match relation.apply(head) {
             Ok(t) => t,
             Err(_) => return (0.0, grads),
         };
-        let pos_prob = match crate::ball::containment_prob(&pos_transformed, tail, k) {
-            Ok(p) => p.max(1e-10),
+        let transformed_radius = transformed.radius();
+
+        let pos_prob = match crate::ball::containment_prob(&transformed, tail, k) {
+            Ok(p) => p.clamp(1e-10, 1.0 - 1e-10),
+            Err(_) => return (0.0, grads),
+        };
+        let neg_prob = match crate::ball::containment_prob(&transformed, neg_tail, k) {
+            Ok(p) => p.clamp(1e-10, 1.0 - 1e-10),
             Err(_) => return (0.0, grads),
         };
 
-        let neg_transformed = match relation.apply(head) {
-            Ok(t) => t,
-            Err(_) => return (0.0, grads),
-        };
-        let neg_prob = match crate::ball::containment_prob(&neg_transformed, neg_tail, k) {
-            Ok(p) => p.max(1e-10),
-            Err(_) => return (0.0, grads),
-        };
-
-        let pos_score = -pos_prob.ln();
-        let neg_score = -neg_prob.ln();
-        // Loss = margin + pos_score - neg_score = margin - ln(pos_prob) + ln(neg_prob)
-        // Minimized when pos_prob is large and neg_prob is small.
-        let loss = (margin + pos_score - neg_score).max(0.0);
-
+        let loss = (margin - pos_prob.ln() + neg_prob.ln()).max(0.0);
         if loss <= 1e-8 {
             return (0.0, grads);
         }
 
-        let pos_center_dist = center_distance(&pos_transformed, tail);
-        let neg_center_dist = center_distance(&neg_transformed, neg_tail);
+        let d_pos = -1.0 / pos_prob; // ∂L/∂pos_prob
+        let d_neg = 1.0 / neg_prob; // ∂L/∂neg_prob
+        let sp = k * pos_prob * (1.0 - pos_prob); // σ'(k·margin_pos)
+        let sn = k * neg_prob * (1.0 - neg_prob); // σ'(k·margin_neg)
 
-        let pos_sigmoid_deriv = k * pos_prob * (1.0 - pos_prob);
-        let neg_sigmoid_deriv = k * neg_prob * (1.0 - neg_prob);
+        let pos_dist = center_distance(&transformed, tail);
+        let neg_dist = center_distance(&transformed, neg_tail);
 
-        let d_pos = -1.0 / pos_prob;
-        let d_neg = 1.0 / neg_prob;
-
-        if pos_center_dist > 1e-8 {
+        // ── Center gradients ────────────────────────────────────────────────
+        if pos_dist > 1e-8 {
             for i in 0..dim {
-                let diff = pos_transformed.center()[i] - tail.center()[i];
-                let d_dist = diff / pos_center_dist;
-                grads.head_center[i] += d_pos * pos_sigmoid_deriv * (-d_dist);
-                grads.tail_center[i] += d_pos * pos_sigmoid_deriv * d_dist;
+                let d = (transformed.center()[i] - tail.center()[i]) / pos_dist;
+                grads.head_center[i] += d_pos * sp * (-d);
+                grads.tail_center[i] += d_pos * sp * d;
             }
         }
-        if neg_center_dist > 1e-8 {
+        if neg_dist > 1e-8 {
             for i in 0..dim {
-                let diff = neg_transformed.center()[i] - neg_tail.center()[i];
-                let d_dist = diff / neg_center_dist;
-                grads.head_center[i] += d_neg * neg_sigmoid_deriv * (-d_dist);
-                grads.neg_tail_center[i] += d_neg * neg_sigmoid_deriv * d_dist;
+                let d = (transformed.center()[i] - neg_tail.center()[i]) / neg_dist;
+                grads.head_center[i] += d_neg * sn * (-d);
+                grads.neg_tail_center[i] += d_neg * sn * d;
             }
         }
+        // relation.translation enters identically to head.center
+        grads
+            .relation_translation
+            .copy_from_slice(&grads.head_center);
 
-        grads.head_log_radius +=
-            d_pos * pos_sigmoid_deriv * (-1.0) + d_neg * neg_sigmoid_deriv * (-1.0);
-        grads.tail_log_radius += d_pos * pos_sigmoid_deriv;
-        grads.neg_tail_log_radius += d_neg * neg_sigmoid_deriv;
+        // ── Log-radius gradients ─────────────────────────────────────────────
+        // ∂margin_pos/∂transformed.log_r = −transformed.radius  (chain through exp)
+        // ∂margin_neg/∂transformed.log_r = −transformed.radius
+        let dl_d_tr_lr = (d_pos * sp + d_neg * sn) * (-transformed_radius);
+        grads.head_log_radius = dl_d_tr_lr; // head.log_r enters via transformed.log_r
+        grads.relation_log_scale = dl_d_tr_lr; // rel.log_scale enters identically
 
-        for i in 0..dim {
-            grads.relation_translation[i] = grads.head_center[i];
-        }
-        grads.relation_log_scale = grads.head_log_radius * head.radius();
+        // ∂margin_pos/∂tail.log_r = +tail.radius
+        grads.tail_log_radius = d_pos * sp * tail.radius();
+
+        // ∂margin_neg/∂neg_tail.log_r = +neg_tail.radius
+        grads.neg_tail_log_radius = d_neg * sn * neg_tail.radius();
 
         (loss, grads)
     }
@@ -171,7 +209,7 @@ impl BallTrainer {
         relation_to_idx: &HashMap<String, usize>,
     ) -> f32 {
         let num_entities = entities.len();
-        let k = 10.0;
+        let k = config.sigmoid_k;
         let mut total_loss = 0.0f32;
         let mut count = 0usize;
         let lr = config.learning_rate;
@@ -179,30 +217,31 @@ impl BallTrainer {
         let beta2 = 0.999f32;
         let eps = 1e-8f32;
 
-        let mut indices: Vec<usize> = (0..triples.len()).collect();
+        let indexed_triples: Vec<(usize, usize, usize)> = triples
+            .iter()
+            .filter_map(|triple| {
+                let head_idx = *entity_to_idx.get(&triple.head)?;
+                let rel_idx = *relation_to_idx.get(&triple.relation)?;
+                let tail_idx = *entity_to_idx.get(&triple.tail)?;
+                Some((head_idx, rel_idx, tail_idx))
+            })
+            .collect();
+        let relation_pools = compute_relation_entity_pools(&indexed_triples);
+
+        let mut indices: Vec<usize> = (0..indexed_triples.len()).collect();
         for i in (1..indices.len()).rev() {
             let j = self.rng.random_range(0..=i);
             indices.swap(i, j);
         }
 
         for &idx in &indices {
-            let triple = &triples[idx];
-            let head_idx = match entity_to_idx.get(&triple.head) {
-                Some(&i) => i,
-                None => continue,
-            };
-            let rel_idx = match relation_to_idx.get(&triple.relation) {
-                Some(&i) => i,
-                None => continue,
-            };
-            let tail_idx = match entity_to_idx.get(&triple.tail) {
-                Some(&i) => i,
-                None => continue,
-            };
+            let (head_idx, rel_idx, tail_idx) = indexed_triples[idx];
 
-            let head = &entities[head_idx];
-            let relation = &relations[rel_idx];
-            let tail = &entities[tail_idx];
+            // Clone the triple's data so we can drop the immutable borrows before
+            // the mutable update phase.  Balls are small (dim f32 + 1 radius).
+            let head = entities[head_idx].clone();
+            let relation = relations[rel_idx].clone();
+            let tail = entities[tail_idx].clone();
 
             // Generate multiple negatives
             let n_neg = config.negative_samples.max(1);
@@ -211,13 +250,24 @@ impl BallTrainer {
             // Collect (neg_tail_idx, neg_score) pairs for self-adversarial weighting
             let neg_pairs: Vec<(usize, f32)> = (0..n_neg)
                 .map(|_| {
-                    let neg_tail_idx = loop {
-                        let neg = self.rng.random_range(0..num_entities);
-                        if neg != tail_idx {
-                            break neg;
+                    let neg_tail_idx = if let Some(pool) = relation_pools.get(&rel_idx) {
+                        sample_excluding(&pool.tails, tail_idx, |len| self.rng.random_range(0..len))
+                            .unwrap_or_else(|| loop {
+                                let neg = self.rng.random_range(0..num_entities);
+                                if neg != tail_idx {
+                                    break neg;
+                                }
+                            })
+                    } else {
+                        loop {
+                            let neg = self.rng.random_range(0..num_entities);
+                            if neg != tail_idx {
+                                break neg;
+                            }
                         }
                     };
-                    let neg_score = Self::score_triple(head, relation, &entities[neg_tail_idx], k);
+                    let neg_score =
+                        Self::score_triple(&head, &relation, &entities[neg_tail_idx], k);
                     (neg_tail_idx, neg_score)
                 })
                 .collect();
@@ -227,29 +277,42 @@ impl BallTrainer {
             let weights =
                 crate::trainer::trainer_utils::self_adversarial_weights(&neg_scores, adv_temp);
 
-            // Accumulate weighted gradients
+            // Accumulate weighted gradients across negatives.
+            // neg_tail updates are applied per-negative (each negative is a different entity).
             let mut avg_grads = BallGradients::new(head.dim());
             let mut avg_loss = 0.0f32;
+            // Collect per-negative (entity_idx, scaled_grads) for deferred application.
+            let mut neg_updates: Vec<(usize, BallGradients)> = Vec::with_capacity(n_neg);
 
-            for (((neg_tail_idx, _), weight), _neg_score) in
-                neg_pairs.iter().zip(&weights).zip(&neg_scores)
-            {
-                let neg_tail = &entities[*neg_tail_idx];
-                let (loss, grads) =
-                    Self::compute_pair_gradients(head, relation, tail, neg_tail, config.margin, k);
-                let w = weight;
+            for ((neg_tail_idx, _), weight) in neg_pairs.iter().zip(&weights) {
+                let neg_tail = entities[*neg_tail_idx].clone();
+                let (loss, grads) = Self::compute_pair_gradients(
+                    &head,
+                    &relation,
+                    &tail,
+                    &neg_tail,
+                    config.margin,
+                    k,
+                );
+                let w = *weight;
                 avg_loss += w * loss;
 
                 for i in 0..head.dim() {
                     avg_grads.head_center[i] += w * grads.head_center[i];
                     avg_grads.tail_center[i] += w * grads.tail_center[i];
-                    avg_grads.neg_tail_center[i] += w * grads.neg_tail_center[i];
                     avg_grads.relation_translation[i] += w * grads.relation_translation[i];
                 }
                 avg_grads.head_log_radius += w * grads.head_log_radius;
                 avg_grads.tail_log_radius += w * grads.tail_log_radius;
-                avg_grads.neg_tail_log_radius += w * grads.neg_tail_log_radius;
                 avg_grads.relation_log_scale += w * grads.relation_log_scale;
+
+                // Keep per-negative entity gradient (scaled) for individual application below.
+                let mut neg_g = BallGradients::new(head.dim());
+                for i in 0..head.dim() {
+                    neg_g.neg_tail_center[i] = w * grads.neg_tail_center[i];
+                }
+                neg_g.neg_tail_log_radius = w * grads.neg_tail_log_radius;
+                neg_updates.push((*neg_tail_idx, neg_g));
             }
 
             total_loss += avg_loss;
@@ -262,12 +325,14 @@ impl BallTrainer {
             let bias1 = 1.0 - beta1.powf(t);
             let bias2 = 1.0 - beta2.powf(t);
 
-            // Update head center
+            // Update head, tail, relation using entity-scoped Adam keys so that
+            // an entity accumulates consistent momentum regardless of whether it
+            // appears as head, tail, or negative in a given step.
             for i in 0..head.dim() {
                 apply_adam(
                     &mut self.adam_m,
                     &mut self.adam_v,
-                    &format!("h{head_idx}_c{i}"),
+                    &format!("e{head_idx}_c{i}"),
                     &mut entities[head_idx].center_mut()[i],
                     grads.head_center[i],
                     lr,
@@ -280,7 +345,7 @@ impl BallTrainer {
                 apply_adam(
                     &mut self.adam_m,
                     &mut self.adam_v,
-                    &format!("t{tail_idx}_c{i}"),
+                    &format!("e{tail_idx}_c{i}"),
                     &mut entities[tail_idx].center_mut()[i],
                     grads.tail_center[i],
                     lr,
@@ -305,11 +370,10 @@ impl BallTrainer {
                 );
             }
 
-            // Update radii/scale
             update_log_param_adam(
                 &mut self.adam_m,
                 &mut self.adam_v,
-                &format!("h{head_idx}_lr"),
+                &format!("e{head_idx}_lr"),
                 entities[head_idx].log_radius(),
                 grads.head_log_radius,
                 lr,
@@ -324,7 +388,7 @@ impl BallTrainer {
             update_log_param_adam(
                 &mut self.adam_m,
                 &mut self.adam_v,
-                &format!("t{tail_idx}_lr"),
+                &format!("e{tail_idx}_lr"),
                 entities[tail_idx].log_radius(),
                 grads.tail_log_radius,
                 lr,
@@ -351,6 +415,40 @@ impl BallTrainer {
                 |r, v| r.set_log_scale(v),
                 &mut relations[rel_idx],
             );
+
+            // Apply per-negative-entity gradients with the same entity-scoped keys.
+            for (neg_idx, neg_g) in neg_updates {
+                for i in 0..head.dim() {
+                    apply_adam(
+                        &mut self.adam_m,
+                        &mut self.adam_v,
+                        &format!("e{neg_idx}_c{i}"),
+                        &mut entities[neg_idx].center_mut()[i],
+                        neg_g.neg_tail_center[i],
+                        lr,
+                        beta1,
+                        beta2,
+                        eps,
+                        bias1,
+                        bias2,
+                    );
+                }
+                update_log_param_adam(
+                    &mut self.adam_m,
+                    &mut self.adam_v,
+                    &format!("e{neg_idx}_lr"),
+                    entities[neg_idx].log_radius(),
+                    neg_g.neg_tail_log_radius,
+                    lr,
+                    beta1,
+                    beta2,
+                    eps,
+                    bias1,
+                    bias2,
+                    |e, v| e.set_log_radius(v),
+                    &mut entities[neg_idx],
+                );
+            }
         }
 
         if count == 0 {
@@ -375,7 +473,9 @@ impl BallTrainer {
         filter: Option<&crate::trainer::evaluation::FilteredTripleIndexIds>,
     ) -> crate::trainer::EvaluationResults {
         let num_entities = entities.len();
-        let k = 10.0;
+        // k only affects probability magnitude, not ranking order (sigmoid is monotone).
+        // Use the same default as CpuBoxTrainingConfig to keep values consistent.
+        let k = 2.0f32;
 
         let score_tail = |head_idx: usize, rel_idx: usize, tail_idx: usize| -> f32 {
             let head = &entities[head_idx];
@@ -388,11 +488,13 @@ impl BallTrainer {
             crate::ball::containment_prob(&transformed, tail, k).unwrap_or(0.0)
         };
 
+        // score_head: called with (candidate_head_idx, rel_idx, known_tail_idx).
+        // Rank candidate heads by how well transform(candidate) is contained in tail.
         let score_head = |head_idx: usize, rel_idx: usize, tail_idx: usize| -> f32 {
-            let head = &entities[head_idx];
+            let candidate_head = &entities[head_idx];
             let relation = &relations[rel_idx];
             let tail = &entities[tail_idx];
-            let transformed = match relation.apply(head) {
+            let transformed = match relation.apply(candidate_head) {
                 Ok(t) => t,
                 Err(_) => return 0.0,
             };
@@ -816,7 +918,7 @@ mod tests {
         };
 
         let dim = head.dim();
-        let rel_tol = 0.15;
+        let rel_tol = 0.02; // 2% — well within finite-difference noise for eps=1e-4
         let mut checked = 0;
 
         // Head center
@@ -948,9 +1050,52 @@ mod tests {
             }
         }
 
+        // Neg-tail center
+        for i in 0..dim {
+            let mut c = neg_tail.center().to_vec();
+            c[i] += eps;
+            let nt_plus = Ball::new(c.clone(), neg_tail.radius()).unwrap();
+            c[i] -= 2.0 * eps;
+            let nt_minus = Ball::new(c, neg_tail.radius()).unwrap();
+            let numerical = (compute_loss(&head, &relation, &tail, &nt_plus)
+                - compute_loss(&head, &relation, &tail, &nt_minus))
+                / (2.0 * eps);
+            let a = analytical.neg_tail_center[i];
+            if a.abs() > 1e-4 || numerical.abs() > 1e-4 {
+                let rel_err = (a - numerical).abs() / a.abs().max(numerical.abs());
+                assert!(
+                    rel_err < rel_tol,
+                    "neg_tail_center[{i}]: a={a:.6}, n={numerical:.6}, err={rel_err:.4}"
+                );
+                checked += 1;
+            }
+        }
+
+        // Neg-tail log_radius
+        {
+            let nt_plus =
+                Ball::from_log_radius(neg_tail.center().to_vec(), neg_tail.log_radius() + eps)
+                    .unwrap();
+            let nt_minus =
+                Ball::from_log_radius(neg_tail.center().to_vec(), neg_tail.log_radius() - eps)
+                    .unwrap();
+            let numerical = (compute_loss(&head, &relation, &tail, &nt_plus)
+                - compute_loss(&head, &relation, &tail, &nt_minus))
+                / (2.0 * eps);
+            let a = analytical.neg_tail_log_radius;
+            if a.abs() > 1e-4 || numerical.abs() > 1e-4 {
+                let rel_err = (a - numerical).abs() / a.abs().max(numerical.abs());
+                assert!(
+                    rel_err < rel_tol,
+                    "neg_tail_log_radius: a={a:.6}, n={numerical:.6}, err={rel_err:.4}"
+                );
+                checked += 1;
+            }
+        }
+
         assert!(
-            checked >= 3,
-            "gradient check only verified {checked} components (expected >= 3)"
+            checked >= 5,
+            "gradient check only verified {checked} components (expected >= 5)"
         );
     }
 }
