@@ -304,6 +304,27 @@ impl SphericalCapRelation {
         let new_radius = new_radius.clamp(0.001, std::f32::consts::PI);
         SphericalCap::new(new_center, new_radius)
     }
+
+    /// Mutable access to axis (for training).
+    pub fn axis_mut(&mut self) -> &mut [f32] {
+        &mut self.axis
+    }
+
+    /// Returns a reference to the axis.
+    pub fn axis(&self) -> &[f32] {
+        &self.axis
+    }
+
+    /// Log-scale (for training stability).
+    #[must_use]
+    pub fn log_scale(&self) -> f32 {
+        self.angle_scale.ln()
+    }
+
+    /// Set scale from log-scale (for training).
+    pub fn set_log_scale(&mut self, log_scale: f32) {
+        self.angle_scale = log_scale.clamp(-5.0, 5.0).exp();
+    }
 }
 
 // ---------------------------------------------------------------------------
