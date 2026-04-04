@@ -46,6 +46,7 @@ burn-ndarray = { workspace = true, optional = true }
 burn-wgpu = { workspace = true, optional = true }
 burn-tch = { workspace = true, optional = true }
 burn-autodiff = { workspace = true, optional = true }
+fastrand = "2.3.0"
 
 [features]
 default = ["ndarray-backend"]
