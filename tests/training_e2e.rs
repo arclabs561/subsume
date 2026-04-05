@@ -756,4 +756,3 @@ salmon\t_hypernym\tanimal";
     );
     assert!(h10 > 0.0, "Hits@10 should be > 0.0 (got {h10})");
 }
-
