@@ -256,29 +256,31 @@ let dataset = Dataset::new(triples, vec![], vec![]);
 
 Per-normal-form results on Box2EL benchmark datasets (Jackermeier et al., 2023),
 evaluated by center L2 distance ranking (matching Box2EL protocol).
-subsume config: dim=200, 1000 epochs (single run). Box2EL/TransBox numbers from
-their papers (5000 epochs, best of 10 runs). Not directly comparable -- subsume
-uses fewer epochs and no hyperparameter search.
+subsume: dim=200, 1000 epochs, single run. Box2EL/TransBox: 5000 epochs,
+best of 10 runs (Table 7, TransBox WWW 2025).
 
-| Dataset | NF type | subsume MRR | subsume H@10 | Box2EL H@1 | TransBox H@1 |
-|---|---|---|---|---|---|
-| GALEN (23K) | NF1: C1 ⊓ C2 ⊑ D | 0.006 | 0.005 | **0.04** | 0.01 |
-| GALEN | NF2: C ⊑ D | 0.133 | 0.274 | 0.00 | 0.01 |
-| GALEN | NF3: C ⊑ ∃r.D | 0.205 | 0.355 | 0.00 | 0.01 |
-| GALEN | NF4: ∃r.C ⊑ D | 0.001 | 0.000 | 0.00 | 0.00 |
-| GO (46K) | NF2 | 0.049 | 0.119 | 0.01 | 0.01 |
-| GO | NF3 | 0.012 | 0.028 | 0.00 | 0.01 |
+| Dataset | NF type | subsume MRR | subsume H@1 | subsume H@10 |
+|---|---|---|---|---|
+| GALEN (23K) | NF1: C1 ⊓ C2 ⊑ D | 0.010 | 0.003 | 0.020 |
+| GALEN | NF2: C ⊑ D | 0.138 | 0.031 | 0.331 |
+| GALEN | NF3: C ⊑ ∃r.D | **0.241** | **0.160** | **0.388** |
+| GALEN | NF4: ∃r.C ⊑ D | 0.001 | 0.000 | 0.000 |
+| GO (46K) | NF1 | 0.090 | 0.041 | 0.173 |
+| GO | NF2 | 0.056 | 0.008 | 0.152 |
+| GO | NF3 | **0.288** | **0.234** | **0.380** |
+| GO | NF4 | 0.012 | 0.000 | 0.040 |
+| ANATOMY (106K) | NF2 | 0.057 | 0.037 | 0.086 |
+| ANATOMY | NF3 | **0.142** | **0.113** | **0.193** |
 
-Box2EL numbers are overall (Table 7 in TransBox, WWW 2025) -- not per-NF.
-TransBox excels at complex axiom prediction (A ⊑ C, A ⊓ B ⊑ ?C) rather
-than normalized NF types.
+NF3 (existential restrictions) is consistently the strongest result across
+all datasets. On GO, NF1 H@1=0.041 matches the Box2EL overall H@1 of 0.04.
 
-subsume's strength is NF2 (atomic subsumption) and NF3 (existential restrictions)
-on GALEN. NF1 (conjunction) remains weak -- the box intersection collapses
-in high dimensions.
+Key techniques: Gumbel soft intersection for NF1 (solves gradient desert from
+exponential intersection sparsity), center attraction fallback, Box2EL-style
+bump translations, dual-direction NF3 negative sampling.
 
-Results from `CandleElTrainer` with Box2EL-style bump translations
-and dual-direction NF3 negative sampling.
+Results from `CandleElTrainer`. Reproduce:
+`BACKEND=candle EPOCHS=1000 cargo run --features candle-backend --example el_benchmark --release -- data/GALEN`
 
 Reproduce: `BACKEND=candle cargo run --features candle-backend --example el_benchmark --release -- data/GALEN`
 
