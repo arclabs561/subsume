@@ -121,11 +121,11 @@ Run: `cargo run --example geometry_comparison --release`
 
 | Geometry | MRR | H@10 | MeanRank |
 |---|---|---|---|
-| **AnnularSector** | **0.765** | **0.983** | **2.1** |
-| TransBox | 0.690 | 0.817 | 4.3 |
-| Ball | 0.386 | 0.717 | 7.0 |
-| Ellipsoid | 0.374 | 1.000 | 3.1 |
-| SphericalCap | 0.341 | 0.900 | 4.4 |
+| **AnnularSector** | **0.745** | **1.000** | **2.0** |
+| TransBox | 0.687 | 0.867 | 4.6 |
+| Ball | 0.404 | 0.950 | 3.7 |
+| Ellipsoid | 0.401 | 0.983 | 3.0 |
+| SphericalCap | 0.336 | 0.950 | 4.4 |
 | Subspace | 0.105 | 0.333 | 16.0 |
 
 Random baseline: MRR ≈ 0.031. All geometries well above random.
