@@ -256,30 +256,29 @@ let dataset = Dataset::new(triples, vec![], vec![]);
 
 Per-normal-form results on Box2EL benchmark datasets (Jackermeier et al., 2023),
 evaluated by center L2 distance ranking (matching Box2EL protocol).
-Default hyperparameters: dim=200, epochs=300, lr=0.01, margin=0.15, batch=512.
-Bold marks the best H@1 for each (dataset, NF) pair.
+subsume config: dim=200, 1000 epochs (single run). Box2EL/TransBox numbers from
+their papers (5000 epochs, best of 10 runs). Not directly comparable -- subsume
+uses fewer epochs and no hyperparameter search.
 
-| Dataset | NF type | subsume H@1 | subsume H@10 | Box2EL H@1 | Box2EL H@10 |
+| Dataset | NF type | subsume MRR | subsume H@10 | Box2EL H@1 | TransBox H@1 |
 |---|---|---|---|---|---|
-| GALEN (23K) | NF1: C1 ⊓ C2 ⊑ D | 0.000 | 0.000 | **0.03** | **0.30** |
-| GALEN | NF2: C ⊑ D | 0.036 | **0.158** | **0.06** | 0.15 |
-| GALEN | NF3: C ⊑ ∃r.D | **0.113** | **0.299** | 0.08 | 0.19 |
-| GALEN | NF4: ∃r.C ⊑ D | 0.000 | 0.001 | 0.00 | **0.06** |
-| GO (46K) | NF1 | 0.000 | 0.000 | **0.03** | **0.17** |
-| GO | NF2 | 0.010 | 0.096 | **0.18** | **0.58** |
-| GO | NF3 | **0.006** | **0.033** | 0.00 | 0.018 |
-| GO | NF4 | 0.000 | 0.000 | 0.00 | **0.37** |
-| ANATOMY (106K) | NF1 | 0.000 | 0.005 | **0.07** | **0.34** |
-| ANATOMY | NF2 | 0.001 | 0.011 | **0.16** | **0.41** |
-| ANATOMY | NF3 | **0.085** | **0.115** | 0.021 | 0.056 |
-| ANATOMY | NF4 | 0.000 | 0.005 | 0.00 | **0.05** |
+| GALEN (23K) | NF1: C1 ⊓ C2 ⊑ D | 0.006 | 0.005 | **0.04** | 0.01 |
+| GALEN | NF2: C ⊑ D | 0.133 | 0.274 | 0.00 | 0.01 |
+| GALEN | NF3: C ⊑ ∃r.D | 0.205 | 0.355 | 0.00 | 0.01 |
+| GALEN | NF4: ∃r.C ⊑ D | 0.001 | 0.000 | 0.00 | 0.00 |
+| GO (46K) | NF2 | 0.049 | 0.119 | 0.01 | 0.01 |
+| GO | NF3 | 0.012 | 0.028 | 0.00 | 0.01 |
 
-subsume wins NF3 (existential) on GALEN and ANATOMY; competitive on GO NF3.
-Box2EL wins NF1, NF2, and NF4 on most datasets.
-NF1 requires hyperparameter tuning beyond defaults for competitive results.
-Results from `CandleElTrainer` with Box2EL-style bump translations,
-inclusion loss, and dual-direction NF3 negative sampling.
-NF4 negative sampling can be controlled via `nf4_neg_weight` (0.0 disables).
+Box2EL numbers are overall (Table 7 in TransBox, WWW 2025) -- not per-NF.
+TransBox excels at complex axiom prediction (A ⊑ C, A ⊓ B ⊑ ?C) rather
+than normalized NF types.
+
+subsume's strength is NF2 (atomic subsumption) and NF3 (existential restrictions)
+on GALEN. NF1 (conjunction) remains weak -- the box intersection collapses
+in high dimensions.
+
+Results from `CandleElTrainer` with Box2EL-style bump translations
+and dual-direction NF3 negative sampling.
 
 Reproduce: `BACKEND=candle cargo run --features candle-backend --example el_benchmark --release -- data/GALEN`
 
