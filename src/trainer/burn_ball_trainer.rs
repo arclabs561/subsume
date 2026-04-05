@@ -253,6 +253,7 @@ impl<B: AutodiffBackend> BurnBallTrainer<B> {
     // -----------------------------------------------------------------------
 
     /// Batched ranking loss (margin or InfoNCE) for one batch.
+    #[allow(clippy::too_many_arguments)]
     fn batch_loss(
         &self,
         model: &BurnBallModel<B>,
@@ -402,6 +403,7 @@ impl<B: AutodiffBackend> BurnBallTrainer<B> {
     /// Extract model parameters into raw vecs for CPU-side evaluation.
     ///
     /// Returns `(centers, head_log_r, tail_log_r, head_trans, tail_trans, log_scale, n_e, dim, n_r)`.
+    #[allow(clippy::type_complexity)]
     fn extract_params_raw(
         model: &BurnBallModel<B>,
     ) -> (
