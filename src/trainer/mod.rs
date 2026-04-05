@@ -32,6 +32,10 @@ pub mod burn_ball_trainer;
 #[cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))]
 #[cfg_attr(docsrs, doc(cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))))]
 pub mod burn_cap_trainer;
+/// Burn-based diagonal-Gaussian ellipsoid trainer with autodiff (multi-backend: ndarray/wgpu/tch).
+#[cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))))]
+pub mod burn_ellipsoid_trainer;
 /// Burn-based TransBox trainer with autodiff (multi-backend: ndarray/wgpu/tch).
 #[cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))]
 #[cfg_attr(docsrs, doc(cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))))]
@@ -599,6 +603,11 @@ pub use burn_ball_trainer::BurnBallTrainer;
 #[cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))]
 #[cfg_attr(docsrs, doc(cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))))]
 pub use burn_cap_trainer::BurnCapTrainer;
+
+// Burn ellipsoid trainer
+#[cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))))]
+pub use burn_ellipsoid_trainer::BurnEllipsoidTrainer;
 
 // Burn TransBox trainer
 #[cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))]
