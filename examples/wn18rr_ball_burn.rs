@@ -14,7 +14,7 @@
 
 use burn::backend::Autodiff;
 use burn::optim::AdamConfig;
-use burn::prelude::*;
+
 use std::path::Path;
 use subsume::dataset::load_dataset;
 use subsume::trainer::burn_ball_trainer::BurnBallTrainer;
