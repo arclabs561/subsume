@@ -603,7 +603,12 @@ impl CandleElTrainer {
 
                 // Translate head box by -bump_C (negate filler bump)
                 let c_head_shifted = c_head.sub(&bump_filler)?;
-                let nf4_incl = Self::inclusion_loss(
+                // NF4 center attraction was tested (weight 0.5, same as NF1) but
+                // hurt GALEN results: NF4 0.009->0.007, NF1 0.115->0.089.
+                // Unlike NF1 (intersection of concept boxes), NF4 operates in
+                // role space (head_r - bump_C), where center attraction interferes
+                // with the role transformation learning.
+                let nf4_loss = Self::inclusion_loss(
                     &c_head_shifted,
                     &o_head,
                     &c_target,
@@ -612,18 +617,6 @@ impl CandleElTrainer {
                 )?
                 .sqr()?
                 .mean(0)?;
-
-                // Center attraction: pull shifted existential center toward D's center.
-                // Same pattern that improved NF1 from MRR 0.006 to 0.115.
-                let nf4_center_w = 0.5_f64;
-                let nf4_center_dist = c_head_shifted
-                    .sub(&c_target)?
-                    .sqr()?
-                    .sum(1)?
-                    .affine(1.0, 1e-8)?
-                    .sqrt()?
-                    .mean(0)?;
-                let nf4_loss = nf4_incl.add(&nf4_center_dist.affine(nf4_center_w, 0.0)?)?;
 
                 // NF4 negatives: corrupt filler (C) and target (D).
                 // Skipped entirely when nf4_neg_weight == 0.0 to preserve
