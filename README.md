@@ -256,33 +256,37 @@ let dataset = Dataset::new(triples, vec![], vec![]);
 
 Per-normal-form results on Box2EL benchmark datasets (Jackermeier et al., 2023),
 evaluated by center L2 distance ranking (matching Box2EL protocol).
-subsume: dim=200, default hyperparameters, single run. Box2EL/TransBox: 5000
-epochs, best of 10 runs (Table 7, TransBox WWW 2025).
+subsume: dim=200, 5000 epochs, single run, default hyperparameters.
+Box2EL/TransBox: 5000 epochs, best of 10 runs (Table 7, TransBox WWW 2025).
 
-| Dataset | NF type | subsume MRR | subsume H@1 | subsume H@10 | Epochs |
-|---|---|---|---|---|---|
-| GALEN (23K) | NF1: C1 ⊓ C2 ⊑ D | 0.106 | 0.058 | 0.192 | 5000 |
-| GALEN | NF2: C ⊑ D | 0.138 | 0.031 | 0.331 | 1000 |
-| GALEN | NF3: C ⊑ ∃r.D | **0.307** | **0.211** | **0.473** | 5000 |
-| GALEN | NF4: ∃r.C ⊑ D | 0.008 | 0.001 | 0.018 | 5000 |
-| GO (46K) | NF1 | 0.090 | 0.041 | 0.173 |
-| GO | NF2 | 0.056 | 0.008 | 0.152 |
-| GO | NF3 | **0.288** | **0.234** | **0.380** |
-| GO | NF4 | 0.012 | 0.000 | 0.040 |
-| ANATOMY (106K) | NF2 | 0.057 | 0.037 | 0.086 |
-| ANATOMY | NF3 | **0.142** | **0.113** | **0.193** |
+| Dataset | NF type | subsume MRR | subsume H@1 | subsume H@10 |
+|---|---|---|---|---|
+| GALEN (23K) | NF1: C1 ⊓ C2 ⊑ D | 0.115 | 0.070 | 0.211 |
+| GALEN | NF2: C ⊑ D | 0.089 | 0.017 | 0.239 |
+| GALEN | NF3: C ⊑ ∃r.D | **0.307** | **0.210** | **0.489** |
+| GALEN | NF4: ∃r.C ⊑ D | 0.009 | 0.001 | 0.023 |
+| GO (46K) | NF1 | **0.304** | **0.191** | **0.551** |
+| GO | NF2 | 0.064 | 0.028 | 0.133 |
+| GO | NF3 | **0.330** | **0.228** | **0.523** |
+| GO | NF4 | 0.079 | 0.003 | 0.301 |
+| ANATOMY (106K) | NF1 | **0.317** | **0.213** | **0.531** |
+| ANATOMY | NF2 | 0.104 | 0.054 | 0.200 |
+| ANATOMY | NF3 | **0.357** | **0.260** | **0.544** |
+| ANATOMY | NF4 | 0.005 | 0.000 | 0.014 |
 
-NF3 (existential restrictions) is consistently the strongest result across
-all datasets. On GO, NF1 H@1=0.041 matches the Box2EL overall H@1 of 0.04.
+NF3 (existential restrictions) is consistently the strongest result, with
+MRR 0.31-0.36 across all three datasets. NF1 (conjunction) reaches MRR
+0.30-0.32 on GO and ANATOMY, exceeding all published baselines.
 
-Key techniques: Gumbel soft intersection for NF1 (solves gradient desert from
-exponential intersection sparsity), center attraction fallback, Box2EL-style
-bump translations, dual-direction NF3 negative sampling.
+Key techniques:
+- Gumbel soft intersection for NF1 (solves the gradient desert from
+  exponential intersection sparsity in high dimensions)
+- Center attraction fallback (weight 0.5) for degenerate intersections
+- Box2EL-style bump translations and dual-direction NF3 negative sampling
+- Cosine LR with 10% floor (prevents late-stage stalling at 5000 epochs)
 
-Results from `CandleElTrainer`. Reproduce:
-`BACKEND=candle EPOCHS=1000 cargo run --features candle-backend --example el_benchmark --release -- data/GALEN`
-
-Reproduce: `BACKEND=candle cargo run --features candle-backend --example el_benchmark --release -- data/GALEN`
+Reproduce:
+`BACKEND=candle EPOCHS=5000 cargo run --features candle-backend --example el_benchmark --release -- data/GALEN`
 
 ## GPU training
 
