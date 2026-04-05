@@ -107,8 +107,8 @@ fn check_parity(dim: usize, temperature: f32) {
     // -- intersection: compare resulting min/max coordinates --
     let ni = na.intersection(&nc).unwrap();
     let ci = ca.intersection(&cc).unwrap();
-    let ni_min: Vec<f32> = ni.min().iter().copied().collect();
-    let ni_max: Vec<f32> = ni.max().iter().copied().collect();
+    let ni_min: Vec<f32> = ni.min().to_vec();
+    let ni_max: Vec<f32> = ni.max().to_vec();
     let ci_min: Vec<f32> = ci.min();
     let ci_max: Vec<f32> = ci.max();
     for i in 0..dim {
@@ -218,8 +218,8 @@ fn check_extended_parity(dim: usize, temperature: f32) {
     // -- union --
     let nu = na.union(&nc).unwrap();
     let cu = ca.union(&cc).unwrap();
-    let nu_min: Vec<f32> = nu.min().iter().copied().collect();
-    let nu_max: Vec<f32> = nu.max().iter().copied().collect();
+    let nu_min: Vec<f32> = nu.min().to_vec();
+    let nu_max: Vec<f32> = nu.max().to_vec();
     let cu_min: Vec<f32> = cu.min();
     let cu_max: Vec<f32> = cu.max();
     for i in 0..dim {
@@ -234,7 +234,7 @@ fn check_extended_parity(dim: usize, temperature: f32) {
     );
 
     // -- center --
-    let nc_center: Vec<f32> = na.center().unwrap().iter().copied().collect();
+    let nc_center: Vec<f32> = na.center().unwrap().to_vec();
     let cc_center: Vec<f32> = ca.center().unwrap();
     for i in 0..dim {
         assert_close(&format!("{tag} center[{i}]"), nc_center[i], cc_center[i]);
@@ -321,9 +321,9 @@ fn gumbel_parity_intersection() {
         let ni = na.intersection(&nb).unwrap();
         let ci = ca.intersection(&cb).unwrap();
 
-        let ni_min: Vec<f32> = ni.min().iter().copied().collect();
+        let ni_min: Vec<f32> = ni.min().to_vec();
         let ci_min: Vec<f32> = ci.min();
-        let ni_max: Vec<f32> = ni.max().iter().copied().collect();
+        let ni_max: Vec<f32> = ni.max().to_vec();
         let ci_max: Vec<f32> = ci.max();
 
         for d in 0..2 {
