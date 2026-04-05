@@ -12,7 +12,7 @@
 //!
 //! # Rotation semantics for d ≠ 3
 //!
-//! For d = 3, [`rotate`] uses Rodrigues' formula — the standard, unique
+//! For d = 3, `rotate()` uses Rodrigues' formula — the standard, unique
 //! 3D rotation about an axis. For d ≠ 3, the rotation is a **generalized
 //! 2D rotation** in the plane spanned by the point's perpendicular component
 //! and the relation axis. This is not a unique rotation in higher dimensions
