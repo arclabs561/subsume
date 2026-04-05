@@ -1321,14 +1321,20 @@ mod tests {
 
         let results = evaluate_link_prediction(&test_triples, &entity_boxes).unwrap();
 
-        // B is contained in A and should rank highly; C is disjoint.
-        // With 3 entities, best rank is 1, so MRR should be > 0.
+        // B is contained in A; C is disjoint. A also contains itself (self-containment), so
+        // the tail ranking of "what is contained in A" places A at rank 1 and B at rank 2.
+        // C is clearly last. With 3 entities: tail rank = 2, giving tail_mrr = 0.5.
+        // head rank = 1 (only A contains B); head_mrr = 1.0.
         assert!(
-            results.mrr > 0.0,
-            "MRR should be positive, got {}",
-            results.mrr
+            results.tail_mrr >= 0.5,
+            "tail_mrr should be >= 0.5 (B must rank <= 2, C is disjoint), got {}",
+            results.tail_mrr
         );
-        assert!(results.mean_rank >= 1.0, "mean_rank should be >= 1");
+        assert!(
+            results.mean_rank <= 2.0,
+            "mean_rank should be <= 2.0, got {}",
+            results.mean_rank
+        );
     }
 
     #[test]
@@ -1342,10 +1348,17 @@ mod tests {
         entity_boxes.insert("A".to_string(), a);
 
         let results = evaluate_link_prediction::<NdarrayBox>(&[], &entity_boxes).unwrap();
-        // No triples to evaluate: metrics should be NaN or 0 depending on implementation.
-        // mean_reciprocal_rank([]) and hits_at_k([]) return NaN per standard behavior.
-        // Just check it does not panic.
-        let _ = results;
+        // No triples to evaluate: metrics should be 0.0 (empty slice convention).
+        assert_eq!(
+            results.mrr, 0.0,
+            "MRR should be 0.0 for empty triples, got {}",
+            results.mrr
+        );
+        assert_eq!(
+            results.mean_rank, 0.0,
+            "mean_rank should be 0.0 for empty triples, got {}",
+            results.mean_rank
+        );
     }
 
     #[test]
@@ -1432,12 +1445,18 @@ mod tests {
         }];
 
         let results = evaluate_link_prediction_interned(&test_triples, &boxes, &vocab).unwrap();
+        // B is contained in A; C is disjoint. A self-contains at rank 1, B at rank 2.
+        // tail_mrr = 0.5; head_mrr = 1.0 (only A contains B).
         assert!(
-            results.mrr > 0.0,
-            "MRR should be positive, got {}",
-            results.mrr
+            results.tail_mrr >= 0.5,
+            "tail_mrr should be >= 0.5 (B must rank <= 2, C is disjoint), got {}",
+            results.tail_mrr
         );
-        assert!(results.mean_rank >= 1.0);
+        assert!(
+            results.mean_rank <= 2.0,
+            "mean_rank should be <= 2.0, got {}",
+            results.mean_rank
+        );
     }
 
     #[test]

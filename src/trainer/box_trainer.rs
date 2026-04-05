@@ -1515,13 +1515,12 @@ mod tests {
         let l1 = compute_pair_loss(&a, &b, false, &cfg_w1);
         let l2 = compute_pair_loss(&a, &b, false, &cfg_w2);
 
-        if l1 > 0.0 {
-            let ratio = l2 / l1;
-            assert!(
-                (ratio - 2.0).abs() < 1e-4,
-                "doubling negative_weight should double loss: l1={l1}, l2={l2}, ratio={ratio}"
-            );
-        }
+        assert!(l1 > 0.0, "expected non-zero loss for overlapping boxes");
+        let ratio = l2 / l1;
+        assert!(
+            (ratio - 2.0).abs() < 1e-4,
+            "doubling negative_weight should double loss: l1={l1}, l2={l2}, ratio={ratio}"
+        );
     }
 
     // -----------------------------------------------------------------------
