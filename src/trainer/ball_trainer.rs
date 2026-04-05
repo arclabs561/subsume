@@ -1099,4 +1099,153 @@ mod tests {
             "gradient check only verified {checked} components (expected >= 5)"
         );
     }
+
+    /// Verify that training loss decreases over epochs on a small hierarchy.
+    /// This catches gradient sign errors that might not be visible in a single
+    /// gradient check but would prevent convergence.
+    #[test]
+    fn loss_decreases_over_training() {
+        let mut trainer = BallTrainer::new(42);
+        let (mut entities, mut relations) = trainer.init_embeddings(6, 2, 4);
+
+        let triples = vec![
+            Triple {
+                head: "a".into(),
+                relation: "r".into(),
+                tail: "b".into(),
+            },
+            Triple {
+                head: "a".into(),
+                relation: "r".into(),
+                tail: "c".into(),
+            },
+            Triple {
+                head: "d".into(),
+                relation: "s".into(),
+                tail: "e".into(),
+            },
+            Triple {
+                head: "d".into(),
+                relation: "s".into(),
+                tail: "f".into(),
+            },
+        ];
+        let entity_map: HashMap<String, usize> = ["a", "b", "c", "d", "e", "f"]
+            .iter()
+            .enumerate()
+            .map(|(i, &s)| (s.to_string(), i))
+            .collect();
+        let relation_map: HashMap<String, usize> = [("r".to_string(), 0), ("s".to_string(), 1)]
+            .into_iter()
+            .collect();
+
+        let config = CpuBoxTrainingConfig {
+            learning_rate: 0.02,
+            margin: 1.0,
+            negative_samples: 3,
+            ..Default::default()
+        };
+
+        let loss_epoch1 = trainer.train_epoch(
+            &mut entities,
+            &mut relations,
+            &triples,
+            &config,
+            &entity_map,
+            &relation_map,
+        );
+
+        // Train 20 more epochs
+        let mut loss_epoch20 = loss_epoch1;
+        for _ in 1..20 {
+            loss_epoch20 = trainer.train_epoch(
+                &mut entities,
+                &mut relations,
+                &triples,
+                &config,
+                &entity_map,
+                &relation_map,
+            );
+        }
+
+        assert!(
+            loss_epoch20 < loss_epoch1,
+            "Loss should decrease: epoch 1 = {loss_epoch1:.4}, epoch 20 = {loss_epoch20:.4}"
+        );
+    }
+
+    /// Verify that multi-negative sampling with n_neg > 1 actually affects
+    /// multiple entities per step (not just the first negative).
+    #[test]
+    fn multi_neg_updates_negative_entities() {
+        let mut trainer = BallTrainer::new(42);
+        let (mut entities, mut relations) = trainer.init_embeddings(10, 1, 4);
+
+        let triples = vec![Triple {
+            head: "e0".into(),
+            relation: "r0".into(),
+            tail: "e1".into(),
+        }];
+        let entity_map: HashMap<String, usize> = (0..10).map(|i| (format!("e{i}"), i)).collect();
+        let relation_map: HashMap<String, usize> = [("r0".to_string(), 0)].into_iter().collect();
+
+        // Save initial centers for entities 2..10 (potential negatives)
+        let initial_centers: Vec<Vec<f32>> = entities[2..10]
+            .iter()
+            .map(|e| e.center().to_vec())
+            .collect();
+
+        let config = CpuBoxTrainingConfig {
+            learning_rate: 0.05,
+            margin: 1.0,
+            negative_samples: 5,
+            ..Default::default()
+        };
+
+        // Run one epoch: should update some negative entities
+        trainer.train_epoch(
+            &mut entities,
+            &mut relations,
+            &triples,
+            &config,
+            &entity_map,
+            &relation_map,
+        );
+
+        // Count how many non-head/tail entities changed
+        let mut changed = 0;
+        for (i, initial) in initial_centers.iter().enumerate() {
+            let current = entities[i + 2].center();
+            if initial
+                .iter()
+                .zip(current)
+                .any(|(a, b)| (a - b).abs() > 1e-10)
+            {
+                changed += 1;
+            }
+        }
+
+        assert!(
+            changed >= 2,
+            "Expected at least 2 negative entities to be updated, got {changed}"
+        );
+    }
+
+    /// Verify that the sigmoid_k config parameter affects scoring behavior.
+    #[test]
+    fn sigmoid_k_affects_containment_sharpness() {
+        let head = Ball::new(vec![0.0, 0.0], 0.5).unwrap();
+        let relation = BallRelation::new(vec![0.0, 0.0], 1.0).unwrap();
+        // Tail barely contains transformed head
+        let tail = Ball::new(vec![0.0, 0.0], 0.6).unwrap();
+
+        let score_low_k = BallTrainer::score_triple(&head, &relation, &tail, 1.0);
+        let score_high_k = BallTrainer::score_triple(&head, &relation, &tail, 20.0);
+
+        // Higher k -> sharper sigmoid -> score should be more extreme (lower for contained)
+        assert!(
+            score_high_k < score_low_k,
+            "Higher k should give lower score for contained pair: k=1 score={score_low_k:.4}, k=20 score={score_high_k:.4}"
+        );
+    }
 }

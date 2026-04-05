@@ -246,4 +246,56 @@ mod tests {
         let c = RelationCardinality { tph: 0.0, hpt: 0.0 };
         assert!((c.head_corrupt_prob() - 0.5).abs() < 1e-6);
     }
+
+    #[test]
+    fn sample_excluding_empty_returns_none() {
+        let empty: Vec<usize> = vec![];
+        assert_eq!(sample_excluding(&empty, 0, |_| 0), None);
+    }
+
+    #[test]
+    fn sample_excluding_all_valid_returns_some() {
+        let candidates = vec![1, 2, 3, 4, 5];
+        let mut call_count = 0usize;
+        let picked = sample_excluding(&candidates, 99, |n| {
+            call_count += 1;
+            0 % n // always pick first
+        });
+        assert_eq!(picked, Some(1));
+        assert_eq!(call_count, 1); // first attempt succeeds
+    }
+
+    #[test]
+    fn relation_entity_pools_multiple_relations() {
+        let triples = vec![
+            (0, 0, 1),
+            (0, 0, 2), // rel 0: head={0}, tails={1,2}
+            (3, 1, 4),
+            (5, 1, 4), // rel 1: heads={3,5}, tail={4}
+        ];
+        let pools = compute_relation_entity_pools(&triples);
+        assert_eq!(pools.len(), 2);
+        let p0 = pools.get(&0).unwrap();
+        assert_eq!(p0.heads, vec![0]);
+        assert_eq!(p0.tails, vec![1, 2]);
+        let p1 = pools.get(&1).unwrap();
+        assert_eq!(p1.heads, vec![3, 5]);
+        assert_eq!(p1.tails, vec![4]);
+    }
+
+    #[test]
+    fn type_constrained_sampling_draws_from_pool() {
+        // Simulate type-constrained sampling: for relation 0, tails are {10, 20, 30}.
+        // Sampling with exclude=20 should only return 10 or 30.
+        let pool = vec![10, 20, 30];
+        let mut rng_idx = 0usize;
+        let sequence = [1, 0, 2]; // indices into pool
+        let picked = sample_excluding(&pool, 20, |_n| {
+            let idx = sequence[rng_idx % sequence.len()];
+            rng_idx += 1;
+            idx
+        });
+        // First attempt: pool[1] = 20 (excluded), second: pool[0] = 10 (valid)
+        assert_eq!(picked, Some(10));
+    }
 }
