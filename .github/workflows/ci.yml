@@ -108,4 +108,4 @@ jobs:
         run: cargo install cargo-semver-checks
 
       - name: Check semver
-        run: cargo semver-checks check-release --features "ndarray-backend,candle-backend,rand,sheaf,rankops,petgraph"
+        run: cargo semver-checks check-release --only-explicit-features --features "ndarray-backend,candle-backend,rand,sheaf,rankops,petgraph"
