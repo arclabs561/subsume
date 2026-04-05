@@ -24,6 +24,10 @@ pub mod annular_trainer;
 pub mod ball_trainer;
 /// Box embedding trainer, loss computation, and analytical gradients.
 pub mod box_trainer;
+/// Burn-based annular sector trainer with autodiff (multi-backend: ndarray/wgpu/tch).
+#[cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))))]
+pub mod burn_annular_trainer;
 /// Burn-based ball trainer with autodiff (multi-backend: ndarray/wgpu/tch).
 #[cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))]
 #[cfg_attr(docsrs, doc(cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))))]
@@ -36,6 +40,10 @@ pub mod burn_cap_trainer;
 #[cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))]
 #[cfg_attr(docsrs, doc(cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))))]
 pub mod burn_ellipsoid_trainer;
+/// Burn-based subspace trainer with autodiff (multi-backend: ndarray/wgpu/tch).
+#[cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))))]
+pub mod burn_subspace_trainer;
 /// Burn-based TransBox trainer with autodiff (multi-backend: ndarray/wgpu/tch).
 #[cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))]
 #[cfg_attr(docsrs, doc(cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))))]
@@ -609,10 +617,20 @@ pub use burn_cap_trainer::BurnCapTrainer;
 #[cfg_attr(docsrs, doc(cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))))]
 pub use burn_ellipsoid_trainer::BurnEllipsoidTrainer;
 
+// Burn subspace trainer
+#[cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))))]
+pub use burn_subspace_trainer::BurnSubspaceTrainer;
+
 // Burn TransBox trainer
 #[cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))]
 #[cfg_attr(docsrs, doc(cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))))]
 pub use burn_transbox_trainer::BurnTransBoxTrainer;
+
+// Burn annular trainer
+#[cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))))]
+pub use burn_annular_trainer::BurnAnnularTrainer;
 
 /// Backward-compatible alias for [`CpuBoxTrainingConfig`].
 ///
