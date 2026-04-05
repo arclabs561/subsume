@@ -867,7 +867,7 @@ mod tests {
         };
 
         for _epoch in 0..30 {
-            let _ = trainer.train_epoch(
+            let loss = trainer.train_epoch(
                 &mut entities,
                 &mut relations,
                 &triples,
@@ -875,6 +875,7 @@ mod tests {
                 &entity_map,
                 &relation_map,
             );
+            assert!(loss.is_finite(), "train_epoch returned non-finite loss: {loss}");
         }
 
         let results_after = trainer.evaluate(&entities, &relations, &test_triples, None);
