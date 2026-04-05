@@ -18,8 +18,8 @@
 //! | Fuzzy query answering (t-norms) | [`fuzzy::TNorm`], [`fuzzy::TConorm`], [`fuzzy`] module |
 //! | Load a knowledge graph dataset | [`Dataset`], [`Triple`] |
 //! | Train box embeddings (CPU) | [`BoxEmbeddingTrainer`], [`TrainingConfig`] |
-//! | Train box embeddings (GPU) | [`CandleBoxTrainer`] (feature = `candle-backend`) |
-//! | Evaluate with link prediction | [`evaluate_link_prediction`], [`CandleBoxTrainer::evaluate`](trainer::candle_trainer::CandleBoxTrainer::evaluate) |
+//! | Train box embeddings (GPU) | `CandleBoxTrainer` (feature = `candle-backend`) |
+//! | Evaluate with link prediction | [`evaluate_link_prediction`], `CandleBoxTrainer::evaluate` (feature = `candle-backend`) |
 //!
 //! # Why regions instead of points?
 //!
@@ -58,7 +58,7 @@
 //! - [`octagon`] -- octagon error types (implementations in [`ndarray_backend`])
 //! - [`cone`] -- cone error types (implementations in [`ndarray_backend`])
 //! - `hyperbolic` -- Poincare ball embeddings for tree-like hierarchies (feature-gated)
-//! - [`sheaf`] -- sheaf neural networks for transitivity/consistency on graphs
+//! - `sheaf` -- sheaf neural networks for transitivity/consistency on graphs
 //! - [`gaussian`] -- diagonal Gaussian box embeddings (KL, Bhattacharyya)
 //!
 //! ## Representations and scoring
@@ -77,7 +77,7 @@
 //! - [`dataset`] -- load WN18RR, FB15k-237, YAGO3-10, and similar KG datasets
 //! - [`trainable`] -- [`trainable::TrainableBox`] and [`trainable::TrainableCone`] with learnable parameters
 //! - [`trainer`] -- negative sampling, loss computation, link prediction evaluation.
-//!   Includes [`CandleBoxTrainer`] for GPU training
+//!   Includes `CandleBoxTrainer` for GPU training
 //!   with AdamW, cosine LR, self-adversarial NS, and filtered evaluation.
 //! - [`metrics`] -- rank-based metrics (MRR, Hits@k, Mean Rank)
 //! - [`optimizer`] -- AMSGrad state management
@@ -100,11 +100,11 @@
 //! | `rand` | yes (via `ndarray-backend`) | Negative sampling utilities in [`trainer`] |
 //! | `hyperbolic` | no | `hyperbolic` module (Poincare ball via `hyperball` + `skel`) |
 //! | `petgraph` | no | `petgraph_adapter` module (convert petgraph graphs to datasets) |
-//! | `sheaf` | no | [`sheaf`] module (sheaf diffusion primitives) |
-//! | `lattix` | no | [`lattix_bridge`] module (RDF/Turtle/CSV/JSON-LD KG loading via `lattix`) |
-//! | `rankops` | no | Re-exports [`rankops`] (rank fusion, nDCG, MAP) |
-//! | `spherical` | no | [`spherical`] module (unit-sphere embeddings, experimental) |
-//! | `density` | no | [`density`] + [`density_el`] modules (density matrix embeddings, experimental) |
+//! | `sheaf` | no | `sheaf` module (sheaf diffusion primitives) |
+//! | `lattix` | no | `lattix_bridge` module (RDF/Turtle/CSV/JSON-LD KG loading via `lattix`) |
+//! | `rankops` | no | Re-exports `rankops` (rank fusion, nDCG, MAP) |
+//! | `spherical` | no | `spherical` module (unit-sphere embeddings, experimental) |
+//! | `density` | no | `density` + `density_el` modules (density matrix embeddings, experimental) |
 //!
 //! # Example
 //!
