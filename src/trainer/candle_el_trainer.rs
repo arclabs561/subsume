@@ -671,14 +671,14 @@ fn l2_rank(
     target: usize,
     exclude: &[usize],
 ) -> (usize, f32) {
-    let target_dist = {
+    let target_dist_sq = {
         let off = target * dim;
         let mut d = 0.0f32;
         for i in 0..dim {
             let diff = query[i] - centers[off + i];
             d += diff * diff;
         }
-        d.sqrt()
+        d
     };
 
     let mut rank = 1usize;
@@ -692,11 +692,12 @@ fn l2_rank(
             let diff = query[i] - centers[off + i];
             d += diff * diff;
         }
-        if d.sqrt() < target_dist {
+        // Compare squared distances (sqrt is monotone, skip it).
+        if d < target_dist_sq {
             rank += 1;
         }
     }
-    (rank, target_dist)
+    (rank, target_dist_sq.sqrt())
 }
 
 /// Accumulate H@1, H@10, MRR from a sequence of ranks.
@@ -876,8 +877,8 @@ impl CandleElTrainer {
             let sub_off = sub * dim;
             let rh_off = role * dim * 2;
 
-            // Score for the correct filler
-            let target_dist = {
+            // Score for the correct filler (squared distance -- sqrt is monotone).
+            let target_dist_sq = {
                 let bump_off = filler * dim;
                 let mut d = 0.0f32;
                 for i in 0..dim {
@@ -885,7 +886,7 @@ impl CandleElTrainer {
                     let diff = bumped - role_heads_data[rh_off + i];
                     d += diff * diff;
                 }
-                d.sqrt()
+                d
             };
 
             let mut rank = 1usize;
@@ -897,7 +898,7 @@ impl CandleElTrainer {
                     let diff = bumped - role_heads_data[rh_off + i];
                     d += diff * diff;
                 }
-                if d.sqrt() < target_dist {
+                if d < target_dist_sq {
                     rank += 1;
                 }
             }
