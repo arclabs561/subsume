@@ -2,8 +2,8 @@
 //!
 //! Each entity is a linear subspace of R^d, stored as an unconstrained
 //! `[num_entities, rank, dim]` parameter tensor.  On every forward pass,
-//! each entity's `[rank, dim]` slice is L2-normalised row-wise (a cheap
-//! approximation to full Gram-Schmidt that preserves gradient flow).
+//! each entity's `[rank, dim]` slice is orthonormalised via batched
+//! Gram-Schmidt, preserving gradient flow through all differentiable steps.
 //!
 //! # Scoring
 //!
@@ -41,7 +41,7 @@ use std::collections::HashMap;
 /// Subspace embedding parameters.
 ///
 /// `basis` is an unconstrained `[num_entities, rank, dim]` tensor.
-/// Rows are L2-normalised before projection (approximation to orthonormality).
+/// Rows are orthonormalized via Gram-Schmidt before projection.
 /// No relation parameters — subspace containment is relation-agnostic.
 #[derive(Module, Debug)]
 pub struct BurnSubspaceModel<B: Backend> {
@@ -216,8 +216,8 @@ impl<B: AutodiffBackend> BurnSubspaceTrainer<B> {
 
     /// Containment score in tensor form.
     ///
-    /// `head_basis`: `[bs, rank, dim]` (L2-normalised)
-    /// `tail_basis`: `[bs, rank, dim]` (L2-normalised)
+    /// `head_basis`: `[bs, rank, dim]` (orthonormal rows)
+    /// `tail_basis`: `[bs, rank, dim]` (orthonormal rows)
     ///
     /// Returns `[bs]` scores in `[0, 1]`.
     fn containment_score(head_basis: Tensor<B, 3>, tail_basis: Tensor<B, 3>) -> Tensor<B, 2> {
@@ -254,6 +254,8 @@ impl<B: AutodiffBackend> BurnSubspaceTrainer<B> {
     /// L2-normalise each basis vector (row of the [rank, dim] slices).
     ///
     /// `basis`: `[bs, rank, dim]` — normalises along the `dim` axis.
+    /// Used in tests and as a building block; production paths use `batched_gram_schmidt`.
+    #[allow(dead_code)]
     fn l2_normalize(basis: Tensor<B, 3>) -> Tensor<B, 3> {
         let norms = basis
             .clone()
@@ -264,20 +266,56 @@ impl<B: AutodiffBackend> BurnSubspaceTrainer<B> {
         basis / norms
     }
 
-    /// Select and L2-normalise basis vectors for a batch of entity ids.
+    /// Gram-Schmidt orthonormalization for batched basis tensors.
+    ///
+    /// `basis`: `[bs, rank, dim]` — unconstrained row vectors.
+    ///
+    /// Returns `[bs, rank, dim]` with mutually orthogonal unit rows.
+    /// Gradient flows through all arithmetic operations.
+    fn batched_gram_schmidt(basis: Tensor<B, 3>) -> Tensor<B, 3> {
+        let [bs, rank, dim] = basis.dims();
+        let mut rows: Vec<Tensor<B, 3>> = Vec::with_capacity(rank);
+
+        for i in 0..rank {
+            // Extract row i: [bs, 1, dim]
+            let mut vi = basis.clone().slice([0..bs, i..i + 1, 0..dim]);
+
+            // Subtract projections onto each already-orthonormalized row
+            for prev in &rows {
+                // dot product along dim axis: [bs, 1, dim] * [bs, 1, dim] -> sum -> [bs, 1, 1]
+                let dot = (vi.clone() * prev.clone()).sum_dim(2); // [bs, 1, 1]
+                vi = vi - dot * prev.clone();
+            }
+
+            // Normalize: norm is [bs, 1, 1]
+            let norm = vi
+                .clone()
+                .powf_scalar(2.0)
+                .sum_dim(2)
+                .sqrt()
+                .clamp_min(1e-8);
+            vi = vi / norm;
+
+            rows.push(vi);
+        }
+
+        // Reassemble: [bs, rank, dim]
+        Tensor::cat(rows, 1)
+    }
+
+    /// Select and orthonormalize basis vectors for a batch of entity ids.
     ///
     /// `ids`: `[bs]` int tensor.
-    /// Returns `[bs, rank, dim]`.
+    /// Returns `[bs, rank, dim]` (orthonormal rows via Gram-Schmidt).
     fn select_and_normalise(basis_all: &Tensor<B, 3>, ids: Tensor<B, 1, Int>) -> Tensor<B, 3> {
         let bs = ids.dims()[0];
         let rank = basis_all.dims()[1];
         let dim = basis_all.dims()[2];
-        // select returns [bs, rank * dim] — reshape to [bs, rank, dim]
-        // Burn select on dim 0 of a 3D tensor: we need to flatten to 2D first.
+        // select requires 2D input — flatten, select, reshape.
         let flat = basis_all.clone().reshape([basis_all.dims()[0], rank * dim]);
         let selected_flat = flat.select(0, ids); // [bs, rank * dim]
         let selected = selected_flat.reshape([bs, rank, dim]);
-        Self::l2_normalize(selected)
+        Self::batched_gram_schmidt(selected)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -322,7 +360,7 @@ impl<B: AutodiffBackend> BurnSubspaceTrainer<B> {
             }
             Tensor::cat(rows, 0).reshape([bs * n_neg, rank, dim]) // [bs * n_neg, rank, dim]
         };
-        let head_rep_norm = Self::l2_normalize(head_rep);
+        let head_rep_norm = Self::batched_gram_schmidt(head_rep);
 
         let neg_score_flat = Self::containment_score(head_rep_norm, neg_b); // [bs * n_neg, 1]
         let neg_score = neg_score_flat.reshape([bs, n_neg]); // [bs, n_neg]
