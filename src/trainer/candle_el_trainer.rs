@@ -391,6 +391,7 @@ impl CandleElTrainer {
             // becomes empty exponentially fast in high dimensions. Extended intersection
             // uses a per-dimension overlap mask to restrict the inclusion loss to
             // dimensions where both boxes are present.
+            //
             if !nf1_axioms.is_empty() {
                 let bs = batch_size.min(nf1_axioms.len());
                 let mut c1_ids = Vec::with_capacity(bs);
