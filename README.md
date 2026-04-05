@@ -14,9 +14,12 @@ For background on why region embeddings work and how the geometries relate, see 
 
 ## Geometries
 
-Boxes, Gumbel boxes, cones, octagons, Gaussians, and hyperbolic intervals. Each
-implements containment probability, volume, intersection, and distance. CPU
-backend via ndarray, GPU via candle (`features = ["candle-backend"]` or `["cuda"]`).
+15 geometry types: boxes (hard and Gumbel), cones, octagons, Gaussians (TaxoBell),
+hyperbolic intervals, spherical, density matrices, sheaf networks, balls, spherical
+caps, subspaces, ellipsoids, TransBox, and annular sectors. Each implements
+containment probability, volume, intersection, and distance. CPU backend via
+ndarray, GPU via candle (`features = ["candle-backend"]` or `["cuda"]`) or burn
+(`features = ["burn-ndarray"]` or `["burn-wgpu"]`).
 
 Scoring: Query2Box distance, fuzzy t-norms for logical queries, EL++ ontology
 losses (Box2EL/TransBox). Training: CPU trainer with analytical gradients or
@@ -107,7 +110,7 @@ cargo run -p subsume --example dataset_training --release # full pipeline: WN18R
 cargo run -p subsume --example el_training              # EL++ ontology embedding
 ```
 
-18 examples total covering all geometries, training modes, and query types.
+24 examples total covering all geometries, training modes, and query types.
 See [`examples/README.md`](examples/README.md) for the full list.
 
 ## Tests
@@ -135,6 +138,12 @@ Unit, property, and doc tests covering:
 | Octagon | Rule-aware KG completion; tighter containment than boxes | No | Diagonal constraints cut box corners; more parameters per entity |
 | Gaussian | Taxonomy expansion with uncertainty (TaxoBell) | No | KL = asymmetric containment; Bhattacharyya = symmetric overlap |
 | Hyperbolic | Tree-like hierarchies with exponential branching | No | Low-dim capacity; numerical care near Poincare ball boundary |
+| Ball | Spherical containment (SpherE + RegD); GPU via burn | No | Simpler than boxes; fewer parameters; analytical gradients available |
+| SphericalCap | Directional containment; cone angle as uncertainty | No | Novel parameterization; may need more epochs than boxes |
+| Subspace | Conjunction/disjunction/negation via projection | Yes | Closed under set ops; finite-diff gradients slow at high dim |
+| Ellipsoid | Full-covariance containment via Cholesky; anisotropic | No | Expressiveness at cost of O(d²) parameters; numerical care near degenerate shapes |
+| TransBox | EL++-closed ontology embedding (Yang et al., 2024) | No | Designed for DL semantics; requires box parameterization |
+| AnnularSector | Angular position + spread; rotation uncertainty (Zhu & Zeng, 2025) | No | Best empirical MRR on small hierarchies; novel parameterization |
 
 ## Why regions instead of points?
 
@@ -176,6 +185,10 @@ Three tasks where point embeddings structurally fail:
 
 If your task is link prediction or entity similarity, use RotatE. If you need
 containment, set operations, or volume, you need regions.
+
+On general knowledge graphs without explicit DL semantics, foundation models now
+match or exceed geometric methods. The geometric advantage is strongest in
+ontology-specific settings where containment and DL axioms are the ground truth.
 
 See [`docs/SUBSUMPTION_HISTORY.md`](docs/SUBSUMPTION_HISTORY.md) for the research
 history of geometric subsumption embeddings, from hard boxes through Gumbel, cones, and beyond.
@@ -288,6 +301,14 @@ Configure via environment variables:
 DIM=200 EPOCHS=500 LR=0.001 NEG=128 BATCH=512 MARGIN=9.0 \
   ADV_TEMP=1.0 INSIDE_W=0.02 VOL_REG=0.0001 BOUNDS_EVERY=50 \
   cargo run --features cuda --example wn18rr_candle --release
+```
+
+The burn ball trainer runs on ndarray (CPU) or wgpu (GPU/AMD/WebGPU):
+
+```bash
+# CPU via burn-ndarray
+DIM=64 EPOCHS=300 LR=0.01 BATCH=512 NEG=10 \
+  cargo run --features burn-ndarray --example wn18rr_ball_burn --release
 ```
 
 See `examples/README.md` for all available examples.
