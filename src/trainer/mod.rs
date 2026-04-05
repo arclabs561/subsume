@@ -28,6 +28,10 @@ pub mod box_trainer;
 #[cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))]
 #[cfg_attr(docsrs, doc(cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))))]
 pub mod burn_ball_trainer;
+/// Burn-based TransBox trainer with autodiff (multi-backend: ndarray/wgpu/tch).
+#[cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))))]
+pub mod burn_transbox_trainer;
 /// Cone embedding trainer, loss computation, and analytical gradients.
 pub mod cone_trainer;
 /// Ellipsoid embedding trainer with analytical gradients.
@@ -586,6 +590,11 @@ pub use annular_trainer::AnnularTrainer;
 #[cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))]
 #[cfg_attr(docsrs, doc(cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))))]
 pub use burn_ball_trainer::BurnBallTrainer;
+
+// Burn TransBox trainer
+#[cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))))]
+pub use burn_transbox_trainer::BurnTransBoxTrainer;
 
 /// Backward-compatible alias for [`CpuBoxTrainingConfig`].
 ///
