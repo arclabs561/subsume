@@ -5,6 +5,7 @@
 
 use crate::dataset::Triple;
 use crate::spherical_cap::{SphericalCap, SphericalCapRelation};
+use crate::trainer::negative_sampling::{compute_relation_entity_pools, sample_excluding};
 use crate::trainer::trainer_utils::AdamState;
 use crate::trainer::CpuBoxTrainingConfig;
 use rand::rngs::StdRng;
@@ -179,52 +180,55 @@ impl SphericalCapTrainer {
         relation_to_idx: &HashMap<String, usize>,
     ) -> f32 {
         let num_entities = entities.len();
-        let k = 10.0;
+        let k = config.sigmoid_k;
         let mut total_loss = 0.0f32;
         let mut count = 0usize;
         let lr = config.learning_rate;
-        let _beta1 = self.adam.beta1;
-        let _beta2 = self.adam.beta2;
-        let _eps = self.adam.eps;
 
-        let mut indices: Vec<usize> = (0..triples.len()).collect();
+        // Pre-index triples for type-constrained negative sampling.
+        let indexed_triples: Vec<(usize, usize, usize)> = triples
+            .iter()
+            .filter_map(|triple| {
+                let head_idx = *entity_to_idx.get(&triple.head)?;
+                let rel_idx = *relation_to_idx.get(&triple.relation)?;
+                let tail_idx = *entity_to_idx.get(&triple.tail)?;
+                Some((head_idx, rel_idx, tail_idx))
+            })
+            .collect();
+        let relation_pools = compute_relation_entity_pools(&indexed_triples);
+
+        let mut indices: Vec<usize> = (0..indexed_triples.len()).collect();
         for i in (1..indices.len()).rev() {
             let j = self.rng.random_range(0..=i);
             indices.swap(i, j);
         }
 
         for &idx in &indices {
-            let triple = &triples[idx];
-            let head_idx = match entity_to_idx.get(&triple.head) {
-                Some(&i) => i,
-                None => continue,
-            };
-            let rel_idx = match relation_to_idx.get(&triple.relation) {
-                Some(&i) => i,
-                None => continue,
-            };
-            let tail_idx = match entity_to_idx.get(&triple.tail) {
-                Some(&i) => i,
-                None => continue,
-            };
+            let (head_idx, rel_idx, tail_idx) = indexed_triples[idx];
 
             let head = &entities[head_idx];
             let relation = &relations[rel_idx];
             let tail = &entities[tail_idx];
 
-            // Multi-negative sampling with uniform weights
+            // Multi-negative sampling with type constraints.
             let n_neg = config.negative_samples.max(1);
             let w = 1.0 / n_neg as f32;
             let mut avg_grads = CapGradients::new(head.dim());
             let mut avg_loss = 0.0f32;
 
+            let tail_pool = relation_pools.get(&rel_idx);
+
             for _ in 0..n_neg {
-                let neg_tail_idx = loop {
-                    let neg = self.rng.random_range(0..num_entities);
-                    if neg != tail_idx {
-                        break neg;
-                    }
-                };
+                let neg_tail_idx = tail_pool
+                    .and_then(|p| {
+                        sample_excluding(&p.tails, tail_idx, |n| self.rng.random_range(0..n))
+                    })
+                    .unwrap_or_else(|| loop {
+                        let neg = self.rng.random_range(0..num_entities);
+                        if neg != tail_idx {
+                            break neg;
+                        }
+                    });
                 let neg_tail = &entities[neg_tail_idx];
                 let (loss, grads) =
                     Self::compute_pair_gradients(head, relation, tail, neg_tail, config.margin, k);
@@ -350,7 +354,8 @@ impl SphericalCapTrainer {
         filter: Option<&crate::trainer::evaluation::FilteredTripleIndexIds>,
     ) -> crate::trainer::EvaluationResults {
         let num_entities = entities.len();
-        let k = 10.0;
+        // k only affects probability magnitude, not ranking order (sigmoid is monotone).
+        let k = 2.0f32;
 
         let score_tail = |head_idx: usize, rel_idx: usize, tail_idx: usize| -> f32 {
             let head = &entities[head_idx];
