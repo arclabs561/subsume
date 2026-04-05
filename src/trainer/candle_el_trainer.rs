@@ -259,7 +259,35 @@ impl CandleElTrainer {
         Ok((centers, offsets))
     }
 
+    /// Save current parameter state (for checkpoint/restore).
+    fn save_checkpoint(&self) -> Result<(Tensor, Tensor, Tensor, Tensor, Tensor)> {
+        Ok((
+            self.concept_centers.as_tensor().detach().clone(),
+            self.concept_offsets.as_tensor().detach().clone(),
+            self.bumps.as_tensor().detach().clone(),
+            self.role_heads.as_tensor().detach().clone(),
+            self.role_tails.as_tensor().detach().clone(),
+        ))
+    }
+
+    /// Restore parameter state from a checkpoint.
+    fn restore_checkpoint(
+        &self,
+        checkpoint: &(Tensor, Tensor, Tensor, Tensor, Tensor),
+    ) -> Result<()> {
+        self.concept_centers.set(&checkpoint.0)?;
+        self.concept_offsets.set(&checkpoint.1)?;
+        self.bumps.set(&checkpoint.2)?;
+        self.role_heads.set(&checkpoint.3)?;
+        self.role_tails.set(&checkpoint.4)?;
+        Ok(())
+    }
+
     /// Train on an ontology with AdamW and mini-batch sampling.
+    ///
+    /// Uses validation-based checkpointing: every 500 epochs, evaluates NF2+NF3
+    /// on a sample of training axioms. Saves the best parameter state and restores
+    /// it at the end. This prevents NF2 overfitting at long training runs.
     #[allow(clippy::too_many_arguments)]
     pub fn fit(
         &self,
@@ -332,6 +360,11 @@ impl CandleElTrainer {
                 .wrapping_add(1442695040888963407);
             (*s >> 33) as usize
         };
+
+        // Validation checkpoint state.
+        let mut best_val_mrr = f32::NEG_INFINITY;
+        let mut best_checkpoint: Option<(Tensor, Tensor, Tensor, Tensor, Tensor)> = None;
+        let mut best_epoch = 0usize;
 
         for epoch in 0..epochs {
             // Branch RNG per NF type so adding/removing random calls in one
@@ -712,6 +745,35 @@ impl CandleElTrainer {
                     epoch + 1
                 );
             }
+
+            // Validation checkpoint: evaluate NF2+NF3 every 500 epochs and save
+            // the best parameter state. This prevents NF2 overfitting at long
+            // training runs (NF2 MRR drops from 0.138 at 1000ep to 0.089 at 5000ep
+            // without checkpointing).
+            if epochs >= 1000 && (epoch + 1) % 500 == 0 {
+                let val_n = 200.min(nf2_axioms.len());
+                let val_nf2: Vec<(usize, usize)> = nf2_axioms[..val_n].to_vec();
+                let (_, _, nf2_mrr) = self.evaluate_subsumption(&val_nf2)?;
+
+                let val_n3 = 200.min(nf3_axioms.len());
+                let val_nf3: Vec<(usize, usize, usize)> = nf3_axioms[..val_n3].to_vec();
+                let (_, _, nf3_mrr) = self.evaluate_nf3(&val_nf3)?;
+
+                let combined = nf2_mrr + nf3_mrr;
+                if combined > best_val_mrr {
+                    best_val_mrr = combined;
+                    best_checkpoint = Some(self.save_checkpoint()?);
+                    best_epoch = epoch + 1;
+                }
+            }
+        }
+
+        // Restore best checkpoint if one was saved.
+        if let Some(ref ckpt) = best_checkpoint {
+            eprintln!(
+                "  Restoring best checkpoint from epoch {best_epoch} (val NF2+NF3 MRR={best_val_mrr:.4})"
+            );
+            self.restore_checkpoint(ckpt)?;
         }
 
         Ok(epoch_losses)
