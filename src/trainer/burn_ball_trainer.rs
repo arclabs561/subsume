@@ -774,4 +774,165 @@ mod tests {
             results.mean_rank
         );
     }
+
+    /// Verify that head and tail log-radii can diverge during training.
+    /// This tests the separate head/tail radius parameterization: an entity
+    /// should develop a small radius when used as a head (specific query)
+    /// and a larger radius when used as a tail (general answer).
+    #[test]
+    fn head_tail_radii_diverge() {
+        use crate::dataset::TripleIds;
+
+        // Entity 0 is always a head, entity 1 is always a tail.
+        // After training, entity 0's head radius should differ from its tail radius.
+        let triples = vec![
+            TripleIds {
+                head: 0,
+                relation: 0,
+                tail: 1,
+            },
+            TripleIds {
+                head: 0,
+                relation: 0,
+                tail: 2,
+            },
+            TripleIds {
+                head: 0,
+                relation: 0,
+                tail: 3,
+            },
+        ];
+
+        let device = Default::default();
+        let mut trainer = BurnBallTrainer::<TestBackend>::new();
+        let mut model = trainer.init_model(5, 1, 4, &device);
+        let config = CpuBoxTrainingConfig {
+            learning_rate: 0.05,
+            margin: 1.0,
+            use_infonce: true,
+            sigmoid_k: 2.0,
+            ..Default::default()
+        };
+        let mut optim = AdamConfig::new().init::<TestBackend, BurnBallModel<TestBackend>>();
+
+        for epoch in 0..30 {
+            trainer.train_epoch(&mut model, &mut optim, &triples, epoch, &config, &device);
+        }
+
+        // Check that head and tail radii for entity 0 are different
+        let head_lr = model
+            .entities
+            .log_radius
+            .val()
+            .slice([0..1, 0..1])
+            .into_scalar()
+            .to_f32();
+        let tail_lr = model
+            .entities
+            .tail_log_radius
+            .val()
+            .slice([0..1, 0..1])
+            .into_scalar()
+            .to_f32();
+        assert!(
+            (head_lr - tail_lr).abs() > 1e-4,
+            "head and tail log-radii should diverge for entity that appears as both: head_lr={head_lr:.4}, tail_lr={tail_lr:.4}"
+        );
+    }
+
+    /// Verify that dual relation translations (head + tail) both receive gradients.
+    #[test]
+    fn dual_translations_receive_gradients() {
+        use crate::dataset::TripleIds;
+
+        let triples = vec![TripleIds {
+            head: 0,
+            relation: 0,
+            tail: 1,
+        }];
+
+        let device = Default::default();
+        let mut trainer = BurnBallTrainer::<TestBackend>::new();
+        let mut model = trainer.init_model(5, 1, 4, &device);
+        let config = CpuBoxTrainingConfig {
+            learning_rate: 0.05,
+            margin: 1.0,
+            sigmoid_k: 2.0,
+            ..Default::default()
+        };
+
+        // Save initial translation values
+        let init_head_trans = model.relations.translation.val().to_data();
+        let init_tail_trans = model.relations.tail_translation.val().to_data();
+
+        let mut optim = AdamConfig::new().init::<TestBackend, BurnBallModel<TestBackend>>();
+        for epoch in 0..5 {
+            trainer.train_epoch(&mut model, &mut optim, &triples, epoch, &config, &device);
+        }
+
+        let final_head_trans = model.relations.translation.val().to_data();
+        let final_tail_trans = model.relations.tail_translation.val().to_data();
+
+        // Both translations should have changed
+        let head_changed = init_head_trans
+            .iter::<f32>()
+            .zip(final_head_trans.iter::<f32>())
+            .any(|(a, b)| (a - b).abs() > 1e-8);
+        let tail_changed = init_tail_trans
+            .iter::<f32>()
+            .zip(final_tail_trans.iter::<f32>())
+            .any(|(a, b)| (a - b).abs() > 1e-8);
+
+        assert!(
+            head_changed,
+            "head translation should change during training"
+        );
+        assert!(
+            tail_changed,
+            "tail translation should change during training"
+        );
+    }
+
+    /// Verify train_epoch loss decreases across epochs.
+    #[test]
+    fn loss_decreases_across_epochs() {
+        use crate::dataset::TripleIds;
+
+        let triples = vec![
+            TripleIds {
+                head: 0,
+                relation: 0,
+                tail: 1,
+            },
+            TripleIds {
+                head: 2,
+                relation: 1,
+                tail: 3,
+            },
+        ];
+
+        let device = Default::default();
+        let mut trainer = BurnBallTrainer::<TestBackend>::new();
+        let mut model = trainer.init_model(5, 2, 4, &device);
+        let config = CpuBoxTrainingConfig {
+            learning_rate: 0.02,
+            margin: 1.0,
+            use_infonce: true,
+            sigmoid_k: 2.0,
+            ..Default::default()
+        };
+        let mut optim = AdamConfig::new().init::<TestBackend, BurnBallModel<TestBackend>>();
+
+        let loss1 = trainer.train_epoch(&mut model, &mut optim, &triples, 0, &config, &device);
+        let mut loss_last = loss1;
+        for epoch in 1..20 {
+            loss_last =
+                trainer.train_epoch(&mut model, &mut optim, &triples, epoch, &config, &device);
+        }
+
+        assert!(
+            loss_last < loss1,
+            "loss should decrease: epoch 0 = {loss1:.4}, epoch 19 = {loss_last:.4}"
+        );
+    }
 }
