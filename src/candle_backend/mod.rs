@@ -1,7 +1,7 @@
 //! Candle (GPU) backend for box embeddings.
 //!
 //! Provides differentiable box and Gumbel box embeddings using Candle's
-//! autograd. Training is done via [`CandleBoxTrainer`](crate::trainer::CandleBoxTrainer).
+//! autograd. Training is done via `CandleBoxTrainer`.
 //!
 //! # Missing geometries
 //!
