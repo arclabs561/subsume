@@ -413,48 +413,60 @@ impl CandleElTrainer {
                 let (cc2, oc2) = self.concept_boxes(&c2_t)?;
                 let (cd, od) = self.concept_boxes(&d_t)?;
 
-                // Extended intersection (TransBox Eq. 8): per-dimension overlap mask.
+                // Gumbel soft intersection (Dasgupta et al., 2020) via log-sum-exp.
+                // Provides smooth gradients even for completely disjoint boxes,
+                // solving the exponential sparsity problem (P(overlap) = (2/3)^n).
                 let min1 = cc1.sub(&oc1)?;
                 let max1 = cc1.add(&oc1)?;
                 let min2 = cc2.sub(&oc2)?;
                 let max2 = cc2.add(&oc2)?;
 
-                // overlap_width > 0 where the two boxes overlap in that dimension.
-                let overlap_width = max1.minimum(&max2)?.sub(&min1.maximum(&min2)?)?;
+                // Gumbel temperature: higher = softer intersection (more gradient signal).
+                // 1.0 is the standard Gumbel temperature from Dasgupta et al. (2020).
+                let beta = 1.0f32;
+                let inv_beta = 1.0 / beta as f64;
 
-                // Soft mask: sigmoid(k * overlap_width) -- 1 where overlapping, 0 where disjoint.
-                // Using k=20 for a sharp but differentiable mask.
-                let mask = (overlap_width.affine(20.0, 0.0))?.tanh()?.relu()?;
+                // soft_max(min1, min2) via LSE: intersection lower bound
+                let inter_min = {
+                    let a = min1.affine(inv_beta, 0.0)?;
+                    let b = min2.affine(inv_beta, 0.0)?;
+                    let m = a.maximum(&b)?;
+                    let s = a.sub(&m)?.exp()?.add(&b.sub(&m)?.exp()?)?;
+                    m.add(&s.log()?)?.affine(beta as f64, 0.0)?
+                };
 
-                // Intersection center/offset (clamped to non-negative width).
-                let inter_min = min1.maximum(&min2)?;
-                let inter_max = max1.minimum(&max2)?.maximum(&inter_min)?;
+                // soft_min(max1, max2) via LSE: intersection upper bound
+                let inter_max = {
+                    let a = max1.affine(-inv_beta, 0.0)?;
+                    let b = max2.affine(-inv_beta, 0.0)?;
+                    let m = a.maximum(&b)?;
+                    let s = a.sub(&m)?.exp()?.add(&b.sub(&m)?.exp()?)?;
+                    m.add(&s.log()?)?.affine(-beta as f64, 0.0)?
+                };
+
+                // Soft intersection center and offset (offset can be negative for
+                // "inverted" boxes, which is fine -- the inclusion loss handles it).
                 let inter_center = inter_min.add(&inter_max)?.affine(0.5, 0.0)?;
-                let inter_offset = inter_max.sub(&inter_min)?.affine(0.5, 0.0)?;
+                let inter_offset = inter_max.sub(&inter_min)?.relu()?.affine(0.5, 0.0)?;
 
-                // Masked inclusion loss (TransBox Eq. 10):
-                // Only measure containment in dimensions where both boxes overlap.
-                let diffs = inter_center.sub(&cd)?.abs()?;
-                let violation = diffs
-                    .add(&inter_offset)?
-                    .sub(&od)?
-                    .affine(1.0, -(self.margin as f64))?
-                    .relu()?;
-                // Apply mask: violation only counts in overlapping dimensions.
-                let masked_violation = violation.mul(&mask)?;
-                let nf1_incl = masked_violation
+                // Inclusion loss: intersection ⊆ D.
+                let nf1_incl =
+                    Self::inclusion_loss(&inter_center, &inter_offset, &cd, &od, self.margin)?
+                        .mean(0)?;
+
+                // Center attraction: when the soft intersection is small, pull the
+                // midpoint of C1 and C2 centers toward D. This provides a consistent
+                // gradient direction even when intersection geometry is degenerate.
+                let midpoint = cc1.add(&cc2)?.affine(0.5, 0.0)?;
+                let center_dist = midpoint
+                    .sub(&cd)?
                     .sqr()?
                     .sum(1)?
                     .affine(1.0, 1e-8)?
                     .sqrt()?
                     .mean(0)?;
 
-                // Shrinkage term: encourage intersection offset to be small in
-                // non-overlapping dimensions (push boxes toward overlap).
-                let inv_mask = mask.affine(-1.0, 1.0)?; // 1 where disjoint
-                let shrink = inter_offset.mul(&inv_mask)?.sqr()?.sum(1)?.mean(0)?;
-
-                let nf1_loss = nf1_incl.add(&shrink.affine(0.1, 0.0)?)?;
+                let nf1_loss = nf1_incl.add(&center_dist.affine(0.1, 0.0)?)?;
                 epoch_loss = epoch_loss.add(&nf1_loss)?;
             }
 
