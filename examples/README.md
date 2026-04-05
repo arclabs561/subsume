@@ -18,6 +18,16 @@
 | `hyperbolic_demo` | Poincare ball embeddings: norm-depth correlation, hierarchy preservation, exponential capacity |
 | `el_training` | End-to-end EL++ box embedding training on a biomedical-style ontology |
 | `taxobell_training` | TaxoBell MLP encoder training with Candle autograd (requires `--features candle-backend`) |
+| `cone_query_answering` | FOL queries (conjunction, disjunction, negation) via cone algebra on a small KG |
+| `density_el_demo` | Density matrix EL++ training; parent-child fidelity vs disjoint-pair fidelity |
+| `el_benchmark` | Full EL++ evaluation on Box2EL datasets (GALEN, GO, Anatomy); per-NF MRR/Hits@k |
+| `gene_ontology` | EL++ box embeddings on a Gene Ontology subset; full train/eval pipeline |
+| `geometry_comparison` | All 6 new geometry types (ball, cap, subspace, ellipsoid, transbox, annular) on a WordNet subset; side-by-side MRR/Hits@k/MeanRank |
+| `wn18rr_ball` | Ball embeddings (SpherE + RegD) on WN18RR; per-triple SGD with analytical gradients |
+| `wn18rr_ball_burn` | Batched ball training on WN18RR via burn-ndarray; InfoNCE loss (requires `--features burn-ndarray`) |
+| `wn18rr_candle` | Box embeddings on WN18RR via candle backend; CPU, CUDA, and Metal |
+| `wn18rr_cone` | Cone embeddings on WN18RR via candle backend; angular containment scoring |
+| `wn18rr_training` | Box embeddings on WN18RR via CPU ndarray backend; reference pipeline |
 
 ## Decision tree
 
@@ -47,6 +57,24 @@
   - EL++ ontology (subsumption + roles): `el_training`
   - TaxoBell (Gaussian boxes + MLP encoder, Candle): `taxobell_training`
 
+- **Want to benchmark all geometry types on a small hierarchy?**
+  Start with `geometry_comparison` (~0.4s, no data download required).
+
+- **Want to train ball embeddings on WN18RR?**
+  - Per-triple SGD (no extra features required): `wn18rr_ball`
+  - Batched training via burn (requires `--features burn-ndarray`): `wn18rr_ball_burn`
+
+- **Want to run the full WN18RR benchmark?**
+  - CPU ndarray (boxes): `wn18rr_training`
+  - Candle CPU/GPU (boxes): `wn18rr_candle`
+  - Candle CPU/GPU (cones): `wn18rr_cone`
+
+- **Want to benchmark EL++ on GALEN/GO/Anatomy?**
+  Start with `el_benchmark` (requires dataset files in `data/`).
+
+- **Want to understand cone query algebra (conjunction, disjunction, negation)?**
+  Start with `cone_query_answering`.
+
 - **Want to see TaxoBell losses without training?**
   Start with `taxobell_demo`.
 
@@ -66,6 +94,16 @@ cargo run -p subsume --example imagenet_hierarchy --release
 cargo run -p subsume --features hyperbolic --example hyperbolic_demo
 cargo run -p subsume --example el_training --release
 cargo run -p subsume --features candle-backend --example taxobell_training --release
+cargo run -p subsume --example cone_query_answering
+cargo run -p subsume --example density_el_demo --release
+cargo run -p subsume --features candle-backend --example el_benchmark --release -- data/GALEN
+cargo run -p subsume --features candle-backend --example gene_ontology --release
+cargo run -p subsume --example geometry_comparison --release
+cargo run -p subsume --example wn18rr_ball --release
+cargo run -p subsume --features burn-ndarray --example wn18rr_ball_burn --release
+cargo run -p subsume --features candle-backend --example wn18rr_candle --release
+cargo run -p subsume --features candle-backend --example wn18rr_cone --release
+cargo run -p subsume --example wn18rr_training --release
 ```
 
 ## Example output
