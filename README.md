@@ -256,15 +256,15 @@ let dataset = Dataset::new(triples, vec![], vec![]);
 
 Per-normal-form results on Box2EL benchmark datasets (Jackermeier et al., 2023),
 evaluated by center L2 distance ranking (matching Box2EL protocol).
-subsume: dim=200, 1000 epochs, single run. Box2EL/TransBox: 5000 epochs,
-best of 10 runs (Table 7, TransBox WWW 2025).
+subsume: dim=200, default hyperparameters, single run. Box2EL/TransBox: 5000
+epochs, best of 10 runs (Table 7, TransBox WWW 2025).
 
-| Dataset | NF type | subsume MRR | subsume H@1 | subsume H@10 |
-|---|---|---|---|---|
-| GALEN (23K) | NF1: C1 ⊓ C2 ⊑ D | 0.010 | 0.003 | 0.020 |
-| GALEN | NF2: C ⊑ D | 0.138 | 0.031 | 0.331 |
-| GALEN | NF3: C ⊑ ∃r.D | **0.241** | **0.160** | **0.388** |
-| GALEN | NF4: ∃r.C ⊑ D | 0.001 | 0.000 | 0.000 |
+| Dataset | NF type | subsume MRR | subsume H@1 | subsume H@10 | Epochs |
+|---|---|---|---|---|---|
+| GALEN (23K) | NF1: C1 ⊓ C2 ⊑ D | 0.106 | 0.058 | 0.192 | 5000 |
+| GALEN | NF2: C ⊑ D | 0.138 | 0.031 | 0.331 | 1000 |
+| GALEN | NF3: C ⊑ ∃r.D | **0.307** | **0.211** | **0.473** | 5000 |
+| GALEN | NF4: ∃r.C ⊑ D | 0.008 | 0.001 | 0.018 | 5000 |
 | GO (46K) | NF1 | 0.090 | 0.041 | 0.173 |
 | GO | NF2 | 0.056 | 0.008 | 0.152 |
 | GO | NF3 | **0.288** | **0.234** | **0.380** |
