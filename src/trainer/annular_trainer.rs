@@ -3,6 +3,7 @@
 
 use crate::annular::{AnnularRelation, AnnularSector};
 use crate::dataset::Triple;
+use crate::trainer::negative_sampling::{compute_relation_entity_pools, sample_excluding};
 use crate::trainer::trainer_utils::AdamState;
 use crate::trainer::CpuBoxTrainingConfig;
 use rand::rngs::StdRng;
@@ -222,39 +223,44 @@ impl AnnularTrainer {
         let mut total_loss = 0.0f32;
         let mut count = 0usize;
         let lr = config.learning_rate;
-        let mut indices: Vec<usize> = (0..triples.len()).collect();
+
+        // Pre-index triples for type-constrained negative sampling.
+        let indexed_triples: Vec<(usize, usize, usize)> = triples
+            .iter()
+            .filter_map(|triple| {
+                let head_idx = *entity_to_idx.get(&triple.head)?;
+                let rel_idx = *relation_to_idx.get(&triple.relation)?;
+                let tail_idx = *entity_to_idx.get(&triple.tail)?;
+                Some((head_idx, rel_idx, tail_idx))
+            })
+            .collect();
+        let relation_pools = compute_relation_entity_pools(&indexed_triples);
+
+        let mut indices: Vec<usize> = (0..indexed_triples.len()).collect();
         for i in (1..indices.len()).rev() {
             let j = self.rng.random_range(0..=i);
             indices.swap(i, j);
         }
 
         for &idx in &indices {
-            let triple = &triples[idx];
-            let hi = match entity_to_idx.get(&triple.head) {
-                Some(&i) => i,
-                None => continue,
-            };
-            let ri = match relation_to_idx.get(&triple.relation) {
-                Some(&i) => i,
-                None => continue,
-            };
-            let ti = match entity_to_idx.get(&triple.tail) {
-                Some(&i) => i,
-                None => continue,
-            };
+            let (hi, ri, ti) = indexed_triples[idx];
             // Multi-negative sampling with uniform weights
             let n_neg = config.negative_samples.max(1);
             let w = 1.0 / n_neg as f32;
             let mut ag = AnnularGradients::new();
             let mut avg_loss = 0.0f32;
 
+            let tail_pool = relation_pools.get(&ri);
+
             for _ in 0..n_neg {
-                let nti = loop {
-                    let n = self.rng.random_range(0..num_entities);
-                    if n != ti {
-                        break n;
-                    }
-                };
+                let nti = tail_pool
+                    .and_then(|p| sample_excluding(&p.tails, ti, |n| self.rng.random_range(0..n)))
+                    .unwrap_or_else(|| loop {
+                        let n = self.rng.random_range(0..num_entities);
+                        if n != ti {
+                            break n;
+                        }
+                    });
                 let head = &entities[hi];
                 let rel = &relations[ri];
                 let tail = &entities[ti];
