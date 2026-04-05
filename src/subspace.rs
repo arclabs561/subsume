@@ -199,7 +199,7 @@ impl Subspace {
             .collect()
     }
 
-    /// Get mutable access to all basis vectors as Vec<Vec<f32>> (for training).
+    /// Get mutable access to all basis vectors as `Vec<Vec<f32>>` (for training).
     ///
     /// Returns a copy of the basis vectors. After modification, use
     /// [`Subspace::set_basis`] to apply changes and re-orthonormalize.
