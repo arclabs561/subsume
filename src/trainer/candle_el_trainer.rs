@@ -385,7 +385,12 @@ impl CandleElTrainer {
                 epoch_loss = epoch_loss.add(&batch_loss)?;
             }
 
-            // NF1: C1 ⊓ C2 ⊑ D -- intersection then inclusion
+            // NF1: C1 ⊓ C2 ⊑ D -- extended intersection then masked inclusion
+            //
+            // TransBox (Yang et al., WWW 2025) Section 4.4: standard box intersection
+            // becomes empty exponentially fast in high dimensions. Extended intersection
+            // uses a per-dimension overlap mask to restrict the inclusion loss to
+            // dimensions where both boxes are present.
             if !nf1_axioms.is_empty() {
                 let bs = batch_size.min(nf1_axioms.len());
                 let mut c1_ids = Vec::with_capacity(bs);
@@ -407,24 +412,48 @@ impl CandleElTrainer {
                 let (cc2, oc2) = self.concept_boxes(&c2_t)?;
                 let (cd, od) = self.concept_boxes(&d_t)?;
 
-                // Intersection: max of mins, min of maxes
+                // Extended intersection (TransBox Eq. 8): per-dimension overlap mask.
                 let min1 = cc1.sub(&oc1)?;
                 let max1 = cc1.add(&oc1)?;
                 let min2 = cc2.sub(&oc2)?;
                 let max2 = cc2.add(&oc2)?;
+
+                // overlap_width > 0 where the two boxes overlap in that dimension.
+                let overlap_width = max1.minimum(&max2)?.sub(&min1.maximum(&min2)?)?;
+
+                // Soft mask: sigmoid(k * overlap_width) -- 1 where overlapping, 0 where disjoint.
+                // Using k=20 for a sharp but differentiable mask.
+                let mask = (overlap_width.affine(20.0, 0.0))?.tanh()?.relu()?;
+
+                // Intersection center/offset (clamped to non-negative width).
                 let inter_min = min1.maximum(&min2)?;
-                let inter_max = max1.minimum(&max2)?;
-                let inter_max = inter_max.maximum(&inter_min)?;
+                let inter_max = max1.minimum(&max2)?.maximum(&inter_min)?;
                 let inter_center = inter_min.add(&inter_max)?.affine(0.5, 0.0)?;
                 let inter_offset = inter_max.sub(&inter_min)?.affine(0.5, 0.0)?;
 
-                // NF1 uses unsquared L2 norm (not squared like NF2/NF4).
-                // Box2EL uses squared uniformly, but our bump-based architecture
-                // converges better with gentler NF1/NF3 gradients. Verified by
-                // ablation: squaring NF1 collapses H@1 to 0.000 on all datasets.
-                let nf1_loss =
-                    Self::inclusion_loss(&inter_center, &inter_offset, &cd, &od, self.margin)?
-                        .mean(0)?;
+                // Masked inclusion loss (TransBox Eq. 10):
+                // Only measure containment in dimensions where both boxes overlap.
+                let diffs = inter_center.sub(&cd)?.abs()?;
+                let violation = diffs
+                    .add(&inter_offset)?
+                    .sub(&od)?
+                    .affine(1.0, -(self.margin as f64))?
+                    .relu()?;
+                // Apply mask: violation only counts in overlapping dimensions.
+                let masked_violation = violation.mul(&mask)?;
+                let nf1_incl = masked_violation
+                    .sqr()?
+                    .sum(1)?
+                    .affine(1.0, 1e-8)?
+                    .sqrt()?
+                    .mean(0)?;
+
+                // Shrinkage term: encourage intersection offset to be small in
+                // non-overlapping dimensions (push boxes toward overlap).
+                let inv_mask = mask.affine(-1.0, 1.0)?; // 1 where disjoint
+                let shrink = inter_offset.mul(&inv_mask)?.sqr()?.sum(1)?.mean(0)?;
+
+                let nf1_loss = nf1_incl.add(&shrink.affine(0.1, 0.0)?)?;
                 epoch_loss = epoch_loss.add(&nf1_loss)?;
             }
 
