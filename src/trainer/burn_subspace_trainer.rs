@@ -23,13 +23,16 @@
 
 use crate::dataset::TripleIds;
 use crate::subspace::Subspace;
-use crate::trainer::negative_sampling::{compute_relation_entity_pools, sample_excluding};
+use crate::trainer::negative_sampling::{
+    compute_relation_entity_pools, sample_excluding, RelationEntityPools,
+};
 use crate::trainer::trainer_utils::self_adversarial_weights;
 use crate::trainer::CpuBoxTrainingConfig;
 use burn::module::{Param, ParamId};
 use burn::optim::{GradientsParams, Optimizer};
 use burn::prelude::*;
 use burn::tensor::backend::AutodiffBackend;
+use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
 // Model
@@ -56,6 +59,7 @@ pub struct BurnSubspaceTrainer<B: AutodiffBackend> {
     epoch_seed: u64,
     /// Fixed subspace rank (number of basis vectors per entity).
     rank: usize,
+    cached_pools: Option<HashMap<usize, RelationEntityPools>>,
 }
 
 impl<B: AutodiffBackend> BurnSubspaceTrainer<B> {
@@ -68,6 +72,7 @@ impl<B: AutodiffBackend> BurnSubspaceTrainer<B> {
             _backend: std::marker::PhantomData,
             epoch_seed: 0,
             rank: rank.max(1),
+            cached_pools: None,
         }
     }
 
@@ -120,11 +125,14 @@ impl<B: AutodiffBackend> BurnSubspaceTrainer<B> {
         let batch_size = config.batch_size.max(1);
         let n_neg = config.negative_samples.max(1);
 
-        let indexed: Vec<(usize, usize, usize)> = triples
-            .iter()
-            .map(|t| (t.head, t.relation, t.tail))
-            .collect();
-        let pools = compute_relation_entity_pools(&indexed);
+        if self.cached_pools.is_none() {
+            let indexed: Vec<(usize, usize, usize)> = triples
+                .iter()
+                .map(|t| (t.head, t.relation, t.tail))
+                .collect();
+            self.cached_pools = Some(compute_relation_entity_pools(&indexed));
+        }
+        let pools = self.cached_pools.as_ref().unwrap();
 
         let n = triples.len();
         if n == 0 {
