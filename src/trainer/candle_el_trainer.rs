@@ -261,12 +261,17 @@ impl CandleElTrainer {
 
     /// Save current parameter state (for checkpoint/restore).
     fn save_checkpoint(&self) -> Result<(Tensor, Tensor, Tensor, Tensor, Tensor)> {
+        // Copy through data to fully detach from the computation graph.
+        // Plain detach().clone() still shares storage with the Var.
+        let copy = |t: &Tensor| -> Result<Tensor> {
+            Tensor::from_slice(&t.to_vec1::<f32>()?, t.shape(), &self.device)
+        };
         Ok((
-            self.concept_centers.as_tensor().detach().clone(),
-            self.concept_offsets.as_tensor().detach().clone(),
-            self.bumps.as_tensor().detach().clone(),
-            self.role_heads.as_tensor().detach().clone(),
-            self.role_tails.as_tensor().detach().clone(),
+            copy(self.concept_centers.as_tensor())?,
+            copy(self.concept_offsets.as_tensor())?,
+            copy(self.bumps.as_tensor())?,
+            copy(self.role_heads.as_tensor())?,
+            copy(self.role_tails.as_tensor())?,
         ))
     }
 
