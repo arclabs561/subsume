@@ -318,6 +318,38 @@ impl CandleElTrainer {
             );
         }
 
+        // Per-NF loss weights: 1 / sqrt(n_axioms) so larger NF types don't
+        // overpower smaller ones. Normalised so the mean weight is 1.0 when
+        // all four types are present (keeps total loss scale stable).
+        let inv_sqrt = |n: usize| {
+            if n == 0 {
+                0.0f64
+            } else {
+                1.0 / (n as f64).sqrt()
+            }
+        };
+        let w_nf2 = inv_sqrt(nf2_axioms.len());
+        let w_nf1 = inv_sqrt(nf1_axioms.len());
+        let w_nf3 = inv_sqrt(nf3_axioms.len());
+        let w_nf4 = inv_sqrt(nf4_axioms.len());
+        // Normalise: scale so the active weights average to 1.0.
+        let active_weights: Vec<f64> = [w_nf2, w_nf1, w_nf3, w_nf4]
+            .iter()
+            .copied()
+            .filter(|&w| w > 0.0)
+            .collect();
+        let mean_w = if active_weights.is_empty() {
+            1.0f64
+        } else {
+            active_weights.iter().sum::<f64>() / active_weights.len() as f64
+        };
+        let (w_nf2, w_nf1, w_nf3, w_nf4) = (
+            w_nf2 / mean_w,
+            w_nf1 / mean_w,
+            w_nf3 / mean_w,
+            w_nf4 / mean_w,
+        );
+
         let nc = self.num_concepts;
         let mut epoch_losses = Vec::with_capacity(epochs);
         let mut master_rng: u64 = 42;
@@ -383,7 +415,7 @@ impl CandleElTrainer {
                     neg_loss_sum = neg_loss_sum.add(&neg_loss)?;
                 }
 
-                let batch_loss = pos_loss.add(&neg_loss_sum)?;
+                let batch_loss = pos_loss.add(&neg_loss_sum)?.affine(w_nf2, 0.0)?;
                 epoch_loss = epoch_loss.add(&batch_loss)?;
             }
 
@@ -471,7 +503,9 @@ impl CandleElTrainer {
                 // Center attraction weight. Higher = more emphasis on center proximity
                 // vs geometric containment. 0.1 default, 0.5 experimental.
                 let nf1_center_w = 0.5_f64;
-                let nf1_loss = nf1_incl.add(&center_dist.affine(nf1_center_w, 0.0)?)?;
+                let nf1_loss = nf1_incl
+                    .add(&center_dist.affine(nf1_center_w, 0.0)?)?
+                    .affine(w_nf1, 0.0)?;
                 epoch_loss = epoch_loss.add(&nf1_loss)?;
             }
 
@@ -566,7 +600,7 @@ impl CandleElTrainer {
                     nf3_neg_sum = nf3_neg_sum.add(&nl1)?.add(&nl2)?;
                 }
 
-                let nf3_total = nf3_loss.add(&nf3_neg_sum)?;
+                let nf3_total = nf3_loss.add(&nf3_neg_sum)?.affine(w_nf3, 0.0)?;
                 epoch_loss = epoch_loss.add(&nf3_total)?;
             }
 
@@ -596,7 +630,7 @@ impl CandleElTrainer {
 
                 // Translate head box by -bump_C (negate filler bump)
                 let c_head_shifted = c_head.sub(&bump_filler)?;
-                let nf4_loss = Self::inclusion_loss(
+                let nf4_incl = Self::inclusion_loss(
                     &c_head_shifted,
                     &o_head,
                     &c_target,
@@ -605,6 +639,18 @@ impl CandleElTrainer {
                 )?
                 .sqr()?
                 .mean(0)?;
+
+                // Center attraction: pull shifted existential center toward D's center.
+                // Same pattern that improved NF1 from MRR 0.006 to 0.115.
+                let nf4_center_w = 0.5_f64;
+                let nf4_center_dist = c_head_shifted
+                    .sub(&c_target)?
+                    .sqr()?
+                    .sum(1)?
+                    .affine(1.0, 1e-8)?
+                    .sqrt()?
+                    .mean(0)?;
+                let nf4_loss = nf4_incl.add(&nf4_center_dist.affine(nf4_center_w, 0.0)?)?;
 
                 // NF4 negatives: corrupt filler (C) and target (D).
                 // Skipped entirely when nf4_neg_weight == 0.0 to preserve
@@ -651,7 +697,7 @@ impl CandleElTrainer {
                 } else {
                     nf4_loss
                 };
-                epoch_loss = epoch_loss.add(&nf4_total)?;
+                epoch_loss = epoch_loss.add(&nf4_total.affine(w_nf4, 0.0)?)?;
             }
 
             // Regularization: bump norms (Box2EL: reg_factor * mean(||bump||_2))
