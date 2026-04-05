@@ -659,6 +659,58 @@ impl CandleElTrainer {
     }
 }
 
+/// Compute the rank of `target` among all concepts by L2 distance from `query`
+/// to rows of `centers` (flat `[nc * dim]`). Concepts in `exclude` are skipped.
+///
+/// Returns `(rank, dist_to_target)` where rank is 1-based.
+fn l2_rank(
+    query: &[f32],
+    centers: &[f32],
+    nc: usize,
+    dim: usize,
+    target: usize,
+    exclude: &[usize],
+) -> (usize, f32) {
+    let target_dist = {
+        let off = target * dim;
+        let mut d = 0.0f32;
+        for i in 0..dim {
+            let diff = query[i] - centers[off + i];
+            d += diff * diff;
+        }
+        d.sqrt()
+    };
+
+    let mut rank = 1usize;
+    for c in 0..nc {
+        if c == target || exclude.contains(&c) {
+            continue;
+        }
+        let off = c * dim;
+        let mut d = 0.0f32;
+        for i in 0..dim {
+            let diff = query[i] - centers[off + i];
+            d += diff * diff;
+        }
+        if d.sqrt() < target_dist {
+            rank += 1;
+        }
+    }
+    (rank, target_dist)
+}
+
+/// Accumulate H@1, H@10, MRR from a sequence of ranks.
+fn metrics_from_ranks(ranks: &[usize]) -> (f32, f32, f32) {
+    if ranks.is_empty() {
+        return (0.0, 0.0, 0.0);
+    }
+    let n = ranks.len() as f32;
+    let h1 = ranks.iter().filter(|&&r| r == 1).count() as f32 / n;
+    let h10 = ranks.iter().filter(|&&r| r <= 10).count() as f32 / n;
+    let mrr: f32 = ranks.iter().map(|&r| 1.0 / r as f32).sum::<f32>() / n;
+    (h1, h10, mrr)
+}
+
 /// Shared ranking evaluation: for each test item, score all candidates,
 /// find the rank of the target, and accumulate H@1, H@10, MRR.
 ///
@@ -724,27 +776,16 @@ impl CandleElTrainer {
         let nc = self.num_concepts;
         let dim = self.dim;
 
-        let items: Vec<[usize; 2]> = test_axioms.iter().map(|(a, b)| [*a, *b]).collect();
-        Ok(rank_evaluate(nc, &items, |&[sub, sup]| {
+        let mut ranks = Vec::with_capacity(test_axioms.len());
+        for &(sub, sup) in test_axioms {
             if sub >= nc || sup >= nc {
-                return None;
+                continue;
             }
-            let sub_off = sub * dim;
-            let scores: Vec<(usize, f32)> = (0..nc)
-                .filter(|&c| c != sub)
-                .map(|c| {
-                    let c_off = c * dim;
-                    let dist_sq: f32 = (0..dim)
-                        .map(|d| {
-                            let diff = centers[sub_off + d] - centers[c_off + d];
-                            diff * diff
-                        })
-                        .sum();
-                    (c, dist_sq.sqrt())
-                })
-                .collect();
-            Some((sup, scores))
-        }))
+            let query = &centers[sub * dim..(sub + 1) * dim];
+            let (rank, _) = l2_rank(query, &centers, nc, dim, sup, &[sub]);
+            ranks.push(rank);
+        }
+        Ok(metrics_from_ranks(&ranks))
     }
 
     /// Evaluate NF1 (C1 ⊓ C2 ⊑ D) by intersection-center L2 distance ranking.
@@ -770,14 +811,14 @@ impl CandleElTrainer {
         let nc = self.num_concepts;
         let dim = self.dim;
 
-        let items: Vec<[usize; 3]> = test_axioms.iter().map(|(a, b, c)| [*a, *b, *c]).collect();
-        Ok(rank_evaluate(nc, &items, |&[c1, c2, d]| {
+        let mut ranks = Vec::with_capacity(test_axioms.len());
+        let mut inter_center = vec![0.0f32; dim];
+        for &(c1, c2, d) in test_axioms {
             if c1 >= nc || c2 >= nc || d >= nc {
-                return None;
+                continue;
             }
             let c1_off = c1 * dim;
             let c2_off = c2 * dim;
-            let mut inter_center = vec![0.0f32; dim];
             for i in 0..dim {
                 let min1 = centers[c1_off + i] - offsets[c1_off + i];
                 let max1 = centers[c1_off + i] + offsets[c1_off + i];
@@ -787,22 +828,10 @@ impl CandleElTrainer {
                 let inter_max = max1.min(max2).max(inter_min);
                 inter_center[i] = (inter_min + inter_max) / 2.0;
             }
-
-            let scores: Vec<(usize, f32)> = (0..nc)
-                .filter(|&c| c != c1 && c != c2)
-                .map(|c| {
-                    let c_off = c * dim;
-                    let dist_sq: f32 = (0..dim)
-                        .map(|i| {
-                            let diff = inter_center[i] - centers[c_off + i];
-                            diff * diff
-                        })
-                        .sum();
-                    (c, dist_sq.sqrt())
-                })
-                .collect();
-            Some((d, scores))
-        }))
+            let (rank, _) = l2_rank(&inter_center, &centers, nc, dim, d, &[c1, c2]);
+            ranks.push(rank);
+        }
+        Ok(metrics_from_ranks(&ranks))
     }
 
     /// Evaluate NF3 (C ⊑ ∃r.D) by bumped-center L2 distance ranking.
@@ -836,29 +865,45 @@ impl CandleElTrainer {
         let nr = self.num_roles;
         let dim = self.dim;
 
-        let items: Vec<[usize; 3]> = test_axioms.iter().map(|(a, b, c)| [*a, *b, *c]).collect();
-        Ok(rank_evaluate(nc, &items, |&[sub, role, filler]| {
+        // NF3 scoring: dist(sub_center + bump[d], role_head[r]) for each candidate d.
+        // The query depends on the candidate, so we compute the target's score first,
+        // then count how many candidates score better (avoiding Vec allocation + sort).
+        let mut ranks = Vec::with_capacity(test_axioms.len());
+        for &(sub, role, filler) in test_axioms {
             if sub >= nc || filler >= nc || role >= nr {
-                return None;
+                continue;
             }
             let sub_off = sub * dim;
             let rh_off = role * dim * 2;
 
-            let scores: Vec<(usize, f32)> = (0..nc)
-                .map(|d| {
-                    let bump_off = d * dim;
-                    let dist_sq: f32 = (0..dim)
-                        .map(|i| {
-                            let bumped = centers[sub_off + i] + bump_vecs[bump_off + i];
-                            let diff = bumped - role_heads_data[rh_off + i];
-                            diff * diff
-                        })
-                        .sum();
-                    (d, dist_sq.sqrt())
-                })
-                .collect();
-            Some((filler, scores))
-        }))
+            // Score for the correct filler
+            let target_dist = {
+                let bump_off = filler * dim;
+                let mut d = 0.0f32;
+                for i in 0..dim {
+                    let bumped = centers[sub_off + i] + bump_vecs[bump_off + i];
+                    let diff = bumped - role_heads_data[rh_off + i];
+                    d += diff * diff;
+                }
+                d.sqrt()
+            };
+
+            let mut rank = 1usize;
+            for c in 0..nc {
+                let bump_off = c * dim;
+                let mut d = 0.0f32;
+                for i in 0..dim {
+                    let bumped = centers[sub_off + i] + bump_vecs[bump_off + i];
+                    let diff = bumped - role_heads_data[rh_off + i];
+                    d += diff * diff;
+                }
+                if d.sqrt() < target_dist {
+                    rank += 1;
+                }
+            }
+            ranks.push(rank);
+        }
+        Ok(metrics_from_ranks(&ranks))
     }
 
     /// Evaluate NF4 (∃r.C ⊑ D) by shifted-head L2 distance ranking.
@@ -891,29 +936,21 @@ impl CandleElTrainer {
         let nr = self.num_roles;
         let dim = self.dim;
 
-        let items: Vec<[usize; 3]> = test_axioms.iter().map(|(a, b, c)| [*a, *b, *c]).collect();
-        Ok(rank_evaluate(nc, &items, |&[role, filler, target]| {
+        let mut ranks = Vec::with_capacity(test_axioms.len());
+        let mut query = vec![0.0f32; dim];
+        for &(role, filler, target) in test_axioms {
             if filler >= nc || target >= nc || role >= nr {
-                return None;
+                continue;
             }
             let rh_off = role * dim * 2;
             let bump_off = filler * dim;
-
-            let scores: Vec<(usize, f32)> = (0..nc)
-                .map(|c| {
-                    let c_off = c * dim;
-                    let dist_sq: f32 = (0..dim)
-                        .map(|i| {
-                            let query = role_heads_data[rh_off + i] - bump_vecs[bump_off + i];
-                            let diff = query - centers[c_off + i];
-                            diff * diff
-                        })
-                        .sum();
-                    (c, dist_sq.sqrt())
-                })
-                .collect();
-            Some((target, scores))
-        }))
+            for i in 0..dim {
+                query[i] = role_heads_data[rh_off + i] - bump_vecs[bump_off + i];
+            }
+            let (rank, _) = l2_rank(&query, &centers, nc, dim, target, &[]);
+            ranks.push(rank);
+        }
+        Ok(metrics_from_ranks(&ranks))
     }
 
     /// Evaluate subsumption (NF2: C ⊑ D) by inclusion loss ranking.
