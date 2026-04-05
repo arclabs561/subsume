@@ -225,7 +225,7 @@ impl EllipsoidTrainer {
         entity_to_idx: &HashMap<String, usize>,
     ) -> f32 {
         let num_entities = entities.len();
-        let k = 10.0;
+        let k = config.sigmoid_k;
         let mut total_loss = 0.0f32;
         let mut count = 0usize;
         let lr = config.learning_rate;
@@ -347,7 +347,8 @@ impl EllipsoidTrainer {
         filter: Option<&crate::trainer::evaluation::FilteredTripleIndexIds>,
     ) -> crate::trainer::EvaluationResults {
         let num_entities = entities.len();
-        let k = 10.0;
+        // k only affects probability magnitude, not ranking order (sigmoid is monotone).
+        let k = 2.0f32;
 
         let score_tail = |head_idx: usize, _rel_idx: usize, tail_idx: usize| -> f32 {
             let head = &entities[head_idx];

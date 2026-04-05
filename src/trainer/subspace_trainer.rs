@@ -7,6 +7,7 @@
 
 use crate::dataset::Triple;
 use crate::subspace::Subspace;
+use crate::trainer::negative_sampling::{compute_relation_entity_pools, sample_excluding};
 use crate::trainer::trainer_utils::AdamState;
 use crate::trainer::CpuBoxTrainingConfig;
 use rand::rngs::StdRng;
@@ -199,29 +200,26 @@ impl SubspaceTrainer {
         let mut count = 0usize;
         let lr = config.learning_rate;
 
-        let mut indices: Vec<usize> = (0..triples.len()).collect();
+        // Pre-index triples for type-constrained negative sampling.
+        // Subspace has no relation; use rel_idx=0 for all triples to build a unified tail pool.
+        let indexed_triples: Vec<(usize, usize, usize)> = triples
+            .iter()
+            .filter_map(|triple| {
+                let head_idx = *entity_to_idx.get(&triple.head)?;
+                let tail_idx = *entity_to_idx.get(&triple.tail)?;
+                Some((head_idx, 0usize, tail_idx))
+            })
+            .collect();
+        let relation_pools = compute_relation_entity_pools(&indexed_triples);
+
+        let mut indices: Vec<usize> = (0..indexed_triples.len()).collect();
         for i in (1..indices.len()).rev() {
             let j = self.rng.random_range(0..=i);
             indices.swap(i, j);
         }
 
         for &idx in &indices {
-            let triple = &triples[idx];
-            let head_idx = match entity_to_idx.get(&triple.head) {
-                Some(&i) => i,
-                None => continue,
-            };
-            let tail_idx = match entity_to_idx.get(&triple.tail) {
-                Some(&i) => i,
-                None => continue,
-            };
-
-            let neg_tail_idx_first = loop {
-                let neg = self.rng.random_range(0..num_entities);
-                if neg != tail_idx {
-                    break neg;
-                }
-            };
+            let (head_idx, rel_idx, tail_idx) = indexed_triples[idx];
 
             // Multi-negative sampling with uniform weights
             let n_neg = config.negative_samples.max(1);
@@ -234,17 +232,19 @@ impl SubspaceTrainer {
                 (0..tail.rank()).map(|_| vec![0.0; tail.dim()]).collect();
             let mut avg_loss = 0.0f32;
 
-            for neg_i in 0..n_neg {
-                let neg_tail_idx = if neg_i == 0 {
-                    neg_tail_idx_first
-                } else {
-                    loop {
+            let tail_pool = relation_pools.get(&rel_idx);
+
+            for _ in 0..n_neg {
+                let neg_tail_idx = tail_pool
+                    .and_then(|p| {
+                        sample_excluding(&p.tails, tail_idx, |n| self.rng.random_range(0..n))
+                    })
+                    .unwrap_or_else(|| loop {
                         let neg = self.rng.random_range(0..num_entities);
                         if neg != tail_idx {
                             break neg;
                         }
-                    }
-                };
+                    });
                 let neg_tail = &entities[neg_tail_idx];
                 let head = &entities[head_idx];
                 let tail = &entities[tail_idx];
