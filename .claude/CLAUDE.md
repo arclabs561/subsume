@@ -103,7 +103,10 @@ Single-vector projection threshold `> 0.999` only finds basis vectors that are d
 | **Ellipsoid Trainer** | `trainer/ellipsoid_trainer.rs` | 6 | Finite-diff grads, multi-neg |
 | **TransBox Trainer** | `trainer/transbox_trainer.rs` | 6 | Finite-diff grads, multi-neg |
 | **Annular Trainer** | `trainer/annular_trainer.rs` | 6 | Finite-diff grads, multi-neg |
-| **Burn Ball Trainer** | `trainer/burn_ball_trainer.rs` | 5 | Batched tensor ops + autodiff (burn 0.20) |
+| **Burn Ball Trainer** | `trainer/burn_ball_trainer.rs` | 11 | Batched tensor ops + autodiff (burn 0.20) |
+| **Burn TransBox Trainer** | `trainer/burn_transbox_trainer.rs` | 5 | ReLU inclusion loss + autodiff |
+| **Burn Cap Trainer** | `trainer/burn_cap_trainer.rs` | 5 | Geodesic distance + autodiff |
+| **Burn Ellipsoid Trainer** | `trainer/burn_ellipsoid_trainer.rs` | 5 | Diagonal KL divergence + autodiff |
 | **Trainer Utils** | `trainer/trainer_utils.rs` | 7 | `AdamState`, `self_adversarial_weights` |
 
 ### Shared infrastructure added
@@ -159,17 +162,18 @@ Run: `DIM=200 EPOCHS=300 LR=0.005 BATCH=512 NEG=20 ADV_TEMP=1.0 INFONCE=1 cargo 
 ### 1. ~~Type-constrained negative sampling~~ — DONE (session 3)
 Implemented in `negative_sampling.rs`. Bernoulli + per-relation entity pools. Integrated into ball_trainer and burn_ball_trainer. Improved MRR from 0.050 to 0.148 (with InfoNCE + higher dim).
 
-### 2. Migrate remaining trainers to burn (MEDIUM — architecture goal)
-Pattern established in `burn_ball_trainer.rs` with `Param<Tensor>` model, dual translations, type-constrained neg sampling. Next: `burn_spherical_cap_trainer.rs`, then others. Each should have a batched `compute_batch_loss` like the ball trainer.
+### 2. ~~Migrate trainers to burn~~ — MOSTLY DONE (session 3)
+Burn trainers implemented for: ball, transbox, spherical cap, ellipsoid. Each has Param<Tensor> model, type-constrained neg sampling, dual translations, self-adversarial weighting, InfoNCE support.
+- **Not migrated**: annular (2D geometry, fixed params per entity -- doesn't benefit from dim-scalable tensor ops), subspace (orthonormality constraint requires Grassmannian optimization -- research task).
 
-### 3. WN18RR for other geometries (LOW — not practical with finite-diff)
-Per-triple SGD with finite-diff gradients is too slow for WN18RR (86K triples, 40K entities). Only ball (analytical gradients) and burn ball (autodiff) are practical. Other geometries need burn migration first.
+### 3. WN18RR examples for burn geometries (MEDIUM)
+With burn trainers done, can now benchmark transbox/cap/ellipsoid on WN18RR at scale. Copy `wn18rr_ball_burn.rs` pattern.
 
 ### 4. EL++ benchmark improvements (MEDIUM — competitive niche)
-subsume wins NF3 (existential) on GALEN/ANATOMY. Improving NF1/NF2 and matching Box2EL on GO would strengthen the story. Focus here rather than WN18RR link prediction.
+subsume wins NF3 (existential) on GALEN/ANATOMY. GALEN 1000ep: NF2 MRR 0.015 vs Box2EL 0.060. Training budget gap (our 300 vs Box2EL 5000 epochs) and eval speed (O(n_axioms * n_concepts) per-concept CPU loop) are the main blockers.
 
-### 5. Subspace analytical gradients (LOW)
-Stiefel manifold Riemannian gradient needed for practical Subspace training. Research task.
+### 5. Subspace Grassmannian optimization (LOW — research)
+Stiefel manifold Riemannian gradient or QR-based projection needed for burn subspace trainer. Current CPU trainer uses finite-diff gradients.
 
 ---
 
