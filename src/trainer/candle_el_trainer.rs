@@ -264,7 +264,8 @@ impl CandleElTrainer {
         // Copy through data to fully detach from the computation graph.
         // Plain detach().clone() still shares storage with the Var.
         let copy = |t: &Tensor| -> Result<Tensor> {
-            Tensor::from_slice(&t.to_vec1::<f32>()?, t.shape(), &self.device)
+            let flat: Vec<f32> = t.flatten_all()?.to_vec1::<f32>()?;
+            Tensor::from_slice(&flat, t.shape(), &self.device)
         };
         Ok((
             copy(self.concept_centers.as_tensor())?,
