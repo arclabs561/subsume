@@ -27,13 +27,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== EL++ Hyperparameter Search ===");
     println!("Data: {data_dir}, Trials: {n_trials}, Epochs/trial: {epochs}\n");
 
-    let train_ds = load_el_axioms(&data_path.join("train.tsv"))?;
+    let train_ds = load_el_axioms(data_path.join("train.tsv"))?;
     let ontology = Ontology::from_el_dataset(&train_ds);
     let nc = ontology.concept_names.len();
     let nr = ontology.role_names.len();
 
     // Load validation set and map to indices.
-    let val_ds = load_el_axioms(&data_path.join("val.tsv"))?;
+    let val_ds = load_el_axioms(data_path.join("val.tsv"))?;
     let val_nf2: Vec<(usize, usize)> = val_ds
         .nf2
         .iter()
