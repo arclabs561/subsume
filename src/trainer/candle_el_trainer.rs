@@ -318,37 +318,10 @@ impl CandleElTrainer {
             );
         }
 
-        // Per-NF loss weights: 1 / sqrt(n_axioms) so larger NF types don't
-        // overpower smaller ones. Normalised so the mean weight is 1.0 when
-        // all four types are present (keeps total loss scale stable).
-        let inv_sqrt = |n: usize| {
-            if n == 0 {
-                0.0f64
-            } else {
-                1.0 / (n as f64).sqrt()
-            }
-        };
-        let w_nf2 = inv_sqrt(nf2_axioms.len());
-        let w_nf1 = inv_sqrt(nf1_axioms.len());
-        let w_nf3 = inv_sqrt(nf3_axioms.len());
-        let w_nf4 = inv_sqrt(nf4_axioms.len());
-        // Normalise: scale so the active weights average to 1.0.
-        let active_weights: Vec<f64> = [w_nf2, w_nf1, w_nf3, w_nf4]
-            .iter()
-            .copied()
-            .filter(|&w| w > 0.0)
-            .collect();
-        let mean_w = if active_weights.is_empty() {
-            1.0f64
-        } else {
-            active_weights.iter().sum::<f64>() / active_weights.len() as f64
-        };
-        let (w_nf2, w_nf1, w_nf3, w_nf4) = (
-            w_nf2 / mean_w,
-            w_nf1 / mean_w,
-            w_nf3 / mean_w,
-            w_nf4 / mean_w,
-        );
+        // Equal loss weights for all NF types. Per-NF inverse-sqrt weighting
+        // was tested but reduced all NF types at 5000 epochs (the weighting
+        // reduced effective learning signal without helping NF2 overfitting).
+        let (w_nf2, w_nf1, w_nf3, w_nf4) = (1.0_f64, 1.0_f64, 1.0_f64, 1.0_f64);
 
         let nc = self.num_concepts;
         let mut epoch_losses = Vec::with_capacity(epochs);
