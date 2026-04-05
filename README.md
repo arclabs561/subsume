@@ -261,10 +261,10 @@ Box2EL/TransBox: 5000 epochs, best of 10 runs (Table 7, TransBox WWW 2025).
 
 | Dataset | NF type | subsume MRR | subsume H@1 | subsume H@10 |
 |---|---|---|---|---|
-| GALEN (23K) | NF1: C1 ⊓ C2 ⊑ D | 0.115 | 0.070 | 0.211 |
-| GALEN | NF2: C ⊑ D | 0.089 | 0.017 | 0.239 |
-| GALEN | NF3: C ⊑ ∃r.D | **0.307** | **0.210** | **0.489** |
-| GALEN | NF4: ∃r.C ⊑ D | 0.009 | 0.001 | 0.023 |
+| GALEN (23K) | NF1: C1 ⊓ C2 ⊑ D | 0.101 | 0.062 | 0.177 |
+| GALEN | NF2: C ⊑ D | 0.119 | 0.027 | 0.308 |
+| GALEN | NF3: C ⊑ ∃r.D | **0.284** | **0.194** | **0.449** |
+| GALEN | NF4: ∃r.C ⊑ D | 0.004 | 0.001 | 0.006 |
 | GO (46K) | NF1 | **0.304** | **0.191** | **0.551** |
 | GO | NF2 | 0.064 | 0.028 | 0.133 |
 | GO | NF3 | **0.330** | **0.228** | **0.523** |
