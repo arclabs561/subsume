@@ -467,9 +467,14 @@ impl CandleElTrainer {
                 let min2 = cc2.sub(&oc2)?;
                 let max2 = cc2.add(&oc2)?;
 
-                // Gumbel temperature: higher = softer intersection (more gradient signal).
-                // 1.0 is the standard Gumbel temperature from Dasgupta et al. (2020).
-                let beta = 1.0f32;
+                // Gumbel temperature annealing: start soft (small beta = fuzzy boundaries,
+                // more gradient signal) and anneal toward sharp (large beta = hard
+                // intersection). This follows the blog post recommendation and the
+                // Gumbel box literature (Dasgupta et al., 2020).
+                let progress = epoch as f32 / epochs.max(1) as f32;
+                let beta_start = 0.3f32;
+                let beta_end = 2.0f32;
+                let beta = beta_start + (beta_end - beta_start) * progress;
                 let inv_beta = 1.0 / beta as f64;
 
                 // soft_max(min1, min2) via LSE: intersection lower bound
@@ -705,7 +710,8 @@ impl CandleElTrainer {
                 epoch_loss = epoch_loss.add(&nf4_total.affine(w_nf4, 0.0)?)?;
             }
 
-            // Regularization: bump norms (Box2EL: reg_factor * mean(||bump||_2))
+            // Regularization (Box2EL: reg_factor * mean(||bump||_2)).
+            // Also regularize role head/tail embeddings to prevent role overfit.
             if reg_factor > 0.0 {
                 let bump_reg = self
                     .bumps
@@ -716,6 +722,18 @@ impl CandleElTrainer {
                     .mean(0)?
                     .affine(reg_factor as f64, 0.0)?;
                 epoch_loss = epoch_loss.add(&bump_reg)?;
+
+                // Role regularization (0.1x bump weight) -- prevents role box overfit.
+                if self.num_roles > 0 {
+                    let role_reg = self
+                        .role_heads
+                        .as_tensor()
+                        .sqr()?
+                        .mean_all()?
+                        .add(&self.role_tails.as_tensor().sqr()?.mean_all()?)?
+                        .affine(reg_factor as f64 * 0.1, 0.0)?;
+                    epoch_loss = epoch_loss.add(&role_reg)?;
+                }
             }
 
             // Single backward pass for entire epoch (matching Box2EL)
