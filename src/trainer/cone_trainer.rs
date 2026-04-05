@@ -596,19 +596,80 @@ mod tests {
 
         let mut trainer = ConeEmbeddingTrainer::new(cfg, 4, None);
 
-        // Run several positive steps for the same pair to see loss decrease
         let mut losses = Vec::new();
         for _ in 0..50 {
             let loss = trainer.train_step(0, 1, true);
             losses.push(loss);
         }
 
-        // The loss in the last 10 steps should generally be lower than the first 10
         let early_avg: f32 = losses[..10].iter().sum::<f32>() / 10.0;
         let late_avg: f32 = losses[40..].iter().sum::<f32>() / 10.0;
+        // Single-pair training plateaus quickly, so allow equality but not increase.
         assert!(
-            late_avg <= early_avg + 0.5,
-            "loss should generally decrease: early_avg={early_avg}, late_avg={late_avg}"
+            late_avg <= early_avg,
+            "loss should not increase: early_avg={early_avg}, late_avg={late_avg}"
+        );
+    }
+
+    /// End-to-end convergence test matching the pattern used by all other trainers.
+    /// Trains on a 4-entity hierarchy, verifies MRR > 0.3 on the training triples.
+    #[test]
+    fn train_and_evaluate_synthetic() {
+        use crate::dataset::{TripleIds, Vocab};
+
+        let cfg = CpuBoxTrainingConfig {
+            learning_rate: 0.01,
+            margin: 1.0,
+            epochs: 100,
+            negative_samples: 3,
+            ..Default::default()
+        };
+
+        let mut trainer = ConeEmbeddingTrainer::new(cfg, 8, None);
+
+        // 4 entities, 2 relations, hierarchy structure.
+        // train_step takes (head_idx, tail_idx, is_positive).
+        let positives = [(0, 1), (2, 3), (0, 2)];
+        let negatives = [(1, 0), (3, 2), (2, 0), (0, 3), (1, 3)];
+
+        for _epoch in 0..100 {
+            for &(h, t) in &positives {
+                trainer.train_step(h, t, true);
+            }
+            for &(h, t) in &negatives {
+                trainer.train_step(h, t, false);
+            }
+        }
+
+        let mut vocab = Vocab::default();
+        let _e0 = vocab.intern("e0".to_string());
+        let _e1 = vocab.intern("e1".to_string());
+        let _e2 = vocab.intern("e2".to_string());
+        let _e3 = vocab.intern("e3".to_string());
+
+        let test_triples = vec![
+            TripleIds {
+                head: 0,
+                relation: 0,
+                tail: 1,
+            },
+            TripleIds {
+                head: 2,
+                relation: 0,
+                tail: 3,
+            },
+            TripleIds {
+                head: 0,
+                relation: 0,
+                tail: 2,
+            },
+        ];
+
+        let results = trainer.evaluate(&test_triples, &vocab, None).unwrap();
+        assert!(
+            results.mrr > 0.3,
+            "Cone MRR = {}, expected > 0.3",
+            results.mrr
         );
     }
 }
