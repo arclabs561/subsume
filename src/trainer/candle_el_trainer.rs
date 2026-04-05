@@ -466,7 +466,10 @@ impl CandleElTrainer {
                     .sqrt()?
                     .mean(0)?;
 
-                let nf1_loss = nf1_incl.add(&center_dist.affine(0.1, 0.0)?)?;
+                // Center attraction weight. Higher = more emphasis on center proximity
+                // vs geometric containment. 0.1 default, 0.5 experimental.
+                let nf1_center_w = 0.5;
+                let nf1_loss = nf1_incl.add(&center_dist.affine(nf1_center_w as f64, 0.0)?)?;
                 epoch_loss = epoch_loss.add(&nf1_loss)?;
             }
 
