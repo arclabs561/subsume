@@ -337,7 +337,9 @@ impl CandleElTrainer {
             let mut rng_nf4 = master_rng.wrapping_add(4);
             lcg(&mut master_rng); // advance master for next epoch
                                   // Cosine LR decay (helps convergence even though Box2EL uses constant)
-            let current_lr = crate::optimizer::cosine_lr(epoch, epochs, lr, 0.01);
+                                  // min_frac=0.1: LR decays to 10% of initial, not 1%. Prevents
+                                  // overfitting on NF2 during long training runs (5000+ epochs).
+            let current_lr = crate::optimizer::cosine_lr(epoch, epochs, lr, 0.1);
             opt.set_learning_rate(current_lr);
 
             // Accumulate all NF losses into one tensor (Box2EL does one backward per epoch)
