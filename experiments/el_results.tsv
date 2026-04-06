@@ -1,4 +1,4 @@
-date	trainer	dataset	epochs	dim	lr	batch	neg	margin	neg_dist	reg	closure	nf1_mrr	nf2_mrr	nf3_mrr	nf4_mrr	nf1_h10	nf2_h10	nf3_h10	nf4_h10	train_time_s	notes
-2026-04-05	candle	GALEN	5000	200	0.01	512	2	0.15	5.0	0.4	no	0.101	0.131	0.284	0.004	-	-	-	-	-	best prior session (checkpoint, beta anneal)
-2026-04-06	burn	GALEN	500	200	0.015	512	2	0.093	4.0	0.91	yes	0.006	0.045	0.082	0.000	0.007	0.099	0.113	0.000	58	first burn run, 259K closure pairs
-2026-04-06	burn	GALEN	5000	200	0.015	512	2	0.093	4.0	0.91	yes	0.097	0.068	0.164	0.001	0.177	0.190	0.263	0.001	597	checkpoint restored from ep 2500 (val=0.726)
+timestamp	trainer	dataset	epochs	dim	lr	batch	neg	margin	neg_dist	reg	closure	nf1_mrr	nf2_mrr	nf3_mrr	nf4_mrr	nf1_h10	nf2_h10	nf3_h10	nf4_h10	train_s	commit	notes
+2026-04-05T16:00	candle	GALEN	5000	200	0.01	512	2	0.15	5.0	0.4	no	0.101	0.131	0.284	0.004	-	-	-	-	-	6ab9711	best prior: checkpoint+beta anneal, no closure
+2026-04-06T20:33	burn	GALEN	500	200	0.015	512	2	0.093	4.0	0.91	yes	0.006	0.045	0.082	0.000	0.007	0.099	0.113	0.000	58	7a96135	first burn run, 259K closure pairs, hyperparam-search config
+2026-04-06T20:43	burn	GALEN	5000	200	0.015	512	2	0.093	4.0	0.91	yes	0.097	0.068	0.164	0.001	0.177	0.190	0.263	0.001	597	7a96135	ckpt ep2500 (val=0.726), same hyperparam-search config
