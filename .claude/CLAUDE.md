@@ -34,6 +34,13 @@ tranz handles: link prediction, relation extraction, knowledge base completion.
   - Default Adam epsilon is 1e-5 (not 1e-8). Helps NF2 dense centers, hurts NF1 sparse bumps.
   - Examples using burn: must have `required-features = ["burn-ndarray"]` in Cargo.toml. For wgpu, pass `--features burn-ndarray,burn-wgpu` (cfg prefers wgpu). CI compiles all examples; missing required-features breaks clippy.
 
+### Training dynamics (learned from ablations)
+
+- **L2-normalized init is mandatory** for box embeddings with bumps. Without it, NF3 MRR drops ~50%. Confirmed: commit a45f26c.
+- **Adam epsilon 1e-5 (burn default)** outperforms 1e-8 on NF2 (+0.017) despite hurting NF1 (-0.037). Keep burn default unless NF1-focused.
+- **Checkpoint dynamics**: validation checkpoint at ep1500 captures beta=0.6 (soft Gumbel). NF1 needs beta>1.5 (sharp). This is the main NF1 gap (burn 0.051 vs candle 0.101). Fix: delay checkpoint or track NF1 separately.
+- **Before benchmarking with env vars**, grep the example source for the var name. Missing wiring silently uses default.
+
 ### Design Philosophy
 
 - **Implement published methods first, invent second.** Novel contributions: spherical caps, full-covariance ellipsoids. Everything else is faithful paper implementation.
