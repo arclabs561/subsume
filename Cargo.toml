@@ -109,7 +109,7 @@ required-features = ["burn-ndarray"]
 
 [[example]]
 name = "el_benchmark_burn"
-required-features = ["burn-ndarray"]
+# No required-features: works with burn-ndarray OR burn-wgpu via cfg
 
 [lints.rust]
 missing_docs = "warn"
