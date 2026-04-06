@@ -407,6 +407,11 @@ impl ConeEmbeddingTrainer {
                 hits_at_3: 0.0,
                 hits_at_10: 0.0,
                 mean_rank: 0.0,
+                rank_variance: 0.0,
+                rank_p25: 0.0,
+                rank_p50: 0.0,
+                rank_p75: 0.0,
+                rank_p95: 0.0,
                 per_relation: Vec::new(),
             });
         }
@@ -426,6 +431,27 @@ impl ConeEmbeddingTrainer {
         let hits_at_10 = all_ranks.iter().filter(|&&r| r <= 10).count() as f32 / total;
         let mean_rank = all_ranks.iter().sum::<usize>() as f32 / total;
 
+        let mean_r = mean_rank;
+        let rank_variance = all_ranks
+            .iter()
+            .map(|&r| {
+                let d = r as f32 - mean_r;
+                d * d
+            })
+            .sum::<f32>()
+            / total;
+        let (rank_p25, rank_p50, rank_p75, rank_p95) = {
+            let mut sorted: Vec<f32> = all_ranks.iter().map(|&r| r as f32).collect();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            let pct = |p: f32| -> f32 {
+                let idx = p / 100.0 * (sorted.len() as f32 - 1.0);
+                let lo = idx.floor() as usize;
+                let hi = (lo + 1).min(sorted.len() - 1);
+                sorted[lo] + (idx - lo as f32) * (sorted[hi] - sorted[lo])
+            };
+            (pct(25.0), pct(50.0), pct(75.0), pct(95.0))
+        };
+
         Ok(super::EvaluationResults {
             mrr,
             head_mrr,
@@ -434,6 +460,11 @@ impl ConeEmbeddingTrainer {
             hits_at_3,
             hits_at_10,
             mean_rank,
+            rank_variance,
+            rank_p25,
+            rank_p50,
+            rank_p75,
+            rank_p95,
             per_relation: Vec::new(), // Per-relation breakdown not yet implemented for cones.
         })
     }
@@ -513,6 +544,11 @@ impl ConeEmbeddingTrainer {
                 hits_at_3: 0.0,
                 hits_at_10: 0.0,
                 mean_rank: 0.0,
+                rank_variance: 0.0,
+                rank_p25: 0.0,
+                rank_p50: 0.0,
+                rank_p75: 0.0,
+                rank_p95: 0.0,
                 per_relation: Vec::new(),
             }
         };

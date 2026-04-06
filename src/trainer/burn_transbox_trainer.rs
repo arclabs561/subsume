@@ -466,6 +466,11 @@ impl<B: AutodiffBackend> BurnTransBoxTrainer<B> {
             hits_at_3: 0.0,
             hits_at_10: 0.0,
             mean_rank: f32::MAX,
+            rank_variance: f32::NAN,
+            rank_p25: f32::NAN,
+            rank_p50: f32::NAN,
+            rank_p75: f32::NAN,
+            rank_p95: f32::NAN,
             per_relation: vec![],
         })
     }
