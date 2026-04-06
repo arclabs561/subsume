@@ -29,6 +29,10 @@ tranz handles: link prediction, relation extraction, knowledge base completion.
   - `select(0, ids)` consumes the tensor — clone first if needed again
   - Repeat-interleave needs index tensor: build `repeat_ids` with `(0..bs).flat_map(|i| iter::repeat(i).take(n_neg))`
   - Feature flags: `burn-ndarray`, `burn-wgpu`, `burn-tch` in Cargo.toml
+  - `squeeze()` takes no args (const generic), not `squeeze(dim)` like PyTorch
+  - `relu()` is `pub(crate)` -- use `clamp_min(0.0)` instead
+  - Default Adam epsilon is 1e-5 (not 1e-8). Helps NF2 dense centers, hurts NF1 sparse bumps.
+  - Examples using burn: must have `required-features = ["burn-ndarray"]` in Cargo.toml. For wgpu, pass `--features burn-ndarray,burn-wgpu` (cfg prefers wgpu). CI compiles all examples; missing required-features breaks clippy.
 
 ### Design Philosophy
 
