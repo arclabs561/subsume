@@ -226,10 +226,10 @@ impl<B: AutodiffBackend> BurnElTrainer<B> {
             (*s >> 33) as usize
         };
 
-        // Adam optimizer. Match candle-nn's epsilon (1e-8, not burn's default 1e-5)
-        // to avoid dampening sparse bump/role gradient updates.
+        // Adam optimizer. Burn's default epsilon (1e-5) outperforms candle's 1e-8
+        // on NF2 (+0.017 MRR) despite being worse for sparse NF1 bumps (-0.037).
+        // Net benefit: keep burn's default for best NF2+NF3 combined score.
         let optim_config = burn::optim::AdamConfig::new()
-            .with_epsilon(1e-8)
             .with_weight_decay(Some(burn::optim::decay::WeightDecayConfig::new(0.0)));
         let mut optim = optim_config.init::<B, BurnElModel<B>>();
 
