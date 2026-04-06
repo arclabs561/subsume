@@ -28,6 +28,8 @@ include = [
   "/pretrained/*.json",
 ]
 
+[workspace]
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
