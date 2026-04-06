@@ -36,6 +36,10 @@ pub mod burn_ball_trainer;
 #[cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))]
 #[cfg_attr(docsrs, doc(cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))))]
 pub mod burn_cap_trainer;
+/// Burn-based EL++ ontology embedding trainer with autodiff (multi-backend: ndarray/wgpu/tch).
+#[cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))))]
+pub mod burn_el_trainer;
 /// Burn-based diagonal-Gaussian ellipsoid trainer with autodiff (multi-backend: ndarray/wgpu/tch).
 #[cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))]
 #[cfg_attr(docsrs, doc(cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))))]
@@ -515,6 +519,16 @@ pub struct EvaluationResults {
     pub hits_at_10: f32,
     /// Mean Rank
     pub mean_rank: f32,
+    /// Variance of ranks (population variance over all head+tail ranks).
+    pub rank_variance: f32,
+    /// 25th percentile of ranks.
+    pub rank_p25: f32,
+    /// 50th percentile (median) of ranks.
+    pub rank_p50: f32,
+    /// 75th percentile of ranks.
+    pub rank_p75: f32,
+    /// 95th percentile of ranks.
+    pub rank_p95: f32,
     /// Per-relation evaluation breakdown.
     pub per_relation: Vec<PerRelationResults>,
 }
