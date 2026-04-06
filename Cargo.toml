@@ -107,6 +107,10 @@ required-features = ["burn-ndarray"]
 name = "wn18rr_transbox_burn"
 required-features = ["burn-ndarray"]
 
+[[example]]
+name = "el_benchmark_burn"
+required-features = ["burn-ndarray"]
+
 [lints.rust]
 missing_docs = "warn"
 unsafe_code = "warn"
