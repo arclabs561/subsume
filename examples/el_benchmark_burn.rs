@@ -48,6 +48,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let margin: f32 = env_or("MARGIN", 0.1f32);
     let neg_dist: f32 = env_or("NEG_DIST", 2.0f32);
     let reg_factor: f32 = env_or("REG", 0.5f32);
+    let nf4_neg_weight: f32 = env_or("NF4_NEG_W", 0.0f32);
 
     println!("=== EL++ Burn Benchmark ===");
     println!("Dataset: {dataset}  dir: {data_dir}");
@@ -192,6 +193,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         margin,
         neg_dist,
         reg_factor,
+        nf4_neg_weight,
         ..Default::default()
     };
 
