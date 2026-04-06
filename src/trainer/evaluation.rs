@@ -2,6 +2,45 @@ use crate::dataset::Triple;
 use crate::metrics::{hits_at_k, mean_rank, mean_reciprocal_rank};
 use std::collections::{HashMap, HashSet};
 
+/// Compute variance and percentiles (p25, p50, p75, p95) from a slice of ranks.
+///
+/// Returns `(variance, p25, p50, p75, p95)` as `f32`. Returns all-NaN for empty input.
+fn rank_stats(ranks: &[usize]) -> (f32, f32, f32, f32, f32) {
+    if ranks.is_empty() {
+        return (f32::NAN, f32::NAN, f32::NAN, f32::NAN, f32::NAN);
+    }
+    let n = ranks.len() as f32;
+    let mean = ranks.iter().map(|&r| r as f32).sum::<f32>() / n;
+    let variance = ranks
+        .iter()
+        .map(|&r| {
+            let d = r as f32 - mean;
+            d * d
+        })
+        .sum::<f32>()
+        / n;
+
+    let mut sorted: Vec<f32> = ranks.iter().map(|&r| r as f32).collect();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+    let percentile = |p: f32| -> f32 {
+        // Linear interpolation (same convention as numpy's percentile with method='linear').
+        let idx = p / 100.0 * (sorted.len() as f32 - 1.0);
+        let lo = idx.floor() as usize;
+        let hi = (lo + 1).min(sorted.len() - 1);
+        let frac = idx - lo as f32;
+        sorted[lo] + frac * (sorted[hi] - sorted[lo])
+    };
+
+    (
+        variance,
+        percentile(25.0),
+        percentile(50.0),
+        percentile(75.0),
+        percentile(95.0),
+    )
+}
+
 use super::{EvaluationResults, PerRelationResults, RelationTransform};
 
 /// An index of "known true" triples for filtered link prediction evaluation.
@@ -338,6 +377,7 @@ where
     let hits_at_3 = hits_at_k(&all_ranks, 3) as f32;
     let hits_at_10 = hits_at_k(&all_ranks, 10) as f32;
     let mean_rank_val = mean_rank(&all_ranks) as f32;
+    let (rank_variance, rank_p25, rank_p50, rank_p75, rank_p95) = rank_stats(&all_ranks);
 
     // Per-relation aggregation.
     let per_relation = aggregate_per_relation(&per_triple);
@@ -350,6 +390,11 @@ where
         hits_at_3,
         hits_at_10,
         mean_rank: mean_rank_val,
+        rank_variance,
+        rank_p25,
+        rank_p50,
+        rank_p75,
+        rank_p95,
         per_relation,
     })
 }
@@ -884,6 +929,7 @@ pub(crate) fn collect_evaluation_results(
     let hits_at_3 = hits_at_k(&all_ranks, 3) as f32;
     let hits_at_10 = hits_at_k(&all_ranks, 10) as f32;
     let mean_rank_val = mean_rank(&all_ranks) as f32;
+    let (rank_variance, rank_p25, rank_p50, rank_p75, rank_p95) = rank_stats(&all_ranks);
 
     let per_relation = aggregate_per_relation_ids(per_triple);
 
@@ -895,6 +941,11 @@ pub(crate) fn collect_evaluation_results(
         hits_at_3,
         hits_at_10,
         mean_rank: mean_rank_val,
+        rank_variance,
+        rank_p25,
+        rank_p50,
+        rank_p75,
+        rank_p95,
         per_relation,
     })
 }
@@ -1088,6 +1139,11 @@ where
             hits_at_3: f32::NAN,
             hits_at_10: f32::NAN,
             mean_rank: f32::NAN,
+            rank_variance: f32::NAN,
+            rank_p25: f32::NAN,
+            rank_p50: f32::NAN,
+            rank_p75: f32::NAN,
+            rank_p95: f32::NAN,
             per_relation: vec![],
         });
     }
@@ -1157,6 +1213,7 @@ where
     let hits_at_3 = hits_at_k(&all_ranks, 3) as f32;
     let hits_at_10 = hits_at_k(&all_ranks, 10) as f32;
     let mean_rank_val = mean_rank(&all_ranks) as f32;
+    let (rank_variance, rank_p25, rank_p50, rank_p75, rank_p95) = rank_stats(&all_ranks);
 
     let per_relation = aggregate_per_relation_generic(&per_triple_rel);
 
@@ -1168,6 +1225,11 @@ where
         hits_at_3,
         hits_at_10,
         mean_rank: mean_rank_val,
+        rank_variance,
+        rank_p25,
+        rank_p50,
+        rank_p75,
+        rank_p95,
         per_relation,
     })
 }

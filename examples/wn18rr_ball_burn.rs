@@ -181,11 +181,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n--- Test Set Evaluation (filtered) ---\n");
     let filter = FilteredTripleIndexIds::from_dataset(&interned);
     let results = trainer.evaluate(&model, &interned.test, Some(&filter));
-    println!("  MRR:       {:.4}", results.mrr);
-    println!("  Hits@1:    {:.4}", results.hits_at_1);
-    println!("  Hits@3:    {:.4}", results.hits_at_3);
-    println!("  Hits@10:   {:.4}", results.hits_at_10);
-    println!("  Mean Rank: {:.1}", results.mean_rank);
+    println!("  MRR:            {:.4}", results.mrr);
+    println!("  Hits@1:         {:.4}", results.hits_at_1);
+    println!("  Hits@3:         {:.4}", results.hits_at_3);
+    println!("  Hits@10:        {:.4}", results.hits_at_10);
+    println!("  Mean Rank:      {:.1}", results.mean_rank);
+    println!("  Rank Variance:  {:.1}", results.rank_variance);
+    println!(
+        "  Rank Pct:       p25={:.0}  p50={:.0}  p75={:.0}  p95={:.0}",
+        results.rank_p25, results.rank_p50, results.rank_p75, results.rank_p95
+    );
     println!(
         "\n  ({} test triples, {num_entities} entities, filtered)",
         interned.test.len()
