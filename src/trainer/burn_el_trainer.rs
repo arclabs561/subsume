@@ -1,6 +1,6 @@
 //! Burn-based EL++ ontology embedding trainer with autodiff.
 //!
-//! Ports [`CandleElTrainer`](super::candle_el_trainer::CandleElTrainer) to the
+//! Ports `CandleElTrainer` (candle-backend feature) to the
 //! burn backend for multi-backend training (ndarray CPU, wgpu GPU, tch CUDA).
 //!
 //! # Architecture
@@ -80,6 +80,10 @@ pub struct BurnElConfig {
     pub beta_start: f32,
     /// Gumbel beta end (sharp, 2.0 recommended).
     pub beta_end: f32,
+    /// Epochs over which to anneal beta (0 = use total epochs).
+    /// Setting this lower than total epochs makes beta reach its end value earlier,
+    /// giving the Gumbel intersection more sharp epochs for NF1 learning.
+    pub beta_anneal_epochs: usize,
     /// Cosine LR minimum fraction (0.1 recommended).
     pub lr_min_frac: f64,
     /// NF4 negative weight (0.0 = disabled, matching Box2EL).
@@ -102,6 +106,7 @@ impl Default for BurnElConfig {
             nf1_center_weight: 0.5,
             beta_start: 0.3,
             beta_end: 2.0,
+            beta_anneal_epochs: 0,
             lr_min_frac: 0.1,
             nf4_neg_weight: 0.0,
             role_reg_mult: 0.1,
@@ -329,8 +334,15 @@ impl<B: AutodiffBackend> BurnElTrainer<B> {
                 let (cc2, oc2) = concept_boxes(&current_model, &c2_t);
                 let (cd, od) = concept_boxes(&current_model, &d_t);
 
-                // Gumbel beta annealing.
-                let progress = epoch as f32 / config.epochs.max(1) as f32;
+                // Gumbel beta annealing. If beta_anneal_epochs > 0, beta reaches
+                // its end value at that epoch (clamped). This gives NF1 more sharp-beta
+                // epochs for intersection learning.
+                let anneal_total = if config.beta_anneal_epochs > 0 {
+                    config.beta_anneal_epochs
+                } else {
+                    config.epochs
+                };
+                let progress = (epoch as f32 / anneal_total.max(1) as f32).min(1.0);
                 let beta = config.beta_start + (config.beta_end - config.beta_start) * progress;
                 let inv_beta = 1.0 / beta as f64;
 

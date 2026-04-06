@@ -29,7 +29,7 @@ GPU trainer with AdamW autograd. Evaluation: MRR, Hits@k, Mean Rank (filtered).
 
 ```toml
 [dependencies]
-subsume = { version = "0.10", features = ["ndarray-backend"] }
+subsume = { version = "0.11", features = ["ndarray-backend"] }
 ndarray = "0.16"
 ```
 
@@ -261,32 +261,45 @@ Box2EL/TransBox: 5000 epochs, best of 10 runs (Table 7, TransBox WWW 2025).
 
 | Dataset | NF type | subsume MRR | subsume H@1 | subsume H@10 |
 |---|---|---|---|---|
-| GALEN (23K) | NF1: C1 ⊓ C2 ⊑ D | 0.101 | 0.062 | 0.177 |
-| GALEN | NF2: C ⊑ D | 0.119 | 0.027 | 0.308 |
-| GALEN | NF3: C ⊑ ∃r.D | **0.284** | **0.194** | **0.449** |
-| GALEN | NF4: ∃r.C ⊑ D | 0.004 | 0.001 | 0.006 |
-| GO (46K) | NF1 | **0.304** | **0.191** | **0.551** |
-| GO | NF2 | 0.064 | 0.028 | 0.133 |
-| GO | NF3 | **0.330** | **0.228** | **0.523** |
-| GO | NF4 | 0.079 | 0.003 | 0.301 |
-| ANATOMY (106K) | NF1 | **0.317** | **0.213** | **0.531** |
-| ANATOMY | NF2 | 0.104 | 0.054 | 0.200 |
-| ANATOMY | NF3 | **0.357** | **0.260** | **0.544** |
-| ANATOMY | NF4 | 0.005 | 0.000 | 0.014 |
+| GALEN (23K) | NF1: C1 ⊓ C2 ⊑ D | 0.051 | 0.015 | 0.096 |
+| GALEN | NF2: C ⊑ D | **0.137** | 0.039 | **0.335** |
+| GALEN | NF3: C ⊑ ∃r.D | **0.320** | **0.229** | **0.476** |
+| GALEN | NF4: ∃r.C ⊑ D | 0.002 | 0.001 | 0.002 |
+| GO (46K) | NF1 | **0.216** | **0.124** | **0.392** |
+| GO | NF2 | 0.061 | 0.024 | 0.130 |
+| GO | NF3 | **0.371** | **0.292** | **0.507** |
+| GO | NF4 | 0.044 | 0.002 | 0.161 |
+| ANATOMY (106K) | NF1 | 0.066 | 0.047 | 0.100 |
+| ANATOMY | NF2 | 0.093 | 0.055 | 0.160 |
+| ANATOMY | NF3 | **0.208** | **0.154** | **0.311** |
+| ANATOMY | NF4 | 0.000 | 0.000 | 0.000 |
 
 NF3 (existential restrictions) is consistently the strongest result, with
-MRR 0.31-0.36 across all three datasets. NF1 (conjunction) reaches MRR
-0.30-0.32 on GO and ANATOMY, exceeding all published baselines.
+MRR 0.21-0.37 across all three datasets. GO NF1 (conjunction) reaches MRR
+0.216 using Gumbel soft intersection with beta annealing.
 
 Key techniques:
-- Gumbel soft intersection for NF1 (solves the gradient desert from
-  exponential intersection sparsity in high dimensions)
+- Gumbel soft intersection for NF1 with beta annealing (0.3 -> 2.0)
 - Center attraction fallback (weight 0.5) for degenerate intersections
 - Box2EL-style bump translations and dual-direction NF3 negative sampling
-- Cosine LR with 10% floor (prevents late-stage stalling at 5000 epochs)
+- GCI0 deductive closure filtering for negative sampling (DELE, Mashkova et al. 2024)
+- L2-normalized embedding initialization (consistent bump scale)
+- Cosine LR with 10% floor, validation-based checkpointing
+- Disjointness (DISJ) training loss
 
-Reproduce:
-`BACKEND=candle EPOCHS=5000 cargo run --features candle-backend --example el_benchmark --release -- data/GALEN`
+Reproduce (burn backend, Metal GPU):
+```sh
+DIM=200 EPOCHS=5000 DATASET=GALEN \
+  cargo run --features "burn-ndarray,burn-wgpu" --example el_benchmark_burn --release
+```
+
+Reproduce (candle backend, CPU/CUDA):
+```sh
+BACKEND=candle EPOCHS=5000 \
+  cargo run --features candle-backend --example el_benchmark --release -- data/GALEN
+```
+
+Full experiment log with all ablations: `experiments/el_log.md`.
 
 ## GPU training
 
