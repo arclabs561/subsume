@@ -358,6 +358,17 @@ impl CandleElTrainer {
         let (w_nf2, w_nf1, w_nf3, w_nf4) = (1.0_f64, 1.0_f64, 1.0_f64, 1.0_f64);
 
         let nc = self.num_concepts;
+
+        // GCI0 deductive closure: transitive closure of subsumption axioms.
+        // Used to filter false negatives (DELE, Mashkova et al. 2024).
+        let closure = ontology.subsumption_closure();
+        if !closure.is_empty() {
+            eprintln!(
+                "  Deductive closure: {} entailed subsumption pairs (filtering negatives)",
+                closure.len()
+            );
+        }
+
         let mut epoch_losses = Vec::with_capacity(epochs);
         let mut master_rng: u64 = 42;
         let lcg = |s: &mut u64| -> usize {
@@ -394,9 +405,11 @@ impl CandleElTrainer {
                 let bs = batch_size.min(nf2_axioms.len());
                 let mut sub_ids = Vec::with_capacity(bs);
                 let mut sup_ids = Vec::with_capacity(bs);
+                let mut sub_ids_raw = Vec::with_capacity(bs);
                 for _ in 0..bs {
                     let idx = lcg(&mut rng_nf2) % nf2_axioms.len();
                     let (s, d) = nf2_axioms[idx];
+                    sub_ids_raw.push(s);
                     sub_ids.push(s as u32);
                     sup_ids.push(d as u32);
                 }
@@ -412,11 +425,22 @@ impl CandleElTrainer {
                     .sqr()?
                     .mean(0)?;
 
-                // Negative: Box2EL disjointness target
+                // Negative: Box2EL disjointness target (closure-filtered)
                 let mut neg_loss_sum = Tensor::zeros((), candle_core::DType::F32, &self.device)?;
                 for _ in 0..negative_samples {
-                    let neg_ids: Vec<u32> =
-                        (0..bs).map(|_| (lcg(&mut rng_nf2) % nc) as u32).collect();
+                    let neg_ids: Vec<u32> = (0..bs)
+                        .map(|j| {
+                            let sub_j = sub_ids_raw[j];
+                            // Rejection sampling: skip entailed pairs (max 10 attempts).
+                            for _ in 0..10 {
+                                let neg = lcg(&mut rng_nf2) % nc;
+                                if !closure.contains(&(sub_j, neg)) {
+                                    return neg as u32;
+                                }
+                            }
+                            (lcg(&mut rng_nf2) % nc) as u32
+                        })
+                        .collect();
                     let neg_t = Tensor::from_vec(neg_ids, (bs,), &self.device)?;
                     let (c_neg, o_neg) = self.concept_boxes(&neg_t)?;
                     let disj =
