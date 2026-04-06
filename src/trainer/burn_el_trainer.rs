@@ -170,6 +170,15 @@ impl<B: AutodiffBackend> BurnElTrainer<B> {
         let nc = ontology.concept_names.len();
         let dim = config.dim;
 
+        // GCI0 deductive closure for negative filtering (DELE, Mashkova et al. 2024).
+        let closure = ontology.subsumption_closure();
+        if !closure.is_empty() {
+            eprintln!(
+                "  Deductive closure: {} entailed subsumption pairs (filtering negatives)",
+                closure.len()
+            );
+        }
+
         // Group axioms by type.
         let mut nf2_axioms: Vec<(usize, usize)> = Vec::new();
         let mut nf1_axioms: Vec<(usize, usize, usize)> = Vec::new();
@@ -232,8 +241,10 @@ impl<B: AutodiffBackend> BurnElTrainer<B> {
                 let bs = config.batch_size.min(nf2_axioms.len());
                 let mut sub_ids = Vec::with_capacity(bs);
                 let mut sup_ids = Vec::with_capacity(bs);
+                let mut sub_ids_raw = Vec::with_capacity(bs);
                 for _ in 0..bs {
                     let idx = lcg(&mut rng_nf2) % nf2_axioms.len();
+                    sub_ids_raw.push(nf2_axioms[idx].0);
                     sub_ids.push(nf2_axioms[idx].0 as i64);
                     sup_ids.push(nf2_axioms[idx].1 as i64);
                 }
@@ -249,11 +260,21 @@ impl<B: AutodiffBackend> BurnElTrainer<B> {
                         .powf_scalar(2.0)
                         .mean();
 
-                // Negatives: disjointness target.
+                // Negatives: disjointness target (closure-filtered).
                 let mut neg_losses: Vec<Tensor<B, 1>> = Vec::new();
                 for _ in 0..config.negative_samples {
-                    let neg_ids: Vec<i64> =
-                        (0..bs).map(|_| (lcg(&mut rng_nf2) % nc) as i64).collect();
+                    let neg_ids: Vec<i64> = (0..bs)
+                        .map(|j| {
+                            let sub_j = sub_ids_raw[j];
+                            for _ in 0..10 {
+                                let neg = lcg(&mut rng_nf2) % nc;
+                                if !closure.contains(&(sub_j, neg)) {
+                                    return neg as i64;
+                                }
+                            }
+                            (lcg(&mut rng_nf2) % nc) as i64
+                        })
+                        .collect();
                     let neg_t = Tensor::<B, 1, Int>::from_data(neg_ids.as_slice(), device);
                     let (c_neg, o_neg) = concept_boxes(&current_model, &neg_t);
                     let disj =

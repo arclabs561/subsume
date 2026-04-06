@@ -317,6 +317,80 @@ impl Ontology {
         }
         Ok(ont)
     }
+
+    /// Compute the GCI0 deductive closure: transitive closure of NF2 subsumption.
+    ///
+    /// Returns a set of `(sub, sup)` pairs where `sub ⊑ sup` is entailed by
+    /// transitivity of subsumption axioms. Used to filter false negatives during
+    /// training (DELE, Mashkova et al. 2024).
+    ///
+    /// For GALEN (23K concepts, ~20K NF2 axioms) this runs in milliseconds.
+    /// The result includes both direct and transitively entailed pairs.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use subsume::el_training::Ontology;
+    /// let mut ont = Ontology::new();
+    /// let a = ont.concept("A");
+    /// let b = ont.concept("B");
+    /// let c = ont.concept("C");
+    /// ont.axioms.push(subsume::el_training::Axiom::SubClassOf { sub: a, sup: b });
+    /// ont.axioms.push(subsume::el_training::Axiom::SubClassOf { sub: b, sup: c });
+    /// let closure = ont.subsumption_closure();
+    /// assert!(closure.contains(&(a, b)));
+    /// assert!(closure.contains(&(a, c))); // transitive
+    /// assert!(closure.contains(&(b, c)));
+    /// assert!(!closure.contains(&(c, a))); // not symmetric
+    /// ```
+    pub fn subsumption_closure(&self) -> std::collections::HashSet<(usize, usize)> {
+        let nc = self.concept_names.len();
+        // Build adjacency list from NF2 axioms.
+        let mut children: Vec<Vec<usize>> = vec![Vec::new(); nc];
+        for ax in &self.axioms {
+            if let Axiom::SubClassOf { sub, sup } = ax {
+                children[*sub].push(*sup);
+            }
+        }
+
+        // BFS from each concept to find all reachable superclasses.
+        let mut closure = std::collections::HashSet::new();
+        let mut queue = std::collections::VecDeque::new();
+        for start in 0..nc {
+            queue.clear();
+            queue.extend(children[start].iter().copied());
+            // Track visited to avoid cycles.
+            let mut visited = vec![false; nc];
+            visited[start] = true;
+            while let Some(cur) = queue.pop_front() {
+                if visited[cur] {
+                    continue;
+                }
+                visited[cur] = true;
+                closure.insert((start, cur));
+                for &next in &children[cur] {
+                    if !visited[next] {
+                        queue.push_back(next);
+                    }
+                }
+            }
+        }
+        closure
+    }
+
+    /// Check whether a `(sub, sup)` pair is entailed by the subsumption closure.
+    ///
+    /// This is a convenience wrapper; for batch checks, compute the closure
+    /// once with [`subsumption_closure`](Self::subsumption_closure) and query
+    /// the returned `HashSet` directly.
+    pub fn is_entailed_subsumption(
+        &self,
+        closure: &std::collections::HashSet<(usize, usize)>,
+        sub: usize,
+        sup: usize,
+    ) -> bool {
+        closure.contains(&(sub, sup))
+    }
 }
 
 impl Default for Ontology {
@@ -1199,6 +1273,56 @@ RoleComposition hasParent hasSibling hasUncle
         assert!(Ontology::parse("Unknown A B".as_bytes()).is_err());
         assert!(Ontology::parse("SubClassOf A".as_bytes()).is_err());
         assert!(Ontology::parse("SubClassOf A B C".as_bytes()).is_err());
+    }
+
+    #[test]
+    fn subsumption_closure_transitive() {
+        let mut ont = Ontology::new();
+        let a = ont.concept("A");
+        let b = ont.concept("B");
+        let c = ont.concept("C");
+        let d = ont.concept("D");
+        // A ⊑ B, B ⊑ C => A ⊑ C (transitive)
+        ont.axioms.push(Axiom::SubClassOf { sub: a, sup: b });
+        ont.axioms.push(Axiom::SubClassOf { sub: b, sup: c });
+        // D ⊑ A => D ⊑ B, D ⊑ C (chain)
+        ont.axioms.push(Axiom::SubClassOf { sub: d, sup: a });
+
+        let closure = ont.subsumption_closure();
+        // Direct
+        assert!(closure.contains(&(a, b)));
+        assert!(closure.contains(&(b, c)));
+        assert!(closure.contains(&(d, a)));
+        // Transitive
+        assert!(closure.contains(&(a, c)));
+        assert!(closure.contains(&(d, b)));
+        assert!(closure.contains(&(d, c)));
+        // Not symmetric
+        assert!(!closure.contains(&(c, a)));
+        assert!(!closure.contains(&(b, a)));
+        // Not reflexive
+        assert!(!closure.contains(&(a, a)));
+        assert_eq!(closure.len(), 6);
+    }
+
+    #[test]
+    fn subsumption_closure_empty_ontology() {
+        let ont = Ontology::new();
+        assert!(ont.subsumption_closure().is_empty());
+    }
+
+    #[test]
+    fn subsumption_closure_handles_cycles() {
+        let mut ont = Ontology::new();
+        let a = ont.concept("A");
+        let b = ont.concept("B");
+        // A ⊑ B, B ⊑ A (cycle -- both are equivalent)
+        ont.axioms.push(Axiom::SubClassOf { sub: a, sup: b });
+        ont.axioms.push(Axiom::SubClassOf { sub: b, sup: a });
+        let closure = ont.subsumption_closure();
+        assert!(closure.contains(&(a, b)));
+        assert!(closure.contains(&(b, a)));
+        assert_eq!(closure.len(), 2);
     }
 
     #[test]
