@@ -6,3 +6,4 @@ timestamp	trainer	dataset	epochs	dim	lr	batch	neg	margin	neg_dist	reg	closure	nf
 2026-04-06T21:00	burn	GALEN	5000	200	0.01	512	2	0.15	5.0	0.4	yes	0.090	0.061	0.213	0.003	0.173	0.163	0.365	0.008	773	9336f51	candle hyperparams on burn, ckpt, 0.15s/ep (CPU contended)
 2026-04-06T21:05	burn-wgpu	GO	5000	200	0.01	512	2	0.15	5.0	0.4	yes	0.095	0.048	0.380	0.016	0.164	0.123	0.480	0.047	182	9336f51	Metal GPU, ckpt ep4500 (val=1.184), 0.04s/ep
 2026-04-06T21:15	burn-wgpu	ANATOMY	5000	200	0.01	512	2	0.15	5.0	0.4	yes	0.034	0.086	0.101	0.000	0.076	0.133	0.134	0.000	314	9336f51	Metal GPU, 0.06s/ep, 221s eval (106K concepts)
+2026-04-06T21:40	burn-wgpu	GALEN	5000	200	0.01	512	2	0.15	5.0	0.4	yes	0.051	0.137	0.320	0.002	0.096	0.335	0.476	0.002	118	a45f26c	L2-init fix! NF2 matches candle, NF3 EXCEEDS (+34%). Metal 0.02s/ep
