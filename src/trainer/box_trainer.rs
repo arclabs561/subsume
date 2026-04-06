@@ -1340,6 +1340,11 @@ impl BoxEmbeddingTrainer {
                 hits_at_3: 0.0,
                 hits_at_10: 0.0,
                 mean_rank: 0.0,
+                rank_variance: 0.0,
+                rank_p25: 0.0,
+                rank_p50: 0.0,
+                rank_p75: 0.0,
+                rank_p95: 0.0,
                 per_relation: Vec::new(),
             }
         };
