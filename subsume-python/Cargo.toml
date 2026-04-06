@@ -17,9 +17,13 @@ subsume = { path = "..", features = ["ndarray-backend"] }
 ndarray = "0.16"
 serde_json = "1.0"
 candle-core = { version = "0.9", optional = true }
+burn = { version = "0.20", optional = true }
+burn-ndarray = { version = "0.20", optional = true }
+burn-autodiff = { version = "0.20", optional = true }
 
 [features]
 candle-backend = ["subsume/candle-backend", "dep:candle-core"]
 cuda = ["candle-backend", "subsume/cuda", "candle-core/cuda"]
+burn-backend = ["subsume/burn-ndarray", "dep:burn", "dep:burn-ndarray", "dep:burn-autodiff"]
 
 [workspace]

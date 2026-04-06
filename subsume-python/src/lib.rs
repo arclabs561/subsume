@@ -1514,6 +1514,103 @@ fn train_el_embeddings(
     Ok(dict.into())
 }
 
+/// Train EL++ embeddings using the burn backend (multi-core CPU).
+///
+/// This uses the burn-based EL++ trainer with:
+/// - L2-normalized initialization
+/// - Gumbel soft intersection for NF1 with beta annealing
+/// - GCI0 deductive closure filtering for negative sampling
+/// - Disjointness (DISJ) training
+/// - Validation-based checkpointing
+///
+/// Args:
+///     axiom_path: Path to TSV file with normalized EL++ axioms.
+///     dim: Embedding dimension (default 200).
+///     epochs: Number of training epochs (default 1000).
+///     lr: Learning rate (default 0.01).
+///     batch_size: Mini-batch size per NF type (default 512).
+///     negative_samples: Negatives per positive (default 2).
+///     margin: Inclusion loss margin (default 0.1).
+///     neg_dist: Target distance for negatives (default 2.0).
+///     reg_factor: Bump L2 regularization (default 0.5).
+///
+/// Returns:
+///     dict with concept_centers, concept_offsets, bumps, role_heads, role_tails,
+///     concept_names, role_names, epoch_losses, num_concepts, num_roles, dim.
+#[cfg(feature = "burn-backend")]
+#[pyfunction]
+#[pyo3(signature = (axiom_path, dim=200, epochs=1000, lr=0.01, batch_size=512, negative_samples=2, margin=0.1, neg_dist=2.0, reg_factor=0.5))]
+fn train_el_embeddings_burn(
+    py: Python<'_>,
+    axiom_path: &str,
+    dim: usize,
+    epochs: usize,
+    lr: f64,
+    batch_size: usize,
+    negative_samples: usize,
+    margin: f32,
+    neg_dist: f32,
+    reg_factor: f32,
+) -> PyResult<PyObject> {
+    use burn::backend::Autodiff;
+    use subsume::trainer::burn_el_trainer::{BurnElConfig, BurnElTrainer};
+
+    let dataset = subsume::el_dataset::load_el_axioms(axiom_path)
+        .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("{e}")))?;
+
+    let ontology = subsume::el_training::Ontology::from_el_dataset(&dataset);
+    let nc = ontology.concept_names.len();
+    let nr = ontology.role_names.len();
+
+    let config = BurnElConfig {
+        dim,
+        epochs,
+        lr,
+        batch_size,
+        negative_samples,
+        margin,
+        neg_dist,
+        reg_factor,
+        ..Default::default()
+    };
+
+    type B = Autodiff<burn_ndarray::NdArray>;
+    let device = burn_ndarray::NdArrayDevice::default();
+    let trainer = BurnElTrainer::<B>::new();
+    let mut model = BurnElTrainer::<B>::init_model(nc, nr, dim, &device);
+    let losses = trainer.fit(&mut model, &ontology, &config, &device);
+
+    // Extract embeddings to flat Vec<f32>.
+    let centers = BurnElTrainer::<B>::extract_centers(&model, &device);
+    let offsets = BurnElTrainer::<B>::extract_offsets(&model, &device);
+    let bumps = BurnElTrainer::<B>::extract_bumps(&model, &device);
+    let role_heads = BurnElTrainer::<B>::extract_role_heads(&model, &device);
+    let role_tails = BurnElTrainer::<B>::extract_role_tails(&model, &device);
+
+    // Return as 2D numpy arrays.
+    let np2d = |flat: Vec<f32>, cols: usize, py: Python<'_>| -> PyResult<PyObject> {
+        let rows: Vec<Vec<f32>> = flat.chunks(cols).map(|c| c.to_vec()).collect();
+        let arr = numpy::PyArray2::from_vec2(py, &rows)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e}")))?;
+        Ok(arr.into_any().unbind())
+    };
+
+    let dict = pyo3::types::PyDict::new(py);
+    dict.set_item("concept_names", ontology.concept_names.clone())?;
+    dict.set_item("role_names", ontology.role_names.clone())?;
+    dict.set_item("concept_centers", np2d(centers, dim, py)?)?;
+    dict.set_item("concept_offsets", np2d(offsets, dim, py)?)?;
+    dict.set_item("bumps", np2d(bumps, dim, py)?)?;
+    dict.set_item("role_heads", np2d(role_heads, dim * 2, py)?)?;
+    dict.set_item("role_tails", np2d(role_tails, dim * 2, py)?)?;
+    dict.set_item("epoch_losses", losses)?;
+    dict.set_item("num_concepts", nc)?;
+    dict.set_item("num_roles", nr)?;
+    dict.set_item("dim", dim)?;
+
+    Ok(dict.into())
+}
+
 /// GPU-accelerated box embedding trainer via candle autograd.
 ///
 /// Unlike ``BoxEmbeddingTrainer`` (ndarray, CPU), this uses candle's autograd
@@ -2303,6 +2400,8 @@ fn subsumer(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(el_inclusion_loss, m)?)?;
     m.add_function(wrap_pyfunction!(el_intersection_loss, m)?)?;
     m.add_function(wrap_pyfunction!(train_el_embeddings, m)?)?;
+    #[cfg(feature = "burn-backend")]
+    m.add_function(wrap_pyfunction!(train_el_embeddings_burn, m)?)?;
     #[cfg(feature = "candle-backend")]
     m.add_class::<PyCandleBoxTrainer>()?;
     #[cfg(feature = "candle-backend")]
