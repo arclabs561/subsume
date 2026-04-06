@@ -1,0 +1,3 @@
+date	trainer	dataset	epochs	dim	lr	batch	neg	margin	neg_dist	reg	closure	nf1_mrr	nf2_mrr	nf3_mrr	nf4_mrr	nf1_h10	nf2_h10	nf3_h10	nf4_h10	train_time_s	notes
+2026-04-05	candle	GALEN	5000	200	0.01	512	2	0.15	5.0	0.4	no	0.101	0.131	0.284	0.004	-	-	-	-	-	best prior session (checkpoint, beta anneal)
+2026-04-06	burn	GALEN	500	200	0.015	512	2	0.093	4.0	0.91	yes	0.006	0.045	0.082	0.000	0.007	0.099	0.113	0.000	58	first burn run, 259K closure pairs

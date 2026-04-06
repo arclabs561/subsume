@@ -184,6 +184,7 @@ impl<B: AutodiffBackend> BurnElTrainer<B> {
         let mut nf1_axioms: Vec<(usize, usize, usize)> = Vec::new();
         let mut nf3_axioms: Vec<(usize, usize, usize)> = Vec::new();
         let mut nf4_axioms: Vec<(usize, usize, usize)> = Vec::new();
+        let mut disj_axioms: Vec<(usize, usize)> = Vec::new();
 
         for ax in &ontology.axioms {
             match *ax {
@@ -197,6 +198,7 @@ impl<B: AutodiffBackend> BurnElTrainer<B> {
                     filler,
                     target,
                 } => nf4_axioms.push((role, filler, target)),
+                Axiom::Disjoint { a, b } => disj_axioms.push((a, b)),
                 _ => {}
             }
         }
@@ -506,6 +508,59 @@ impl<B: AutodiffBackend> BurnElTrainer<B> {
                     nf4_loss
                 };
                 losses.push(nf4_total);
+            }
+
+            // --- DISJ: C ⊓ D ⊑ ⊥ (disjointness -- boxes should not overlap) ---
+            if !disj_axioms.is_empty() {
+                let bs = config.batch_size.min(disj_axioms.len());
+                let mut a_ids = Vec::with_capacity(bs);
+                let mut b_ids = Vec::with_capacity(bs);
+                let mut rng_disj = master_rng.wrapping_add(5);
+                for _ in 0..bs {
+                    let idx = lcg(&mut rng_disj) % disj_axioms.len();
+                    a_ids.push(disj_axioms[idx].0 as i64);
+                    b_ids.push(disj_axioms[idx].1 as i64);
+                }
+
+                let a_t = Tensor::<B, 1, Int>::from_data(a_ids.as_slice(), device);
+                let b_t = Tensor::<B, 1, Int>::from_data(b_ids.as_slice(), device);
+
+                let (c_a, o_a) = concept_boxes(&current_model, &a_t);
+                let (c_b, o_b) = concept_boxes(&current_model, &b_t);
+
+                // Positive: penalize overlap. neg_loss_fn returns distance-to-separation;
+                // we want boxes separated by at least margin, so use neg_loss_fn with
+                // a zero-target (minimize overlap).
+                let separation = neg_loss_fn(
+                    c_a.clone(),
+                    o_a.clone(),
+                    c_b.clone(),
+                    o_b.clone(),
+                    config.margin,
+                );
+                // Loss = relu(neg_dist - separation)^2: push separation toward neg_dist.
+                let disj_target = Tensor::<B, 2>::full([bs, 1], config.neg_dist, device);
+                let disj_pos_loss = (disj_target - separation).powf_scalar(2.0).mean();
+
+                // Negative: random non-disjoint pairs should overlap.
+                let mut disj_neg_losses: Vec<Tensor<B, 1>> = Vec::new();
+                for _ in 0..config.negative_samples {
+                    let neg_ids: Vec<i64> =
+                        (0..bs).map(|_| (lcg(&mut rng_disj) % nc) as i64).collect();
+                    let neg_t = Tensor::<B, 1, Int>::from_data(neg_ids.as_slice(), device);
+                    let (c_neg, o_neg) = concept_boxes(&current_model, &neg_t);
+                    // Non-disjoint pairs should have small inclusion loss (overlap).
+                    let overlap =
+                        inclusion_loss(c_a.clone(), o_a.clone(), c_neg, o_neg, config.margin)
+                            .powf_scalar(2.0)
+                            .mean();
+                    disj_neg_losses.push(overlap);
+                }
+                let disj_neg_sum = disj_neg_losses
+                    .into_iter()
+                    .reduce(|a, b| a + b)
+                    .unwrap_or_else(|| Tensor::zeros([1], device));
+                losses.push(disj_pos_loss + disj_neg_sum);
             }
 
             // --- Regularization ---
@@ -1249,6 +1304,8 @@ mod tests {
             filler: dog,
             target: animal,
         });
+        // DISJ: Dog ⊓ Cat ⊑ ⊥
+        ont.axioms.push(Axiom::Disjoint { a: dog, b: cat });
 
         let mut model = BurnElTrainer::<TestBackend>::init_model(15, 2, 16, &device);
 
