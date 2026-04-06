@@ -111,3 +111,14 @@ Requires commit `a45f26c` or later (L2-init). burn-wgpu for Metal GPU, burn-ndar
 - [ ] DISJ-disabled burn run (isolate DISJ gradient competition)
 - [ ] Per-parameter epsilon (1e-8 for bumps, 1e-5 for centers)
 - [ ] ANATOMY with L2-init (E11, running)
+
+## E11: NF4 negatives enabled (GALEN)
+**Hypothesis**: With closure filtering in place, NF4 negatives (weight=0.3) should be safe and improve NF4 MRR.
+**Command**:
+```sh
+DIM=200 EPOCHS=5000 LR=0.01 BATCH=512 NEG=2 MARGIN=0.15 NEG_DIST=5.0 REG=0.4 NF4_NEG_W=0.3 DATASET=GALEN \
+  cargo run --features burn-wgpu --example el_benchmark_burn --release
+```
+**Commit**: `d2cee76` (L2-init, default eps, NF4_NEG_W wired)
+**Result**: NF4 0.004 (2x vs E08 0.002). NF1 0.099 (+0.048). NF2 0.118 (-0.019). NF3 0.298 (-0.022).
+**Conclusion**: NF4 negatives improve NF4 and NF1 but hurt NF2/NF3 via gradient competition. Closure filtering makes NF4 negatives safer than prior session (NF1 0.099 vs prior 0.089). Best used when NF1/NF4 matter more than NF2/NF3. **Not default.**
