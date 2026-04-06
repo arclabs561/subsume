@@ -133,26 +133,40 @@ impl<B: AutodiffBackend> BurnElTrainer<B> {
     }
 
     /// Initialize a randomly-weighted model.
+    ///
+    /// Uses L2-normalized initialization (matching Box2EL / CandleElTrainer):
+    /// each row is sampled from Uniform[-1, 1] then divided by its L2 norm,
+    /// placing all initial embeddings on the unit sphere. This gives the bump
+    /// mechanism a consistent initial scale for NF3/NF4 existential encoding.
     pub fn init_model(
         num_concepts: usize,
         num_roles: usize,
         dim: usize,
         device: &B::Device,
     ) -> BurnElModel<B> {
-        let param = |shape: [usize; 2], lo: f64, hi: f64| {
-            Param::initialized(
-                ParamId::new(),
-                Tensor::<B, 2>::random(shape, burn::tensor::Distribution::Uniform(lo, hi), device)
-                    .require_grad(),
-            )
+        let l2_param = |shape: [usize; 2]| {
+            let raw = Tensor::<B, 2>::random(
+                shape,
+                burn::tensor::Distribution::Uniform(-1.0, 1.0),
+                device,
+            );
+            // L2-normalize each row (matching Box2EL init_embeddings).
+            let norm = raw
+                .clone()
+                .powf_scalar(2.0)
+                .sum_dim(1)
+                .clamp_min(1e-8)
+                .sqrt();
+            let normalized = raw / norm;
+            Param::initialized(ParamId::new(), normalized.require_grad())
         };
         let nr = num_roles.max(1);
         BurnElModel {
-            concept_centers: param([num_concepts, dim], -1.0, 1.0),
-            concept_offsets: param([num_concepts, dim], -1.0, 1.0),
-            bumps: param([num_concepts, dim], -1.0, 1.0),
-            role_heads: param([nr, dim * 2], -1.0, 1.0),
-            role_tails: param([nr, dim * 2], -1.0, 1.0),
+            concept_centers: l2_param([num_concepts, dim]),
+            concept_offsets: l2_param([num_concepts, dim]),
+            bumps: l2_param([num_concepts, dim]),
+            role_heads: l2_param([nr, dim * 2]),
+            role_tails: l2_param([nr, dim * 2]),
         }
     }
 
