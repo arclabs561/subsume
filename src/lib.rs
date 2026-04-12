@@ -98,10 +98,10 @@
 //! | `candle-backend` | no | `candle_backend` module (GPU via candle) |
 //! | `cuda` | no | CUDA GPU support (implies `candle-backend`) |
 //! | `rand` | yes (via `ndarray-backend`) | Negative sampling utilities in [`trainer`] |
+//! | `kge` | yes | [`dataset`], [`metrics`], and `lattix_bridge` modules (KGE dataset loading, metrics) |
 //! | `hyperbolic` | no | `hyperbolic` module (Poincare ball via `hyperball` + `skel`) |
 //! | `petgraph` | no | `petgraph_adapter` module (convert petgraph graphs to datasets) |
 //! | `sheaf` | no | `sheaf` module (sheaf diffusion primitives) |
-//! | `lattix` | no | `lattix_bridge` module (RDF/Turtle/CSV/JSON-LD KG loading via `lattix`) |
 //! | `rankops` | no | Re-exports `rankops` (rank fusion, nDCG, MAP) |
 //! | `spherical` | no | `spherical` module (unit-sphere embeddings, experimental) |
 //! | `density` | no | `density` + `density_el` modules (density matrix embeddings, experimental) |
@@ -154,6 +154,8 @@ pub mod cone;
 pub mod octagon;
 
 /// Knowledge graph dataset loading (WN18RR, FB15k-237, YAGO3-10, and similar formats).
+#[cfg(feature = "kge")]
+#[cfg_attr(docsrs, doc(cfg(feature = "kge")))]
 pub mod dataset;
 
 /// Distance metrics: Query2Box distance scoring.
@@ -182,6 +184,8 @@ pub mod trainable;
 pub mod trainer;
 
 /// Rank-based evaluation metrics (MRR, Hits@k, Mean Rank).
+#[cfg(feature = "kge")]
+#[cfg_attr(docsrs, doc(cfg(feature = "kge")))]
 pub mod metrics;
 
 /// Re-export rankops for rank fusion, IR evaluation (nDCG, MAP), and reranking.
@@ -291,6 +295,8 @@ pub mod el_training;
 pub mod fuzzy;
 
 /// Taxonomy dataset loading for the TaxoBell format (`.terms` / `.taxo` / `dic.json`).
+#[cfg(feature = "kge")]
+#[cfg_attr(docsrs, doc(cfg(feature = "kge")))]
 pub mod taxonomy;
 
 /// TaxoBell combined training loss for taxonomy expansion.
@@ -332,14 +338,19 @@ pub use octagon::OctagonError;
 pub use sheaf::SheafError;
 
 // Re-exports: data loading
+#[cfg(feature = "kge")]
 pub use dataset::{Dataset, DatasetError, Triple};
 
-// Re-exports: training
+// Re-exports: training (always available)
 pub use trainer::{
-    compute_relation_cardinalities, evaluate_link_prediction, BoxEmbeddingTrainer,
-    ConeEmbeddingTrainer, CpuBoxTrainingConfig, EvaluationResults, RelationCardinality,
-    RelationTransform, TrainingConfig, TrainingResult,
+    compute_relation_cardinalities, BoxEmbeddingTrainer, CpuBoxTrainingConfig, EvaluationResults,
+    RelationCardinality, RelationTransform, TrainingConfig, TrainingResult,
 };
+
+// Re-exports: training (requires kge feature)
+#[cfg(feature = "kge")]
+#[cfg_attr(docsrs, doc(cfg(feature = "kge")))]
+pub use trainer::{evaluate_link_prediction, ConeEmbeddingTrainer};
 
 // Re-export: CandleBoxTrainer (GPU training)
 #[cfg(feature = "candle-backend")]
@@ -352,6 +363,8 @@ pub use trainer::candle_trainer::CandleBoxTrainer;
 pub use ndarray;
 
 // Re-exports: evaluation metrics
+#[cfg(feature = "kge")]
+#[cfg_attr(docsrs, doc(cfg(feature = "kge")))]
 pub use metrics::{adjusted_mean_rank, hits_at_k, mean_rank, mean_reciprocal_rank};
 
 // Re-exports: Ball embeddings
@@ -441,6 +454,6 @@ pub mod petgraph_adapter;
 ///
 /// Converts lattix KGs (loaded from N-Triples, Turtle, CSV, JSON-LD)
 /// into subsume datasets for training.
-#[cfg(feature = "lattix")]
-#[cfg_attr(docsrs, doc(cfg(feature = "lattix")))]
+#[cfg(feature = "kge")]
+#[cfg_attr(docsrs, doc(cfg(feature = "kge")))]
 pub mod lattix_bridge;
