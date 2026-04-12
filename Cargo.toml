@@ -42,7 +42,7 @@ candle-core = { version = "0.9", optional = true }
 candle-nn = { version = "0.9", optional = true }
 petgraph = { version = "0.7", optional = true }
 rankops = { version = "0.1.4", optional = true }
-lattix = { version = "0.6", default-features = false, features = ["kge"] }
+lattix = { version = "0.6", default-features = false, features = ["kge"], optional = true }
 burn = { version = "0.20", features = ["autodiff"], optional = true }
 burn-ndarray = { version = "0.20", features = ["rayon"], optional = true }
 burn-wgpu = { version = "0.20", optional = true }
@@ -51,7 +51,7 @@ burn-autodiff = { version = "0.20", optional = true }
 fastrand = "2.3.0"
 
 [features]
-default = ["ndarray-backend"]
+default = ["ndarray-backend", "kge"]
 ndarray-backend = ["dep:ndarray", "dep:serde_json", "rand"]
 candle-backend = ["dep:candle-core", "dep:candle-nn"]
 cuda = ["candle-backend", "candle-core/cuda"]
@@ -62,7 +62,7 @@ burn-tch = ["dep:burn", "dep:burn-tch", "dep:burn-autodiff"]
 petgraph = ["dep:petgraph"]
 rankops = ["dep:rankops"]
 sheaf = []
-lattix = ["lattix/formats"]
+kge = ["dep:lattix"]
 spherical = []
 density = []
 hyperbolic = ["dep:hyperball", "dep:skel", "dep:ndarray"]
@@ -71,6 +71,7 @@ hyperbolic = ["dep:hyperball", "dep:skel", "dep:ndarray"]
 criterion = { version = "0.5", features = ["html_reports"] }
 proptest = "1.5"
 tempfile = "3"
+serde_json = "1.0"
 
 [[bench]]
 name = "gaussian_bench"
@@ -91,11 +92,11 @@ required-features = ["candle-backend"]
 
 [[example]]
 name = "wn18rr_candle"
-required-features = ["candle-backend"]
+required-features = ["candle-backend", "kge"]
 
 [[example]]
 name = "wn18rr_cone"
-required-features = ["candle-backend"]
+required-features = ["candle-backend", "kge"]
 
 [[example]]
 name = "density_el_demo"
@@ -103,16 +104,40 @@ required-features = ["density", "rand"]
 
 [[example]]
 name = "wn18rr_ball_burn"
-required-features = ["burn-ndarray"]
+required-features = ["burn-ndarray", "kge"]
 
 [[example]]
 name = "wn18rr_transbox_burn"
-required-features = ["burn-ndarray"]
+required-features = ["burn-ndarray", "kge"]
 
 [[example]]
 name = "el_benchmark_burn"
 required-features = ["burn-ndarray"]
 # burn-wgpu also works: cargo run --features "burn-ndarray,burn-wgpu" prefers wgpu via cfg
+
+[[example]]
+name = "geometry_comparison"
+required-features = ["kge"]
+
+[[example]]
+name = "wn18rr_ball"
+required-features = ["kge"]
+
+[[example]]
+name = "dataset_training"
+required-features = ["kge"]
+
+[[example]]
+name = "save_checkpoint"
+required-features = ["kge"]
+
+[[example]]
+name = "wn18rr_training"
+required-features = ["kge"]
+
+[[example]]
+name = "imagenet_hierarchy"
+required-features = ["kge"]
 
 [lints.rust]
 missing_docs = "warn"
