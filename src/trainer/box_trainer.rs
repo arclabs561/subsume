@@ -10,11 +10,11 @@ use rand::{Rng, SeedableRng};
 
 use super::negative_sampling::RelationCardinality;
 use super::{CpuBoxTrainingConfig, NegativeSamplingStrategy, RelationTransform};
-#[cfg(feature = "ndarray-backend")]
+#[cfg(all(feature = "ndarray-backend", feature = "kge"))]
 use super::{EvaluationResults, TrainingResult};
-#[cfg(feature = "ndarray-backend")]
+#[cfg(all(feature = "ndarray-backend", feature = "kge"))]
 use crate::trainer::evaluation::evaluate_interned_with_transforms_inner;
-#[cfg(feature = "ndarray-backend")]
+#[cfg(all(feature = "ndarray-backend", feature = "kge"))]
 use crate::trainer::evaluation::{evaluate_link_prediction_interned_inner, FilteredTripleIndexIds};
 
 /// Compute loss for a pair of boxes.
@@ -1158,8 +1158,8 @@ impl BoxEmbeddingTrainer {
     ///
     /// This is a convenience method that bridges the trainer's internal state to
     /// [`evaluate_link_prediction_interned`](super::evaluate_link_prediction_interned) (or the transform-aware variant).
-    #[cfg(feature = "ndarray-backend")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "ndarray-backend")))]
+    #[cfg(all(feature = "ndarray-backend", feature = "kge"))]
+    #[cfg_attr(docsrs, doc(cfg(all(feature = "ndarray-backend", feature = "kge"))))]
     pub fn evaluate(
         &self,
         test_triples: &[crate::dataset::TripleIds],
@@ -1227,8 +1227,8 @@ impl BoxEmbeddingTrainer {
     ///
     /// Returns a [`TrainingResult`] with loss history, validation MRR history,
     /// and the final evaluation results.
-    #[cfg(feature = "ndarray-backend")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "ndarray-backend")))]
+    #[cfg(all(feature = "ndarray-backend", feature = "kge"))]
+    #[cfg_attr(docsrs, doc(cfg(all(feature = "ndarray-backend", feature = "kge"))))]
     pub fn fit(
         &mut self,
         train_triples: &[(usize, usize, usize)],
