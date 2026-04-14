@@ -128,6 +128,11 @@ impl Ontology {
         }
     }
 
+    /// Number of axioms.
+    pub fn num_axioms(&self) -> usize {
+        self.axioms.len()
+    }
+
     /// Get or create a concept index for the given name.
     pub fn concept(&mut self, name: &str) -> usize {
         if let Some(&idx) = self.concept_index.get(name) {
@@ -1532,6 +1537,24 @@ RoleComposition hasParent hasSibling hasUncle
         let score = model.subsumption_score_by_name("Dog", "Animal");
         assert!(score.is_some());
         assert!(score.unwrap().is_finite());
+
+        // Concept/role box accessors.
+        let (center, offset) = model.concept_box("Dog").unwrap();
+        assert_eq!(center.len(), 8);
+        assert_eq!(offset.len(), 8);
+        assert!(center.iter().all(|v| v.is_finite()));
+        assert!(offset.iter().all(|v| v.is_finite()));
+        assert!(model.concept_box("Nonexistent").is_none());
+
+        let (rc, ro) = model.role_box("hasPart").unwrap();
+        assert_eq!(rc.len(), 8);
+        assert_eq!(ro.len(), 8);
+        assert!(model.role_box("missing").is_none());
+
+        // Ontology helpers.
+        assert_eq!(ont.num_concepts(), 3);
+        assert_eq!(ont.num_roles(), 1);
+        assert_eq!(ont.num_axioms(), 2);
 
         // JSON round-trip.
         let json = serde_json::to_string(&model).unwrap();
