@@ -40,7 +40,7 @@ use std::io::BufRead;
 // ---------------------------------------------------------------------------
 
 /// A parsed EL++ axiom.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Axiom {
     /// NF2: C ⊑ D
     SubClassOf {
@@ -102,7 +102,7 @@ pub enum Axiom {
 }
 
 /// An EL++ ontology: named concepts, roles, and axioms.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Ontology {
     /// Concept name -> index.
     pub concept_index: HashMap<String, usize>,
@@ -472,7 +472,7 @@ impl Default for ElTrainingConfig {
 // ---------------------------------------------------------------------------
 
 /// Result of training EL++ embeddings.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ElTrainingResult {
     /// Concept embeddings: centers. Shape: `[num_concepts][dim]`.
     pub concept_centers: Vec<Vec<f32>>,
@@ -499,6 +499,84 @@ impl ElTrainingResult {
             0.0,
         )
         .unwrap_or(f32::MAX)
+    }
+
+    /// Embedding dimension.
+    pub fn dim(&self) -> usize {
+        self.concept_centers.first().map_or(0, |c| c.len())
+    }
+
+    /// Number of concepts.
+    pub fn num_concepts(&self) -> usize {
+        self.concept_centers.len()
+    }
+
+    /// Number of roles.
+    pub fn num_roles(&self) -> usize {
+        self.role_centers.len()
+    }
+}
+
+/// A trained EL++ model bundling embeddings with vocabulary mappings.
+///
+/// This is the unit of serialization for `save` / `load` / `from_pretrained`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TrainedElModel {
+    /// Training result (concept/role embeddings + loss history).
+    pub result: ElTrainingResult,
+    /// Concept names, indexed by concept ID.
+    pub concept_names: Vec<String>,
+    /// Role names, indexed by role ID.
+    pub role_names: Vec<String>,
+    /// Embedding dimension.
+    pub dim: usize,
+}
+
+impl TrainedElModel {
+    /// Bundle a training result with the ontology that produced it.
+    pub fn new(result: ElTrainingResult, ontology: &Ontology) -> Self {
+        let dim = result.dim();
+        Self {
+            result,
+            concept_names: ontology.concept_names.clone(),
+            role_names: ontology.role_names.clone(),
+            dim,
+        }
+    }
+
+    /// Look up a concept index by name.
+    pub fn concept_index(&self, name: &str) -> Option<usize> {
+        self.concept_names.iter().position(|n| n == name)
+    }
+
+    /// Look up a role index by name.
+    pub fn role_index(&self, name: &str) -> Option<usize> {
+        self.role_names.iter().position(|n| n == name)
+    }
+
+    /// Subsumption score between two named concepts.
+    ///
+    /// Returns `None` if either name is not in the vocabulary.
+    pub fn subsumption_score_by_name(&self, sub: &str, sup: &str) -> Option<f32> {
+        let sub_idx = self.concept_index(sub)?;
+        let sup_idx = self.concept_index(sup)?;
+        Some(self.result.subsumption_score(sub_idx, sup_idx))
+    }
+
+    /// Save to a JSON file.
+    #[cfg(feature = "ndarray-backend")]
+    pub fn save(&self, path: impl AsRef<std::path::Path>) -> Result<(), std::io::Error> {
+        let json = serde_json::to_string_pretty(self)
+            .map_err(std::io::Error::other)?;
+        std::fs::write(path, json)
+    }
+
+    /// Load from a JSON file.
+    #[cfg(feature = "ndarray-backend")]
+    pub fn load(path: impl AsRef<std::path::Path>) -> Result<Self, std::io::Error> {
+        let json = std::fs::read_to_string(path)?;
+        serde_json::from_str(&json)
+            .map_err(std::io::Error::other)
     }
 }
 

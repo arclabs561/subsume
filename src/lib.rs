@@ -410,6 +410,7 @@ pub use density_el::{
 #[cfg(feature = "rand")]
 pub use el_training::{
     evaluate_subsumption, train_el_embeddings, Axiom, ElTrainingConfig, ElTrainingResult, Ontology,
+    TrainedElModel,
 };
 
 // Re-exports: cone EL++ primitives
