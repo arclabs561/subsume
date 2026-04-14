@@ -554,6 +554,28 @@ impl TrainedElModel {
         self.role_names.iter().position(|n| n == name)
     }
 
+    /// Get the box embedding (center, offset) for a named concept.
+    ///
+    /// Returns `None` if the concept is not in the vocabulary.
+    pub fn concept_box(&self, name: &str) -> Option<(&[f32], &[f32])> {
+        let idx = self.concept_index(name)?;
+        Some((
+            &self.result.concept_centers[idx],
+            &self.result.concept_offsets[idx],
+        ))
+    }
+
+    /// Get the box embedding (center, offset) for a named role.
+    ///
+    /// Returns `None` if the role is not in the vocabulary.
+    pub fn role_box(&self, name: &str) -> Option<(&[f32], &[f32])> {
+        let idx = self.role_index(name)?;
+        Some((
+            &self.result.role_centers[idx],
+            &self.result.role_offsets[idx],
+        ))
+    }
+
     /// Subsumption score between two named concepts.
     ///
     /// Returns `None` if either name is not in the vocabulary.
