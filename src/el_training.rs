@@ -566,8 +566,7 @@ impl TrainedElModel {
     /// Save to a JSON file.
     #[cfg(feature = "ndarray-backend")]
     pub fn save(&self, path: impl AsRef<std::path::Path>) -> Result<(), std::io::Error> {
-        let json = serde_json::to_string_pretty(self)
-            .map_err(std::io::Error::other)?;
+        let json = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
         std::fs::write(path, json)
     }
 
@@ -575,8 +574,7 @@ impl TrainedElModel {
     #[cfg(feature = "ndarray-backend")]
     pub fn load(path: impl AsRef<std::path::Path>) -> Result<Self, std::io::Error> {
         let json = std::fs::read_to_string(path)?;
-        serde_json::from_str(&json)
-            .map_err(std::io::Error::other)
+        serde_json::from_str(&json).map_err(std::io::Error::other)
     }
 }
 
