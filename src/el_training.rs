@@ -1468,4 +1468,67 @@ RoleComposition hasParent hasSibling hasUncle
         assert!(hits10 > 0.0, "Hits@10 should be positive, got {hits10}");
         eprintln!("Evaluation: Hits@1={hits1:.2}, Hits@10={hits10:.2}, MRR={mrr:.4}");
     }
+
+    #[test]
+    fn trained_el_model_round_trip() {
+        let mut ont = Ontology::new();
+        let dog = ont.concept("Dog");
+        let cat = ont.concept("Cat");
+        let animal = ont.concept("Animal");
+        let has_part = ont.role("hasPart");
+        ont.axioms.push(Axiom::SubClassOf {
+            sub: dog,
+            sup: animal,
+        });
+        ont.axioms.push(Axiom::SubClassOf {
+            sub: cat,
+            sup: animal,
+        });
+
+        let config = ElTrainingConfig {
+            dim: 8,
+            epochs: 50,
+            learning_rate: 0.01,
+            log_interval: 0,
+            seed: 42,
+            ..Default::default()
+        };
+        let result = train_el_embeddings(&ont, &config);
+
+        let model = TrainedElModel::new(result, &ont);
+        assert_eq!(model.dim, 8);
+        assert_eq!(model.concept_names.len(), 3);
+        assert_eq!(model.role_names.len(), 1);
+
+        // Name-based lookup.
+        assert_eq!(model.concept_index("Dog"), Some(dog));
+        assert_eq!(model.concept_index("Cat"), Some(cat));
+        assert_eq!(model.role_index("hasPart"), Some(has_part));
+        assert!(model.concept_index("Nonexistent").is_none());
+
+        // Subsumption by name.
+        let score = model.subsumption_score_by_name("Dog", "Animal");
+        assert!(score.is_some());
+        assert!(score.unwrap().is_finite());
+
+        // JSON round-trip.
+        let json = serde_json::to_string(&model).unwrap();
+        let loaded: TrainedElModel = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(loaded.dim, model.dim);
+        assert_eq!(loaded.concept_names, model.concept_names);
+        assert_eq!(loaded.role_names, model.role_names);
+        assert_eq!(
+            loaded.result.concept_centers.len(),
+            model.result.concept_centers.len()
+        );
+
+        // Scores match after round-trip.
+        let original_score = model.subsumption_score_by_name("Dog", "Animal").unwrap();
+        let loaded_score = loaded.subsumption_score_by_name("Dog", "Animal").unwrap();
+        assert!(
+            (original_score - loaded_score).abs() < 1e-6,
+            "scores diverged: {original_score} vs {loaded_score}"
+        );
+    }
 }
