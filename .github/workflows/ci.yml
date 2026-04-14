@@ -30,7 +30,7 @@ jobs:
         run: cargo test --features "ndarray-backend,candle-backend,rand,sheaf,rankops,petgraph"
 
       - name: Doc
-        run: cargo doc --features "ndarray-backend,candle-backend,rand,sheaf,rankops,petgraph,lattix,spherical,density,hyperbolic" --no-deps
+        run: cargo doc --features "ndarray-backend,candle-backend,rand,sheaf,rankops,petgraph,kge,spherical,density,hyperbolic" --no-deps
         env:
           RUSTDOCFLAGS: -Dwarnings
 
@@ -108,4 +108,4 @@ jobs:
         run: cargo install cargo-semver-checks
 
       - name: Check semver
-        run: cargo semver-checks check-release --only-explicit-features --features "ndarray-backend,candle-backend,rand,sheaf,rankops,petgraph"
+        run: cargo semver-checks check-release --only-explicit-features --features "ndarray-backend,candle-backend,rand,sheaf,rankops,petgraph,kge"
