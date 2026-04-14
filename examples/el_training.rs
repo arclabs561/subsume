@@ -16,7 +16,9 @@
 //!
 //! Run: cargo run -p subsume --example el_training
 
-use subsume::{evaluate_subsumption, train_el_embeddings, ElTrainingConfig, Ontology};
+use subsume::{
+    evaluate_subsumption, train_el_embeddings, ElTrainingConfig, Ontology, TrainedElModel,
+};
 
 const ONTOLOGY: &str = "\
 # === Subsumption axioms (NF2: C ⊑ D) ===
@@ -113,15 +115,43 @@ fn main() {
         ("Eagle", "Bird", true),
         ("Salmon", "Fish", true),
     ];
-    for (sub_name, sup_name, expected_low) in pairs {
-        let sub = ontology.concept_index[sub_name];
-        let sup = ontology.concept_index[sup_name];
+    for (sub_name, sup_name, expected_low) in &pairs {
+        let sub = ontology.concept_index[*sub_name];
+        let sup = ontology.concept_index[*sup_name];
         let score = result.subsumption_score(sub, sup);
-        let label = if expected_low {
+        let label = if *expected_low {
             "SHOULD be low"
         } else {
             "SHOULD be high"
         };
         println!("  {sub_name} ⊑ {sup_name}: {score:.4}  ({label})");
+    }
+
+    // Save and reload as TrainedElModel
+    let model = TrainedElModel::new(result, &ontology);
+    let tmp = std::env::temp_dir().join("subsume_el_demo.json");
+    model.save(&tmp).expect("save failed");
+    println!(
+        "\nSaved TrainedElModel to {} ({:.1} KB)",
+        tmp.display(),
+        std::fs::metadata(&tmp)
+            .map(|m| m.len() as f64 / 1024.0)
+            .unwrap_or(0.0)
+    );
+
+    let loaded = TrainedElModel::load(&tmp).expect("load failed");
+    println!(
+        "Loaded: {} concepts, {} roles, dim={}",
+        loaded.concept_names.len(),
+        loaded.role_names.len(),
+        loaded.dim
+    );
+
+    // Verify name-based lookup matches index-based
+    println!("\n--- Name-based lookup (via TrainedElModel) ---");
+    for (sub_name, sup_name, _) in &pairs {
+        if let Some(score) = loaded.subsumption_score_by_name(sub_name, sup_name) {
+            println!("  {sub_name} ⊑ {sup_name}: {score:.4}");
+        }
     }
 }
