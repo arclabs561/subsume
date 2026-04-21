@@ -29,7 +29,7 @@ GPU trainer with AdamW autograd. Evaluation: MRR, Hits@k, Mean Rank (filtered).
 
 ```toml
 [dependencies]
-subsume = { version = "0.11", features = ["ndarray-backend"] }
+subsume = { version = "0.12", features = ["ndarray-backend"] }
 ndarray = "0.16"
 ```
 
@@ -110,7 +110,7 @@ cargo run -p subsume --example dataset_training --release # full pipeline: WN18R
 cargo run -p subsume --example el_training              # EL++ ontology embedding
 ```
 
-24 examples total covering all geometries, training modes, and query types.
+27 examples total covering all geometries, training modes, and query types.
 See [`examples/README.md`](examples/README.md) for the full list.
 
 ## Tests
@@ -210,7 +210,7 @@ the boundary but sacrifice containment precision.
 
 ![Training convergence](docs/training_convergence.png)
 
-*25-entity taxonomy learned over 200 epochs. Left: total violation drops 3 orders of magnitude. Right: containment probabilities converge to 1.0 at different rates depending on hierarchy depth. Reproduce: `cargo run --example box_training` or `uv run scripts/plot_training.py`.*
+*25-entity taxonomy learned over 300 epochs. Left: total violation drops 3 orders of magnitude. Right: containment probabilities converge to 1.0 at different rates depending on hierarchy depth. Reproduce: `cargo run --example box_training` or `uv run scripts/plot_training.py`.*
 
 ## Embedding export
 
