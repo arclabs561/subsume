@@ -35,8 +35,6 @@ ndarray = "0.16"
 
 ```rust
 use subsume::ndarray_backend::NdarrayBox;
-// Renamed import avoids shadowing std::boxed::Box
-use subsume::Box as BoxRegion;
 use ndarray::array;
 
 // Box A: [0,0,0] to [1,1,1] (general concept)
@@ -105,9 +103,9 @@ are `(child, hypernym, parent)`, pass `reverse=True` to `from_triples` or
 ## Examples
 
 ```bash
-cargo run -p subsume --example box_training             # train box embeddings on a 25-entity taxonomy
-cargo run -p subsume --example dataset_training --release # full pipeline: WN18RR data, train, evaluate
-cargo run -p subsume --example el_training              # EL++ ontology embedding
+cargo run --example box_training             # train box embeddings on a 25-entity taxonomy
+cargo run --example dataset_training --release # full pipeline: WN18RR data, train, evaluate
+cargo run --example el_training              # EL++ ontology embedding
 ```
 
 27 examples total covering all geometries, training modes, and query types.
