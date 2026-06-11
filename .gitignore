@@ -38,3 +38,4 @@ Cargo.lock
 subsume-python/target/
 data/
 *.so
+/semver-checks/
