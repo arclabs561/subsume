@@ -26,9 +26,21 @@
 //! The trait is deliberately minimal: it captures only the subsumption contract
 //! all geometries genuinely share. Geometry-specific operations (volume,
 //! intersection, bounds) stay on the concrete types and on [`crate::HyperBox`].
-//! Geometries whose score takes a softness temperature `k` (balls, ellipsoids)
-//! use [`Region::DEFAULT_K`] through this trait; call their free functions
-//! directly for a custom temperature.
+//! Geometries whose score takes a softness temperature `k` (balls, ellipsoids,
+//! Gaussians, spherical caps) use [`Region::DEFAULT_K`] through this trait; call
+//! their free functions directly for a custom temperature.
+//!
+//! # Coverage
+//!
+//! Implemented for the box backends ([`crate::ndarray_backend::NdarrayBox`] and
+//! the Gumbel/candle variants), [`crate::Ball`], [`crate::Ellipsoid`],
+//! [`crate::Subspace`], [`crate::GaussianBox`], [`crate::SphericalCap`], and
+//! [`crate::AnnularSector`] -- the geometries whose relation IS symmetric nested
+//! containment, `P(inner ⊆ self)`. Cones, octagons, TransBox, and the
+//! feature-gated hyperbolic/sheaf/density geometries are intentionally excluded:
+//! their relations (entailment cones, hyperbolic distance, sheaf consistency)
+//! are not this contract, and forcing them under it would be a false
+//! abstraction.
 
 use crate::box_trait::BoxError;
 use crate::HyperBox;
@@ -107,6 +119,38 @@ impl Region for crate::Subspace {
     }
 }
 
+impl Region for crate::GaussianBox {
+    fn dim(&self) -> usize {
+        self.dim()
+    }
+    fn subsumption_score(&self, inner: &Self) -> Result<f32, BoxError> {
+        // gaussian::containment_prob(child, parent, k): child is the contained.
+        crate::gaussian::containment_prob(inner, self, Self::DEFAULT_K)
+    }
+}
+
+impl Region for crate::SphericalCap {
+    fn dim(&self) -> usize {
+        self.dim()
+    }
+    fn subsumption_score(&self, inner: &Self) -> Result<f32, BoxError> {
+        // spherical_cap::containment_prob(inner, outer, k): inner is the contained.
+        crate::spherical_cap::containment_prob(inner, self, Self::DEFAULT_K)
+    }
+}
+
+impl Region for crate::AnnularSector {
+    // An annular sector lives in the complex plane, so it is always 2-dimensional.
+    fn dim(&self) -> usize {
+        2
+    }
+    fn subsumption_score(&self, inner: &Self) -> Result<f32, BoxError> {
+        // annular::containment_score(inner, outer) is infallible and returns the
+        // inner ⊆ outer score directly.
+        Ok(crate::annular::containment_score(inner, self))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -176,6 +220,57 @@ mod tests {
         assert!(
             p_in > p_out,
             "contained box should outscore disjoint: {p_in} vs {p_out}"
+        );
+    }
+
+    // Generic helper reused by the increment-2 geometry tests.
+    fn monotone<R: Region>(outer: &R, contained: &R, loose: &R) -> (f32, f32) {
+        (
+            outer.subsumption_score(contained).unwrap(),
+            outer.subsumption_score(loose).unwrap(),
+        )
+    }
+
+    #[test]
+    fn gaussian_region_is_monotone() {
+        // Wide parent; a tight concentric child is more contained than a far one.
+        let outer = crate::GaussianBox::new(vec![0.0, 0.0], vec![2.0, 2.0]).unwrap();
+        let inside = crate::GaussianBox::new(vec![0.0, 0.0], vec![0.4, 0.4]).unwrap();
+        let far = crate::GaussianBox::new(vec![6.0, 6.0], vec![0.4, 0.4]).unwrap();
+        assert_eq!(Region::dim(&outer), 2);
+        let (s_in, s_out) = monotone(&outer, &inside, &far);
+        assert!(
+            s_in > s_out,
+            "concentric child should outscore the far one: {s_in} vs {s_out}"
+        );
+    }
+
+    #[test]
+    fn spherical_cap_region_is_monotone() {
+        // A narrow cap aligned inside a wide cap beats a narrow cap pointing away.
+        let outer = crate::SphericalCap::new(vec![0.0, 0.0, 1.0], 1.2).unwrap();
+        let inside = crate::SphericalCap::new(vec![0.0, 0.0, 1.0], 0.2).unwrap();
+        let away = crate::SphericalCap::new(vec![0.0, 0.0, -1.0], 0.2).unwrap();
+        assert_eq!(Region::dim(&outer), 3);
+        let (s_in, s_out) = monotone(&outer, &inside, &away);
+        assert!(
+            s_in > s_out,
+            "aligned inner cap should outscore the opposed one: {s_in} vs {s_out}"
+        );
+    }
+
+    #[test]
+    fn annular_sector_region_is_monotone() {
+        // Outer sector spanning a wide ring + angle; an inner sector inside it
+        // beats one whose radii/angle spill outside.
+        let outer = crate::AnnularSector::new(0.0, 0.0, 1.0, 4.0, 0.0, 2.0).unwrap();
+        let inside = crate::AnnularSector::new(0.0, 0.0, 1.5, 3.5, 0.5, 1.5).unwrap();
+        let spilling = crate::AnnularSector::new(0.0, 0.0, 0.2, 6.0, 0.0, 3.0).unwrap();
+        assert_eq!(Region::dim(&outer), 2);
+        let (s_in, s_out) = monotone(&outer, &inside, &spilling);
+        assert!(
+            s_in > s_out,
+            "contained sector should outscore the spilling one: {s_in} vs {s_out}"
         );
     }
 }

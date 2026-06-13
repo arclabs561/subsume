@@ -4,7 +4,8 @@
 
 ### Added
 
-- `Region` trait: a unified, geometry-generic subsumption interface (`dim` + `subsumption_score`) implemented by the box backends, `Ball`, `Ellipsoid`, and `Subspace`, so retrieval/ranking code can be written once and reused across geometries. The score is monotone WITHIN a geometry (more-contained ranks higher) but is not calibrated across geometries (a box's volume-ratio 1.0 and a ball's sigmoid-of-margin 0.5 are different scales) -- documented on the trait. Method named `subsumption_score` (not `containment_prob`) to avoid colliding with `HyperBox::containment_prob` on box types. New `region_generic` example. `AnnularSector`, `GaussianBox`, and `SphericalCap` are not yet covered (the first lacks a `dim()`; the others need their containment orientation verified).
+- `Region` trait: a unified, geometry-generic subsumption interface (`dim` + `subsumption_score`) implemented by the box backends, `Ball`, `Ellipsoid`, `Subspace`, `GaussianBox`, `SphericalCap`, and `AnnularSector`, so retrieval/ranking code can be written once and reused across geometries. The score is monotone WITHIN a geometry (more-contained ranks higher) but is not calibrated across geometries (a box's volume-ratio 1.0 and a ball's sigmoid-of-margin 0.5 are different scales) -- documented on the trait. Method named `subsumption_score` (not `containment_prob`) to avoid colliding with `HyperBox::containment_prob` on box types. New `region_generic` example. Cones, octagons, TransBox, and the feature-gated hyperbolic/sheaf/density geometries are intentionally not covered: their relations are not symmetric nested containment (`P(inner ⊆ self)`), so they don't share this contract.
+- `gaussian::containment_prob(child, parent, k)`: soft containment probability for diagonal Gaussians via `sigmoid(-k * KL)`, parallel to `ellipsoid::containment_prob`.
 
 ### Changed
 
