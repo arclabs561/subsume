@@ -35,7 +35,7 @@
 use ndarray::Array1;
 use std::collections::HashMap;
 use subsume::ndarray_backend::NdarrayBox;
-use subsume::Box as BoxTrait;
+use subsume::HyperBox as BoxTrait;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Box Embedding Training (25 entities, direct coordinate updates) ===\n");
