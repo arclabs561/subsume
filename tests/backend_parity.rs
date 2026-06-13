@@ -6,7 +6,7 @@ use candle_core::{Device, Tensor};
 use ndarray::Array1;
 use subsume::candle_backend::CandleBox;
 use subsume::ndarray_backend::NdarrayBox;
-use subsume::Box as BoxTrait;
+use subsume::HyperBox as BoxTrait;
 
 const EPS: f32 = 1e-5;
 
@@ -313,7 +313,7 @@ fn gumbel_parity_volume() {
 
 #[test]
 fn gumbel_parity_intersection() {
-    use subsume::Box as BoxTrait;
+    use subsume::HyperBox as BoxTrait;
     for &temp in &[0.01, 0.5, 1.0, 2.0] {
         let (na, ca) = make_gumbel_pair(&[0.0, 0.0], &[3.0, 3.0], temp);
         let (nb, cb) = make_gumbel_pair(&[1.0, 1.0], &[4.0, 4.0], temp);

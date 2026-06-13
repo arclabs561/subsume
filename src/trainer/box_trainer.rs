@@ -1465,7 +1465,7 @@ mod tests {
     #[cfg(feature = "ndarray-backend")]
     fn ndarray_box_serde_roundtrip() {
         use crate::ndarray_backend::NdarrayBox;
-        use crate::Box as BoxTrait;
+        use crate::HyperBox as BoxTrait;
         use ndarray::array;
 
         let original = NdarrayBox::new(array![0.0, 1.0], array![2.0, 3.0], 0.5).unwrap();

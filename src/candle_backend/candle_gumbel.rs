@@ -5,7 +5,7 @@ use crate::utils::{
     bessel_log_volume, gumbel_lse_max, gumbel_lse_min, gumbel_membership_prob,
     map_gumbel_to_bounds, sample_gumbel,
 };
-use crate::{Box, BoxError};
+use crate::{BoxError, HyperBox};
 use candle_core::Tensor;
 use serde::{Deserialize, Serialize};
 
@@ -37,7 +37,7 @@ impl CandleGumbelBox {
     }
 }
 
-impl Box for CandleGumbelBox {
+impl HyperBox for CandleGumbelBox {
     fn min(&self) -> Vec<f32> {
         self.inner.min()
     }

@@ -14,7 +14,7 @@ use ndarray::Array1;
 use subsume::dataset::load_dataset;
 use subsume::metrics::{hits_at_k, mean_reciprocal_rank};
 use subsume::ndarray_backend::NdarrayBox;
-use subsume::Box as BoxTrait;
+use subsume::HyperBox as BoxTrait;
 use subsume::{ConeEmbeddingTrainer, TrainingConfig};
 
 // ---------------------------------------------------------------------------

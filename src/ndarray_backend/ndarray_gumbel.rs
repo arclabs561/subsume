@@ -3,7 +3,7 @@
 use crate::ndarray_backend::ndarray_box::NdarrayBox;
 use crate::utils::{bessel_log_volume, gumbel_lse_max, gumbel_lse_min};
 use crate::utils::{gumbel_membership_prob, map_gumbel_to_bounds, sample_gumbel};
-use crate::{Box, BoxError};
+use crate::{BoxError, HyperBox};
 use ndarray::Array1;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -53,7 +53,7 @@ impl NdarrayGumbelBox {
     }
 }
 
-impl Box for NdarrayGumbelBox {
+impl HyperBox for NdarrayGumbelBox {
     fn min(&self) -> Vec<f32> {
         self.inner.min()
     }
@@ -238,7 +238,7 @@ impl NdarrayGumbelBox {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Box as BoxTrait;
+    use crate::HyperBox as BoxTrait;
     use ndarray::array;
 
     // ---- Membership probability ----

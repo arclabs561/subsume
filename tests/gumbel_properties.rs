@@ -10,7 +10,7 @@ use ndarray::Array1;
 use proptest::prelude::*;
 use subsume::ndarray_backend::NdarrayGumbelBox;
 use subsume::utils::{gumbel_lse_max, gumbel_lse_min, softplus};
-use subsume::Box as BoxTrait;
+use subsume::HyperBox as BoxTrait;
 
 // ---------------------------------------------------------------------------
 // Helpers

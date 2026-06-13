@@ -68,11 +68,12 @@
 /// one statement is more general than another. This geometric representation
 /// directly models logical subsumption through containment.
 ///
-/// # Name conflict with `std::boxed::Box`
+/// # Naming
 ///
-/// This trait shadows `std::boxed::Box` when imported unqualified. Use one of:
-/// - `use subsume::Box as BoxRegion;` (recommended)
-/// - Qualify calls as `subsume::Box` or `<T as subsume::Box>::method()`
+/// This trait is `HyperBox`, not `Box`, so it does not shadow
+/// [`std::boxed::Box`]. "Box" in the geometric-embedding literature means an
+/// n-dimensional hyperrectangle (the min/max bounds below); `HyperBox` names
+/// that precisely. A deprecated `Box` alias is re-exported for compatibility.
 ///
 /// # Invariants
 ///
@@ -83,7 +84,7 @@
 ///
 /// ```rust,ignore
 /// // This example requires a backend implementation (e.g., subsume)
-/// use subsume::Box;
+/// use subsume::HyperBox;
 /// use subsume::ndarray_backend::NdarrayBox;
 /// use ndarray::array;
 ///
@@ -104,7 +105,7 @@
 /// let prob = premise.containment_prob(&hypothesis).unwrap();
 /// assert!(prob > 0.9); // hypothesis is contained in premise
 /// ```
-pub trait Box: Sized {
+pub trait HyperBox: Sized {
     /// Get the minimum bound in each dimension.
     fn min(&self) -> Vec<f32>;
 
