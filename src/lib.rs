@@ -110,7 +110,7 @@
 //!
 //! ```rust,ignore
 //! // Rename to avoid shadowing std::boxed::Box
-//! use subsume::Box as BoxRegion;
+//! use subsume::HyperBox as BoxRegion;
 //!
 //! // Framework-agnostic: works with NdarrayBox, CandleBox, or your own impl
 //! fn compute_entailment<B: BoxRegion>(
@@ -313,17 +313,23 @@ pub mod taxobell_encoder;
 // Re-exports: primary traits and types
 // ---------------------------------------------------------------------------
 
-/// The core box embedding trait. Start here.
+/// The core box (axis-aligned hyperrectangle) embedding trait. Start here.
 ///
-/// This trait shares its name with [`std::boxed::Box`]. To avoid shadowing, use one of:
-/// - `use subsume::Box as BoxRegion;` (recommended)
-/// - Qualify calls as `subsume::Box` or `<T as subsume::Box>::method()`
-pub use box_trait::{Box, BoxError};
+/// Named `HyperBox` (not `Box`) so it does not shadow [`std::boxed::Box`].
+/// "Box" in the geometric-embedding literature means an n-dimensional
+/// hyperrectangle; this trait models exactly that.
+pub use box_trait::{BoxError, HyperBox};
 
-/// Convenience alias for the [`Box`] trait that avoids shadowing [`std::boxed::Box`].
-///
-/// `use subsume::BoxRegion;` is equivalent to `use subsume::Box as BoxRegion;`.
-pub use box_trait::Box as BoxRegion;
+/// Deprecated alias for [`HyperBox`]. The trait was renamed from `Box` to
+/// `HyperBox` so it no longer shadows [`std::boxed::Box`]; switch to `HyperBox`.
+#[deprecated(
+    since = "0.13.0",
+    note = "renamed to `HyperBox` (the old name shadowed std::boxed::Box); use `HyperBox`"
+)]
+pub use box_trait::HyperBox as Box;
+
+/// Convenience alias for the [`HyperBox`] trait, retained for compatibility.
+pub use box_trait::HyperBox as BoxRegion;
 
 // Re-exports: geometry errors
 pub use cone::ConeError;

@@ -147,7 +147,7 @@ impl TrainableBox {
         DenseBox::new(min, max)
     }
 
-    /// Convert to an [`NdarrayBox`] for querying through the [`Box`](crate::Box) trait.
+    /// Convert to an [`NdarrayBox`] for querying through the [`Box`](crate::HyperBox) trait.
     ///
     /// This bridges the training representation (mutable, gradient-compatible)
     /// to the inference representation (immutable, trait-based). The resulting
@@ -651,7 +651,7 @@ mod tests {
     #[cfg(feature = "ndarray-backend")]
     #[test]
     fn trainable_box_to_ndarray_box_roundtrip() {
-        use crate::Box as BoxTrait;
+        use crate::HyperBox as BoxTrait;
 
         let tb = TrainableBox::new(vec![1.0, 2.0, 3.0], vec![0.0, 0.5, -0.5]).unwrap();
         let nb = tb.to_ndarray_box().unwrap();

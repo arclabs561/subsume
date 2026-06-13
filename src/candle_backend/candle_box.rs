@@ -1,6 +1,6 @@
 //! Candle implementation of Box trait.
 
-use crate::{Box, BoxError};
+use crate::{BoxError, HyperBox};
 use candle_core::Tensor;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -81,7 +81,7 @@ impl CandleBox {
     }
 }
 
-impl Box for CandleBox {
+impl HyperBox for CandleBox {
     fn min(&self) -> Vec<f32> {
         self.min.to_vec1().unwrap_or_default()
     }
@@ -401,7 +401,7 @@ impl<'de> Deserialize<'de> for CandleBox {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Box as BoxTrait;
+    use crate::HyperBox as BoxTrait;
     use candle_core::Device;
 
     #[test]

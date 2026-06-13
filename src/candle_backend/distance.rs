@@ -2,7 +2,7 @@
 
 use crate::candle_backend::CandleBox;
 use crate::utils::BOUNDARY_CONTAINMENT_THRESHOLD;
-use crate::{Box, BoxError};
+use crate::{BoxError, HyperBox};
 use candle_core::Tensor;
 
 /// Compute distance from a point (vector) to a box.

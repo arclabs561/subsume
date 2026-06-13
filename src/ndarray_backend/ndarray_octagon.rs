@@ -54,7 +54,7 @@ impl NdarrayDiagBounds {
 ///
 /// # Why this does not implement the `Box` trait
 ///
-/// The [`Box`](crate::box_trait::Box) trait's `containment_prob` method has
+/// The [`Box`](crate::box_trait::HyperBox) trait's `containment_prob` method has
 /// no `temperature` parameter. Octagon containment requires a temperature
 /// to produce soft (differentiable) boundaries — the hard containment check
 /// is degenerate (zero volume intersection for non-identical octagons).
