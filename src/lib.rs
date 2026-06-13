@@ -12,7 +12,7 @@
 //!
 //! | Goal | Start here |
 //! |------|-----------|
-//! | Understand the core abstraction | [`Box`] trait, [`BoxError`] |
+//! | Understand the core abstraction | [`HyperBox`] trait, [`BoxError`] |
 //! | Use probabilistic (Gumbel) boxes | [`NdarrayGumbelBox`](ndarray_backend::NdarrayGumbelBox) |
 //! | Use octagon embeddings (box + diagonal constraints) | [`NdarrayOctagon`](ndarray_backend::ndarray_octagon::NdarrayOctagon), [`octagon`] module |
 //! | Fuzzy query answering (t-norms) | [`fuzzy::TNorm`], [`fuzzy::TConorm`], [`fuzzy`] module |
@@ -54,7 +54,7 @@
 //!
 //! ## Core traits and geometry
 //!
-//! - [`box_trait`] -- the [`Box`] trait: containment, overlap, volume
+//! - [`box_trait`] -- the [`HyperBox`] trait: containment, overlap, volume
 //! - [`octagon`] -- octagon error types (implementations in [`ndarray_backend`])
 //! - [`cone`] -- cone error types (implementations in [`ndarray_backend`])
 //! - `hyperbolic` -- Poincare ball embeddings for tree-like hierarchies (feature-gated)
@@ -144,7 +144,7 @@
 // Core traits and geometry
 // ---------------------------------------------------------------------------
 
-/// Core [`Box`] trait: containment probability, overlap, volume, and intersection.
+/// Core [`HyperBox`] trait: containment probability, overlap, volume, and intersection.
 pub mod box_trait;
 pub mod region;
 

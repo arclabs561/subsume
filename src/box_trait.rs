@@ -234,7 +234,7 @@ pub trait HyperBox: Sized {
 
     /// Compute the probability that `self` contains `other` (fast path).
     ///
-    /// Default implementation forwards to [`Box::containment_prob`].
+    /// Default implementation forwards to [`HyperBox::containment_prob`].
     ///
     /// This method exists because a naive containment implementation often allocates:
     /// - build an explicit intersection box
@@ -249,7 +249,7 @@ pub trait HyperBox: Sized {
 
     /// Compute containment probabilities for many candidates.
     ///
-    /// Default implementation calls [`Box::containment_prob_fast`] in a loop.
+    /// Default implementation calls [`HyperBox::containment_prob_fast`] in a loop.
     ///
     /// Backends can override this to:
     /// - avoid per-candidate overhead (e.g. shared precomputation for `self`)
