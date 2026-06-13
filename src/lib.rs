@@ -146,6 +146,7 @@
 
 /// Core [`Box`] trait: containment probability, overlap, volume, and intersection.
 pub mod box_trait;
+pub mod region;
 
 /// Cone embeddings: angular containment on the unit sphere, with negation support.
 pub mod cone;
@@ -319,6 +320,10 @@ pub mod taxobell_encoder;
 /// "Box" in the geometric-embedding literature means an n-dimensional
 /// hyperrectangle; this trait models exactly that.
 pub use box_trait::{BoxError, HyperBox};
+
+/// The unified region abstraction over all geometries (boxes, balls,
+/// ellipsoids, subspaces). See [`region::Region`].
+pub use region::Region;
 
 /// Deprecated alias for [`HyperBox`]. The trait was renamed from `Box` to
 /// `HyperBox` so it no longer shadows [`std::boxed::Box`]; switch to `HyperBox`.
