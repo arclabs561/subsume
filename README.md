@@ -26,6 +26,12 @@ Scoring: Query2Box distance, fuzzy t-norms for logical queries, EL++ ontology
 losses (Box2EL/TransBox). Training: CPU trainer with analytical gradients or
 GPU trainer with AdamW autograd. Evaluation: MRR, Hits@k, Mean Rank (filtered).
 
+The `Region` trait gives a geometry-generic subsumption interface (`dim` +
+`subsumption_score`) across the box backends, balls, ellipsoids, and subspaces,
+so ranking/retrieval code can be written once and reused. The score is monotone
+within a geometry but not calibrated across geometries; see `cargo run --example
+region_generic`.
+
 ## Usage
 
 ```toml
