@@ -233,6 +233,26 @@ pub fn kl_divergence(child: &GaussianBox, parent: &GaussianBox) -> Result<f32, B
     Ok(0.5 * sum)
 }
 
+/// Soft containment probability `P(child ⊆ parent)` for diagonal Gaussians.
+///
+/// Maps the KL divergence through a sigmoid, exactly as [`crate::ellipsoid`]
+/// does: a `child` that sits well inside `parent` has small `KL(child ‖ parent)`
+/// and a score near 1; a poorly-contained one has large KL and a score near 0.
+/// `k` is the softness temperature (larger = sharper boundary).
+///
+/// # Errors
+///
+/// Returns [`BoxError::DimensionMismatch`] if the two Gaussians differ in
+/// dimensionality.
+pub fn containment_prob(
+    child: &GaussianBox,
+    parent: &GaussianBox,
+    k: f32,
+) -> Result<f32, BoxError> {
+    let kl = kl_divergence(child, parent)?;
+    Ok(crate::utils::stable_sigmoid(-k * kl))
+}
+
 /// Bhattacharyya distance between two diagonal Gaussians.
 ///
 /// # Formula
