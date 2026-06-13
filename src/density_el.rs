@@ -17,6 +17,11 @@
 //! Roles are represented as real-valued linear maps on the interleaved
 //! complex parameter space (a `2d x 2d` matrix stored as flat `Vec<f32>`).
 
+// Adam-style optimizer updates iterate over several parallel arrays
+// (m / v / v_hat / grad / params) in lockstep; the indexed loop is clearer than
+// a multi-way zip, so the range-loop lint is allowed module-wide here.
+#![allow(clippy::needless_range_loop)]
+
 use crate::density::{fidelity, DensityRegion};
 use crate::el_training::{Axiom, Ontology};
 use crate::optimizer::{get_learning_rate, AMSGradState};
