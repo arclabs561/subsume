@@ -147,7 +147,7 @@ impl TrainableBox {
         DenseBox::new(min, max)
     }
 
-    /// Convert to an [`NdarrayBox`] for querying through the [`Box`](crate::HyperBox) trait.
+    /// Convert to an [`NdarrayBox`] for querying through the [`HyperBox`](crate::HyperBox) trait.
     ///
     /// This bridges the training representation (mutable, gradient-compatible)
     /// to the inference representation (immutable, trait-based). The resulting
