@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- `Region` trait: a unified, geometry-generic subsumption interface (`dim` + `subsumption_score`) implemented by the box backends, `Ball`, `Ellipsoid`, and `Subspace`, so retrieval/ranking code can be written once and reused across geometries. The score is monotone WITHIN a geometry (more-contained ranks higher) but is not calibrated across geometries (a box's volume-ratio 1.0 and a ball's sigmoid-of-margin 0.5 are different scales) -- documented on the trait. Method named `subsumption_score` (not `containment_prob`) to avoid colliding with `HyperBox::containment_prob` on box types. New `region_generic` example. `AnnularSector`, `GaussianBox`, and `SphericalCap` are not yet covered (the first lacks a `dim()`; the others need their containment orientation verified).
+
 ### Changed
 
 - Renamed the core `Box` trait to `HyperBox` so it no longer shadows `std::boxed::Box`. "Box" in the geometric-embedding literature means an n-dimensional hyperrectangle, which is exactly what the trait models, so `HyperBox` keeps the literature term while removing the std collision the trait's own docs previously worked around. All internal code and tests use `HyperBox`.
