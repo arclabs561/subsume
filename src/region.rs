@@ -273,4 +273,32 @@ mod tests {
             "contained sector should outscore the spilling one: {s_in} vs {s_out}"
         );
     }
+
+    #[test]
+    fn ellipsoid_region_is_monotone() {
+        // Wide concentric parent ellipsoid; a tight concentric child beats a far one.
+        let outer = crate::Ellipsoid::from_log_diagonal(vec![0.0, 0.0], vec![1.0, 1.0]).unwrap();
+        let inside = crate::Ellipsoid::from_log_diagonal(vec![0.0, 0.0], vec![-1.0, -1.0]).unwrap();
+        let far = crate::Ellipsoid::from_log_diagonal(vec![6.0, 6.0], vec![-1.0, -1.0]).unwrap();
+        assert_eq!(Region::dim(&outer), 2);
+        let (s_in, s_out) = monotone(&outer, &inside, &far);
+        assert!(
+            s_in > s_out,
+            "concentric child should outscore the far one: {s_in} vs {s_out}"
+        );
+    }
+
+    #[test]
+    fn subspace_region_is_monotone() {
+        // The xy-plane subsumes the x-axis (contained) more than the z-axis (orthogonal).
+        let outer = crate::Subspace::new(vec![vec![1.0, 0.0, 0.0], vec![0.0, 1.0, 0.0]]).unwrap();
+        let inside = crate::Subspace::new(vec![vec![1.0, 0.0, 0.0]]).unwrap();
+        let orthogonal = crate::Subspace::new(vec![vec![0.0, 0.0, 1.0]]).unwrap();
+        assert_eq!(Region::dim(&outer), 3); // ambient dimension
+        let (s_in, s_out) = monotone(&outer, &inside, &orthogonal);
+        assert!(
+            s_in > s_out,
+            "contained axis should outscore the orthogonal one: {s_in} vs {s_out}"
+        );
+    }
 }
