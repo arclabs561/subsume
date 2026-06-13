@@ -297,9 +297,7 @@ pub fn rotate(
 
         if perp_norm < 1e-12 {
             // v is parallel to k: rotation has no effect.
-            for i in 0..d {
-                result[i] = v[i];
-            }
+            result[..d].copy_from_slice(&v[..d]);
         } else {
             // Rotate in the (v_perp_hat, k) plane:
             //   result = k*(k.v) + v_perp*cos(a) + k*|v_perp|*sin(a)
@@ -549,7 +547,7 @@ mod tests {
         let t1 = point(&[1.0, 0.0, 0.0]);
         let t2 = point(&[0.0, 0.0, 1.0]);
 
-        let individual = vec![
+        let individual = [
             score_triple(&h1, &r, &t1).unwrap(),
             score_triple(&h2, &r, &t2).unwrap(),
         ];
