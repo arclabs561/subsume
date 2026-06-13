@@ -2,7 +2,7 @@
 
 use crate::ndarray_backend::NdarrayBox;
 use crate::utils::BOUNDARY_CONTAINMENT_THRESHOLD;
-use crate::{Box, BoxError};
+use crate::{BoxError, HyperBox};
 use ndarray::Array1;
 
 /// Compute distance from a point (vector) to a box.

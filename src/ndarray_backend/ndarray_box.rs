@@ -1,6 +1,6 @@
 //! Ndarray implementation of Box trait.
 
-use crate::{Box, BoxError};
+use crate::{BoxError, HyperBox};
 use ndarray::Array1;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -159,7 +159,7 @@ impl NdarrayBox {
     }
 }
 
-impl Box for NdarrayBox {
+impl HyperBox for NdarrayBox {
     fn min(&self) -> Vec<f32> {
         self.min.as_slice().unwrap_or(&[]).to_vec()
     }
@@ -541,7 +541,7 @@ impl Box for NdarrayBox {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Box as BoxTrait;
+    use crate::HyperBox as BoxTrait;
     use ndarray::array;
 
     // ---- Intersection edge cases ----
@@ -1271,7 +1271,7 @@ mod tests {
 #[cfg(test)]
 mod proptest_tests {
     use super::*;
-    use crate::Box as BoxTrait;
+    use crate::HyperBox as BoxTrait;
     use ndarray::Array1;
     use proptest::prelude::*;
 
@@ -1608,7 +1608,7 @@ mod proptest_tests {
 #[cfg(test)]
 mod degenerate_tests {
     use super::*;
-    use crate::Box as BoxTrait;
+    use crate::HyperBox as BoxTrait;
     use ndarray::Array1;
     use proptest::prelude::*;
 

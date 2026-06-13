@@ -240,7 +240,7 @@ fn rank_among_entities<B, F>(
     filter_known: Option<&HashSet<String>>,
 ) -> Result<usize, crate::BoxError>
 where
-    B: crate::Box,
+    B: crate::HyperBox,
     F: Fn(&B) -> Result<f32, crate::BoxError>,
 {
     let target_box = match entity_boxes.get(target) {
@@ -310,7 +310,7 @@ pub(crate) fn evaluate_link_prediction_inner<B>(
     filter: Option<&FilteredTripleIndex>,
 ) -> Result<EvaluationResults, crate::BoxError>
 where
-    B: crate::Box,
+    B: crate::HyperBox,
 {
     // The generic (string-keyed) path only supports Identity transforms.
     // Non-Identity transforms require constructing translated boxes from concrete
@@ -449,7 +449,7 @@ pub(crate) fn rank_among_entities_interned<B>(
     scores_buf: &mut Vec<f32>,
 ) -> Result<usize, crate::BoxError>
 where
-    B: crate::Box,
+    B: crate::HyperBox,
 {
     const CHUNK: usize = 4096;
 
@@ -595,7 +595,7 @@ pub(crate) fn rank_with_translated_query_forward(
     transform: &RelationTransform,
     filter_known: Option<&HashSet<usize>>,
 ) -> Result<usize, crate::BoxError> {
-    use crate::Box as BoxTrait;
+    use crate::HyperBox as BoxTrait;
 
     let (new_min, new_max) =
         transform.apply_to_bounds(query_box.min().as_slice(), query_box.max().as_slice());
@@ -688,7 +688,7 @@ pub(crate) fn rank_with_translated_query_reverse(
     transform: &RelationTransform,
     filter_known: Option<&HashSet<usize>>,
 ) -> Result<usize, crate::BoxError> {
-    use crate::Box as BoxTrait;
+    use crate::HyperBox as BoxTrait;
 
     // Inverse transform for head prediction: negate the translation.
     let inverse_transform = match transform {
@@ -782,7 +782,7 @@ pub(crate) fn evaluate_link_prediction_interned_inner<B>(
     filter: Option<&FilteredTripleIndexIds>,
 ) -> Result<EvaluationResults, crate::BoxError>
 where
-    B: crate::Box,
+    B: crate::HyperBox,
 {
     let mut tail_ranks = Vec::with_capacity(test_triples.len());
     let mut head_ranks = Vec::with_capacity(test_triples.len());
@@ -1032,7 +1032,7 @@ pub fn evaluate_link_prediction<B>(
     entity_boxes: &HashMap<String, B>,
 ) -> Result<EvaluationResults, crate::BoxError>
 where
-    B: crate::Box,
+    B: crate::HyperBox,
 {
     evaluate_link_prediction_inner(test_triples, entity_boxes, None, None)
 }
@@ -1048,7 +1048,7 @@ pub fn evaluate_link_prediction_filtered<B>(
     filter: &FilteredTripleIndex,
 ) -> Result<EvaluationResults, crate::BoxError>
 where
-    B: crate::Box,
+    B: crate::HyperBox,
 {
     evaluate_link_prediction_inner(test_triples, entity_boxes, None, Some(filter))
 }
@@ -1063,7 +1063,7 @@ pub fn evaluate_link_prediction_interned<B>(
     entities: &crate::dataset::Vocab,
 ) -> Result<EvaluationResults, crate::BoxError>
 where
-    B: crate::Box,
+    B: crate::HyperBox,
 {
     evaluate_link_prediction_interned_inner(test_triples, entity_boxes, entities, None)
 }
@@ -1076,7 +1076,7 @@ pub fn evaluate_link_prediction_interned_filtered<B>(
     filter: &FilteredTripleIndexIds,
 ) -> Result<EvaluationResults, crate::BoxError>
 where
-    B: crate::Box,
+    B: crate::HyperBox,
 {
     evaluate_link_prediction_interned_inner(test_triples, entity_boxes, entities, Some(filter))
 }
