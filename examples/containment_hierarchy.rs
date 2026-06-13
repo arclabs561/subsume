@@ -22,7 +22,7 @@
 
 use ndarray::array;
 use subsume::ndarray_backend::NdarrayBox;
-use subsume::Box as BoxTrait;
+use subsume::HyperBox as BoxTrait;
 
 fn main() -> Result<(), subsume::BoxError> {
     println!("=== Box Embeddings: Containment Hierarchy ===\n");

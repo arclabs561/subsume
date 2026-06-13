@@ -33,7 +33,7 @@ use ndarray::Array1;
 use std::collections::{HashMap, HashSet};
 use subsume::metrics::{hits_at_k, mean_rank, mean_reciprocal_rank};
 use subsume::ndarray_backend::NdarrayBox;
-use subsume::Box as BoxTrait;
+use subsume::HyperBox as BoxTrait;
 
 /// Tiny ImageNet WordNet hypernym triples (60 leaf classes, ~140 total entities).
 /// Format: child \t _hypernym \t parent.

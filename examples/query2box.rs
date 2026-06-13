@@ -36,7 +36,7 @@
 use ndarray::Array1;
 use subsume::ndarray_backend::distance::query2box_distance;
 use subsume::ndarray_backend::NdarrayBox;
-use subsume::Box as BoxTrait;
+use subsume::HyperBox as BoxTrait;
 
 /// Rank candidates by P(query contains candidate), descending.
 fn rank_candidates<'a>(
