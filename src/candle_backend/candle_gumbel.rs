@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 /// intersected, `self`'s temperature is used. This makes intersection
 /// argument-order-dependent when temperatures differ.
 ///
-/// The [`Box`] trait methods use Gumbel-specific formulas:
+/// The [`HyperBox`] trait methods use Gumbel-specific formulas:
 /// - `volume`: Bessel/softplus approximation (Dasgupta et al., 2020)
 /// - `intersection`: log-sum-exp smooth min/max
 /// - `containment_prob`: `Vol(self cap other) / Vol(other)` using Gumbel volumes
