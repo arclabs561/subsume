@@ -21,12 +21,16 @@
 | `cone_query_answering` | FOL queries (conjunction, disjunction, negation) via cone algebra on a small KG |
 | `density_el_demo` | Density matrix EL++ training; parent-child fidelity vs disjoint-pair fidelity |
 | `el_benchmark` | Full EL++ evaluation on Box2EL datasets (GALEN, GO, Anatomy); per-NF MRR/Hits@k |
+| `el_benchmark_burn` | Burn backend version of the Box2EL benchmark; CPU via burn-ndarray or GPU via burn-wgpu |
+| `el_hyperparam_search` | Candle backend random search over EL++ training hyperparameters |
 | `gene_ontology` | EL++ box embeddings on a Gene Ontology subset; full train/eval pipeline |
 | `geometry_comparison` | All 6 new geometry types (ball, cap, subspace, ellipsoid, transbox, annular) on a WordNet subset; side-by-side MRR/Hits@k/MeanRank |
+| `region_generic` | Geometry-generic ranking through the `Region` trait; shows why scores are not cross-geometry calibrated |
 | `wn18rr_ball` | Ball embeddings (SpherE + RegD) on WN18RR; per-triple SGD with analytical gradients |
 | `wn18rr_ball_burn` | Batched ball training on WN18RR via burn-ndarray; InfoNCE loss (requires `--features burn-ndarray`) |
 | `wn18rr_candle` | Box embeddings on WN18RR via candle backend; CPU, CUDA, and Metal |
 | `wn18rr_cone` | Cone embeddings on WN18RR via candle backend; angular containment scoring |
+| `wn18rr_transbox_burn` | Batched TransBox training on WN18RR via burn-ndarray |
 | `wn18rr_training` | Box embeddings on WN18RR via CPU ndarray backend; reference pipeline |
 
 ## Decision tree
@@ -70,7 +74,10 @@
   - Candle CPU/GPU (cones): `wn18rr_cone`
 
 - **Want to benchmark EL++ on GALEN/GO/Anatomy?**
-  Start with `el_benchmark` (requires dataset files in `data/`).
+  Start with `el_benchmark` (Candle) or `el_benchmark_burn` (Burn). Both require dataset files in `data/`.
+
+- **Want to compare region geometries behind one interface?**
+  Start with `region_generic`.
 
 - **Want to understand cone query algebra (conjunction, disjunction, negation)?**
   Start with `cone_query_answering`.
@@ -95,14 +102,18 @@ cargo run -p subsume --features hyperbolic --example hyperbolic_demo
 cargo run -p subsume --example el_training --release
 cargo run -p subsume --features candle-backend --example taxobell_training --release
 cargo run -p subsume --example cone_query_answering
-cargo run -p subsume --example density_el_demo --release
+cargo run -p subsume --features density,rand --example density_el_demo --release
 cargo run -p subsume --features candle-backend --example el_benchmark --release -- data/GALEN
-cargo run -p subsume --features candle-backend --example gene_ontology --release
+cargo run -p subsume --features burn-ndarray --example el_benchmark_burn --release
+BACKEND=candle N_TRIALS=20 EPOCHS=500 cargo run -p subsume --features candle-backend --example el_hyperparam_search --release -- data/GALEN
+cargo run -p subsume --example gene_ontology --release
 cargo run -p subsume --example geometry_comparison --release
+cargo run -p subsume --example region_generic
 cargo run -p subsume --example wn18rr_ball --release
 cargo run -p subsume --features burn-ndarray --example wn18rr_ball_burn --release
 cargo run -p subsume --features candle-backend --example wn18rr_candle --release
 cargo run -p subsume --features candle-backend --example wn18rr_cone --release
+cargo run -p subsume --features burn-ndarray --example wn18rr_transbox_burn --release
 cargo run -p subsume --example wn18rr_training --release
 ```
 

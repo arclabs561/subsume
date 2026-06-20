@@ -36,7 +36,7 @@ region_generic`.
 
 ```toml
 [dependencies]
-subsume = { version = "0.12", features = ["ndarray-backend"] }
+subsume = { version = "0.13", features = ["ndarray-backend"] }
 ndarray = "0.16"
 ```
 
@@ -115,7 +115,7 @@ cargo run --example dataset_training --release # full pipeline: WN18RR data, tra
 cargo run --example el_training              # EL++ ontology embedding
 ```
 
-27 examples total covering all geometries, training modes, and query types.
+28 examples total covering all geometries, training modes, and query types.
 See [`examples/README.md`](examples/README.md) for the full list.
 
 ## Tests
