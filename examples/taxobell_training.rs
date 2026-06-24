@@ -8,6 +8,7 @@
 //! Reference: TaxoBell (WWW 2026, arXiv:2601.09633)
 
 use std::collections::HashMap;
+use subsume::gaussian::kl_divergence;
 use subsume::taxobell::TaxoBellConfig;
 use subsume::taxobell_encoder::{evaluate_taxobell, train_taxobell, TaxoBellTrainingConfig};
 
@@ -149,6 +150,22 @@ fn main() {
     println!("\nKey observations:");
     println!("  - Parent nodes should have larger log-volume (wider distributions)");
     println!("  - KL(child || parent) should be small for true parent-child pairs");
+
+    // Proof of correctness: KL(child || true_parent) < KL(child || wrong_parent).
+    // car (id 6) is a child of vehicle (id 2); animal (id 1) is a cross-domain
+    // non-parent. The learned containment must score the true parent better
+    // (smaller KL). A training collapse or sign flip would fail this.
+    let car_box = encoder.encode_one(&embeddings[6]).unwrap();
+    let vehicle_box = encoder.encode_one(&embeddings[2]).unwrap();
+    let animal_box = encoder.encode_one(&embeddings[1]).unwrap();
+    let kl_car_vehicle = kl_divergence(&car_box, &vehicle_box).unwrap();
+    let kl_car_animal = kl_divergence(&car_box, &animal_box).unwrap();
+    assert!(
+        kl_car_vehicle < kl_car_animal,
+        "KL(car||vehicle)={kl_car_vehicle:.4} (true parent) must be lower than \
+         KL(car||animal)={kl_car_animal:.4} (cross-domain non-parent)"
+    );
+    println!("\nOK: KL(car||vehicle) {kl_car_vehicle:.4} < KL(car||animal) {kl_car_animal:.4}");
 }
 
 /// Generate random embeddings using xorshift64.

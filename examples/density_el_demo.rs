@@ -118,4 +118,32 @@ fn main() {
         let f = result.concept_fidelity(a, b);
         println!("  F({name}) = {f:.4}");
     }
+
+    // Proof of correctness: the worst (lowest) parent-child fidelity must still
+    // exceed the best (highest) disjoint-pair fidelity. A probability inversion
+    // (training collapsing the two groups, or a sign flip) would fail here.
+    let parent_child_min = [
+        result.concept_fidelity(dog, animal),
+        result.concept_fidelity(cat, animal),
+        result.concept_fidelity(dog, mammal),
+        result.concept_fidelity(cat, mammal),
+        result.concept_fidelity(fish, animal),
+    ]
+    .into_iter()
+    .fold(f32::INFINITY, f32::min);
+    let disjoint_max = [
+        result.concept_fidelity(dog, cat),
+        result.concept_fidelity(dog, fish),
+        result.concept_fidelity(cat, fish),
+        result.concept_fidelity(mammal, fish),
+    ]
+    .into_iter()
+    .fold(f32::NEG_INFINITY, f32::max);
+    assert!(
+        parent_child_min > disjoint_max,
+        "parent-child fidelity ({parent_child_min:.4}) must exceed disjoint-pair fidelity ({disjoint_max:.4})"
+    );
+    println!(
+        "\nOK: min parent-child fidelity {parent_child_min:.4} > max disjoint fidelity {disjoint_max:.4}"
+    );
 }

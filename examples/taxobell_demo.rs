@@ -141,6 +141,16 @@ fn main() -> Result<(), subsume::BoxError> {
         println!("{:>10} {:>10} {:>10.6}  {}", aname, bname, bc, rel);
     }
 
+    // Proof of correctness: siblings (same parent, nearby centers) must have a
+    // higher Bhattacharyya coefficient than a cross-domain pair. An overlap
+    // computation that ignored the centers (or flipped sign) would fail here.
+    let bc_siblings = bhattacharyya_coefficient(&dog, &cat)?;
+    let bc_cross_domain = bhattacharyya_coefficient(&dog, &car)?;
+    assert!(
+        bc_siblings > bc_cross_domain,
+        "sibling BC(dog,cat)={bc_siblings:.6} must exceed cross-domain BC(dog,car)={bc_cross_domain:.6}"
+    );
+
     // --- Part 4: TaxoBell combined loss ---
     //
     // L = alpha * L_sym + beta * L_asym + gamma * L_reg + delta * L_clip

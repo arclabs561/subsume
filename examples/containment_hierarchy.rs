@@ -101,6 +101,15 @@ fn main() -> Result<(), subsume::BoxError> {
     );
     println!("  -> Transitive containment: dog inside mammal inside animal");
 
+    // Proof of correctness: transitivity. dog is contained in mammal and mammal
+    // in animal, so the transitive closure requires dog contained in animal too.
+    // P(dog in animal) must be at least as high as the weaker of the two links.
+    assert!(
+        p_dog_animal >= p_dog_mammal.min(p_mammal_animal),
+        "transitive containment violated: P(dog in animal)={p_dog_animal:.4} \
+         must be >= min(P(dog in mammal)={p_dog_mammal:.4}, P(mammal in animal)={p_mammal_animal:.4})"
+    );
+
     let p_dog_cat = dog.overlap_prob(&cat)?;
     let p_cat_dog = cat.overlap_prob(&dog)?;
     println!(
