@@ -180,6 +180,16 @@ fn main() -> Result<(), subsume::BoxError> {
     let q1 = rank_candidates(&france, &city_candidates);
     print_ranking("Rank by P(France contains city):", &q1);
 
+    // Proof of correctness: the demo's "Q1 correctly ranks Paris and Lyon above
+    // London" claim. Paris and Lyon are inside France; London is in the UK box.
+    // A containment-probability inversion would silently rank London first.
+    let london_rank = q1.iter().position(|(name, _)| *name == "London").unwrap();
+    assert_eq!(
+        london_rank, 2,
+        "Q1: London (not in France) must rank last; Paris and Lyon must rank above it (got rank {})",
+        london_rank + 1
+    );
+
     // --- Q2: languages spoken in France ---
     // Query box = France. Languages placed inside France score high.
     println!("Q2: What languages are spoken in France?\n");

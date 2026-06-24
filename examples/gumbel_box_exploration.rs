@@ -115,6 +115,17 @@ fn main() -> Result<(), subsume::BoxError> {
         vehicle.containment_prob(&dog)?
     );
 
+    // Proof of correctness: the positive pair (dog IS-A animal) must score higher
+    // than the negative pair (dog is NOT a vehicle). Even with temp=1.0 softening
+    // lowering absolute values, the ordering must hold. A volume-ratio sign flip
+    // or disjoint/nested confusion would fail here.
+    let p_dog_animal = animal.containment_prob(&dog)?;
+    let p_dog_vehicle = vehicle.containment_prob(&dog)?;
+    assert!(
+        p_dog_animal > p_dog_vehicle,
+        "positive P(dog in animal)={p_dog_animal:.4} must exceed negative P(dog in vehicle)={p_dog_vehicle:.4}"
+    );
+
     // --- Part 3: Temperature controls softness ---
     //
     // This is the core insight from Dasgupta et al. (2020).

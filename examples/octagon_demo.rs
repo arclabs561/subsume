@@ -168,6 +168,14 @@ fn main() -> Result<(), subsume::OctagonError> {
     println!("  P(narrow contains wide) = {cont_nw:.4}  (should be low)");
     println!("  P(overlap)              = {overlap:.4}  (should be high)\n");
 
+    // Proof of correctness: the wide octagon contains the narrow one (high
+    // containment), but not vice versa (low). A direction inversion in the
+    // containment-probability computation would silently flip these.
+    assert!(
+        cont_wn > cont_nw,
+        "P(wide contains narrow)={cont_wn:.4} must exceed P(narrow contains wide)={cont_nw:.4}"
+    );
+
     // --- Part 5: Bounding box conversion ---
 
     println!("Part 5: Bounding box (drop diagonal constraints)\n");

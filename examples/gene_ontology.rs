@@ -121,6 +121,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("kinase_activity", "phosphatase_activity", false),
     ];
 
+    let mut pos_scores: Vec<f32> = Vec::new();
+    let mut neg_scores: Vec<f32> = Vec::new();
     for (sub_name, sup_name, expected_low) in checks {
         if let (Some(&sub), Some(&sup)) = (
             ontology.concept_index.get(sub_name),
@@ -133,7 +135,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "SHOULD be high"
             };
             println!("  {sub_name} c= {sup_name}: {score:.4}  ({label})");
+            if expected_low {
+                pos_scores.push(score);
+            } else {
+                neg_scores.push(score);
+            }
         }
+    }
+
+    // Proof of correctness: subsumption_score is an inclusion loss (lower = better
+    // containment). True subsumptions must, on average, score lower than the
+    // true-negative (disjoint/unrelated) pairs. A score inversion would fail here.
+    if !pos_scores.is_empty() && !neg_scores.is_empty() {
+        let mean_pos = pos_scores.iter().sum::<f32>() / pos_scores.len() as f32;
+        let mean_neg = neg_scores.iter().sum::<f32>() / neg_scores.len() as f32;
+        assert!(
+            mean_pos < mean_neg,
+            "mean true-positive subsumption score ({mean_pos:.4}) must be lower than \
+             mean true-negative score ({mean_neg:.4})"
+        );
+        println!("\nOK: mean positive score {mean_pos:.4} < mean negative score {mean_neg:.4}");
     }
 
     // ---------------------------------------------------------------
