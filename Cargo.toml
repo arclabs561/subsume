@@ -95,6 +95,10 @@ name = "petgraph_adapter"
 required-features = ["petgraph"]
 
 [[example]]
+name = "lattix_bridge"
+required-features = ["kge"]
+
+[[example]]
 name = "wn18rr_candle"
 required-features = ["candle-backend", "kge"]
 
