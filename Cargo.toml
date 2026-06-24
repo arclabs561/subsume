@@ -91,6 +91,10 @@ name = "taxobell_training"
 required-features = ["candle-backend"]
 
 [[example]]
+name = "petgraph_adapter"
+required-features = ["petgraph"]
+
+[[example]]
 name = "wn18rr_candle"
 required-features = ["candle-backend", "kge"]
 
