@@ -82,6 +82,10 @@ jobs:
           print('OK')
           "
 
+      - name: Run el_ontology example (asserts)
+        working-directory: subsume-python
+        run: uv run python examples/el_ontology.py --epochs 50
+
   msrv:
     runs-on: ubuntu-latest
     steps:
