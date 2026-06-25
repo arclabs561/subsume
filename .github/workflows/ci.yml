@@ -27,10 +27,19 @@ jobs:
         run: cargo build --features "ndarray-backend,candle-backend,rand,sheaf,rankops,petgraph"
 
       - name: Test
-        run: cargo test --features "ndarray-backend,candle-backend,rand,sheaf,rankops,petgraph"
+        run: cargo test --features "ndarray-backend,candle-backend,rand,sheaf,rankops,petgraph,kge,density"
 
       - name: Doc
         run: cargo doc --features "ndarray-backend,candle-backend,rand,sheaf,rankops,petgraph,kge,spherical,density,hyperbolic" --no-deps
+
+      - name: run example assertions
+        run: |
+          FEATS="ndarray-backend,candle-backend,rand,kge,petgraph,density"
+          for ex in density_el_demo query2box octagon_demo containment_hierarchy \
+                    taxobell_demo gumbel_box_exploration gene_ontology \
+                    taxobell_training petgraph_adapter lattix_bridge; do
+            cargo run --example "$ex" --features "$FEATS"
+          done
         env:
           RUSTDOCFLAGS: -Dwarnings
 
