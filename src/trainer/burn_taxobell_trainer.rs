@@ -94,6 +94,31 @@ impl<B: Backend> BurnTaxoBellEncoder<B> {
     pub fn box_dim(&self) -> usize {
         self.box_dim
     }
+
+    /// Linear weights and biases of the center MLP as `(w1, b1, w2, b2)`.
+    ///
+    /// Exposes the box-center path (`Linear -> ReLU -> Linear`) so a consumer
+    /// can propagate input uncertainty analytically to the box center mu (e.g.
+    /// with a moment-propagation crate). Burn `Linear` weights are `[in, out]`,
+    /// the orientation such propagators expect. The offset/sigma path is not
+    /// exposed here: its `softplus` falls outside the linear+ReLU family that
+    /// analytic Gaussian moment propagation covers.
+    #[allow(clippy::type_complexity)]
+    pub fn center_weights(
+        &self,
+    ) -> (
+        Tensor<B, 2>,
+        Option<Tensor<B, 1>>,
+        Tensor<B, 2>,
+        Option<Tensor<B, 1>>,
+    ) {
+        (
+            self.center.lin1.weight.val(),
+            self.center.lin1.bias.as_ref().map(|b| b.val()),
+            self.center.lin2.weight.val(),
+            self.center.lin2.bias.as_ref().map(|b| b.val()),
+        )
+    }
 }
 
 // ---------------------------------------------------------------------------
