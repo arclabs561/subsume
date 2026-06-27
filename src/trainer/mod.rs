@@ -63,6 +63,13 @@ pub mod burn_ellipsoid_trainer;
     doc(cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge")))
 )]
 pub mod burn_subspace_trainer;
+/// Burn-based TaxoBell Gaussian-box MLP encoder trainer with autodiff (multi-backend: ndarray/wgpu/tch).
+#[cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge"))]
+#[cfg_attr(
+    docsrs,
+    doc(cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge")))
+)]
+pub mod burn_taxobell_trainer;
 /// Burn-based TransBox trainer with autodiff (multi-backend: ndarray/wgpu/tch).
 #[cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge"))]
 #[cfg_attr(
