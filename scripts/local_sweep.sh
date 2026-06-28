@@ -16,7 +16,7 @@ run_config() {
     shift
     echo "--- Running: $name ---"
     local output
-    output=$(env "$@" cargo run --features candle-backend --example wn18rr_candle --release 2>&1)
+    output=$(env "$@" cargo run --example wn18rr_training --release 2>&1)
     local mrr=$(echo "$output" | grep "MRR:" | awk '{print $2}')
     local loss=$(echo "$output" | grep "Loss:" | awk -F'-> ' '{print $2}' | awk '{print $1}')
     local time=$(echo "$output" | grep "Training:" | awk '{print $2}')
