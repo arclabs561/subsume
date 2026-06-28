@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # GPU benchmark for WN18RR with CandleBoxTrainer.
 #
-# Run on the GPU instance after: cargo build --features cuda --example wn18rr_candle --release
+# Run on the GPU instance after: cargo build --features burn-ndarray,burn-wgpu --example wn18rr_ball_burn --release
 #
 # Usage: bash scripts/gpu_benchmark.sh [quick|full]
 #   quick: 3 configs, ~30 min on A10G
@@ -12,11 +12,11 @@ cd "$(dirname "$0")/.."
 
 MODE="${1:-quick}"
 RESULTS="scripts/gpu_benchmark_results.txt"
-BINARY="target/release/examples/wn18rr_candle"
+BINARY="target/release/examples/wn18rr_ball_burn"
 
 if [ ! -f "$BINARY" ]; then
     echo "Building..."
-    cargo build --features cuda --example wn18rr_candle --release
+    cargo build --features burn-ndarray,burn-wgpu --example wn18rr_ball_burn --release
 fi
 
 echo "=== WN18RR GPU Benchmark ($MODE) -- $(date) ===" | tee "$RESULTS"

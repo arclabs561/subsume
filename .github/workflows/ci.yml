@@ -21,20 +21,20 @@ jobs:
         run: cargo fmt --check
 
       - name: Clippy
-        run: cargo clippy --features "ndarray-backend,candle-backend,rand,sheaf,rankops,petgraph,kge,spherical,density" --lib --tests --examples -- -Dwarnings
+        run: cargo clippy --features "ndarray-backend,rand,sheaf,rankops,petgraph,kge,spherical,density" --lib --tests --examples -- -Dwarnings
 
       - name: Build
-        run: cargo build --features "ndarray-backend,candle-backend,rand,sheaf,rankops,petgraph"
+        run: cargo build --features "ndarray-backend,rand,sheaf,rankops,petgraph"
 
       - name: Test
-        run: cargo test --features "ndarray-backend,candle-backend,rand,sheaf,rankops,petgraph,kge,density"
+        run: cargo test --features "ndarray-backend,rand,sheaf,rankops,petgraph,kge,density"
 
       - name: Doc
-        run: cargo doc --features "ndarray-backend,candle-backend,rand,sheaf,rankops,petgraph,kge,spherical,density,hyperbolic" --no-deps
+        run: cargo doc --features "ndarray-backend,rand,sheaf,rankops,petgraph,kge,spherical,density,hyperbolic" --no-deps
 
       - name: run example assertions
         run: |
-          FEATS="ndarray-backend,candle-backend,rand,kge,petgraph,density"
+          FEATS="ndarray-backend,rand,kge,petgraph,density"
           for ex in density_el_demo query2box octagon_demo containment_hierarchy \
                     taxobell_demo gumbel_box_exploration gene_ontology \
                     taxobell_training petgraph_adapter lattix_bridge; do
@@ -122,4 +122,4 @@ jobs:
         run: cargo install cargo-semver-checks
 
       - name: Check semver
-        run: cargo semver-checks check-release --only-explicit-features --features "ndarray-backend,candle-backend,rand,sheaf,rankops,petgraph,kge"
+        run: cargo semver-checks check-release --only-explicit-features --features "ndarray-backend,rand,sheaf,rankops,petgraph,kge"
