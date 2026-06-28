@@ -147,8 +147,7 @@ pub fn get_learning_rate(
 }
 
 /// Cosine annealing LR schedule: decays from `lr` to `lr * min_frac`
-/// over `epochs` epochs. Matches the formula used by CandleBoxTrainer and
-/// CandleElTrainer.
+/// over `epochs` epochs. Matches the box/EL trainer formula.
 pub fn cosine_lr(epoch: usize, epochs: usize, lr: f64, min_frac: f64) -> f64 {
     let progress = epoch as f64 / epochs.max(1) as f64;
     let lr_min = lr * min_frac;

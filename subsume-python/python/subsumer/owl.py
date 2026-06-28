@@ -31,7 +31,7 @@ def normalize_owl(owl_path: str | Path) -> list[tuple[str, ...]]:
 
         # Then load and train:
         import subsumer
-        trainer = subsumer.CandleElTrainer.from_axiom_file("train.tsv")
+        trainer = subsumer.BoxEmbeddingTrainer.from_triples("train.tsv")
         trainer.fit()
     """
     from mowl.ontology.normalize import ELNormalizer  # type: ignore[import-untyped]

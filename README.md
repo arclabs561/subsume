@@ -19,8 +19,7 @@ For background on why region embeddings work and how the geometries relate, see 
 hyperbolic intervals, spherical, density matrices, sheaf networks, balls, spherical
 caps, subspaces, ellipsoids, TransBox, and annular sectors. Each implements
 containment probability, volume, intersection, and distance. CPU backend via
-ndarray, GPU via candle (`features = ["candle-backend"]` or `["cuda"]`) or burn
-(`features = ["burn-ndarray"]` or `["burn-wgpu"]`).
+ndarray, GPU via burn (`features = ["burn-ndarray"]` or `["burn-wgpu"]`).
 
 Scoring: Query2Box distance, fuzzy t-norms for logical queries, EL++ ontology
 losses (Box2EL/TransBox). Training: CPU trainer with analytical gradients or
@@ -36,7 +35,7 @@ region_generic`.
 
 ```toml
 [dependencies]
-subsume = { version = "0.13", features = ["ndarray-backend"] }
+subsume = { version = "0.14", features = ["ndarray-backend"] }
 ndarray = "0.16"
 ```
 
@@ -70,21 +69,6 @@ let config = TrainingConfig { learning_rate: 0.01, epochs: 50, ..Default::defaul
 let mut trainer = BoxEmbeddingTrainer::new(config, 32);
 let result = trainer.fit(&train, None, None)?;
 println!("MRR: {:.3}", result.final_results.mrr);
-```
-
-### Training (GPU via candle)
-
-```rust,ignore
-use subsume::CandleBoxTrainer;
-use candle_core::Device;
-
-let device = Device::cuda_if_available(0).unwrap_or(Device::Cpu);
-let trainer = CandleBoxTrainer::new(num_entities, num_relations, 200, 10.0, &device)?
-    .with_inside_weight(0.02)   // BoxE-style center attraction
-    .with_vol_reg(0.0001);      // prevent trivial solution
-
-let losses = trainer.fit(&train_triples, 500, 0.001, 512, 9.0, 128, 1.0)?;
-let (mrr, h1, h3, h10, mr) = trainer.evaluate(&test_triples, &all_triples)?;
 ```
 
 ### Training (Python)
@@ -298,33 +282,9 @@ DIM=200 EPOCHS=5000 DATASET=GALEN \
   cargo run --features "burn-ndarray,burn-wgpu" --example el_benchmark_burn --release
 ```
 
-Reproduce (candle backend, CPU/CUDA):
-```sh
-BACKEND=candle EPOCHS=5000 \
-  cargo run --features candle-backend --example el_benchmark --release -- data/GALEN
-```
-
 Full experiment log with all ablations: `experiments/el_log.md`.
 
 ## GPU training
-
-The `CandleBoxTrainer` supports CPU, CUDA, and Metal via the candle backend:
-
-```bash
-# CPU
-cargo run --features candle-backend --example wn18rr_candle --release
-
-# CUDA GPU
-cargo run --features cuda --example wn18rr_candle --release
-```
-
-Configure via environment variables:
-
-```bash
-DIM=200 EPOCHS=500 LR=0.001 NEG=128 BATCH=512 MARGIN=9.0 \
-  ADV_TEMP=1.0 INSIDE_W=0.02 VOL_REG=0.0001 BOUNDS_EVERY=50 \
-  cargo run --features cuda --example wn18rr_candle --release
-```
 
 The burn ball trainer runs on ndarray (CPU) or wgpu (GPU/AMD/WebGPU):
 
