@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.14.0] - 2026-06-28
 
 ### Added
 
@@ -11,9 +11,9 @@
 
 - Renamed the core `Box` trait to `HyperBox` so it no longer shadows `std::boxed::Box`. "Box" in the geometric-embedding literature means an n-dimensional hyperrectangle, which is exactly what the trait models, so `HyperBox` keeps the literature term while removing the std collision the trait's own docs previously worked around. All internal code and tests use `HyperBox`.
 
-### Notes
+### Removed
 
-- The `candle-backend`, deprecated in 0.12.1 with a stated 0.13.0 removal, is NOT removed in 0.13.0. burn does not yet provide equivalents for GPU box training (`CandleBoxTrainer`), cone training (`candle_cone_trainer`), or the TaxoBell encoder, so removing candle now would regress those geometries. The direction remains burn-everywhere (`burn-wgpu` gives Metal on Mac); candle removal is deferred until burn box/cone/TaxoBell trainers land. burn already covers EL, ball, ellipsoid, subspace, annular, transbox, and spherical-cap training.
+- The `candle-backend` and `cuda` features and the candle backend (`CandleBox`/`CandleGumbelBox`, the candle box/EL/cone trainers, the candle TaxoBell encoder, and the `subsumer` python `Candle*Trainer` bindings). Burn covers every training path now, and `burn-wgpu` provides GPU/Metal. **Breaking.**
 
 ### Deprecated
 
