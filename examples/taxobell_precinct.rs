@@ -8,6 +8,15 @@
 //! (`from_mu_delta`), builds a `RegionIndex`, and runs point-to-region queries.
 //!
 //! Run: `cargo run --release --example taxobell_precinct --features burn-ndarray,kge`
+//!
+//! Sample output (queries return the concept itself plus its taxonomic
+//! relatives; distance 0 because the query center lies inside those boxes):
+//! ```text
+//! nearest concept-boxes to a query concept's center:
+//!      dog: [dog(0.00), mammal(0.00), cat(0.00), animal(0.00)]
+//!     bird: [bird(0.00), animal(0.00), thing(0.00), mammal(0.00)]
+//!      oak: [oak(0.00), plant(0.00), thing(0.00), rose(0.00)]
+//! ```
 
 #![allow(missing_docs)]
 
