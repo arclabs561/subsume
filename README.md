@@ -9,7 +9,7 @@ boxes, cones, octagons, Gaussians, hyperbolic intervals, and sheaves.
 
 ![Box embedding concepts](docs/box_concepts.png)
 
-*(a) Containment: nested boxes encode taxonomic is-a relationships. (b) Gumbel soft boundary: temperature controls membership sharpness. (c) Octagon: diagonal constraints cut corners for tighter volume bounds.*
+*(a) Containment: nested boxes encode taxonomic is-a relationships. (b) Gumbel soft boundary: temperature controls membership sharpness.*
 
 For background on why region embeddings work and how the geometries relate, see [Why Regions, Not Points](https://attobop.net/posts/region-embeddings/).
 
