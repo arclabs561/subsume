@@ -3,12 +3,9 @@
 //! Run (ndarray backend):
 //!   cargo run --example el_benchmark --release -- data/GALEN
 //!
-//! Run (candle backend, recommended for large ontologies):
-//!   BACKEND=candle cargo run --features candle-backend --example el_benchmark --release -- data/GALEN
-//!
 //! Environment variables:
 //!   DIM=200 EPOCHS=300 LR=0.01 MARGIN=0.15 NEG_DIST=5 REG_FACTOR=0.4
-//!   NEG_SAMPLES=1 BACKEND=ndarray|candle BATCH=512 COMPARE_EVAL=1
+//!   NEG_SAMPLES=1 BATCH=512 COMPARE_EVAL=1
 //!
 //! Expects train.tsv + test.tsv in the data directory (Box2EL TSV format).
 //! Convert from Box2EL numpy with: uv run scripts/convert_box2el.py
@@ -149,125 +146,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         test_nf3.len(),
         test_nf4.len(),
     );
-
-    #[cfg(feature = "candle-backend")]
-    if backend == "candle" {
-        use subsume::trainer::candle_el_trainer::CandleElTrainer;
-        let device = candle_core::Device::cuda_if_available(0).unwrap_or(candle_core::Device::Cpu);
-        println!("Device: {}", if device.is_cuda() { "CUDA" } else { "CPU" });
-
-        let nc = ontology.concept_names.len();
-        let nr = ontology.role_names.len();
-        let nf4_neg_weight: f32 = env_or("NF4_NEG_W", 1.0);
-        let mut trainer = CandleElTrainer::new(nc, nr, dim, margin, neg_dist, &device)?;
-        trainer.set_nf4_neg_weight(nf4_neg_weight);
-
-        let start = Instant::now();
-        let losses = trainer.fit(
-            &ontology,
-            epochs,
-            lr as f64,
-            batch_size,
-            neg_samples,
-            reg_factor,
-        )?;
-        let elapsed = start.elapsed();
-
-        let final_loss = losses.last().copied().unwrap_or(0.0);
-        println!(
-            "\nTraining: {:.1}s ({:.2}s/epoch)",
-            elapsed.as_secs_f64(),
-            elapsed.as_secs_f64() / epochs as f64
-        );
-        println!("Final loss: {final_loss:.6}");
-
-        // Evaluate all NF types
-        let eval_cap = 1000;
-        println!("\n=== Evaluation (up to {eval_cap} per NF type) ===");
-
-        if !test_nf1.is_empty() {
-            let n = test_nf1.len().min(eval_cap);
-            let eval_start = Instant::now();
-            let (h1, h10, mrr) = trainer.evaluate_nf1(&test_nf1[..n])?;
-            println!(
-                "NF1 (C1 ⊓ C2 ⊑ D):  {n}/{} axioms  MRR={mrr:.4}  H@1={h1:.4}  H@10={h10:.4}  ({:.1}s)",
-                test_nf1.len(),
-                eval_start.elapsed().as_secs_f64()
-            );
-        }
-
-        if !test_nf2.is_empty() {
-            let n = test_nf2.len().min(eval_cap);
-            let eval_start = Instant::now();
-            let (h1, h10, mrr) = trainer.evaluate_subsumption(&test_nf2[..n])?;
-            println!(
-                "NF2 (C ⊑ D):        {n}/{} axioms  MRR={mrr:.4}  H@1={h1:.4}  H@10={h10:.4}  ({:.1}s)",
-                test_nf2.len(),
-                eval_start.elapsed().as_secs_f64()
-            );
-        }
-
-        if !test_nf3.is_empty() {
-            let n = test_nf3.len().min(eval_cap);
-            let eval_start = Instant::now();
-            let (h1, h10, mrr) = trainer.evaluate_nf3(&test_nf3[..n])?;
-            println!(
-                "NF3 (C ⊑ ∃r.D):    {n}/{} axioms  MRR={mrr:.4}  H@1={h1:.4}  H@10={h10:.4}  ({:.1}s)",
-                test_nf3.len(),
-                eval_start.elapsed().as_secs_f64()
-            );
-        }
-
-        if !test_nf4.is_empty() {
-            let n = test_nf4.len().min(eval_cap);
-            let eval_start = Instant::now();
-            let (h1, h10, mrr) = trainer.evaluate_nf4(&test_nf4[..n])?;
-            println!(
-                "NF4 (∃r.C ⊑ D):    {n}/{} axioms  MRR={mrr:.4}  H@1={h1:.4}  H@10={h10:.4}  ({:.1}s)",
-                test_nf4.len(),
-                eval_start.elapsed().as_secs_f64()
-            );
-        }
-
-        // Optional: compare center-distance vs inclusion-based evaluation
-        if std::env::var("COMPARE_EVAL").is_ok() {
-            println!("\n=== Inclusion-based evaluation (uses box offsets) ===");
-
-            if !test_nf2.is_empty() {
-                let n = test_nf2.len().min(eval_cap);
-                let (h1, h10, mrr) = trainer.evaluate_subsumption_by_inclusion(&test_nf2[..n])?;
-                println!(
-                    "NF2 inclusion:       {n} axioms  MRR={mrr:.4}  H@1={h1:.4}  H@10={h10:.4}"
-                );
-            }
-
-            if !test_nf1.is_empty() {
-                let n = test_nf1.len().min(eval_cap);
-                let (h1, h10, mrr) = trainer.evaluate_nf1_by_inclusion(&test_nf1[..n])?;
-                println!(
-                    "NF1 inclusion:       {n} axioms  MRR={mrr:.4}  H@1={h1:.4}  H@10={h10:.4}"
-                );
-            }
-
-            if !test_nf3.is_empty() {
-                let n = test_nf3.len().min(eval_cap);
-                let (h1, h10, mrr) = trainer.evaluate_nf3_by_inclusion(&test_nf3[..n])?;
-                println!(
-                    "NF3 inclusion:       {n} axioms  MRR={mrr:.4}  H@1={h1:.4}  H@10={h10:.4}"
-                );
-            }
-
-            if !test_nf4.is_empty() {
-                let n = test_nf4.len().min(eval_cap);
-                let (h1, h10, mrr) = trainer.evaluate_nf4_by_inclusion(&test_nf4[..n])?;
-                println!(
-                    "NF4 inclusion:       {n} axioms  MRR={mrr:.4}  H@1={h1:.4}  H@10={h10:.4}"
-                );
-            }
-        }
-
-        return Ok(());
-    }
 
     // Ndarray backend (default) -- NF2 only
     let config = ElTrainingConfig {

@@ -84,10 +84,6 @@ macro_rules! impl_region_via_hyperbox {
 
 impl_region_via_hyperbox!(crate::ndarray_backend::NdarrayBox);
 impl_region_via_hyperbox!(crate::ndarray_backend::NdarrayGumbelBox);
-#[cfg(feature = "candle-backend")]
-impl_region_via_hyperbox!(crate::candle_backend::CandleBox);
-#[cfg(feature = "candle-backend")]
-impl_region_via_hyperbox!(crate::candle_backend::CandleGumbelBox);
 
 impl Region for crate::Ball {
     fn dim(&self) -> usize {

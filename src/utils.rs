@@ -53,7 +53,7 @@ pub const EULER_GAMMA: f32 = 0.577_215_7;
 
 /// Minimum containment probability to consider entities "fully contained"
 /// in boundary distance computation.
-#[cfg(any(feature = "ndarray-backend", feature = "candle-backend"))]
+#[cfg(feature = "ndarray-backend")]
 pub(crate) const BOUNDARY_CONTAINMENT_THRESHOLD: f32 = 0.99;
 
 /// Numerically stable softplus: `(1/beta) * log(1 + exp(beta * x))`.
