@@ -75,9 +75,15 @@ serde_json = "1.0"
 # Composition demo (examples/taxobell_box_uncertainty): analytic uncertainty
 # on TaxoBell box centers via moment propagation.
 stableprop = { version = "0.3", features = ["burn"] }
+# Serving-layer demo (examples/taxobell_precinct): index trained boxes as regions.
+precinct = "0.8"
 
 [[example]]
 name = "taxobell_box_uncertainty"
+required-features = ["burn-ndarray", "kge"]
+
+[[example]]
+name = "taxobell_precinct"
 required-features = ["burn-ndarray", "kge"]
 
 [[bench]]
