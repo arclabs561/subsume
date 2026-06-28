@@ -18,8 +18,6 @@
 //! | Fuzzy query answering (t-norms) | [`fuzzy::TNorm`], [`fuzzy::TConorm`], [`fuzzy`] module |
 //! | Load a knowledge graph dataset | [`Dataset`], [`Triple`] |
 //! | Train box embeddings (CPU) | [`BoxEmbeddingTrainer`], [`TrainingConfig`] |
-//! | Train box embeddings (GPU) | `CandleBoxTrainer` (feature = `candle-backend`) |
-//! | Evaluate with link prediction | [`evaluate_link_prediction`], `CandleBoxTrainer::evaluate` (feature = `candle-backend`) |
 //!
 //! # Why regions instead of points?
 //!
@@ -77,7 +75,6 @@
 //! - [`dataset`] -- load WN18RR, FB15k-237, YAGO3-10, and similar KG datasets
 //! - [`trainable`] -- [`trainable::TrainableBox`] and [`trainable::TrainableCone`] with learnable parameters
 //! - [`trainer`] -- negative sampling, loss computation, link prediction evaluation.
-//!   Includes `CandleBoxTrainer` for GPU training
 //!   with AdamW, cosine LR, self-adversarial NS, and filtered evaluation.
 //! - [`metrics`] -- rank-based metrics (MRR, Hits@k, Mean Rank)
 //! - [`optimizer`] -- AMSGrad state management
@@ -87,16 +84,12 @@
 //!
 //! - [`ndarray_backend`] -- `NdarrayBox`, `NdarrayGumbelBox`, distance functions
 //!   (feature = `ndarray-backend`, **on by default**)
-//! - `candle_backend` -- `CandleBox`, `CandleGumbelBox` with GPU support
-//!   (feature = `candle-backend`)
 //!
 //! # Feature Flags
 //!
 //! | Feature | Default | Provides |
 //! |---------|---------|----------|
 //! | `ndarray-backend` | yes | [`ndarray_backend`] module (also enables `rand`) |
-//! | `candle-backend` | no | `candle_backend` module (GPU via candle) |
-//! | `cuda` | no | CUDA GPU support (implies `candle-backend`) |
 //! | `rand` | yes (via `ndarray-backend`) | Negative sampling utilities in [`trainer`] |
 //! | `kge` | yes | [`dataset`], [`metrics`], and `lattix_bridge` modules (KGE dataset loading, metrics) |
 //! | `hyperbolic` | no | `hyperbolic` module (Poincare ball via `hyperball` + `skel`) |
@@ -112,7 +105,6 @@
 //! // Rename to avoid shadowing std::boxed::Box
 //! use subsume::HyperBox as BoxRegion;
 //!
-//! // Framework-agnostic: works with NdarrayBox, CandleBox, or your own impl
 //! fn compute_entailment<B: BoxRegion>(
 //!     premise: &B,
 //!     hypothesis: &B,
@@ -303,13 +295,6 @@ pub mod taxonomy;
 /// TaxoBell combined training loss for taxonomy expansion.
 pub mod taxobell;
 
-/// TaxoBell MLP encoder and training loop with candle autograd.
-///
-/// Requires the `candle-backend` feature.
-#[cfg(feature = "candle-backend")]
-#[cfg_attr(docsrs, doc(cfg(feature = "candle-backend")))]
-pub mod taxobell_encoder;
-
 // ---------------------------------------------------------------------------
 // Re-exports: primary traits and types
 // ---------------------------------------------------------------------------
@@ -362,11 +347,6 @@ pub use trainer::{
 #[cfg(feature = "kge")]
 #[cfg_attr(docsrs, doc(cfg(feature = "kge")))]
 pub use trainer::{evaluate_link_prediction, ConeEmbeddingTrainer};
-
-// Re-export: CandleBoxTrainer (GPU training)
-#[cfg(feature = "candle-backend")]
-#[cfg_attr(docsrs, doc(cfg(feature = "candle-backend")))]
-pub use trainer::candle_trainer::CandleBoxTrainer;
 
 // Re-export: ndarray (public dependency -- appears in NdarrayBox/NdarrayGumbelBox/NdarrayCone API)
 #[cfg(feature = "ndarray-backend")]
@@ -444,16 +424,6 @@ pub use cone_query::{cone_containment_score, ConeQuery};
 #[cfg_attr(docsrs, doc(cfg(feature = "ndarray-backend")))]
 #[cfg(feature = "ndarray-backend")]
 pub mod ndarray_backend;
-
-/// Candle backend: `CandleBox`, `CandleGumbelBox` with GPU acceleration.
-///
-/// Provides box and Gumbel box operations. Cone, octagon, and Gaussian
-/// geometries are available through the ndarray backend only.
-///
-/// Enable with `features = ["candle-backend"]`.
-#[cfg_attr(docsrs, doc(cfg(feature = "candle-backend")))]
-#[cfg(feature = "candle-backend")]
-pub mod candle_backend;
 
 /// Adapter for constructing datasets from [`petgraph`] graphs.
 ///

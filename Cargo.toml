@@ -38,8 +38,6 @@ hyperball = { version = "0.1.3", optional = true }
 skel = { version = "0.1.1", optional = true }
 ndarray = { version = "0.16", features = ["serde-1"], optional = true }
 serde_json = { version = "1.0", optional = true }
-candle-core = { version = "0.9", optional = true }
-candle-nn = { version = "0.9", optional = true }
 petgraph = { version = "0.7", optional = true }
 rankops = { version = "0.1.4", optional = true }
 lattix = { version = "0.6", default-features = false, features = ["kge"], optional = true }
@@ -53,8 +51,6 @@ fastrand = "2.3.0"
 [features]
 default = ["ndarray-backend", "kge"]
 ndarray-backend = ["dep:ndarray", "dep:serde_json", "rand"]
-candle-backend = ["dep:candle-core", "dep:candle-nn"]
-cuda = ["candle-backend", "candle-core/cuda"]
 rand = ["dep:rand"]
 burn-ndarray = ["dep:burn", "dep:burn-ndarray", "dep:burn-autodiff"]
 burn-wgpu = ["dep:burn", "dep:burn-wgpu", "dep:burn-autodiff"]
@@ -100,10 +96,6 @@ required-features = ["hyperbolic"]
 
 
 [[example]]
-name = "taxobell_training"
-required-features = ["candle-backend"]
-
-[[example]]
 name = "petgraph_adapter"
 required-features = ["petgraph"]
 
@@ -111,13 +103,6 @@ required-features = ["petgraph"]
 name = "lattix_bridge"
 required-features = ["kge"]
 
-[[example]]
-name = "wn18rr_candle"
-required-features = ["candle-backend", "kge"]
-
-[[example]]
-name = "wn18rr_cone"
-required-features = ["candle-backend", "kge"]
 
 [[example]]
 name = "density_el_demo"
