@@ -42,7 +42,7 @@ For numerical stability, this is approximated as:
 \]
 
 ### Implementation
-**Location:** `src/ndarray_backend/ndarray_gumbel.rs` and `src/candle_backend/candle_gumbel.rs`
+**Location:** `src/ndarray_backend/ndarray_gumbel.rs`
 
 **Implementation Note:** The current implementation uses the softplus approximation for computational efficiency. The Bessel function \(K_0\) provides the theoretical foundation, but the softplus form \(\beta \log(1 + \exp(x/\beta - 2\gamma))\) is used in practice because it:
 - Matches the Bessel function asymptotically (see [`gumbel-box-volume.pdf`](typst-output/pdf/gumbel-box-volume.pdf) for the derivation)
@@ -75,7 +75,7 @@ For containment probability with Gumbel boxes:
 \]
 
 ### Implementation
-**Location:** `src/ndarray_backend/ndarray_box.rs::containment_prob()` and `src/candle_backend/candle_box.rs::containment_prob()`
+**Location:** `src/ndarray_backend/ndarray_box.rs::containment_prob()`
 
 ```rust
 fn containment_prob(&self, other: &Self) -> Result<Self::Scalar, BoxError> {
