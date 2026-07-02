@@ -15,12 +15,13 @@ tranz handles: link prediction, relation extraction, knowledge base completion.
 
 ## Architecture Decisions
 
-### Backend: Burn is the goal, Candle is the placeholder
+### Backend: Burn only (candle retired in 0.14.0, 2026-06)
 
-- **Current**: ndarray (CPU inference) + candle (GPU training) for old geometry types (boxes, cones)
+- **Current**: ndarray (CPU inference); burn for all training. The candle
+  backend (`src/candle_backend/`) and its feature flags were removed in
+  0.14.0 (breaking release); CI, scripts, and python bindings scrubbed.
 - **New geometry types**: All use backend-agnostic `Vec<f32>` for inference; burn for training
 - **Why burn**: 14.7k stars, wgpu (AMD/Intel/WebGPU) + CUDA + ndarray via feature flags, one implementation compiles anywhere. Candle is Meta's inference-only project, wrong fit for research.
-- **Migration strategy**: Don't rewrite old code. New trainers use burn. Old trainers stay on candle.
 - **Burn 0.20 API quirks** (already solved in burn_ball_trainer.rs):
   - `NdArray` not `Ndarray` (camelCase)
   - `AdamConfig::new().init::<B, M>()` returns `OptimizerAdaptor<Adam, M, B>`
@@ -263,4 +264,4 @@ pub struct MyTrainer { rng: StdRng, adam: AdamState }
 
 ## Sibling Crate: tranz
 
-Point embeddings at `../tranz`. Uses `candle` + `lattix::kge`. Link prediction, not subsumption. Shared dataset format (TSV triples). Different enough that there's no code overlap.
+Point embeddings at `../tranz`. Trains via burn (`train_kge`, 1-N scoring; candle retired in tranz 0.6.0). Link prediction, not subsumption. Shared dataset format (TSV triples). Different enough that there's no code overlap.
