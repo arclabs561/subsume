@@ -4,10 +4,9 @@
 //! - **Vector-to-box distance** (Query2Box, Ren et al. 2020): alpha-weighted L1 distance
 //!   from a point to a query box, discriminating inside vs outside entities.
 //!
-//! For depth-based and boundary distances (RegD 2025), use the backend-specific modules
-//! which provide correct log-volume formulations:
+//! For depth-based and boundary distances (RegD 2025), use the backend-specific module
+//! which provides correct log-volume formulations:
 //! - `subsume::ndarray_backend::distance`
-//! - `subsume::candle_backend::distance`
 //!
 //! # References
 //!

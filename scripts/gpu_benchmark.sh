@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# GPU benchmark for WN18RR with CandleBoxTrainer.
+# GPU benchmark for WN18RR with the burn ball trainer (wn18rr_ball_burn example).
 #
 # Run on the GPU instance after: cargo build --features burn-ndarray,burn-wgpu --example wn18rr_ball_burn --release
 #
@@ -36,8 +36,8 @@ run() {
     mr=$(echo "$out" | grep "MRR:" | awk '{print $10}')
     loss=$(echo "$out" | grep "Loss:" | awk -F'-> ' '{print $2}' | awk '{print $1}')
     time=$(echo "$out" | grep "Training:" | awk '{print $2}')
-    printf "%-45s MRR=%-7s H@1=%-7s H@10=%-7s MR=%-9s loss=%-8s time=%s\n" \
-        "$name" "$mrr" "$h1" "$h10" "$mr" "$loss" "$time" | tee -a "$RESULTS"
+    printf "%-45s MRR=%-7s H@1=%-7s H@3=%-7s H@10=%-7s MR=%-9s loss=%-8s time=%s\n" \
+        "$name" "$mrr" "$h1" "$h3" "$h10" "$mr" "$loss" "$time" | tee -a "$RESULTS"
 }
 
 if [ "$MODE" = "quick" ]; then

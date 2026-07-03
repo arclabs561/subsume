@@ -533,8 +533,9 @@ evaluation framework:
 | Sheaf | `sheaf` module | Hansen 2019, Bodnar 2022 | Edge-level consistency enforcement |
 | EL++ | `el` module | Box2EL 2023, TransBox 2024 | Description logic axioms |
 
-The GPU backend (`CandleBox`, `CandleGumbelBox`) provides the same box
-operations on Metal/CUDA for training workloads.
+A candle GPU backend (`CandleBox`, `CandleGumbelBox`) provided the same box
+operations on Metal/CUDA until the burn migration (0.14.0); GPU training now
+goes through the burn trainers (`burn-wgpu`).
 
 ---
 
