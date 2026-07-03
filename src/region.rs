@@ -33,7 +33,7 @@
 //! # Coverage
 //!
 //! Implemented for the box backends ([`crate::ndarray_backend::NdarrayBox`] and
-//! the Gumbel/candle variants), [`crate::Ball`], [`crate::Ellipsoid`],
+//! [`crate::ndarray_backend::NdarrayGumbelBox`]), [`crate::Ball`], [`crate::Ellipsoid`],
 //! [`crate::Subspace`], [`crate::GaussianBox`], [`crate::SphericalCap`], and
 //! [`crate::AnnularSector`] -- the geometries whose relation IS symmetric nested
 //! containment, `P(inner ⊆ self)`. Cones, octagons, TransBox, and the

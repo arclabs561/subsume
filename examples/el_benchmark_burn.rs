@@ -1,6 +1,6 @@
 //! Benchmark EL++ box embeddings on Box2EL datasets using the burn backend.
 //!
-//! This is the burn-based port of `el_benchmark.rs` (which uses the candle backend).
+//! This is the burn-based port of `el_benchmark.rs` (which uses the ndarray backend).
 //! Supports multi-core CPU training via `burn-ndarray` and GPU via `burn-wgpu`.
 //!
 //! Run (ndarray backend, default):

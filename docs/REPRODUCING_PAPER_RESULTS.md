@@ -25,7 +25,7 @@ GumbelBox achieves ~6 F1 score improvement over SmoothBox on knowledge graph com
 
 **Implementation Notes**:
 - SmoothBox: Use `log_space_volume()` with temperature smoothing
-- GumbelBox: Use `NdarrayGumbelBox` or `CandleGumbelBox`
+- GumbelBox: Use `NdarrayGumbelBox`
 - Training: Use `volume_containment_loss()` for both
 - Evaluation: Use `ContainmentAccuracy::f1()` metric
 

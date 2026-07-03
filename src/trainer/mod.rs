@@ -684,6 +684,6 @@ pub use burn_annular_trainer::BurnAnnularTrainer;
 
 /// Backward-compatible alias for [`CpuBoxTrainingConfig`].
 ///
-/// This type is only used by CPU trainers (`BoxEmbeddingTrainer`,
-/// `ConeEmbeddingTrainer`). Candle trainers use builder-style constructors.
+/// Shared by the CPU trainers (`BoxEmbeddingTrainer`, `ConeEmbeddingTrainer`)
+/// and the burn trainers.
 pub type TrainingConfig = CpuBoxTrainingConfig;

@@ -81,7 +81,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.87.0
       - uses: Swatinem/rust-cache@v2
 
-      # Note: candle/criterion deps require Rust 1.80+ (rayon 1.11)
+      # Note: criterion + ML-backend deps require a newer toolchain than MSRV
       # MSRV check only tests core functionality without ML backends
       - name: Check MSRV
         run: |

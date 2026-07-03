@@ -50,7 +50,8 @@
 //! - Export trained embeddings to Rust for inference
 //!
 //! This module provides inference-time operations and the trait definitions.
-//! Training implementations may be added to the `candle_backend` module with autograd support.
+//! Training implementations may be added via the burn-based trainers in
+//! [`crate::trainer`] with autograd support.
 //!
 //! # References
 //!
