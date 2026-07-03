@@ -459,10 +459,22 @@ impl<B: AutodiffBackend> BurnAnnularTrainer<B> {
         let radial_gap =
             (b_ri - a_ro.clone()).clamp_min(0.0) + (a_ri - b_ro.clone()).clamp_min(0.0); // [bs, 1]
 
-        // Angular midpoint distance (linear, not circular -- avoids discontinuity in autograd)
+        // Angular midpoint distance, chordal form: 2*|sin((a_mid - b_mid)/2)|.
+        // The prior linear |a_mid - b_mid| ignored the circle: entity angles
+        // live on [0, 2pi) but a line metric treats 350deg and 10deg as far
+        // apart, so most of the angular parameter carried a misleading
+        // gradient and the trainer barely learned. The chordal distance
+        // (RotatE's e^{i*theta} lineage) is the geodesic's smooth surrogate:
+        // it is 2pi-periodic in the angle difference (so wraparound is
+        // automatic), strictly monotone in the true circular geodesic
+        // min(|d|, 2pi-|d|) -- verified rank-equivalent, so eval ordering is
+        // unchanged versus the CPU trainer's geodesic -- and unlike that
+        // geodesic's min() it is differentiable everywhere, including at the
+        // antipode, which is what the "avoids discontinuity" comment was
+        // reaching for without the circular part.
         let a_mid = (a_ts + a_te) * 0.5_f32; // [bs, 1]
         let b_mid = (b_ts + b_te) * 0.5_f32; // [bs, 1]
-        let angular_dist = (a_mid - b_mid).abs(); // [bs, 1]
+        let angular_dist = ((a_mid - b_mid) * 0.5_f32).sin().abs() * 2.0_f32; // [bs, 1]
 
         // Center L2 distance
         let d_re = a_re - b_re; // [bs, 1]
@@ -748,21 +760,20 @@ mod tests {
             "AnnularBurn MRR={:.3} mean_rank={:.1}",
             results.mrr, results.mean_rank
         );
-        // Honest bar: across repeated runs this trainer lands at MRR
-        // 0.41-0.61 against a ~0.41 six-entity random baseline, i.e. it
-        // barely learns this task (burn-ndarray reduction order adds
-        // run-to-run noise on top). A learning-quality bar here would be
-        // flaky or dishonest; what this test CAN enforce deterministically
-        // is sign-flip discrimination: a flipped loss ranks true tails near
-        // the bottom (MRR ~0.17, mean_rank ~5), well below these bounds.
-        // The trainer's weak convergence itself is tracked as an open
-        // finding (candidate for investigation or retirement; the pre-burn
-        // migration notes already flagged annular as a poor fit for
-        // dim-scalable tensor training).
-        assert!(results.mrr > 0.25, "MRR={} expected >0.25", results.mrr);
+        // The chordal angular distance (see surface_distance_batched) lifted
+        // this trainer off the cliff: a 10-run A/B moved mean MRR 0.457 ->
+        // 0.546 and the floor 0.30 -> 0.42, versus a ~0.41 six-entity random
+        // baseline. It learns real signal now, but the margin over random is
+        // thin, so 0.35 is a not-broken floor (chordal clears it 10/10, the
+        // old linear form missed it 3/10) rather than a beats-random claim.
+        // The load-bearing deterministic guard is sign-flip discrimination: a
+        // flipped loss ranks true tails near the bottom (MRR ~0.17), far below
+        // 0.35. Annular remains the weakest burn trainer; the redesign note in
+        // docs/design/ tracks whether to push the score further or retire it.
+        assert!(results.mrr > 0.35, "MRR={} expected >0.35", results.mrr);
         assert!(
-            results.mean_rank <= 4.5,
-            "mean_rank={} expected <=4.5",
+            results.mean_rank <= 4.0,
+            "mean_rank={} expected <=4.0",
             results.mean_rank
         );
     }
