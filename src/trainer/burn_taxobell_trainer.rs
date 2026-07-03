@@ -615,12 +615,92 @@ mod tests {
         .unwrap();
 
         assert_eq!(losses.len(), 40);
-        let first = losses[0];
-        let last = *losses.last().unwrap();
-        assert!(first.is_finite() && last.is_finite());
+        assert!(losses.iter().all(|l| l.is_finite()));
+        // Compare trend windows, not endpoints: burn-ndarray's rayon
+        // reductions vary summation order run to run, and a single endpoint
+        // pair flipped sign on a loaded machine while the trend was clearly
+        // down. A diverging or sign-flipped loss still fails the window
+        // comparison.
+        let head: f32 = losses[..5].iter().sum::<f32>() / 5.0;
+        let tail: f32 = losses[losses.len() - 5..].iter().sum::<f32>() / 5.0;
         assert!(
-            last < first,
-            "loss should decrease: first={first}, last={last}"
+            tail < head,
+            "loss trend should decrease: first-5 mean={head}, last-5 mean={tail}"
+        );
+    }
+
+    #[test]
+    fn train_and_evaluate_synthetic() {
+        // The repo convention (every trainer needs an eval integration test):
+        // train on a small two-family taxonomy whose input embeddings carry
+        // the family signal, then assert the trained encoder ranks true
+        // parents well. A sign-flipped loss or KL orientation ranks parents
+        // near the bottom (MRR ~ 1/7 here), far below the threshold; an
+        // untrained/random encoder sits near the 8-node random baseline
+        // (~0.37), also below it. Finiteness-only guards passed the
+        // historical six-trainer loss-sign bug; this class of test is what
+        // caught it.
+        let node_ids: Vec<usize> = (0..8).collect();
+        // Roots 0 and 1; children 2..5 under 0, 5..8 under 1. Children embed
+        // near their root with distinct offsets.
+        let embeddings = vec![
+            vec![1.0, 0.0, 0.0, 0.0],
+            vec![0.0, 1.0, 0.0, 0.0],
+            vec![0.9, 0.1, 0.3, 0.0],
+            vec![1.1, -0.1, 0.0, 0.3],
+            vec![0.8, 0.0, -0.2, -0.1],
+            vec![0.1, 0.9, 0.0, 0.3],
+            vec![-0.1, 1.1, 0.3, 0.0],
+            vec![0.0, 0.8, -0.2, 0.2],
+        ];
+        let edges = vec![(0, 2), (0, 3), (0, 4), (1, 5), (1, 6), (1, 7)];
+        let node_index: HashMap<usize, usize> = node_ids
+            .iter()
+            .enumerate()
+            .map(|(i, &id)| (id, i))
+            .collect();
+
+        let config = BurnTaxoBellTrainingConfig {
+            learning_rate: 5e-3,
+            epochs: 150,
+            num_negatives: 2,
+            hidden_dim: 16,
+            box_dim: 4,
+            seed: 42,
+            warmup_epochs: 5,
+            ..Default::default()
+        };
+
+        let (enc, losses) = train_taxobell_burn::<TestBackend>(
+            &embeddings,
+            &edges,
+            &node_ids,
+            &node_index,
+            &config,
+            &device(),
+        )
+        .unwrap();
+        assert!(losses.iter().all(|l| l.is_finite()));
+
+        let r = evaluate_taxobell_burn::<TestBackend>(
+            &enc,
+            &embeddings,
+            &edges,
+            &node_ids,
+            &node_index,
+            &device(),
+        )
+        .unwrap();
+        assert!(
+            r.mrr > 0.55,
+            "trained taxobell should rank true parents well above the \
+             8-node random baseline (~0.37): mrr={}",
+            r.mrr
+        );
+        assert!(
+            r.hits_at_3 > 0.5,
+            "true parent should usually rank in the top 3: hits@3={}",
+            r.hits_at_3
         );
     }
 
