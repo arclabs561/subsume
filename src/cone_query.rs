@@ -32,6 +32,11 @@ pub enum ConeQuery {
     },
 
     /// Conjunction (AND): intersection of multiple query cones.
+    ///
+    /// Folds `NdarrayCone::intersection`, the ConE heuristic (circular-mean
+    /// axis + min aperture), not the exact set intersection; the folded
+    /// result can both over- and under-cover the true conjunction. See the
+    /// caveat on [`NdarrayCone::intersection`].
     Intersection(Vec<ConeQuery>),
 
     /// Disjunction (OR): union via DNF (min distance across components).
