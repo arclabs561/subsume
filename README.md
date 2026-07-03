@@ -4,8 +4,10 @@
 [![Documentation](https://docs.rs/subsume/badge.svg)](https://docs.rs/subsume)
 [![CI](https://github.com/arclabs561/subsume/actions/workflows/ci.yml/badge.svg)](https://github.com/arclabs561/subsume/actions/workflows/ci.yml)
 
-Geometric region embeddings for entailment and set containment:
-boxes, cones, octagons, Gaussians, hyperbolic intervals, and sheaves.
+Region embeddings for entailment and set containment.
+
+Boxes, cones, octagons, Gaussians, hyperbolic intervals, and sheaves are among
+the supported geometries.
 
 ![Box embedding concepts](docs/box_concepts.png)
 
