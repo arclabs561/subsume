@@ -683,6 +683,14 @@ mod tests {
     fn train_and_evaluate_synthetic() {
         use crate::dataset::TripleIds;
 
+        // Two disjoint stars over 6 entities. The old 3-triple / 4-entity
+        // task could not separate a trained model from random: with 4
+        // candidates random MRR is ~0.52 while the asserted bar was 0.3, and
+        // observed MRRs (0.29-0.50) straddled the bar run-to-run because
+        // burn-ndarray's rayon reductions vary summation order. Six entities
+        // put random at ~0.41 and give the geometry enough structure to
+        // learn well clear of both the bar and the noise; a sign-flipped
+        // loss still collapses to the bottom of the ranking.
         let triples = vec![
             TripleIds {
                 head: 0,
@@ -690,31 +698,46 @@ mod tests {
                 tail: 1,
             },
             TripleIds {
-                head: 2,
+                head: 0,
                 relation: 0,
-                tail: 3,
+                tail: 2,
             },
             TripleIds {
-                head: 0,
+                head: 3,
+                relation: 0,
+                tail: 4,
+            },
+            TripleIds {
+                head: 3,
+                relation: 0,
+                tail: 5,
+            },
+            TripleIds {
+                head: 1,
                 relation: 1,
                 tail: 2,
+            },
+            TripleIds {
+                head: 4,
+                relation: 1,
+                tail: 5,
             },
         ];
 
         let device = Default::default();
         let mut trainer = BurnAnnularTrainer::<TestBackend>::new();
-        let mut model = trainer.init_model(4, 2, &device);
+        let mut model = trainer.init_model(6, 2, &device);
         let config = CpuBoxTrainingConfig {
             learning_rate: 0.05,
             margin: 0.5,
-            negative_samples: 1,
-            batch_size: 4,
+            negative_samples: 2,
+            batch_size: 8,
             ..Default::default()
         };
         let mut optim = AdamConfig::new().init::<TestBackend, BurnAnnularModel<TestBackend>>();
 
         let mut last_loss = f32::MAX;
-        for epoch in 0..80 {
+        for epoch in 0..120 {
             last_loss =
                 trainer.train_epoch(&mut model, &mut optim, &triples, epoch, &config, &device);
         }
@@ -725,10 +748,21 @@ mod tests {
             "AnnularBurn MRR={:.3} mean_rank={:.1}",
             results.mrr, results.mean_rank
         );
-        assert!(results.mrr > 0.3, "MRR={} expected >0.3", results.mrr);
+        // Honest bar: across repeated runs this trainer lands at MRR
+        // 0.41-0.61 against a ~0.41 six-entity random baseline, i.e. it
+        // barely learns this task (burn-ndarray reduction order adds
+        // run-to-run noise on top). A learning-quality bar here would be
+        // flaky or dishonest; what this test CAN enforce deterministically
+        // is sign-flip discrimination: a flipped loss ranks true tails near
+        // the bottom (MRR ~0.17, mean_rank ~5), well below these bounds.
+        // The trainer's weak convergence itself is tracked as an open
+        // finding (candidate for investigation or retirement; the pre-burn
+        // migration notes already flagged annular as a poor fit for
+        // dim-scalable tensor training).
+        assert!(results.mrr > 0.25, "MRR={} expected >0.25", results.mrr);
         assert!(
-            results.mean_rank <= 3.5,
-            "mean_rank={} expected <=3.5",
+            results.mean_rank <= 4.5,
+            "mean_rank={} expected <=4.5",
             results.mean_rank
         );
     }

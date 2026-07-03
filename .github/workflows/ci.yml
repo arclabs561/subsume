@@ -32,6 +32,15 @@ jobs:
       - name: Doc
         run: cargo doc --features "ndarray-backend,rand,sheaf,rankops,petgraph,kge,spherical,density,hyperbolic" --no-deps
 
+      - name: Test (burn trainers)
+        # The burn trainers' synthetic-MRR guards are cfg-gated on
+        # burn-ndarray/burn-wgpu + kge. No other step enables a burn feature,
+        # so without this step those guards compile out of CI entirely and a
+        # loss-sign or formula regression would land silently (the exact bug
+        # class the synthetic-MRR convention exists to catch). All burn test
+        # modules are burn_-prefixed; the filter keeps the step at ~45 tests.
+        run: cargo test --features "burn-ndarray,kge" burn_
+
       - name: run example assertions
         run: |
           FEATS="ndarray-backend,rand,kge,petgraph,density"
