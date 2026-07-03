@@ -287,6 +287,22 @@ impl NdarrayCone {
     /// Cartesian coordinates, then atan2 back to angle) and per-dimension minimum
     /// for apertures.
     ///
+    /// # This is a heuristic, not the set intersection
+    ///
+    /// Angular sectors are not closed under intersection: the true set
+    /// intersection of two sectors is a sector centered between their
+    /// *overlapping boundary arcs*, not at the circular mean of their axes,
+    /// and its half-width is generally smaller than either aperture. This
+    /// operator is the ConE design (SemanticAverage + CardMin, Zhang & Wang
+    /// 2021), and the returned cone can both over-cover and under-cover the
+    /// true intersection; Zhapa-Camacho & Hoehndorf (ESWC 2026) show cone
+    /// models cannot represent intersection exactly. In particular the result
+    /// is NOT a conservative superset: when one sector is much wider than the
+    /// other and their axes differ, the result can exclude points that lie in
+    /// both inputs (see `intersection_is_heuristic_not_exact`). Downstream
+    /// conjunctions (`ConeQuery::Intersection`, AND over cone scorers) inherit
+    /// this approximation.
+    ///
     /// # Errors
     ///
     /// Returns [`ConeError::DimensionMismatch`] if cones have different dimensions.
@@ -541,6 +557,52 @@ mod tests {
 
         assert!((inter.apertures()[0] - 0.3).abs() < 1e-6);
         assert!((inter.apertures()[1] - 0.5).abs() < 1e-6);
+    }
+
+    /// Pins the approximation semantics documented on `intersection`: the
+    /// circular-mean + min-aperture heuristic is neither the true set
+    /// intersection nor a conservative superset of it. Two 1-D witnesses:
+    /// under-coverage (a point in both inputs falls outside the result) and
+    /// over-coverage (a point in the result falls outside one input). If this
+    /// test ever fails, the operator's semantics changed; update the doc note.
+    #[test]
+    fn intersection_is_heuristic_not_exact() {
+        // theta inside sector(axis, half-width ap) on the circle?
+        fn in_sector(cone: &NdarrayCone, theta: f32) -> bool {
+            let axis = cone.axes()[0];
+            let ap = cone.apertures()[0];
+            let mut d = (theta - axis).rem_euclid(2.0 * PI);
+            if d > PI {
+                d = 2.0 * PI - d;
+            }
+            d <= ap + 1e-6
+        }
+
+        // Under-coverage: wide A ([-1, 1]) and narrow off-axis B ([0.8, 1.0]).
+        // True intersection is [0.8, 1.0]; the heuristic returns axis 0.45,
+        // aperture 0.1 = [0.35, 0.55], which misses theta = 0.9.
+        let a = NdarrayCone::new(array![0.0], array![1.0]).unwrap();
+        let b = NdarrayCone::new(array![0.9], array![0.1]).unwrap();
+        let inter = a.intersection(&b).unwrap();
+        let theta = 0.9;
+        assert!(in_sector(&a, theta) && in_sector(&b, theta));
+        assert!(
+            !in_sector(&inter, theta),
+            "heuristic unexpectedly covered the shared point; semantics changed?"
+        );
+
+        // Over-coverage: A = [-0.5, 0.5], B = [0.1, 1.1]. True intersection is
+        // [0.1, 0.5]; the heuristic returns [-0.2, 0.8], which includes
+        // theta = -0.1, a point not in B at all.
+        let a = NdarrayCone::new(array![0.0], array![0.5]).unwrap();
+        let b = NdarrayCone::new(array![0.6], array![0.5]).unwrap();
+        let inter = a.intersection(&b).unwrap();
+        let theta = -0.1;
+        assert!(in_sector(&inter, theta));
+        assert!(
+            !in_sector(&b, theta),
+            "point should lie outside B; witness construction broken"
+        );
     }
 
     #[test]
