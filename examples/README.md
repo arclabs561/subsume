@@ -23,7 +23,11 @@
 | `el_benchmark_burn` | Burn backend version of the Box2EL benchmark; CPU via burn-ndarray or GPU via burn-wgpu |
 | `gene_ontology` | EL++ box embeddings on a Gene Ontology subset; full train/eval pipeline |
 | `geometry_comparison` | All 6 new geometry types (ball, cap, subspace, ellipsoid, transbox, annular) on a WordNet subset; side-by-side MRR/Hits@k/MeanRank |
+| `lattix_bridge` | Convert a `lattix::KnowledgeGraph` into a subsume `Dataset` |
+| `petgraph_adapter` | Convert a directed `petgraph` taxonomy into a subsume `Dataset` |
 | `region_generic` | Geometry-generic ranking through the `Region` trait; shows why scores are not cross-geometry calibrated |
+| `taxobell_box_uncertainty` | Propagate input uncertainty through a Burn TaxoBell encoder with `stableprop` and compare against Monte Carlo |
+| `taxobell_precinct` | Train TaxoBell Gaussian boxes, convert them to precinct `AxisBox` regions, and query them through `RegionIndex` |
 | `wn18rr_ball` | Ball embeddings (SpherE + RegD) on WN18RR; per-triple SGD with analytical gradients |
 | `wn18rr_ball_burn` | Batched ball training on WN18RR via burn-ndarray; InfoNCE loss (requires `--features burn-ndarray`) |
 | `wn18rr_transbox_burn` | Batched TransBox training on WN18RR via burn-ndarray |
@@ -72,6 +76,12 @@
 - **Want to compare region geometries behind one interface?**
   Start with `region_generic`.
 
+- **Want to move graph or ontology data into subsume?**
+  Use `petgraph_adapter` for in-process directed graphs or `lattix_bridge` for RDF-style knowledge graphs.
+
+- **Want to serve trained region embeddings?**
+  Start with `taxobell_precinct`, which indexes TaxoBell boxes in precinct.
+
 - **Want to understand cone query algebra (conjunction, disjunction, negation)?**
   Start with `cone_query_answering`.
 
@@ -99,7 +109,11 @@ cargo run -p subsume --example el_benchmark --release -- data/GALEN
 cargo run -p subsume --features burn-ndarray --example el_benchmark_burn --release
 cargo run -p subsume --example gene_ontology --release
 cargo run -p subsume --example geometry_comparison --release
+cargo run -p subsume --features kge --example lattix_bridge
+cargo run -p subsume --features petgraph --example petgraph_adapter
 cargo run -p subsume --example region_generic
+cargo run -p subsume --features burn-ndarray,kge --example taxobell_box_uncertainty --release
+cargo run -p subsume --features burn-ndarray,kge --example taxobell_precinct --release
 cargo run -p subsume --example wn18rr_ball --release
 cargo run -p subsume --features burn-ndarray --example wn18rr_ball_burn --release
 cargo run -p subsume --features burn-ndarray --example wn18rr_transbox_burn --release
