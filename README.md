@@ -219,6 +219,11 @@ let json = serde_json::to_string(&trainer)?;
 let restored: BoxEmbeddingTrainer = serde_json::from_str(&json)?;
 ```
 
+These APIs expose the trained values, but they do not yet write a multi-file
+artifact manifest with hashes, metrics, and schema/version metadata. Callers that
+publish embeddings should wrap the exported files in their own manifest until
+that exists in the crate.
+
 ## Integration patterns
 
 Convert from petgraph (when `petgraph` feature is enabled):
