@@ -233,9 +233,16 @@ impl FilteredTripleIndexIds {
 ///
 /// `score_fn(candidate_box) -> f32` returns a score (higher = more likely).
 /// Deterministic tie-break: among equal scores, lexicographically smaller entity id ranks first.
+///
+/// The `query` entity is excluded from the candidate pool. Containment is
+/// reflexive, so `containment_prob(query, query)` is ~1.0 (the maximum), which
+/// would rank the query above every true answer and deflate each held-out
+/// target's rank by one. The query is never the held-out answer for its own
+/// `(query, r, ?)` or `(?, r, query)` prediction, so excluding it is correct.
 fn rank_among_entities<B, F>(
     entity_boxes: &HashMap<String, B>,
     target: &str,
+    query: &str,
     score_fn: F,
     filter_known: Option<&HashSet<String>>,
 ) -> Result<usize, crate::BoxError>
@@ -257,7 +264,9 @@ where
     let mut better = 0usize;
     let mut tie_before = 0usize;
     for (entity, box_) in entity_boxes {
-        if entity == target {
+        // Exclude target (ranked separately) and the query itself: reflexive
+        // containment makes the query self-score maximally (see fn docs).
+        if entity == target || entity == query {
             continue;
         }
         let score = score_fn(box_)?;
@@ -278,7 +287,9 @@ where
         let mut filtered_better = 0usize;
         let mut filtered_tie_before = 0usize;
         for known_entity in known {
-            if known_entity == target {
+            // Skip target and query for the same reason as the main loop; the
+            // query was never counted in `better`, so it must not be subtracted.
+            if known_entity == target || known_entity == query {
                 continue;
             }
             let Some(box_) = entity_boxes.get(known_entity) else {
@@ -342,6 +353,7 @@ where
         let t_rank = rank_among_entities(
             entity_boxes,
             &triple.tail,
+            &triple.head,
             |candidate| head_box.containment_prob_fast(candidate),
             filter_tails,
         )?;
@@ -354,6 +366,7 @@ where
         let h_rank = rank_among_entities(
             entity_boxes,
             &triple.head,
+            &triple.tail,
             |candidate| candidate.containment_prob_fast(tail_box),
             filter_heads,
         )?;
@@ -439,10 +452,18 @@ pub(crate) enum ScoreDirection {
 ///
 /// - `Forward`: score = query_box.containment_prob(candidate) (tail prediction).
 /// - `Reverse`: score = candidate.containment_prob(query_box) (head prediction).
+///
+/// `query_id` (the entity whose box is `query_box`) is excluded from the
+/// candidate pool: reflexive containment makes it self-score maximally, and it
+/// is never the held-out answer for its own prediction (see `rank_among_entities`).
+// Internal ranking primitive: each argument is load-bearing (entity table,
+// vocab, target, query-to-exclude, direction, filter, reusable score buffer).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn rank_among_entities_interned<B>(
     entity_boxes: &[B],
     entities: &crate::dataset::Vocab,
     target_id: usize,
+    query_id: usize,
     query_box: &B,
     direction: &ScoreDirection,
     filter_known: Option<&HashSet<usize>>,
@@ -489,7 +510,7 @@ where
 
                 for (i, &score) in scores_buf[..len].iter().enumerate() {
                     let entity_id = start + i;
-                    if entity_id == target_id {
+                    if entity_id == target_id || entity_id == query_id {
                         continue;
                     }
                     if score.is_nan() {
@@ -516,7 +537,7 @@ where
         ScoreDirection::Reverse => {
             // Per-entity scoring: candidate.containment_prob_fast(query_box).
             for (entity_id, candidate) in entity_boxes.iter().enumerate() {
-                if entity_id == target_id {
+                if entity_id == target_id || entity_id == query_id {
                     continue;
                 }
                 let score = candidate.containment_prob_fast(query_box)?;
@@ -546,7 +567,7 @@ where
         let mut filtered_better = 0usize;
         let mut filtered_tie_before = 0usize;
         for &known_id in known {
-            if known_id == target_id {
+            if known_id == target_id || known_id == query_id {
                 continue;
             }
             let Some(box_) = entity_boxes.get(known_id) else {
@@ -802,6 +823,7 @@ where
             entity_boxes,
             entities,
             triple.tail,
+            triple.head,
             head_box,
             &ScoreDirection::Forward,
             filter_tails,
@@ -813,6 +835,7 @@ where
             entity_boxes,
             entities,
             triple.head,
+            triple.tail,
             tail_box,
             &ScoreDirection::Reverse,
             filter_heads,
@@ -864,6 +887,7 @@ pub(crate) fn evaluate_interned_with_transforms_inner(
                 entity_boxes,
                 entities,
                 triple.tail,
+                triple.head,
                 head_box,
                 &ScoreDirection::Forward,
                 filter_tails,
@@ -886,6 +910,7 @@ pub(crate) fn evaluate_interned_with_transforms_inner(
                 entity_boxes,
                 entities,
                 triple.head,
+                triple.tail,
                 tail_box,
                 &ScoreDirection::Reverse,
                 filter_heads,
@@ -1383,18 +1408,20 @@ mod tests {
 
         let results = evaluate_link_prediction(&test_triples, &entity_boxes).unwrap();
 
-        // B is contained in A; C is disjoint. A also contains itself (self-containment), so
-        // the tail ranking of "what is contained in A" places A at rank 1 and B at rank 2.
-        // C is clearly last. With 3 entities: tail rank = 2, giving tail_mrr = 0.5.
-        // head rank = 1 (only A contains B); head_mrr = 1.0.
-        assert!(
-            results.tail_mrr >= 0.5,
-            "tail_mrr should be >= 0.5 (B must rank <= 2, C is disjoint), got {}",
+        // B is the sole correct tail (contained in A); C is disjoint. The query
+        // entity A is excluded from its own candidate pool, so B ranks 1 -- not 2:
+        // the pre-fix eval left A's self-containment (P(A subset A) ~= 1) in the
+        // pool and deflated B to rank 2 / tail_mrr 0.5. head prediction ranks A
+        // first (only A contains B). Every true answer is rank 1.
+        assert_eq!(
+            results.tail_mrr, 1.0,
+            "tail_mrr must be 1.0: B is the only contained tail and the self-pair \
+             (A) must be excluded; got {} (0.5 means the self-pair artifact regressed)",
             results.tail_mrr
         );
-        assert!(
-            results.mean_rank <= 2.0,
-            "mean_rank should be <= 2.0, got {}",
+        assert_eq!(
+            results.mean_rank, 1.0,
+            "mean_rank must be 1.0 (both directions rank the true answer first), got {}",
             results.mean_rank
         );
     }
@@ -1507,16 +1534,17 @@ mod tests {
         }];
 
         let results = evaluate_link_prediction_interned(&test_triples, &boxes, &vocab).unwrap();
-        // B is contained in A; C is disjoint. A self-contains at rank 1, B at rank 2.
-        // tail_mrr = 0.5; head_mrr = 1.0 (only A contains B).
-        assert!(
-            results.tail_mrr >= 0.5,
-            "tail_mrr should be >= 0.5 (B must rank <= 2, C is disjoint), got {}",
+        // B is the sole contained tail; C disjoint. The query A is excluded from
+        // its own candidate pool, so B ranks 1 (pre-fix, A's self-containment sat
+        // at rank 1 and pushed B to 2 / tail_mrr 0.5 -- the self-pair artifact).
+        assert_eq!(
+            results.tail_mrr, 1.0,
+            "tail_mrr must be 1.0 with the self-pair excluded; got {} (0.5 == regressed)",
             results.tail_mrr
         );
-        assert!(
-            results.mean_rank <= 2.0,
-            "mean_rank should be <= 2.0, got {}",
+        assert_eq!(
+            results.mean_rank, 1.0,
+            "mean_rank must be 1.0, got {}",
             results.mean_rank
         );
     }
@@ -1569,6 +1597,71 @@ mod tests {
             "filtered rank ({}) should be <= unfiltered rank ({})",
             filtered.mean_rank,
             unfiltered.mean_rank
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "ndarray-backend")]
+    fn query_entity_excluded_from_own_candidate_pool() {
+        // Regression guard for the self-pair artifact: with reflexive containment
+        // P(q subset q) ~= 1, an un-excluded query entity self-scores maximally and
+        // steals rank 1 from the true target. The query must be filtered from its
+        // own (q, r, ?) / (?, r, q) candidate pool -- in the main loop AND the
+        // filtered-subtraction loop (else a query present in the filter set is
+        // subtracted without ever having been counted).
+        use crate::dataset::{TripleIds, Vocab};
+        use crate::ndarray_backend::NdarrayBox;
+        use ndarray::array;
+
+        let mut vocab = Vocab::default();
+        let parent = vocab.intern("parent".to_string()); // 0: big box (the query)
+        let child = vocab.intern("child".to_string()); //   1: contained (true tail)
+        let _far1 = vocab.intern("far1".to_string()); //    2: disjoint
+        let _far2 = vocab.intern("far2".to_string()); //    3: disjoint
+
+        // parent = [0,10]^2 contains child = [1,2]^2; far1/far2 disjoint. The only
+        // candidate that could outscore `child` for "contained in parent" is
+        // `parent` itself (self-containment = 1), so the guard is unambiguous.
+        let boxes = vec![
+            NdarrayBox::new(array![0.0, 0.0], array![10.0, 10.0], 1.0).unwrap(),
+            NdarrayBox::new(array![1.0, 1.0], array![2.0, 2.0], 1.0).unwrap(),
+            NdarrayBox::new(array![40.0, 40.0], array![41.0, 41.0], 1.0).unwrap(),
+            NdarrayBox::new(array![80.0, 80.0], array![81.0, 81.0], 1.0).unwrap(),
+        ];
+        let triples = vec![TripleIds {
+            head: parent,
+            relation: 0,
+            tail: child,
+        }];
+
+        let r = evaluate_link_prediction_interned(&triples, &boxes, &vocab).unwrap();
+        assert_eq!(
+            r.tail_mrr, 1.0,
+            "child is the sole contained tail; parent's self-pair must be excluded (got {})",
+            r.tail_mrr
+        );
+
+        // Same must hold when (parent, r, parent) is a known-true triple: the query
+        // is skipped in the filter loop too, so no double-subtraction / underflow.
+        let known = [
+            TripleIds {
+                head: parent,
+                relation: 0,
+                tail: parent,
+            },
+            TripleIds {
+                head: parent,
+                relation: 0,
+                tail: child,
+            },
+        ];
+        let filter = FilteredTripleIndexIds::from_triples(known.iter());
+        let rf =
+            evaluate_link_prediction_interned_filtered(&triples, &boxes, &vocab, &filter).unwrap();
+        assert_eq!(
+            rf.tail_mrr, 1.0,
+            "self-pair in the filter set must not cause under-subtraction (got {})",
+            rf.tail_mrr
         );
     }
 
