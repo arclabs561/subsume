@@ -21,6 +21,9 @@
 //! - `octagon_demo`: octagon embeddings with diagonal constraints (geometric + relational)
 //! - `containment_hierarchy`: box containment and overlap (basic geometry)
 
+// This example exercises a module deprecated in favor of the heyting crate.
+#![allow(deprecated)]
+
 use subsume::fuzzy::{fuzzy_negation, TConorm, TNorm};
 
 /// Simulate fuzzy membership scores for entities in a predicate.

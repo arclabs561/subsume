@@ -412,6 +412,7 @@ pub use cone_el::{
 // Re-exports: cone query operators
 #[cfg(feature = "ndarray-backend")]
 #[cfg_attr(docsrs, doc(cfg(feature = "ndarray-backend")))]
+#[allow(deprecated)]
 pub use cone_query::{cone_containment_score, ConeQuery};
 
 // ---------------------------------------------------------------------------

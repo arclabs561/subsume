@@ -43,6 +43,7 @@
 //! abstraction.
 
 use crate::box_trait::BoxError;
+#[cfg(feature = "ndarray-backend")]
 use crate::HyperBox;
 
 /// A geometric region that scores subsumption via containment.
@@ -69,6 +70,7 @@ pub trait Region: Sized {
 // prove other concrete `Region` types are not `HyperBox`), so each box type
 // implements `Region` explicitly via this macro. Using a distinct method name
 // (`subsumption_score`) also avoids colliding with `HyperBox::containment_prob`.
+#[cfg(feature = "ndarray-backend")]
 macro_rules! impl_region_via_hyperbox {
     ($ty:ty) => {
         impl Region for $ty {
@@ -82,7 +84,9 @@ macro_rules! impl_region_via_hyperbox {
     };
 }
 
+#[cfg(feature = "ndarray-backend")]
 impl_region_via_hyperbox!(crate::ndarray_backend::NdarrayBox);
+#[cfg(feature = "ndarray-backend")]
 impl_region_via_hyperbox!(crate::ndarray_backend::NdarrayGumbelBox);
 
 impl Region for crate::Ball {

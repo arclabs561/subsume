@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.14.1] - 2026-07-03
+
+### Deprecated
+
+- `cone_query::ConeQuery` / `cone_query::cone_containment_score` and the
+  `fuzzy` t-norm/t-conorm items: superseded by the geometry-generic query
+  engine and typed `Truth` algebras in the `heyting` crate. Removal planned
+  for the next breaking release; this crate stays the geometry layer.
+
+### Fixed
+
+- `--no-default-features` builds again (the `Region` impls for the ndarray
+  box backends are now feature-gated); CI gained a bare-build lane.
+
 ## [0.14.0] - 2026-06-28
 
 ### Added

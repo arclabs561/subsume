@@ -22,6 +22,9 @@
 //! - `fuzzy_query`: fuzzy query answering with t-norms (scalar domain)
 //! - `query2box`: compositional query answering with box intersection
 
+// This example exercises a module deprecated in favor of the heyting crate.
+#![allow(deprecated)]
+
 use ndarray::array;
 use subsume::cone_query::{cone_containment_score, ConeQuery};
 use subsume::fuzzy::TNorm;
