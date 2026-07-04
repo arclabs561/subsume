@@ -18,6 +18,22 @@
 //!
 //! Lines starting with `#` or empty lines are ignored.
 //!
+//! # Normal form numbering (differs from the EL embedding literature)
+//!
+//! This crate numbers the normal forms so that the atomic-subsumption form is
+//! NF2 and the conjunction form is NF1:
+//!
+//! - NF1: `C ⊓ D ⊑ E` (conjunction / `Intersection`)
+//! - NF2: `C ⊑ D` (atomic subsumption / `SubClassOf`)
+//! - NF3: `C ⊑ ∃R.D` (existential on the right / `ExistentialRight`)
+//! - NF4: `∃R.C ⊑ D` (existential on the left / `Existential`)
+//!
+//! The EL embedding literature (Box2EL, ELEm, ELBE) uses the *opposite* order
+//! for the first two: their NF1 is atomic subsumption and their NF2 is
+//! conjunction. So when comparing published per-normal-form numbers, our NF2
+//! corresponds to their NF1 and our NF1 to their NF2 (NF3/NF4 match). Comparing
+//! same-labelled rows across the two conventions compares different forms.
+//!
 //! # Example
 //!
 //! ```text
