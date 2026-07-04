@@ -40,7 +40,9 @@ ndarray = { version = "0.16", features = ["serde-1"], optional = true }
 serde_json = { version = "1.0", optional = true }
 petgraph = { version = "0.7", optional = true }
 rankops = { version = "0.1.4", optional = true }
-lattix = { version = "0.6", default-features = false, features = ["kge"], optional = true }
+lattix = { version = "0.6", default-features = false, features = [
+  "kge",
+], optional = true }
 burn = { version = "0.20", features = ["autodiff"], optional = true }
 burn-ndarray = { version = "0.20", features = ["rayon"], optional = true }
 burn-wgpu = { version = "0.20", optional = true }
@@ -114,6 +116,18 @@ required-features = ["burn-ndarray", "kge"]
 
 [[example]]
 name = "wn18rr_transbox_burn"
+required-features = ["burn-ndarray", "kge"]
+
+[[example]]
+name = "wn18rr_box_burn"
+required-features = ["burn-ndarray", "kge"]
+
+[[example]]
+name = "wn18rr_cone_burn"
+required-features = ["burn-ndarray", "kge"]
+
+[[example]]
+name = "wn18rr_geometry_comparison_burn"
 required-features = ["burn-ndarray", "kge"]
 
 [[example]]
