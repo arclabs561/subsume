@@ -30,7 +30,7 @@ use std::time::Instant;
 use subsume::dataset::load_dataset;
 use subsume::trainer::{
     BurnBallTrainer, BurnBoxTrainer, BurnCapTrainer, BurnConeTrainer, BurnEllipsoidTrainer,
-    BurnTransBoxTrainer, CpuBoxTrainingConfig, FilteredTripleIndexIds,
+    BurnOctagonTrainer, BurnTransBoxTrainer, CpuBoxTrainingConfig, FilteredTripleIndexIds,
 };
 
 #[cfg(feature = "burn-wgpu")]
@@ -62,12 +62,15 @@ fn env_bool(key: &str, default: bool) -> bool {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let data_path = Path::new("data/WN18RR");
+    // DATA points at any WN18RR-format dataset dir (default the full WN18RR).
+    // e.g. DATA=data/WN18RR_hypernym for the hypernym-only containment subset.
+    let data_dir = std::env::var("DATA").unwrap_or_else(|_| "data/WN18RR".to_string());
+    let data_path = Path::new(&data_dir);
     if !data_path.exists() {
-        eprintln!("WN18RR data not found at data/WN18RR/");
-        eprintln!("Run: python3 scripts/download_wn18rr.py");
+        eprintln!("Dataset not found at {data_dir}/ (set DATA=<path>)");
         std::process::exit(1);
     }
+    println!("Dataset dir: {data_dir}");
 
     let dataset = load_dataset(data_path)?;
     let interned = dataset.into_interned();
@@ -143,6 +146,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         run_geom!("transbox", BurnTransBoxTrainer::<Backend>),
         run_geom!("cap", BurnCapTrainer::<Backend>),
         run_geom!("ellipsoid", BurnEllipsoidTrainer::<Backend>),
+        run_geom!("octagon", BurnOctagonTrainer::<Backend>),
     ];
     // Note: annular (2D angular, no `dim`) and subspace (relation-free) have
     // different init signatures and are compared separately, not here.

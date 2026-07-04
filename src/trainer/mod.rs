@@ -70,6 +70,13 @@ pub mod burn_el_trainer;
     doc(cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge")))
 )]
 pub mod burn_ellipsoid_trainer;
+/// Burn-based relation-aware octagon trainer with autodiff (multi-backend: ndarray/wgpu/tch).
+#[cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge"))]
+#[cfg_attr(
+    docsrs,
+    doc(cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge")))
+)]
+pub mod burn_octagon_trainer;
 /// Burn-based subspace trainer with autodiff (multi-backend: ndarray/wgpu/tch).
 #[cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge"))]
 #[cfg_attr(
@@ -687,6 +694,14 @@ pub use burn_cone_trainer::BurnConeTrainer;
     doc(cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge")))
 )]
 pub use burn_ellipsoid_trainer::BurnEllipsoidTrainer;
+
+// Burn octagon trainer
+#[cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge"))]
+#[cfg_attr(
+    docsrs,
+    doc(cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge")))
+)]
+pub use burn_octagon_trainer::BurnOctagonTrainer;
 
 // Burn subspace trainer
 #[cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge"))]
