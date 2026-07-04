@@ -51,6 +51,9 @@ use std::collections::HashMap;
 
 /// `ln(1e-8)` — lower clamp on `ln P` (matches the CPU trainer's `P.clamp(1e-8, 1)`).
 const LN_MIN_PROB: f64 = -18.420_681;
+/// Initial weight of the center-attraction bootstrap term, linearly annealed to
+/// zero over training. See [`BurnBoxTrainer::batch_loss`] for why it exists.
+const CENTER_ATTRACTION_INIT: f64 = 0.3;
 
 // ---------------------------------------------------------------------------
 // Numerically stable softplus
@@ -253,6 +256,10 @@ impl<B: AutodiffBackend> BurnBoxTrainer<B> {
             }
 
             let current_model = model.clone();
+            // Anneal the center-attraction bootstrap to zero across training so
+            // the converged objective is pure containment (matches the eval).
+            let center_weight = CENTER_ATTRACTION_INIT
+                * (1.0 - epoch as f64 / config.epochs.max(1) as f64).max(0.0);
             let loss = self.batch_loss(
                 &current_model,
                 &head_vec,
@@ -260,6 +267,7 @@ impl<B: AutodiffBackend> BurnBoxTrainer<B> {
                 &tail_vec,
                 &neg_flat,
                 n_neg,
+                center_weight,
                 config,
                 device,
             );
@@ -298,6 +306,7 @@ impl<B: AutodiffBackend> BurnBoxTrainer<B> {
         tail_vec: &[i64],
         neg_tail_flat: &[i64],
         n_neg: usize,
+        center_weight: f64,
         config: &CpuBoxTrainingConfig,
         device: &B::Device,
     ) -> Tensor<B, 1> {
@@ -320,9 +329,18 @@ impl<B: AutodiffBackend> BurnBoxTrainer<B> {
             .select(0, rel_ids.clone());
         let h_min = h_min0.clone() + h_trans.clone();
         let t_min = t_min0.clone() + t_trans.clone();
+        // Center-attraction bootstrap: the containment-volume gradient vanishes for
+        // disjoint boxes (generic in high dim), so blend a center-distance term into
+        // the ranked score. Autodiff derives its gradient (the burn-native form of
+        // the CPU trainer's analytical center-attraction surrogate); `center_weight`
+        // is annealed to zero, so the converged score is pure containment.
+        let h_center = h_min.clone() + h_width.clone().mul_scalar(0.5);
+        let t_center = t_min.clone() + t_width.clone().mul_scalar(0.5);
+        let pos_dist2 = (h_center - t_center).powf_scalar(2.0).sum_dim(1); // [bs, 1]
         let (lvi, _lv_parent, lv_child) =
             box_logvols(h_min, h_width.clone(), t_min, t_width.clone(), beta);
         let pos_lnp = (lvi - lv_child).clamp(LN_MIN_PROB, 0.0); // [bs, 1]
+        let pos_score = pos_lnp - pos_dist2.mul_scalar(center_weight); // [bs, 1]
 
         // ---- Negative log-containment for corrupted tails ----
         let head_rep: Vec<i64> = head_vec
@@ -343,24 +361,26 @@ impl<B: AutodiffBackend> BurnBoxTrainer<B> {
         let nt_trans = model.relations.tail_translation.val().select(0, rr_ids);
         let hr_min = hr_min0 + hr_trans;
         let nt_min = nt_min0 + nt_trans;
+        let hr_center = hr_min.clone() + hr_width.clone().mul_scalar(0.5);
+        let nt_center = nt_min.clone() + nt_width.clone().mul_scalar(0.5);
+        let neg_dist2 = (hr_center - nt_center).powf_scalar(2.0).sum_dim(1); // [bs*n_neg, 1]
         let (nlvi, _nlv_parent, nlv_child) = box_logvols(hr_min, hr_width, nt_min, nt_width, beta);
-        let neg_lnp = (nlvi - nlv_child)
-            .clamp(LN_MIN_PROB, 0.0)
-            .reshape([bs, n_neg]); // [bs, n_neg]
+        let neg_lnp = (nlvi - nlv_child).clamp(LN_MIN_PROB, 0.0); // [bs*n_neg, 1]
+        let neg_score = (neg_lnp - neg_dist2.mul_scalar(center_weight)).reshape([bs, n_neg]); // [bs, n_neg]
 
         let ranking = if config.use_infonce {
             // InfoNCE: cross-entropy over the (1 + n_neg)-way softmax on scores.
-            let logits = Tensor::cat(vec![pos_lnp.clone(), neg_lnp], 1).mul_scalar(k); // [bs, 1+n]
+            let logits = Tensor::cat(vec![pos_score.clone(), neg_score], 1).mul_scalar(k); // [bs, 1+n]
             let max_logit = logits.clone().max_dim(1);
             let lse = (logits - max_logit.clone()).exp().sum_dim(1).log() + max_logit;
-            (lse - pos_lnp.mul_scalar(k)).mean()
+            (lse - pos_score.mul_scalar(k)).mean()
         } else {
-            // Margin ranking loss on the log-containment scores.
-            let pos_loss = sigmoid(pos_lnp.mul_scalar(k))
+            // Margin ranking loss on the (containment + center-attraction) scores.
+            let pos_loss = sigmoid(pos_score.mul_scalar(k))
                 .clamp(1e-6, 1.0 - 1e-6)
                 .log()
                 .neg(); // [bs,1]
-            let neg_loss_2d = sigmoid(neg_lnp.mul_scalar(k))
+            let neg_loss_2d = sigmoid(neg_score.mul_scalar(k))
                 .clamp(1e-6, 1.0 - 1e-6)
                 .log()
                 .neg(); // [bs, n_neg]
@@ -617,6 +637,7 @@ mod tests {
             &[1i64, 3],
             &[2i64, 4],
             1,
+            0.1,
             &config,
             &device,
         );
