@@ -10,6 +10,9 @@
 //! - Zhang et al. (NeurIPS 2021), "ConE: Cone Embeddings for Multi-Hop Reasoning"
 //! - Chen et al. (AAAI 2022), "FuzzQE: Fuzzy Logic Based Logical Query Answering"
 
+// The module is deprecated crate-externally; its own internals are exempt.
+#![allow(deprecated)]
+
 use crate::cone::ConeError;
 use crate::ndarray_backend::NdarrayCone;
 
@@ -17,6 +20,10 @@ use crate::ndarray_backend::NdarrayCone;
 ///
 /// Queries form a tree that evaluates bottom-up to produce [`NdarrayCone`] results.
 #[derive(Debug, Clone)]
+#[deprecated(
+    since = "0.14.1",
+    note = "superseded by the geometry-generic query engine in the heyting crate; removal planned for the next breaking release"
+)]
 pub enum ConeQuery {
     /// A leaf node: a single cone (entity or concept embedding).
     Atom(NdarrayCone),
@@ -188,6 +195,10 @@ impl ConeQuery {
 ///
 /// Uses sigmoid: `score = 1 / (1 + exp(gamma * distance))`.
 /// Bridges cone distances to the [`fuzzy`](crate::fuzzy) module.
+#[deprecated(
+    since = "0.14.1",
+    note = "superseded by the geometry-generic query engine in the heyting crate; removal planned for the next breaking release"
+)]
 pub fn cone_containment_score(
     query: &NdarrayCone,
     entity: &NdarrayCone,

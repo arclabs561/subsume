@@ -22,6 +22,8 @@ jobs:
 
       - name: Clippy
         run: cargo clippy --features "ndarray-backend,rand,sheaf,rankops,petgraph,kge,spherical,density" --lib --tests --examples -- -Dwarnings
+      - name: bare build (no default features)
+        run: cargo check --no-default-features
 
       - name: Build
         run: cargo build --features "ndarray-backend,rand,sheaf,rankops,petgraph"

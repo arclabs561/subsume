@@ -45,15 +45,26 @@
 //! assert!((lhs - rhs).abs() < 1e-6);
 //! ```
 
+// The module is deprecated crate-externally; its own internals are exempt.
+#![allow(deprecated)]
+
 /// Standard fuzzy negation: `1 - a`.
 #[inline]
 #[must_use]
+#[deprecated(
+    since = "0.14.1",
+    note = "superseded by the typed Truth algebras in the heyting crate; removal planned for the next breaking release"
+)]
 pub fn fuzzy_negation(a: f32) -> f32 {
     1.0 - a
 }
 
 /// A triangular norm (t-norm) for fuzzy intersection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[deprecated(
+    since = "0.14.1",
+    note = "superseded by the typed Truth algebras in the heyting crate; removal planned for the next breaking release"
+)]
 pub enum TNorm {
     /// Godel t-norm: `min(a, b)`.
     Min,
@@ -89,6 +100,10 @@ impl TNorm {
 
 /// A triangular conorm (t-conorm) for fuzzy union.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[deprecated(
+    since = "0.14.1",
+    note = "superseded by the typed Truth algebras in the heyting crate; removal planned for the next breaking release"
+)]
 pub enum TConorm {
     /// Godel t-conorm: `max(a, b)`.
     Max,
