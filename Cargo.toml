@@ -136,6 +136,10 @@ required-features = ["burn-ndarray"]
 # burn-wgpu also works: cargo run --features "burn-ndarray,burn-wgpu" prefers wgpu via cfg
 
 [[example]]
+name = "el_clqa_trained"
+required-features = ["burn-ndarray"]
+
+[[example]]
 name = "geometry_comparison"
 required-features = ["kge"]
 
