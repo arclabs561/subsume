@@ -809,6 +809,10 @@ impl<B: AutodiffBackend> BurnElTrainer<B> {
         }
 
         let eval_nf2 = evaluate_nf2(&centers, nc, dim, &nf2_test);
+        // Diagnostic: NF2 ranked by box INCLUSION (uses offsets, the directional
+        // containment the model trains on) vs the center-distance default above,
+        // which discards the offsets.
+        let eval_nf2_inc = evaluate_nf2_inclusion(&centers, &offsets, nc, dim, 0.0, &nf2_test);
         let eval_nf1 = evaluate_nf1(&centers, &offsets, nc, dim, &nf1_test);
         let eval_nf3 = evaluate_nf3(
             &centers,
@@ -834,6 +838,7 @@ impl<B: AutodiffBackend> BurnElTrainer<B> {
         eprintln!("  +---------+-----------------------------+");
         for (label, m) in [
             ("NF2", eval_nf2),
+            ("NF2-inc", eval_nf2_inc),
             ("NF1", eval_nf1),
             ("NF3", eval_nf3),
             ("NF4", eval_nf4),
@@ -1045,6 +1050,54 @@ fn evaluate_nf2(
         }
         let query = &centers[sub * dim..(sub + 1) * dim];
         let (rank, _) = l2_rank(query, centers, nc, dim, sup, &[sub]);
+        ranks.push(rank);
+    }
+    metrics_from_ranks(&ranks)
+}
+
+/// NF2 evaluation by box INCLUSION rather than center-distance. Ranks the true
+/// superclass `sup` by how well `sub`'s box fits inside each candidate's box,
+/// using the offsets (the directional containment the model trains on via
+/// `inclusion_loss`), which the default `evaluate_nf2` discards. Diagnostic for
+/// whether the center-distance metric, not the model, limits NF2.
+fn evaluate_nf2_inclusion(
+    centers: &[f32],
+    offsets: &[f32],
+    nc: usize,
+    dim: usize,
+    margin: f32,
+    test_axioms: &[(usize, usize)],
+) -> (f32, f32, f32) {
+    // Inclusion "loss" of `sub` inside `cand`: sqrt(sum relu(|dc| + o_sub - o_cand - margin)^2).
+    // Lower = better containment; mirrors `inclusion_loss`.
+    let incl = |sub: usize, cand: usize| -> f32 {
+        let so = sub * dim;
+        let co = cand * dim;
+        let mut acc = 1e-8f32;
+        for i in 0..dim {
+            let v = ((centers[so + i] - centers[co + i]).abs() + offsets[so + i]
+                - offsets[co + i]
+                - margin)
+                .max(0.0);
+            acc += v * v;
+        }
+        acc.sqrt()
+    };
+    let mut ranks = Vec::with_capacity(test_axioms.len());
+    for &(sub, sup) in test_axioms {
+        if sub >= nc || sup >= nc {
+            continue;
+        }
+        let target = incl(sub, sup);
+        let mut rank = 1usize;
+        for c in 0..nc {
+            if c == sub {
+                continue;
+            }
+            if incl(sub, c) < target {
+                rank += 1;
+            }
+        }
         ranks.push(rank);
     }
     metrics_from_ranks(&ranks)
