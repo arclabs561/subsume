@@ -38,6 +38,13 @@ pub mod burn_annular_trainer;
     doc(cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge")))
 )]
 pub mod burn_ball_trainer;
+/// Burn-based hard-box subsumption trainer with autodiff (multi-backend: ndarray/wgpu/tch).
+#[cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge"))]
+#[cfg_attr(
+    docsrs,
+    doc(cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge")))
+)]
+pub mod burn_box_trainer;
 /// Burn-based spherical cap trainer with autodiff (multi-backend: ndarray/wgpu/tch).
 #[cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge"))]
 #[cfg_attr(
@@ -45,6 +52,13 @@ pub mod burn_ball_trainer;
     doc(cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge")))
 )]
 pub mod burn_cap_trainer;
+/// Burn-based cone (ConE) subsumption trainer with autodiff (multi-backend: ndarray/wgpu/tch).
+#[cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge"))]
+#[cfg_attr(
+    docsrs,
+    doc(cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge")))
+)]
+pub mod burn_cone_trainer;
 /// Burn-based EL++ ontology embedding trainer with autodiff (multi-backend: ndarray/wgpu/tch).
 #[cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))]
 #[cfg_attr(docsrs, doc(cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))))]
@@ -649,6 +663,22 @@ pub use burn_ball_trainer::BurnBallTrainer;
     doc(cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge")))
 )]
 pub use burn_cap_trainer::BurnCapTrainer;
+
+// Burn box trainer
+#[cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge"))]
+#[cfg_attr(
+    docsrs,
+    doc(cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge")))
+)]
+pub use burn_box_trainer::BurnBoxTrainer;
+
+// Burn cone trainer
+#[cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge"))]
+#[cfg_attr(
+    docsrs,
+    doc(cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge")))
+)]
+pub use burn_cone_trainer::BurnConeTrainer;
 
 // Burn ellipsoid trainer
 #[cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge"))]
