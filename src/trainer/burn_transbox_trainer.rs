@@ -108,9 +108,25 @@ impl<B: AutodiffBackend> BurnTransBoxTrainer<B> {
                     .require_grad(),
             )
         };
+        // L2-normalized init spreads entity centers on the unit sphere (matches
+        // Box2EL / the specialized EL trainer; mandatory for box-family init).
+        let l2_param = |shape: [usize; 2]| {
+            let raw = Tensor::<B, 2>::random(
+                shape,
+                burn::tensor::Distribution::Uniform(-1.0, 1.0),
+                device,
+            );
+            let norm = raw
+                .clone()
+                .powf_scalar(2.0)
+                .sum_dim(1)
+                .clamp_min(1e-8)
+                .sqrt();
+            Param::initialized(ParamId::new(), (raw / norm).require_grad())
+        };
         BurnTransBoxModel {
             entities: BurnTransBoxEntityParams {
-                center: param([num_entities, dim], -0.1, 0.1),
+                center: l2_param([num_entities, dim]),
                 // Initialise offsets positive so abs() is a near-identity at start.
                 raw_offset: param([num_entities, dim], 0.5, 2.0),
             },

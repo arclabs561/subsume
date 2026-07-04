@@ -170,10 +170,27 @@ impl<B: AutodiffBackend> BurnBoxTrainer<B> {
                     .require_grad(),
             )
         };
+        // L2-normalized init spreads box corners on the unit sphere instead of
+        // clustering them near the origin (matches Box2EL / the specialized EL
+        // trainer; mandatory-for-box-family init per subsume's docs).
+        let l2_param = |shape: [usize; 2]| {
+            let raw = Tensor::<B, 2>::random(
+                shape,
+                burn::tensor::Distribution::Uniform(-1.0, 1.0),
+                device,
+            );
+            let norm = raw
+                .clone()
+                .powf_scalar(2.0)
+                .sum_dim(1)
+                .clamp_min(1e-8)
+                .sqrt();
+            Param::initialized(ParamId::new(), (raw / norm).require_grad())
+        };
         let n_rel = num_relations.max(1);
         BurnBoxModel {
             entities: BurnBoxEntityParams {
-                min: param([num_entities, dim], -0.1, 0.1),
+                min: l2_param([num_entities, dim]),
                 raw_delta: param([num_entities, dim], 0.5, 2.0),
             },
             relations: BurnBoxRelationParams {
