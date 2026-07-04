@@ -220,23 +220,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Evaluate on test set.
     if let Some(ref ont) = test_ont {
         println!("=== Evaluation (test set) ===");
+        // Filtered-protocol support: all known-true (sub, sup) subsumptions
+        // from train + test, in the shared vocab. Passed to evaluate() so NF2
+        // also reports filtered ranks (Box2EL/DELE), which removes
+        // correct-but-not-target answers from the candidate pool.
+        let mut known_nf2: std::collections::HashSet<(usize, usize)> =
+            std::collections::HashSet::new();
+        for ax in train_ont.axioms.iter().chain(ont.axioms.iter()) {
+            if let subsume::el_training::Axiom::SubClassOf { sub, sup } = *ax {
+                known_nf2.insert((sub, sup));
+            }
+        }
+
         let eval_start = Instant::now();
         let (nf2, nf1, nf3, nf4) =
-            BurnElTrainer::<TrainBackend>::evaluate(&model, ont, dim, &device);
+            BurnElTrainer::<TrainBackend>::evaluate(&model, ont, dim, &device, Some(&known_nf2));
         println!(
             "Evaluation time: {:.1}s\n",
             eval_start.elapsed().as_secs_f64()
         );
 
-        println!("{:<12} {:>8} {:>8} {:>8}", "NF type", "H@1", "H@10", "MRR");
-        println!("{}", "-".repeat(40));
+        // Full Box2EL/DELE metric suite. H@100 and AUC are the "usable" metrics
+        // that MRR alone hides on hard atomic subsumption; the evaluate() call
+        // above prints the per-NF table (raw + filtered NF2) to stderr.
+        println!(
+            "{:<12} {:>7} {:>7} {:>7} {:>8} {:>7} {:>6}",
+            "NF type", "H@1", "H@10", "H@100", "MRR", "MR", "AUC"
+        );
+        println!("{}", "-".repeat(58));
         for (label, m) in [
             ("NF2 (C⊑D)", nf2),
             ("NF1 (C⊓C⊑D)", nf1),
             ("NF3 (C⊑∃r.D)", nf3),
             ("NF4 (∃r.C⊑D)", nf4),
         ] {
-            println!("{:<12} {:>8.4} {:>8.4} {:>8.4}", label, m.0, m.1, m.2);
+            println!(
+                "{:<12} {:>7.4} {:>7.4} {:>7.4} {:>8.4} {:>7.0} {:>6.3}",
+                label, m.h1, m.h10, m.h100, m.mrr, m.mean_rank, m.auc
+            );
         }
     }
 

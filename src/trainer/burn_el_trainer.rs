@@ -31,6 +31,7 @@ use burn::module::{Param, ParamId};
 use burn::optim::{GradientsParams, Optimizer};
 use burn::prelude::*;
 use burn::tensor::backend::AutodiffBackend;
+use std::collections::HashSet;
 
 // ---------------------------------------------------------------------------
 // Model
@@ -768,17 +769,17 @@ impl<B: AutodiffBackend> BurnElTrainer<B> {
     ///
     /// Returns `(nf2, nf1, nf3, nf4)` where each is `(h@1, h@10, mrr)`.
     #[allow(clippy::type_complexity)]
+    /// Evaluate all four normal forms and print the full Box2EL/DELE metric
+    /// suite. When `known_nf2` is supplied (all known-true `(sub, sup)`
+    /// subsumptions, train + test), NF2 also reports filtered ranks; otherwise
+    /// only raw. Returns the raw `(NF2, NF1, NF3, NF4)` metrics.
     pub fn evaluate(
         model: &BurnElModel<B>,
         ontology: &Ontology,
         dim: usize,
         device: &B::Device,
-    ) -> (
-        (f32, f32, f32),
-        (f32, f32, f32),
-        (f32, f32, f32),
-        (f32, f32, f32),
-    ) {
+        known_nf2: Option<&HashSet<(usize, usize)>>,
+    ) -> (ElMetrics, ElMetrics, ElMetrics, ElMetrics) {
         let centers = extract_2d(model.concept_centers.val(), device);
         let offsets = extract_2d(model.concept_offsets.val().abs(), device);
         let bump_vecs = extract_2d(model.bumps.val(), device);
@@ -808,11 +809,21 @@ impl<B: AutodiffBackend> BurnElTrainer<B> {
             }
         }
 
-        let eval_nf2 = evaluate_nf2(&centers, nc, dim, &nf2_test);
+        let eval_nf2 = evaluate_nf2(&centers, nc, dim, &nf2_test, None);
         // Diagnostic: NF2 ranked by box INCLUSION (uses offsets, the directional
         // containment the model trains on) vs the center-distance default above,
         // which discards the offsets.
-        let eval_nf2_inc = evaluate_nf2_inclusion(&centers, &offsets, nc, dim, 0.0, &nf2_test);
+        let eval_nf2_inc =
+            evaluate_nf2_inclusion(&centers, &offsets, nc, dim, 0.0, &nf2_test, None);
+        // Filtered NF2 (Box2EL/DELE protocol): only when the known-true set is
+        // supplied. Filtering removes correct-but-not-target superclasses from
+        // the pool, lifting the metric substantially (raw H@10 0.11 -> 0.33 in
+        // Box2EL Table 5).
+        let eval_nf2_filt =
+            known_nf2.map(|kt| evaluate_nf2(&centers, nc, dim, &nf2_test, Some(kt)));
+        let eval_nf2_inc_filt = known_nf2.map(|kt| {
+            evaluate_nf2_inclusion(&centers, &offsets, nc, dim, 0.0, &nf2_test, Some(kt))
+        });
         let eval_nf1 = evaluate_nf1(&centers, &offsets, nc, dim, &nf1_test);
         let eval_nf3 = evaluate_nf3(
             &centers,
@@ -833,22 +844,26 @@ impl<B: AutodiffBackend> BurnElTrainer<B> {
             &nf4_test,
         );
 
-        eprintln!("  +---------+-----------------------------+");
-        eprintln!("  |  NF     |  H@1     H@10     MRR       |");
-        eprintln!("  +---------+-----------------------------+");
-        for (label, m) in [
-            ("NF2", eval_nf2),
-            ("NF2-inc", eval_nf2_inc),
-            ("NF1", eval_nf1),
-            ("NF3", eval_nf3),
-            ("NF4", eval_nf4),
-        ] {
+        eprintln!(
+            "  {:<9} {:>6} {:>6} {:>6} {:>7} {:>7} {:>7} {:>6}",
+            "NF", "H@1", "H@10", "H@100", "MRR", "MedR", "MR", "AUC"
+        );
+        let mut rows: Vec<(&str, ElMetrics)> = vec![("NF2", eval_nf2), ("NF2-inc", eval_nf2_inc)];
+        if let Some(m) = eval_nf2_filt {
+            rows.push(("NF2 (F)", m));
+        }
+        if let Some(m) = eval_nf2_inc_filt {
+            rows.push(("NF2-inc(F)", m));
+        }
+        rows.push(("NF1", eval_nf1));
+        rows.push(("NF3", eval_nf3));
+        rows.push(("NF4", eval_nf4));
+        for (label, m) in rows {
             eprintln!(
-                "  | {label:<7} | {:.3}    {:.3}    {:.4}    |",
-                m.0, m.1, m.2,
+                "  {:<9} {:>6.3} {:>6.3} {:>6.3} {:>7.4} {:>7.0} {:>7.0} {:>6.3}",
+                label, m.h1, m.h10, m.h100, m.mrr, m.median_rank, m.mean_rank, m.auc
             );
         }
-        eprintln!("  +---------+-----------------------------+");
 
         (eval_nf2, eval_nf1, eval_nf3, eval_nf4)
     }
@@ -1026,15 +1041,76 @@ fn l2_rank(
     (rank, target_dist_sq.sqrt())
 }
 
-fn metrics_from_ranks(ranks: &[usize]) -> (f32, f32, f32) {
+/// Full Box2EL/DELE metric suite for one normal form. `h1`/`h10`/`h100` are
+/// Hits@k; `mrr` is mean reciprocal rank; `mean_rank`/`median_rank` are the
+/// raw and robust central rank; `auc` is the area under the ROC curve (the
+/// fraction of candidates ranked strictly below the true answer, averaged over
+/// queries). Reporting the full suite surfaces the "usable" metrics (H@100,
+/// AUC) that MRR alone hides: on atomic subsumption, MRR ~0.1 coexists with
+/// H@100 ~0.5 and AUC ~0.85 (Box2EL, Jackermeier et al. 2024, Table 2).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ElMetrics {
+    /// Hits@1: fraction of queries where the true answer is ranked first.
+    pub h1: f32,
+    /// Hits@10: fraction ranked in the top 10.
+    pub h10: f32,
+    /// Hits@100: fraction ranked in the top 100.
+    pub h100: f32,
+    /// Mean reciprocal rank.
+    pub mrr: f32,
+    /// Mean rank of the true answer.
+    pub mean_rank: f32,
+    /// Median rank of the true answer (robust to tail outliers).
+    pub median_rank: f32,
+    /// Area under the ROC curve: mean fraction of candidates ranked strictly
+    /// below the true answer.
+    pub auc: f32,
+    /// Number of scored queries.
+    pub n: usize,
+}
+
+/// Compute the full metric suite from per-query ranks. `n_candidates` is the
+/// candidate-pool size (concepts ranked over), used for AUC. Filtered pools
+/// shrink slightly per query; `n_candidates` is the unfiltered pool, so AUC is
+/// a mild lower bound under filtering (exclusions are few per query).
+fn metrics_from_ranks(ranks: &[usize], n_candidates: usize) -> ElMetrics {
     if ranks.is_empty() {
-        return (0.0, 0.0, 0.0);
+        return ElMetrics::default();
     }
     let n = ranks.len() as f32;
     let h1 = ranks.iter().filter(|&&r| r == 1).count() as f32 / n;
     let h10 = ranks.iter().filter(|&&r| r <= 10).count() as f32 / n;
+    let h100 = ranks.iter().filter(|&&r| r <= 100).count() as f32 / n;
     let mrr: f32 = ranks.iter().map(|&r| 1.0 / r as f32).sum::<f32>() / n;
-    (h1, h10, mrr)
+    let mean_rank = ranks.iter().map(|&r| r as f32).sum::<f32>() / n;
+    let median_rank = {
+        let mut sorted: Vec<usize> = ranks.to_vec();
+        sorted.sort_unstable();
+        let m = sorted.len() / 2;
+        if sorted.len() % 2 == 1 {
+            sorted[m] as f32
+        } else {
+            (sorted[m - 1] + sorted[m]) as f32 / 2.0
+        }
+    };
+    // AUC = mean over queries of (n_candidates - rank) / (n_candidates - 1):
+    // the fraction of candidates the model ranks strictly worse than the truth.
+    let denom = (n_candidates.max(2) - 1) as f32;
+    let auc = ranks
+        .iter()
+        .map(|&r| n_candidates.saturating_sub(r) as f32 / denom)
+        .sum::<f32>()
+        / n;
+    ElMetrics {
+        h1,
+        h10,
+        h100,
+        mrr,
+        mean_rank,
+        median_rank,
+        auc,
+        n: ranks.len(),
+    }
 }
 
 fn evaluate_nf2(
@@ -1042,17 +1118,31 @@ fn evaluate_nf2(
     nc: usize,
     dim: usize,
     test_axioms: &[(usize, usize)],
-) -> (f32, f32, f32) {
+    known_true: Option<&HashSet<(usize, usize)>>,
+) -> ElMetrics {
     let mut ranks = Vec::with_capacity(test_axioms.len());
+    let mut exclude: Vec<usize> = Vec::new();
     for &(sub, sup) in test_axioms {
         if sub >= nc || sup >= nc {
             continue;
         }
+        // Filtered protocol (Box2EL/DELE): remove other known-true superclasses
+        // of `sub` from the candidate pool so the model isn't penalised for
+        // ranking a genuinely-correct-but-not-the-target answer above the target.
+        exclude.clear();
+        exclude.push(sub);
+        if let Some(kt) = known_true {
+            for c in 0..nc {
+                if c != sup && kt.contains(&(sub, c)) {
+                    exclude.push(c);
+                }
+            }
+        }
         let query = &centers[sub * dim..(sub + 1) * dim];
-        let (rank, _) = l2_rank(query, centers, nc, dim, sup, &[sub]);
+        let (rank, _) = l2_rank(query, centers, nc, dim, sup, &exclude);
         ranks.push(rank);
     }
-    metrics_from_ranks(&ranks)
+    metrics_from_ranks(&ranks, nc)
 }
 
 /// NF2 evaluation by box INCLUSION rather than center-distance. Ranks the true
@@ -1067,7 +1157,8 @@ fn evaluate_nf2_inclusion(
     dim: usize,
     margin: f32,
     test_axioms: &[(usize, usize)],
-) -> (f32, f32, f32) {
+    known_true: Option<&HashSet<(usize, usize)>>,
+) -> ElMetrics {
     // Inclusion "loss" of `sub` inside `cand`: sqrt(sum relu(|dc| + o_sub - o_cand - margin)^2).
     // Lower = better containment; mirrors `inclusion_loss`.
     let incl = |sub: usize, cand: usize| -> f32 {
@@ -1091,8 +1182,14 @@ fn evaluate_nf2_inclusion(
         let target = incl(sub, sup);
         let mut rank = 1usize;
         for c in 0..nc {
-            if c == sub {
+            if c == sub || c == sup {
                 continue;
+            }
+            // Filtered: skip other known-true superclasses of `sub`.
+            if let Some(kt) = known_true {
+                if kt.contains(&(sub, c)) {
+                    continue;
+                }
             }
             if incl(sub, c) < target {
                 rank += 1;
@@ -1100,7 +1197,7 @@ fn evaluate_nf2_inclusion(
         }
         ranks.push(rank);
     }
-    metrics_from_ranks(&ranks)
+    metrics_from_ranks(&ranks, nc)
 }
 
 fn evaluate_nf1(
@@ -1109,7 +1206,7 @@ fn evaluate_nf1(
     nc: usize,
     dim: usize,
     test_axioms: &[(usize, usize, usize)],
-) -> (f32, f32, f32) {
+) -> ElMetrics {
     let mut ranks = Vec::with_capacity(test_axioms.len());
     let mut inter_center = vec![0.0f32; dim];
     for &(c1, c2, d) in test_axioms {
@@ -1130,7 +1227,7 @@ fn evaluate_nf1(
         let (rank, _) = l2_rank(&inter_center, centers, nc, dim, d, &[c1, c2]);
         ranks.push(rank);
     }
-    metrics_from_ranks(&ranks)
+    metrics_from_ranks(&ranks, nc)
 }
 
 fn evaluate_nf3(
@@ -1141,7 +1238,7 @@ fn evaluate_nf3(
     nr: usize,
     dim: usize,
     test_axioms: &[(usize, usize, usize)],
-) -> (f32, f32, f32) {
+) -> ElMetrics {
     let mut ranks = Vec::with_capacity(test_axioms.len());
     for &(sub, role, filler) in test_axioms {
         if sub >= nc || filler >= nc || role >= nr {
@@ -1176,7 +1273,7 @@ fn evaluate_nf3(
         }
         ranks.push(rank);
     }
-    metrics_from_ranks(&ranks)
+    metrics_from_ranks(&ranks, nc)
 }
 
 fn evaluate_nf4(
@@ -1187,7 +1284,7 @@ fn evaluate_nf4(
     nr: usize,
     dim: usize,
     test_axioms: &[(usize, usize, usize)],
-) -> (f32, f32, f32) {
+) -> ElMetrics {
     let mut ranks = Vec::with_capacity(test_axioms.len());
     let mut query = vec![0.0f32; dim];
     for &(role, filler, target) in test_axioms {
@@ -1202,7 +1299,7 @@ fn evaluate_nf4(
         let (rank, _) = l2_rank(&query, centers, nc, dim, target, &[]);
         ranks.push(rank);
     }
-    metrics_from_ranks(&ranks)
+    metrics_from_ranks(&ranks, nc)
 }
 
 // ---------------------------------------------------------------------------
@@ -1309,15 +1406,16 @@ mod tests {
 
         let _losses = trainer.fit(&mut model, &ont, &config, &device);
 
-        let (nf2, _, _, _) = BurnElTrainer::<TestBackend>::evaluate(&model, &ont, 16, &device);
+        let (nf2, _, _, _) =
+            BurnElTrainer::<TestBackend>::evaluate(&model, &ont, 16, &device, None);
         assert!(
-            nf2.2 > 0.0,
+            nf2.mrr > 0.0,
             "MRR should be positive on training data, got {}",
-            nf2.2
+            nf2.mrr
         );
         eprintln!(
             "BurnElTrainer eval: H@1={:.3} H@10={:.3} MRR={:.4}",
-            nf2.0, nf2.1, nf2.2
+            nf2.h1, nf2.h10, nf2.mrr
         );
     }
 
@@ -1405,10 +1503,10 @@ mod tests {
         assert!(losses.last().unwrap().is_finite());
 
         let (nf2, nf1, nf3, nf4) =
-            BurnElTrainer::<TestBackend>::evaluate(&model, &ont, 16, &device);
+            BurnElTrainer::<TestBackend>::evaluate(&model, &ont, 16, &device, None);
         eprintln!(
             "All NF types: NF2 MRR={:.3}, NF1 MRR={:.3}, NF3 MRR={:.3}, NF4 MRR={:.3}",
-            nf2.2, nf1.2, nf3.2, nf4.2
+            nf2.mrr, nf1.mrr, nf3.mrr, nf4.mrr
         );
     }
 }
