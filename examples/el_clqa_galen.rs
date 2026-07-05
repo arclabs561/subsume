@@ -29,7 +29,7 @@
 //! `DATASET=GALEN cargo run --release --features burn-ndarray,burn-wgpu --example el_clqa_galen`
 
 use rayon::prelude::*;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use subsume::el_dataset::load_el_axioms;
 use subsume::el_training::{Axiom, Ontology};
@@ -69,15 +69,15 @@ struct CQuery {
     lca: usize,
 }
 
-/// (LCA MRR, LCA Hits@10, top-1-is-valid-CA) over all queries. Queries are
-/// independent, so the per-query ranking (the GALEN-scale cost: O(queries * n))
-/// is parallelized across cores with rayon.
+/// Metrics `(LCA MRR, LCA Hits@10, top-1-is-valid-CA)` plus the top-1 concept
+/// per query (for the culprit diagnostic). Queries are independent, so the
+/// per-query ranking (the GALEN-scale O(queries * n) cost) is rayon-parallel.
 fn score_model<F: Fn(usize, usize) -> f32 + Sync>(
     queries: &[CQuery],
     deg: F,
     n: usize,
-) -> (f64, f64, f64) {
-    let (rr, hits10, top1) = queries
+) -> ((f64, f64, f64), Vec<usize>) {
+    let per: Vec<(f64, usize, usize, usize)> = queries
         .par_iter()
         .map(|q| {
             let mut scored: Vec<(usize, f32)> = (0..n)
@@ -90,14 +90,24 @@ fn score_model<F: Fn(usize, usize) -> f32 + Sync>(
                 1.0 / rank as f64,
                 usize::from(rank <= 10),
                 usize::from(q.common.contains(&scored[0].0)),
+                scored[0].0,
             )
         })
-        .reduce(
-            || (0.0f64, 0usize, 0usize),
-            |a, b| (a.0 + b.0, a.1 + b.1, a.2 + b.2),
-        );
+        .collect();
+    let (rr, hits10, top1) = per.iter().fold((0.0f64, 0usize, 0usize), |a, x| {
+        (a.0 + x.0, a.1 + x.1, a.2 + x.2)
+    });
+    let top1s: Vec<usize> = per.iter().map(|x| x.3).collect();
     let nq = queries.len() as f64;
-    (rr / nq, hits10 as f64 / nq, top1 as f64 / nq)
+    ((rr / nq, hits10 as f64 / nq, top1 as f64 / nq), top1s)
+}
+
+/// L1 size (half-perimeter) of concept `c`'s box.
+fn offset_l1(offsets: &[f32], c: usize, dim: usize) -> f32 {
+    offsets[c * dim..(c + 1) * dim]
+        .iter()
+        .map(|o| o.abs())
+        .sum()
 }
 
 fn main() {
@@ -223,12 +233,13 @@ fn main() {
         queries.push(CQuery { a, b, common, lca });
     }
 
-    let (box_mrr, box_h10, box_t1) = score_model(
+    let ((box_mrr, box_h10, box_t1), box_top1s) = score_model(
         &queries,
         |a, x| box_degree(&centers, &offsets, a, x, dim),
         n,
     );
-    let (te_mrr, te_h10, te_t1) = score_model(&queries, |a, x| transe_degree(emb, rel, a, x), n);
+    let ((te_mrr, te_h10, te_t1), _te_top1s) =
+        score_model(&queries, |a, x| transe_degree(emb, rel, a, x), n);
 
     println!("\n{} conjunctive queries (LCA depth >= 2)\n", queries.len());
     println!(
@@ -251,6 +262,42 @@ fn main() {
             "faithful wins"
         } else {
             "plain wins"
+        }
+    );
+
+    // --- Diagnostics: peer into the box model to explain the result ---
+    // Box size (offset L1) distribution. Degenerate huge boxes contain almost
+    // everything and win every conjunctive query, tanking top1CA. A large
+    // max/mean ratio is the offset-blowup signature.
+    let mut sizes: Vec<f32> = (0..n).map(|c| offset_l1(&offsets, c, dim)).collect();
+    sizes.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let smean = sizes.iter().sum::<f32>() / n as f32;
+    let (smax, sp99) = (sizes[n - 1], sizes[(n * 99 / 100).min(n - 1)]);
+    println!(
+        "\n[diag] box size (offset L1): mean {smean:.2}  p99 {sp99:.2}  max {smax:.2}  (max/mean {:.0}x)",
+        smax / smean.max(1e-6)
+    );
+    // Which concept wins the box conjunctive queries most? A degenerate box wins
+    // many with an outsized offset; high concentration = a few boxes dominate.
+    let mut tally: HashMap<usize, usize> = HashMap::new();
+    for &c in &box_top1s {
+        *tally.entry(c).or_default() += 1;
+    }
+    let mut culprits: Vec<(usize, usize)> = tally.into_iter().collect();
+    culprits.sort_by_key(|&(_, cnt)| std::cmp::Reverse(cnt));
+    let (top_c, top_cnt) = culprits[0];
+    println!(
+        "[diag] box top-1 winners: {} distinct over {} queries; concept {top_c} won {top_cnt} \
+         ({:.0}%), its size {:.2} = {:.0}x mean {}",
+        culprits.len(),
+        box_top1s.len(),
+        100.0 * top_cnt as f32 / box_top1s.len() as f32,
+        offset_l1(&offsets, top_c, dim),
+        offset_l1(&offsets, top_c, dim) / smean.max(1e-6),
+        if offset_l1(&offsets, top_c, dim) > 3.0 * smean {
+            "<- degenerate box confirmed"
+        } else {
+            ""
         }
     );
 }
