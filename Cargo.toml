@@ -77,6 +77,8 @@ stableprop = { version = "0.3", features = ["burn"] }
 precinct = "0.8"
 # Baseline for examples/el_clqa_benchmark: plain point-embedding (TransE) KGE.
 tranz = { version = "0.7", features = ["burn-ndarray"] }
+# Parallel eval loop in examples/el_clqa_galen (queries are independent).
+rayon = "1"
 
 [[example]]
 name = "taxobell_box_uncertainty"
@@ -143,6 +145,10 @@ required-features = ["burn-ndarray"]
 
 [[example]]
 name = "el_clqa_benchmark"
+required-features = ["burn-ndarray"]
+
+[[example]]
+name = "el_clqa_galen"
 required-features = ["burn-ndarray"]
 
 [[example]]
