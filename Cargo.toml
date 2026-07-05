@@ -75,6 +75,8 @@ serde_json = "1.0"
 stableprop = { version = "0.3", features = ["burn"] }
 # Serving-layer demo (examples/taxobell_precinct): index trained boxes as regions.
 precinct = "0.8"
+# Baseline for examples/el_clqa_benchmark: plain point-embedding (TransE) KGE.
+tranz = { version = "0.7", features = ["burn-ndarray"] }
 
 [[example]]
 name = "taxobell_box_uncertainty"
