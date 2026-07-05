@@ -135,6 +135,68 @@ fn offset_l1(offsets: &[f32], c: usize, dim: usize) -> f32 {
         .sum()
 }
 
+/// Smallest-container score: the LCA is the smallest box that CONTAINS the join
+/// of A and B (it also holds its other subclasses, so it is bigger than the
+/// join itself). Rank X by softContain(join subset-of Box(X)) * exp(-lambda *
+/// size(X)) -- among concepts whose box contains the join, prefer the smallest.
+/// More principled than score_join's proximity-to-join.
+fn score_join_contain(
+    queries: &[CQuery],
+    centers: &[f32],
+    offsets: &[f32],
+    dim: usize,
+    lambda: f32,
+    n: usize,
+) -> ((f64, f64, f64), Vec<usize>) {
+    let per: Vec<(f64, usize, usize, usize)> = queries
+        .par_iter()
+        .map(|q| {
+            let (ao, bo) = (q.a * dim, q.b * dim);
+            let mut jc = vec![0f32; dim];
+            let mut jo = vec![0f32; dim];
+            for i in 0..dim {
+                let lo = (centers[ao + i] - offsets[ao + i]).min(centers[bo + i] - offsets[bo + i]);
+                let hi = (centers[ao + i] + offsets[ao + i]).max(centers[bo + i] + offsets[bo + i]);
+                jc[i] = (lo + hi) / 2.0;
+                jo[i] = (hi - lo) / 2.0;
+            }
+            let mut scored: Vec<(usize, f32)> = (0..n)
+                .filter(|&x| x != q.a && x != q.b)
+                .map(|x| {
+                    let xo = x * dim;
+                    let mut incl = 0f32;
+                    let mut size = 0f32;
+                    for i in 0..dim {
+                        // Inclusion of the join box inside Box(X).
+                        let v =
+                            ((jc[i] - centers[xo + i]).abs() + jo[i] - offsets[xo + i]).max(0.0);
+                        incl += v * v;
+                        size += offsets[xo + i].abs();
+                    }
+                    let deg = (-incl.sqrt()).exp();
+                    (x, deg * (-lambda * size).exp())
+                })
+                .collect();
+            scored.sort_by(|p, r| r.1.partial_cmp(&p.1).unwrap());
+            let rank = 1 + scored.iter().position(|&(x, _)| x == q.lca).unwrap();
+            (
+                1.0 / rank as f64,
+                usize::from(rank <= 10),
+                usize::from(q.common.contains(&scored[0].0)),
+                scored[0].0,
+            )
+        })
+        .collect();
+    let (rr, hits10, top1) = per.iter().fold((0.0f64, 0usize, 0usize), |a, x| {
+        (a.0 + x.0, a.1 + x.1, a.2 + x.2)
+    });
+    let nq = queries.len() as f64;
+    (
+        (rr / nq, hits10 as f64 / nq, top1 as f64 / nq),
+        per.iter().map(|x| x.3).collect(),
+    )
+}
+
 /// Non-containment score: rank each concept X by how closely Box(X) matches the
 /// JOIN (smallest enclosing box) of the two query concepts. The LCA is the
 /// smallest common superclass, so its box should approximate that join; this
@@ -373,6 +435,15 @@ fn main() {
         "{:<22} {jm_mrr:>8.3} {jm_h10:>8.3} {jm_t1:>8.3}",
         "boxes (join-match)"
     );
+    // Smallest-container-of-the-join score, swept over the size penalty.
+    for jl in [0.02f32, 0.05, 0.1] {
+        let ((c_mrr, c_h10, c_t1), _) =
+            score_join_contain(&queries, &centers, &offsets, dim, jl, n);
+        println!(
+            "{:<22} {c_mrr:>8.3} {c_h10:>8.3} {c_t1:>8.3}",
+            format!("boxes (join-cont l={jl})")
+        );
+    }
     if let Some((emb, rel)) = &transe {
         // TransE is a point model: no box size, so no size penalty.
         let zeros = vec![0.0f32; n];
