@@ -75,6 +75,14 @@ pub struct BurnElConfig {
     pub epochs: usize,
     /// Regularization factor for bumps.
     pub reg_factor: f32,
+    /// Hard clamp on box size: max `|offset|` per dimension, applied as a
+    /// post-step projection. Curbs offset blowup, where a few boxes grow to
+    /// contain almost everything and dominate containment queries (diagnosed on
+    /// GALEN: one box 24x mean size won 100% of conjunctive queries). A soft L2
+    /// penalty cannot target such outliers: the mean divides the per-box
+    /// gradient by nc, and any coefficient large enough to shrink the outliers
+    /// collapses every box first. 0 = disabled (default, preserves prior behavior).
+    pub offset_clamp: f32,
     /// NF1 center attraction weight (0.5 recommended).
     pub nf1_center_weight: f32,
     /// Gumbel beta start (soft, 0.3 recommended).
@@ -104,6 +112,7 @@ impl Default for BurnElConfig {
             lr: 0.01,
             epochs: 1000,
             reg_factor: 0.5,
+            offset_clamp: 0.0,
             nf1_center_weight: 0.5,
             beta_start: 0.3,
             beta_end: 2.0,
@@ -626,6 +635,26 @@ impl<B: AutodiffBackend> BurnElTrainer<B> {
             if loss_val.is_finite() {
                 let grads = GradientsParams::from_grads(total_loss.backward(), &current_model);
                 *model = optim.step(current_lr, current_model, grads);
+                // Hard clamp on box size (offset magnitude). Curbs the offset
+                // blowup that a soft L2 penalty cannot target: a mean penalty
+                // divides the per-box gradient by nc so it vanishes on the few
+                // outlier boxes, and any coefficient large enough to shrink them
+                // collapses every box first. A post-step projection caps each
+                // box directly. Preserves the ParamId so the optimizer state
+                // (AdamW moments, keyed by id) carries over.
+                if config.offset_clamp > 0.0 {
+                    let m = config.offset_clamp;
+                    let pid = model.concept_offsets.id;
+                    // detach() re-leafs the clamped data (require_grad panics on
+                    // a non-leaf graph node from the just-stepped tracked param).
+                    let clamped = model
+                        .concept_offsets
+                        .val()
+                        .clamp(-m, m)
+                        .detach()
+                        .require_grad();
+                    model.concept_offsets = Param::initialized(pid, clamped);
+                }
             } else if loss_val.is_nan() || loss_val.is_infinite() {
                 eprintln!(
                     "  WARNING: loss diverged at epoch {} (loss={loss_val}). Stopping.",

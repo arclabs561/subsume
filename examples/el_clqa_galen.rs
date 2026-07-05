@@ -12,15 +12,24 @@
 //! Both models rank every concept by min(deg(A subset-of X), deg(B subset-of
 //! X)); the box model uses containment, TransE uses its isa translation.
 //!
-//! FINDING (2026-07-04): the clean synthetic-tree advantage (el_clqa_benchmark,
-//! boxes +0.48 MRR) does NOT transfer to real GALEN at this budget. Both models
-//! are weak (LCA MRR 0.02-0.05); TransE narrowly wins, and the box model's
-//! top-1 is never a valid common ancestor (0.00 vs TransE 0.09). On a messy
-//! multiple-inheritance DAG the box model (dim 100, 400 epochs) develops
-//! spurious/degenerate containments the conjunctive-LCA query surfaces, whereas
-//! the synthetic tree nests perfectly. The synthetic benchmark shows the
-//! transitivity MECHANISM; real-data eval shows it does not dominate in
-//! practice without much stronger box training. Reported honestly, not asserted.
+//! FINDING (2026-07-04, diagnosed via the box diagnostics below): the clean
+//! synthetic-tree advantage (el_clqa_benchmark, boxes +0.48 MRR) does NOT
+//! transfer to real GALEN at this budget. TransE narrowly wins; the box top-1 is
+//! never a valid common ancestor. Three layers were each ruled out by
+//! measurement. First, offset blowup: one box (concept 92) grew to 24x mean size
+//! and won 100% of queries; OFFSET_CLAMP caps box size (max 73 to 10) and gives
+//! 6 distinct winners, but concept 92 still sits at the cap and wins 98%. Second,
+//! metric saturation: containment degree is ~1 for ANY container, so the largest
+//! box wins ties; a TIGHTNESS size penalty (additive, or the multiplicative
+//! deg*exp(-lambda*size)) instead lets the SMALLEST box win, and neither is the
+//! LCA. Third, the root cause: the box model is undertrained on 23k concepts (dim
+//! 100, 400 epochs), so the containment signal is too weak for any scoring to
+//! isolate the LCA. The synthetic tree nests exactly; GALEN needs much stronger
+//! box training (bigger dim, many more epochs, better tuning). So the synthetic
+//! benchmark shows the transitivity MECHANISM; real-data eval shows faithful-box
+//! CLQA needs far stronger training to compete at scale. Reported honestly, not
+//! asserted. OFFSET_CLAMP and TIGHTNESS are diagnostic knobs (default off);
+//! neither rescued the result, so the real work is box training.
 //!
 //! Data-gated: exits 0 with a message if the dataset is absent (fetch GALEN via
 //! the Box2EL conversion the el_benchmark examples describe). Runs on burn Metal
@@ -75,14 +84,21 @@ struct CQuery {
 fn score_model<F: Fn(usize, usize) -> f32 + Sync>(
     queries: &[CQuery],
     deg: F,
+    sizes: &[f32],
+    lambda: f32,
     n: usize,
 ) -> ((f64, f64, f64), Vec<usize>) {
+    // Rank by min(deg(A,X), deg(B,X)) * exp(-lambda * size(X)). Containment degree
+    // saturates near 1 for any container, so a size factor breaks the tie toward
+    // the smallest common container (the LCA). Multiplicative (not additive):
+    // a non-container (deg ~0) stays ~0 regardless of its size, so tiny leaves
+    // that contain nothing cannot win. lambda = 0 = plain degree.
     let per: Vec<(f64, usize, usize, usize)> = queries
         .par_iter()
         .map(|q| {
             let mut scored: Vec<(usize, f32)> = (0..n)
                 .filter(|&x| x != q.a && x != q.b)
-                .map(|x| (x, deg(q.a, x).min(deg(q.b, x))))
+                .map(|x| (x, deg(q.a, x).min(deg(q.b, x)) * (-lambda * sizes[x]).exp()))
                 .collect();
             scored.sort_by(|p, r| r.1.partial_cmp(&p.1).unwrap());
             let rank = 1 + scored.iter().position(|&(x, _)| x == q.lca).unwrap();
@@ -137,6 +153,21 @@ fn main() {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(0.05);
+    // SKIP_TRANSE=1 trains only the box model and runs the box diagnostics: a
+    // ~2-minute box-only run vs the slow TransE baseline (point-KGE at 400
+    // epochs is slow on both wgpu and CPU). Use it to iterate on box training.
+    let skip_transe = std::env::var("SKIP_TRANSE").is_ok();
+    // Hard clamp on box size (curbs training-time offset blowup).
+    let offset_clamp: f32 = std::env::var("OFFSET_CLAMP")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0.0);
+    // Size penalty in the box conjunctive score: prefer the smallest common
+    // container (the LCA) over larger general containers. 0 = plain containment.
+    let lambda: f32 = std::env::var("TIGHTNESS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0.0);
 
     let train_path = Path::new("data").join(&dataset).join("train.tsv");
     if !train_path.exists() {
@@ -169,6 +200,7 @@ fn main() {
         negative_samples: 2,
         margin: 0.1,
         batch_size: batch,
+        offset_clamp,
         ..Default::default()
     };
     let trainer = BurnElTrainer::<Backend>::new();
@@ -178,25 +210,28 @@ fn main() {
     let centers = BurnElTrainer::<Backend>::extract_centers(&model, &device);
     let offsets = BurnElTrainer::<Backend>::extract_offsets(&model, &device);
 
-    // --- Plain TransE on the atomic subsumption triples ---
-    let triples: Vec<TripleIds> = ont
-        .axioms
-        .iter()
-        .filter_map(|ax| match ax {
-            Axiom::SubClassOf { sub, sup } => Some(TripleIds::new(*sub, 0, *sup)),
-            _ => None,
-        })
-        .collect();
-    let transe_cfg = BurnTrainConfig {
-        dim,
-        epochs,
-        batch_size: batch,
-        lr,
-        ..BurnTrainConfig::default()
+    // --- Plain TransE on the atomic subsumption triples (skippable) ---
+    let transe: Option<(Vec<Vec<f32>>, Vec<f32>)> = if skip_transe {
+        None
+    } else {
+        let triples: Vec<TripleIds> = ont
+            .axioms
+            .iter()
+            .filter_map(|ax| match ax {
+                Axiom::SubClassOf { sub, sup } => Some(TripleIds::new(*sub, 0, *sup)),
+                _ => None,
+            })
+            .collect();
+        let transe_cfg = BurnTrainConfig {
+            dim,
+            epochs,
+            batch_size: batch,
+            lr,
+            ..BurnTrainConfig::default()
+        };
+        let kge = train_kge::<Backend>(&triples, n, 1, BurnModelType::TransE, &transe_cfg, &device);
+        Some((kge.entity_vecs, kge.relation_vecs[0].clone()))
     };
-    let kge = train_kge::<Backend>(&triples, n, 1, BurnModelType::TransE, &transe_cfg, &device);
-    let emb = &kge.entity_vecs;
-    let rel = &kge.relation_vecs[0];
 
     // Ancestor sets from the deductive closure.
     let closure = ont.subsumption_closure();
@@ -233,13 +268,14 @@ fn main() {
         queries.push(CQuery { a, b, common, lca });
     }
 
+    let box_sizes: Vec<f32> = (0..n).map(|c| offset_l1(&offsets, c, dim)).collect();
     let ((box_mrr, box_h10, box_t1), box_top1s) = score_model(
         &queries,
         |a, x| box_degree(&centers, &offsets, a, x, dim),
+        &box_sizes,
+        lambda,
         n,
     );
-    let ((te_mrr, te_h10, te_t1), _te_top1s) =
-        score_model(&queries, |a, x| transe_degree(emb, rel, a, x), n);
 
     println!("\n{} conjunctive queries (LCA depth >= 2)\n", queries.len());
     println!(
@@ -251,19 +287,32 @@ fn main() {
         "{:<22} {box_mrr:>8.3} {box_h10:>8.3} {box_t1:>8.3}",
         "faithful boxes"
     );
-    println!(
-        "{:<22} {te_mrr:>8.3} {te_h10:>8.3} {te_t1:>8.3}",
-        "plain KGE (TransE)"
-    );
-    let delta = box_mrr - te_mrr;
-    println!(
-        "\nLCA MRR delta (faithful - plain): {delta:+.3}  ({} on real {dataset})",
-        if delta > 0.0 {
-            "faithful wins"
-        } else {
-            "plain wins"
-        }
-    );
+    if let Some((emb, rel)) = &transe {
+        // TransE is a point model: no box size, so no size penalty.
+        let zeros = vec![0.0f32; n];
+        let ((te_mrr, te_h10, te_t1), _) = score_model(
+            &queries,
+            |a, x| transe_degree(emb, rel, a, x),
+            &zeros,
+            0.0,
+            n,
+        );
+        println!(
+            "{:<22} {te_mrr:>8.3} {te_h10:>8.3} {te_t1:>8.3}",
+            "plain KGE (TransE)"
+        );
+        let delta = box_mrr - te_mrr;
+        println!(
+            "\nLCA MRR delta (faithful - plain): {delta:+.3}  ({} on real {dataset})",
+            if delta > 0.0 {
+                "faithful wins"
+            } else {
+                "plain wins"
+            }
+        );
+    } else {
+        println!("(TransE skipped via SKIP_TRANSE; box-only diagnostic run)");
+    }
 
     // --- Diagnostics: peer into the box model to explain the result ---
     // Box size (offset L1) distribution. Degenerate huge boxes contain almost
