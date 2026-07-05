@@ -20,6 +20,12 @@
 //! (non-deterministic), so only the seeded box metrics are asserted; TransE is
 //! reported for comparison.
 //!
+//! CAVEAT: this clean-tree advantage does NOT transfer to real GALEN (see
+//! el_clqa_galen): on a messy multiple-inheritance DAG at a realistic budget
+//! both models are weak and TransE narrowly wins. This benchmark demonstrates
+//! the transitivity MECHANISM on a hierarchy where box containment is exact; it
+//! is not a general claim that faithful boxes beat plain KGE in practice.
+//!
 //! Run: `cargo run --features burn-ndarray --example el_clqa_benchmark`
 
 use std::collections::HashSet;
