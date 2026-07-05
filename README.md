@@ -37,7 +37,7 @@ region_generic`.
 
 ```toml
 [dependencies]
-subsume = { version = "0.14", features = ["ndarray-backend"] }
+subsume = { version = "0.15", features = ["ndarray-backend"] }
 ndarray = "0.16"
 ```
 
