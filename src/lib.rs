@@ -284,6 +284,10 @@ pub mod cone_query;
 #[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
 pub mod el_training;
 
+/// Conjunctive least-common-ancestor queries over faithful EL++ box embeddings
+/// via containment-gated proximity to the join box.
+pub mod clqa;
+
 /// Fuzzy set-theoretic operators: t-norms, t-conorms, and negation (FuzzQE).
 pub mod fuzzy;
 
