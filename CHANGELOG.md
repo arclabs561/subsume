@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.15.0] - 2026-07-05
+
+### Added
+
+- `clqa` module: conjunctive least-common-ancestor queries over faithful EL++
+  box embeddings. `BoxClqa` answers "X such that A ⊑ X and B ⊑ X" by
+  containment-gated proximity to the join box, the readout that recovers the
+  LCA where plain containment saturates. On GALEN (dim 200, 300 conjunctive
+  queries) it reaches top-1 LCA accuracy 0.60, up from 0.42 for proximity
+  alone and 0.44 for containment, and beats a plain-KGE point baseline on the
+  same queries.
+- EL++ trainer evaluation now reports the full Box2EL metric suite
+  (Hits@1/10/100, MRR, mean and median rank, AUC) with a filtered NF2
+  protocol, plus a containment-based NF2 scorer that recovers ranking signal
+  center-distance discards.
+- `offset_clamp` training knob: a hard cap on box offset L1 to diagnose and
+  suppress offset blowup.
+- L2-normalized initialization for the burn box, transbox, ellipsoid, and
+  octagon trainers, and relation-aware burn box, cone, and octagon trainers.
+- Examples: a real-GALEN faithful-vs-plain CLQA head-to-head, a
+  closure-grounded conjunctive-query benchmark, and graded and gated CLQA
+  readouts over trained boxes with box-model diagnostics.
+
+### Changed
+
+- Link-prediction evaluation excludes the query entity from its own candidate
+  pool.
+
 ## [0.14.1] - 2026-07-03
 
 ### Deprecated
