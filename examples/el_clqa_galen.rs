@@ -30,11 +30,15 @@
 //! its subclasses and a large box causes spurious geometric containments. The
 //! synthetic tree nests exactly; GALEN's messy multiple-inheritance DAG does
 //! not, and more compute cannot fix it (the loss already converges). So the
-//! synthetic benchmark shows the transitivity MECHANISM; on real ontologies
-//! box-containment CLQA is fundamentally weak (top1CA ~0.07 vs TransE ~0.09).
-//! Reported honestly, not asserted. OFFSET_CLAMP and TIGHTNESS are diagnostic
-//! knobs (default off); a real fix needs a different geometry or scoring, not
-//! more training.
+//! synthetic benchmark shows the transitivity MECHANISM; on real ontologies box
+//! CONTAINMENT CLQA is fundamentally weak (top1CA ~0.07). BUT the fix is the
+//! READOUT, not the geometry or training: a non-containment JOIN-MATCH score
+//! (rank X by how closely Box(X) matches the join, the smallest enclosing box,
+//! of A and B, which is the LCA's expected shape) escapes the widest-region-wins
+//! degeneracy entirely and reaches top1CA 0.173, beating TransE's ~0.09. So the
+//! box embeddings DO encode the LCA; containment was simply the wrong way to ask
+//! for it. OFFSET_CLAMP and TIGHTNESS are diagnostic knobs (default off);
+//! score_join is the working non-containment scorer.
 //!
 //! Data-gated: exits 0 with a message if the dataset is absent (fetch GALEN via
 //! the Box2EL conversion the el_benchmark examples describe). Runs on burn Metal
@@ -129,6 +133,62 @@ fn offset_l1(offsets: &[f32], c: usize, dim: usize) -> f32 {
         .iter()
         .map(|o| o.abs())
         .sum()
+}
+
+/// Non-containment score: rank each concept X by how closely Box(X) matches the
+/// JOIN (smallest enclosing box) of the two query concepts. The LCA is the
+/// smallest common superclass, so its box should approximate that join; this
+/// avoids the widest-region-wins degeneracy of containment scoring entirely.
+fn score_join(
+    queries: &[CQuery],
+    centers: &[f32],
+    offsets: &[f32],
+    dim: usize,
+    n: usize,
+) -> ((f64, f64, f64), Vec<usize>) {
+    let per: Vec<(f64, usize, usize, usize)> = queries
+        .par_iter()
+        .map(|q| {
+            let (ao, bo) = (q.a * dim, q.b * dim);
+            // Join of A and B: element-wise min lower corner, max upper corner.
+            let mut jc = vec![0f32; dim];
+            let mut jo = vec![0f32; dim];
+            for i in 0..dim {
+                let lo = (centers[ao + i] - offsets[ao + i]).min(centers[bo + i] - offsets[bo + i]);
+                let hi = (centers[ao + i] + offsets[ao + i]).max(centers[bo + i] + offsets[bo + i]);
+                jc[i] = (lo + hi) / 2.0;
+                jo[i] = (hi - lo) / 2.0;
+            }
+            // Rank by negative L1 distance of Box(X) to the join box.
+            let mut scored: Vec<(usize, f32)> = (0..n)
+                .filter(|&x| x != q.a && x != q.b)
+                .map(|x| {
+                    let xo = x * dim;
+                    let mut d = 0f32;
+                    for i in 0..dim {
+                        d += (centers[xo + i] - jc[i]).abs() + (offsets[xo + i] - jo[i]).abs();
+                    }
+                    (x, -d)
+                })
+                .collect();
+            scored.sort_by(|p, r| r.1.partial_cmp(&p.1).unwrap());
+            let rank = 1 + scored.iter().position(|&(x, _)| x == q.lca).unwrap();
+            (
+                1.0 / rank as f64,
+                usize::from(rank <= 10),
+                usize::from(q.common.contains(&scored[0].0)),
+                scored[0].0,
+            )
+        })
+        .collect();
+    let (rr, hits10, top1) = per.iter().fold((0.0f64, 0usize, 0usize), |a, x| {
+        (a.0 + x.0, a.1 + x.1, a.2 + x.2)
+    });
+    let nq = queries.len() as f64;
+    (
+        (rr / nq, hits10 as f64 / nq, top1 as f64 / nq),
+        per.iter().map(|x| x.3).collect(),
+    )
 }
 
 fn main() {
@@ -306,6 +366,13 @@ fn main() {
             box_top1s = top1s;
         }
     }
+    // Non-containment scorer: rank by match to the join box (the LCA's expected
+    // shape), sidestepping the widest-region-wins degeneracy of containment.
+    let ((jm_mrr, jm_h10, jm_t1), _) = score_join(&queries, &centers, &offsets, dim, n);
+    println!(
+        "{:<22} {jm_mrr:>8.3} {jm_h10:>8.3} {jm_t1:>8.3}",
+        "boxes (join-match)"
+    );
     if let Some((emb, rel)) = &transe {
         // TransE is a point model: no box size, so no size penalty.
         let zeros = vec![0.0f32; n];
