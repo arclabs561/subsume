@@ -253,6 +253,74 @@ fn score_join(
     )
 }
 
+/// Containment-gated proximity: among boxes that CONTAIN the join of A and B,
+/// rank by closeness to it. This is the synthesis of the two half-right
+/// readouts. score_join (proximity) is non-saturating but rewards close
+/// non-containing siblings; score_join_contain (softContain * size) is
+/// geometrically correct (the LCA must contain the join) but softContain
+/// saturates -- any large box contains the join, so the size penalty, not the
+/// data, breaks the tie. Here the gate exp(-||join sticks out of X||)
+/// suppresses non-containers, and proximity exp(-prox / tau) tie-breaks among
+/// the containers toward the tightest one, which is the LCA. The tightest
+/// container of the join is the one closest to it, so proximity discriminates
+/// exactly where containment degree is flat.
+fn score_join_gated(
+    queries: &[CQuery],
+    centers: &[f32],
+    offsets: &[f32],
+    dim: usize,
+    tau: f32,
+    n: usize,
+) -> ((f64, f64, f64), Vec<usize>) {
+    let per: Vec<(f64, usize, usize, usize)> = queries
+        .par_iter()
+        .map(|q| {
+            let (ao, bo) = (q.a * dim, q.b * dim);
+            let mut jc = vec![0f32; dim];
+            let mut jo = vec![0f32; dim];
+            for i in 0..dim {
+                let lo = (centers[ao + i] - offsets[ao + i]).min(centers[bo + i] - offsets[bo + i]);
+                let hi = (centers[ao + i] + offsets[ao + i]).max(centers[bo + i] + offsets[bo + i]);
+                jc[i] = (lo + hi) / 2.0;
+                jo[i] = (hi - lo) / 2.0;
+            }
+            let mut scored: Vec<(usize, f32)> = (0..n)
+                .filter(|&x| x != q.a && x != q.b)
+                .map(|x| {
+                    let xo = x * dim;
+                    let mut incl = 0f32; // join sticking out of Box(X): 0 = X contains join
+                    let mut prox = 0f32; // L1 distance of Box(X) to the join box
+                    for i in 0..dim {
+                        let v =
+                            ((jc[i] - centers[xo + i]).abs() + jo[i] - offsets[xo + i]).max(0.0);
+                        incl += v * v;
+                        prox += (centers[xo + i] - jc[i]).abs() + (offsets[xo + i] - jo[i]).abs();
+                    }
+                    let gate = (-incl.sqrt()).exp();
+                    let proximity = (-prox / tau).exp();
+                    (x, gate * proximity)
+                })
+                .collect();
+            scored.sort_by(|p, r| r.1.partial_cmp(&p.1).unwrap());
+            let rank = 1 + scored.iter().position(|&(x, _)| x == q.lca).unwrap();
+            (
+                1.0 / rank as f64,
+                usize::from(rank <= 10),
+                usize::from(q.common.contains(&scored[0].0)),
+                scored[0].0,
+            )
+        })
+        .collect();
+    let (rr, hits10, top1) = per.iter().fold((0.0f64, 0usize, 0usize), |a, x| {
+        (a.0 + x.0, a.1 + x.1, a.2 + x.2)
+    });
+    let nq = queries.len() as f64;
+    (
+        (rr / nq, hits10 as f64 / nq, top1 as f64 / nq),
+        per.iter().map(|x| x.3).collect(),
+    )
+}
+
 fn main() {
     let device = Default::default();
     <Backend as burn::tensor::backend::Backend>::seed(&device, 3);
@@ -442,6 +510,17 @@ fn main() {
         println!(
             "{:<22} {c_mrr:>8.3} {c_h10:>8.3} {c_t1:>8.3}",
             format!("boxes (join-cont l={jl})")
+        );
+    }
+    // Containment-gated proximity: the synthesis readout, swept over the
+    // proximity temperature. tau scales the L1-distance-to-degree map; too small
+    // collapses to the saturating join-cont behaviour, too large washes out the
+    // proximity tie-break. Swept relative to the mean box-to-join distance.
+    for tau in [5.0f32, 20.0, 50.0] {
+        let ((g_mrr, g_h10, g_t1), _) = score_join_gated(&queries, &centers, &offsets, dim, tau, n);
+        println!(
+            "{:<22} {g_mrr:>8.3} {g_h10:>8.3} {g_t1:>8.3}",
+            format!("boxes (join-gate t={tau})")
         );
     }
     if let Some((emb, rel)) = &transe {
