@@ -19,7 +19,7 @@
 //! # The join-gated readout
 //!
 //! The LCA is the *tightest concept box that contains the join* of A and B
-//! (`join` = the smallest enclosing box, [`BoxClqa::join`]). Two half-right
+//! (`join` = the smallest enclosing box, the `BoxClqa::join` method). Two half-right
 //! signals combine into the working one:
 //!
 //! - **Proximity** to the join is non-saturating and discriminates among
@@ -28,7 +28,7 @@
 //! - **Containment** of the join is geometrically correct (the LCA must contain
 //!   it) but saturates, so it cannot pick the *tightest* container.
 //!
-//! [`BoxClqa::score_lca`] multiplies a containment gate `exp(-‖join sticks out
+//! The `BoxClqa::score_lca` method multiplies a containment gate `exp(-‖join sticks out
 //! of X‖)` by a proximity term `exp(-‖Box(X) − join‖₁ / τ)`. The gate
 //! suppresses non-containers; proximity then breaks the tie among containers
 //! toward the tightest, which is the LCA. On GALEN (dim 200) this lifts top-1
