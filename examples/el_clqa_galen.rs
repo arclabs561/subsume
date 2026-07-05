@@ -21,15 +21,20 @@
 //! 6 distinct winners, but concept 92 still sits at the cap and wins 98%. Second,
 //! metric saturation: containment degree is ~1 for ANY container, so the largest
 //! box wins ties; a TIGHTNESS size penalty (additive, or the multiplicative
-//! deg*exp(-lambda*size)) instead lets the SMALLEST box win, and neither is the
-//! LCA. Third, the root cause: the box model is undertrained on 23k concepts (dim
-//! 100, 400 epochs), so the containment signal is too weak for any scoring to
-//! isolate the LCA. The synthetic tree nests exactly; GALEN needs much stronger
-//! box training (bigger dim, many more epochs, better tuning). So the synthetic
-//! benchmark shows the transitivity MECHANISM; real-data eval shows faithful-box
-//! CLQA needs far stronger training to compete at scale. Reported honestly, not
-//! asserted. OFFSET_CLAMP and TIGHTNESS are diagnostic knobs (default off);
-//! neither rescued the result, so the real work is box training.
+//! deg*exp(-lambda*size)) instead lets the SMALLEST box win. Tightness has a
+//! sweet spot (lambda=0.02) that demotes the giant and lifts top1CA from 0.000
+//! to 0.070, but larger lambda collapses to tiny boxes; 0.07 is the ceiling.
+//! Third, the root cause is REPRESENTATIONAL, not a training budget: even
+//! converged (loss 0.0185 at dim 200, 1500 epochs), concept 92 still blows up
+//! and wins, because a general concept genuinely needs a large box to contain
+//! its subclasses and a large box causes spurious geometric containments. The
+//! synthetic tree nests exactly; GALEN's messy multiple-inheritance DAG does
+//! not, and more compute cannot fix it (the loss already converges). So the
+//! synthetic benchmark shows the transitivity MECHANISM; on real ontologies
+//! box-containment CLQA is fundamentally weak (top1CA ~0.07 vs TransE ~0.09).
+//! Reported honestly, not asserted. OFFSET_CLAMP and TIGHTNESS are diagnostic
+//! knobs (default off); a real fix needs a different geometry or scoring, not
+//! more training.
 //!
 //! Data-gated: exits 0 with a message if the dataset is absent (fetch GALEN via
 //! the Box2EL conversion the el_benchmark examples describe). Runs on burn Metal
@@ -269,24 +274,38 @@ fn main() {
     }
 
     let box_sizes: Vec<f32> = (0..n).map(|c| offset_l1(&offsets, c, dim)).collect();
-    let ((box_mrr, box_h10, box_t1), box_top1s) = score_model(
-        &queries,
-        |a, x| box_degree(&centers, &offsets, a, x, dim),
-        &box_sizes,
-        lambda,
-        n,
-    );
-
     println!("\n{} conjunctive queries (LCA depth >= 2)\n", queries.len());
     println!(
         "{:<22} {:>8} {:>8} {:>8}",
         "model", "LCA MRR", "Hits@10", "top1CA"
     );
     println!("{}", "-".repeat(48));
-    println!(
-        "{:<22} {box_mrr:>8.3} {box_h10:>8.3} {box_t1:>8.3}",
-        "faithful boxes"
-    );
+    // Sweep the size-penalty lambda (train once, eval many). TIGHTNESS unset
+    // sweeps a grid; set uses that one value. lambda=0 is plain containment.
+    let lambdas: Vec<f32> = if lambda > 0.0 {
+        vec![lambda]
+    } else {
+        vec![0.0, 0.02, 0.05, 0.1, 0.2, 0.5]
+    };
+    let mut box_mrr = 0.0f64;
+    let mut box_top1s: Vec<usize> = Vec::new();
+    for (i, &lam) in lambdas.iter().enumerate() {
+        let ((mrr, h10, t1), top1s) = score_model(
+            &queries,
+            |a, x| box_degree(&centers, &offsets, a, x, dim),
+            &box_sizes,
+            lam,
+            n,
+        );
+        println!(
+            "{:<22} {mrr:>8.3} {h10:>8.3} {t1:>8.3}",
+            format!("boxes (lam={lam})")
+        );
+        if i == 0 {
+            box_mrr = mrr;
+            box_top1s = top1s;
+        }
+    }
     if let Some((emb, rel)) = &transe {
         // TransE is a point model: no box size, so no size penalty.
         let zeros = vec![0.0f32; n];
