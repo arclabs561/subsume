@@ -15,6 +15,7 @@ struct LearnedRankerConfig {
     lr: f32,
     l2: f32,
     repeats: usize,
+    split_seed: u64,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -43,30 +44,38 @@ struct LearnedCaseSource<'a> {
     base_param: &'a str,
 }
 
-fn query_split_indices(queries: &[CQuery]) -> (Vec<usize>, Vec<usize>) {
-    let order = query_order_indices(queries);
+fn query_split_indices(queries: &[CQuery], split_seed: u64) -> (Vec<usize>, Vec<usize>) {
+    let order = query_order_indices(queries, split_seed);
     let split = order.len() / 2;
     (order[..split].to_vec(), order[split..].to_vec())
 }
 
-fn query_order_indices(queries: &[CQuery]) -> Vec<usize> {
-    query_order_indices_with_salt(queries, 0)
+fn query_order_indices(queries: &[CQuery], split_seed: u64) -> Vec<usize> {
+    query_order_indices_with_seed(queries, split_seed)
 }
 
-fn query_order_indices_with_salt(queries: &[CQuery], salt: usize) -> Vec<usize> {
+fn query_order_indices_with_seed(queries: &[CQuery], split_seed: u64) -> Vec<usize> {
     let mut order: Vec<usize> = (0..queries.len()).collect();
     order.sort_by_key(|&i| {
         let q = &queries[i];
-        q.a.wrapping_mul(2_654_435_761)
-            .wrapping_add(q.b.wrapping_mul(40_503))
-            .wrapping_add(i.wrapping_mul(97_531))
+        let key =
+            q.a.wrapping_mul(2_654_435_761)
+                .wrapping_add(q.b.wrapping_mul(40_503))
+                .wrapping_add(i.wrapping_mul(97_531));
+        if split_seed == 0 {
+            key as u64
+        } else {
+            splitmix64((key as u64) ^ split_seed)
+        }
     });
-    if !order.is_empty() && salt > 0 {
-        let len = order.len();
-        let shift = salt.wrapping_mul(len / 3 + 1) % len;
-        order.rotate_left(shift);
-    }
     order
+}
+
+fn splitmix64(mut value: u64) -> u64 {
+    value = value.wrapping_add(0x9E3779B97F4A7C15);
+    value = (value ^ (value >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94D049BB133111EB);
+    value ^ (value >> 31)
 }
 
 fn frontier_features(
@@ -414,16 +423,18 @@ fn learned_conformal_param(base_param: &str, cal_len: usize, test_len: usize) ->
 fn repeat_param(
     config: LearnedRankerConfig,
     repeat: usize,
+    split_seed: u64,
     ranker_train_len: usize,
     cal_len: usize,
     conformal_test_len: usize,
 ) -> String {
     format!(
-        "extra={};epochs={};lr={};l2={};split=rotated_hash;repeat={};ranker_train={};cal={};conformal_test={}",
+        "extra={};epochs={};lr={};l2={};split=seeded_hash;split_seed={};repeat={};ranker_train={};cal={};conformal_test={}",
         config.extra_hops,
         config.epochs,
         config.lr,
         config.l2,
+        split_seed,
         repeat,
         ranker_train_len,
         cal_len,
@@ -433,8 +444,14 @@ fn repeat_param(
 
 fn repeat_summary_param(config: LearnedRankerConfig, effective_repeats: usize) -> String {
     format!(
-        "extra={};epochs={};lr={};l2={};split=rotated_hash;repeats={};effective_repeats={}",
-        config.extra_hops, config.epochs, config.lr, config.l2, config.repeats, effective_repeats
+        "extra={};epochs={};lr={};l2={};split=seeded_hash;base_split_seed={};repeats={};effective_repeats={}",
+        config.extra_hops,
+        config.epochs,
+        config.lr,
+        config.l2,
+        config.split_seed,
+        config.repeats,
+        effective_repeats
     )
 }
 
@@ -727,6 +744,7 @@ fn report_learned_conformal(
     frontier: &DirectFrontier,
     extra_hops: usize,
     weights: &[f32; FRONTIER_FEATURES],
+    split_seed: u64,
     param: &str,
     metrics: &mut MetricsCsv,
 ) {
@@ -734,7 +752,7 @@ fn report_learned_conformal(
         println!("\n[learned conformal] skipped: need at least 8 queries");
         return;
     }
-    let order = query_order_indices(queries);
+    let order = query_order_indices(queries, split_seed);
     let train_end = order.len() / 2;
     let cal_end = train_end + (order.len() - train_end) / 2;
     let cal_idx = &order[train_end..cal_end];
@@ -814,7 +832,8 @@ fn report_repeated_learned_conformal(
     }
     let mut rows: Vec<Vec<LearnedConformalResult>> = Vec::with_capacity(config.repeats);
     for repeat in 0..config.repeats {
-        let order = query_order_indices_with_salt(queries, repeat + 1);
+        let repeat_split_seed = config.split_seed.wrapping_add(repeat as u64 + 1);
+        let order = query_order_indices_with_seed(queries, repeat_split_seed);
         let train_end = order.len() / 2;
         let cal_end = train_end + (order.len() - train_end) / 2;
         let train_idx = &order[..train_end];
@@ -843,6 +862,7 @@ fn report_repeated_learned_conformal(
         let repeat_row_param = repeat_param(
             config,
             repeat + 1,
+            repeat_split_seed,
             train_idx.len(),
             cal_idx.len(),
             test_idx.len(),
@@ -1041,7 +1061,11 @@ pub(super) fn report_learned_frontier_ranker(
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);
-    let (train_idx, test_idx) = query_split_indices(queries);
+    let split_seed: u64 = std::env::var("LEARNED_SPLIT_SEED")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let (train_idx, test_idx) = query_split_indices(queries, split_seed);
     let (weights, losses, pairs_per_epoch) =
         train_frontier_ranker(queries, &train_idx, frontier, extra_hops, epochs, lr, l2);
     println!(
@@ -1082,7 +1106,7 @@ pub(super) fn report_learned_frontier_ranker(
         ),
     ];
     let param = format!(
-        "extra={extra_hops};epochs={epochs};lr={lr};l2={l2};ranker_train={};ranker_test={}",
+        "extra={extra_hops};epochs={epochs};lr={lr};l2={l2};split=seeded_hash;split_seed={split_seed};ranker_train={};ranker_test={}",
         train_idx.len(),
         test_idx.len()
     );
@@ -1104,7 +1128,9 @@ pub(super) fn report_learned_frontier_ranker(
             values,
         );
     }
-    report_learned_conformal(queries, frontier, extra_hops, &weights, &param, metrics);
+    report_learned_conformal(
+        queries, frontier, extra_hops, &weights, split_seed, &param, metrics,
+    );
     report_repeated_learned_conformal(
         queries,
         frontier,
@@ -1114,6 +1140,7 @@ pub(super) fn report_learned_frontier_ranker(
             lr,
             l2,
             repeats,
+            split_seed,
         },
         metrics,
     );
@@ -1136,7 +1163,7 @@ mod tests {
     #[test]
     fn query_split_indices_partition_queries() {
         let queries: Vec<CQuery> = (0..12).map(|i| query(i, i + 100)).collect();
-        let (train, test) = query_split_indices(&queries);
+        let (train, test) = query_split_indices(&queries, 0);
         assert_eq!(train.len(), 6);
         assert_eq!(test.len(), 6);
 
@@ -1150,13 +1177,13 @@ mod tests {
     }
 
     #[test]
-    fn salted_query_orders_keep_membership_and_change_order() {
+    fn seeded_query_orders_keep_membership_and_change_order() {
         let queries: Vec<CQuery> = (0..12).map(|i| query(i, i + 100)).collect();
-        let base = query_order_indices_with_salt(&queries, 0);
-        let salted = query_order_indices_with_salt(&queries, 1);
+        let base = query_order_indices_with_seed(&queries, 0);
+        let salted = query_order_indices_with_seed(&queries, 1);
         assert_ne!(base, salted);
 
-        for order in [base, salted, query_order_indices_with_salt(&queries, 2)] {
+        for order in [base, salted, query_order_indices_with_seed(&queries, 2)] {
             let mut sorted = order;
             sorted.sort_unstable();
             assert_eq!(sorted, (0..queries.len()).collect::<Vec<_>>());
@@ -1223,14 +1250,15 @@ mod tests {
             lr: 0.03,
             l2: 1e-4,
             repeats: 5,
+            split_seed: 9,
         };
         assert_eq!(
-            repeat_param(config, 2, 6, 3, 3),
-            "extra=10;epochs=20;lr=0.03;l2=0.0001;split=rotated_hash;repeat=2;ranker_train=6;cal=3;conformal_test=3"
+            repeat_param(config, 2, 11, 6, 3, 3),
+            "extra=10;epochs=20;lr=0.03;l2=0.0001;split=seeded_hash;split_seed=11;repeat=2;ranker_train=6;cal=3;conformal_test=3"
         );
         assert_eq!(
             repeat_summary_param(config, 4),
-            "extra=10;epochs=20;lr=0.03;l2=0.0001;split=rotated_hash;repeats=5;effective_repeats=4"
+            "extra=10;epochs=20;lr=0.03;l2=0.0001;split=seeded_hash;base_split_seed=9;repeats=5;effective_repeats=4"
         );
     }
 
