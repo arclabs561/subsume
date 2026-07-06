@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-07-06
+
 ### Added
 
 - GALEN CLQA diagnostics now report DCA-set targets, candidate-rank and
