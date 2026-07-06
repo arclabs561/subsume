@@ -5,8 +5,9 @@
 ### Added
 
 - GALEN CLQA diagnostics now report DCA-set targets, candidate-rank and
-  candidate-pool recall, rank fusion, symbolic common-ancestor pools, and
-  conformal set sizes inside those symbolic pools.
+  candidate-pool recall, rank fusion, direct-frontier candidate pools,
+  symbolic common-ancestor pools, and conformal set sizes inside those
+  symbolic pools.
 
 ### Fixed
 

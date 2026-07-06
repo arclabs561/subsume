@@ -48,7 +48,7 @@
 
 use heyting::conformal::{answer_set_from_degrees, calibrate_scores, ConformalThreshold};
 use rayon::prelude::*;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 use subsume::clqa::BoxClqa;
 use subsume::el_dataset::load_el_axioms;
@@ -664,6 +664,216 @@ fn print_candidate_pool_diagnostic(
             mean_pool,
             p90_pool
         );
+    }
+}
+
+fn direct_parent_graph(ont: &Ontology, n: usize) -> Vec<Vec<usize>> {
+    let mut parents = vec![Vec::new(); n];
+    for ax in &ont.axioms {
+        if let Axiom::SubClassOf { sub, sup } = ax {
+            if *sub < n && *sup < n {
+                parents[*sub].push(*sup);
+            }
+        }
+    }
+    for ps in &mut parents {
+        ps.sort_unstable();
+        ps.dedup();
+    }
+    parents
+}
+
+fn upward_distances(parents: &[Vec<usize>], start: usize) -> Vec<Option<usize>> {
+    let mut dist = vec![None; parents.len()];
+    let mut queue = VecDeque::new();
+    dist[start] = Some(0);
+    queue.push_back(start);
+    while let Some(cur) = queue.pop_front() {
+        let next_dist = dist[cur].unwrap() + 1;
+        for &parent in &parents[cur] {
+            if dist[parent].is_none() {
+                dist[parent] = Some(next_dist);
+                queue.push_back(parent);
+            }
+        }
+    }
+    dist
+}
+
+fn direct_frontier_pool(
+    q: &CQuery,
+    parents: &[Vec<usize>],
+    extra_hops: usize,
+) -> Vec<(usize, usize, usize)> {
+    let dist_a = upward_distances(parents, q.a);
+    let dist_b = upward_distances(parents, q.b);
+    let min_frontier = (0..parents.len())
+        .filter(|&x| x != q.a && x != q.b)
+        .filter_map(|x| Some(dist_a[x]?.max(dist_b[x]?)))
+        .min();
+    let Some(min_frontier) = min_frontier else {
+        return Vec::new();
+    };
+    let mut pool: Vec<(usize, usize, usize)> = (0..parents.len())
+        .filter(|&x| x != q.a && x != q.b)
+        .filter_map(|x| {
+            let da = dist_a[x]?;
+            let db = dist_b[x]?;
+            let frontier = da.max(db);
+            (frontier <= min_frontier + extra_hops).then_some((x, frontier, da + db))
+        })
+        .collect();
+    pool.sort_by_key(|&(x, frontier, sum)| (frontier, sum, x));
+    pool
+}
+
+fn direct_frontier_gated_scores(
+    q: &CQuery,
+    clqa: &BoxClqa<'_>,
+    parents: &[Vec<usize>],
+    extra_hops: usize,
+    tau: f32,
+) -> Vec<(usize, f32)> {
+    let (jc, jo) = clqa.join(q.a, q.b);
+    let mut scored: Vec<(usize, f32)> = direct_frontier_pool(q, parents, extra_hops)
+        .into_iter()
+        .map(|(x, _, _)| (x, clqa.score_lca(&jc, &jo, x, tau)))
+        .collect();
+    scored.sort_by(|p, r| r.1.partial_cmp(&p.1).unwrap().then_with(|| p.0.cmp(&r.0)));
+    scored
+}
+
+fn target_rank_in_scored(q: &CQuery, scored: &[(usize, f32)]) -> Option<usize> {
+    scored
+        .iter()
+        .position(|&(x, _)| q.is_target(x))
+        .map(|i| i + 1)
+}
+
+fn print_direct_frontier_pool_diagnostic(
+    queries: &[CQuery],
+    clqa: &BoxClqa<'_>,
+    parents: &[Vec<usize>],
+) {
+    println!(
+        "\n[symbolic] direct-frontier candidate pool (direct SubClassOf BFS; no precomputed closure in generator)"
+    );
+    println!(
+        "{:<8} {:>8} {:>10} {:>10} {:>8} {:>8} {:>8}",
+        "extra", "recall", "mean|pool|", "p90|pool|", "MRR", "Hits@10", "top1DCA"
+    );
+    for extra_hops in [0usize, 1, 2, 3, 5, 10] {
+        let per: Vec<(bool, usize, Option<usize>, bool)> = queries
+            .par_iter()
+            .map(|q| {
+                let scored = direct_frontier_gated_scores(q, clqa, parents, extra_hops, 20.0);
+                let hit = scored.iter().any(|&(x, _)| q.is_target(x));
+                let top1 = scored.first().is_some_and(|&(x, _)| q.is_target(x));
+                (hit, scored.len(), target_rank_in_scored(q, &scored), top1)
+            })
+            .collect();
+        let hits = per.iter().filter(|x| x.0).count();
+        let pool_sizes: Vec<usize> = per.iter().map(|x| x.1).collect();
+        let (mean_pool, _, p90_pool, _) = set_size_summary(&pool_sizes);
+        let mrr = per
+            .iter()
+            .filter_map(|x| x.2.map(|rank| 1.0 / rank as f64))
+            .sum::<f64>()
+            / queries.len() as f64;
+        let h10 = per
+            .iter()
+            .filter(|x| x.2.is_some_and(|rank| rank <= 10))
+            .count() as f64
+            / queries.len() as f64;
+        let top1 = per.iter().filter(|x| x.3).count() as f64 / queries.len() as f64;
+        println!(
+            "{:<8} {:>8.3} {:>10.1} {:>10} {mrr:>8.3} {h10:>8.3} {top1:>8.3}",
+            extra_hops,
+            hits as f32 / queries.len() as f32,
+            mean_pool,
+            p90_pool
+        );
+    }
+}
+
+fn report_direct_frontier_conformal(
+    queries: &[CQuery],
+    clqa: &BoxClqa<'_>,
+    parents: &[Vec<usize>],
+    tau: f32,
+) {
+    if queries.len() < 4 {
+        println!(
+            "\n[conformal] skipped direct-frontier pool: need at least 4 queries for a held-out split"
+        );
+        return;
+    }
+    let mut order: Vec<usize> = (0..queries.len()).collect();
+    order.sort_by_key(|&i| {
+        let q = &queries[i];
+        q.a.wrapping_mul(2_654_435_761)
+            .wrapping_add(q.b.wrapping_mul(40_503))
+            .wrapping_add(i.wrapping_mul(97_531))
+    });
+    let split = order.len() / 2;
+    let (cal_idx, test_idx) = order.split_at(split);
+
+    println!(
+        "\n[conformal] direct-frontier gated DCA sets (tau={tau}, target-missing score=0, {} calibration, {} test)",
+        cal_idx.len(),
+        test_idx.len()
+    );
+    println!(
+        "{:<8} {:>7} {:>9} {:>10} {:>10} {:>10} {:>10} {:>8} {:>8}",
+        "extra", "alpha", "q_hat", "empirical", "poolrecall", "mean|set|", "p50", "p90", "max"
+    );
+    for extra_hops in [0usize, 3, 10] {
+        let cal_scores: Vec<(usize, Vec<(usize, f32)>)> = cal_idx
+            .iter()
+            .map(|&i| {
+                (
+                    i,
+                    direct_frontier_gated_scores(&queries[i], clqa, parents, extra_hops, tau),
+                )
+            })
+            .collect();
+        let test_scores: Vec<(usize, Vec<(usize, f32)>)> = test_idx
+            .iter()
+            .map(|&i| {
+                (
+                    i,
+                    direct_frontier_gated_scores(&queries[i], clqa, parents, extra_hops, tau),
+                )
+            })
+            .collect();
+        let cal_nonconf: Vec<f32> = cal_scores
+            .iter()
+            .map(|(i, scored)| 1.0 - common_pool_target_score(&queries[*i], scored).max(0.0))
+            .collect();
+        let pool_recall = test_scores
+            .iter()
+            .filter(|(i, scored)| scored.iter().any(|&(x, _)| queries[*i].is_target(x)))
+            .count() as f64
+            / test_scores.len() as f64;
+        for &alpha in &[0.3f32, 0.2, 0.1] {
+            let threshold = calibrate_scores(&cal_nonconf, alpha).expect("non-empty calibration");
+            let mut covered = 0usize;
+            let mut sizes = Vec::with_capacity(test_scores.len());
+            for (i, scored) in &test_scores {
+                let set = common_pool_answer_set(scored, &threshold);
+                if set.iter().any(|&(x, _)| queries[*i].is_target(x)) {
+                    covered += 1;
+                }
+                sizes.push(set.len());
+            }
+            let empirical = covered as f64 / test_scores.len() as f64;
+            let (mean_size, p50, p90, max_size) = set_size_summary(&sizes);
+            println!(
+                "{:<8} {alpha:>7.2} {:>9.3} {empirical:>10.3} {pool_recall:>10.3} {mean_size:>10.1} {p50:>8} {p90:>8} {max_size:>8}",
+                extra_hops,
+                threshold.qhat
+            );
+        }
     }
 }
 
@@ -1392,6 +1602,7 @@ fn main() {
 
     let box_sizes: Vec<f32> = (0..n).map(|c| offset_l1(&offsets, c, dim)).collect();
     let depths: Vec<usize> = (0..n).map(|c| anc[c].len()).collect();
+    let direct_parents = direct_parent_graph(&ont, n);
     println!("\n{} conjunctive queries (DCA depth >= 2)\n", queries.len());
     println!(
         "{:<22} {:>8} {:>8} {:>8}",
@@ -1469,6 +1680,8 @@ fn main() {
     );
     print_rank_diagnostic("boxes (rank-fusion)", &rf_ranks);
     print_candidate_pool_diagnostic(&queries, &centers, &offsets, &box_sizes, dim, n);
+    print_direct_frontier_pool_diagnostic(&queries, &clqa, &direct_parents);
+    report_direct_frontier_conformal(&queries, &clqa, &direct_parents, 20.0);
     print_common_pool_diagnostic(&queries, &clqa, &depths);
     report_common_pool_conformal(&queries, &clqa, 20.0);
     report_gated_conformal(&queries, &clqa, 20.0);
