@@ -89,22 +89,24 @@ struct CQuery {
     lca: usize,
 }
 
+type ScoreResult = ((f64, f64, f64), Vec<usize>, Vec<usize>);
+
 /// Metrics `(LCA MRR, LCA Hits@10, top-1-is-valid-CA)` plus the top-1 concept
-/// per query (for the culprit diagnostic). Queries are independent, so the
-/// per-query ranking (the GALEN-scale O(queries * n) cost) is rayon-parallel.
+/// and LCA rank per query. Queries are independent, so the per-query ranking
+/// (the GALEN-scale O(queries * n) cost) is rayon-parallel.
 fn score_model<F: Fn(usize, usize) -> f32 + Sync>(
     queries: &[CQuery],
     deg: F,
     sizes: &[f32],
     lambda: f32,
     n: usize,
-) -> ((f64, f64, f64), Vec<usize>) {
+) -> ScoreResult {
     // Rank by min(deg(A,X), deg(B,X)) * exp(-lambda * size(X)). Containment degree
     // saturates near 1 for any container, so a size factor breaks the tie toward
     // the smallest common container (the LCA). Multiplicative (not additive):
     // a non-container (deg ~0) stays ~0 regardless of its size, so tiny leaves
     // that contain nothing cannot win. lambda = 0 = plain degree.
-    let per: Vec<(f64, usize, usize, usize)> = queries
+    let per: Vec<(f64, usize, usize, usize, usize)> = queries
         .par_iter()
         .map(|q| {
             let mut scored: Vec<(usize, f32)> = (0..n)
@@ -118,6 +120,7 @@ fn score_model<F: Fn(usize, usize) -> f32 + Sync>(
                 usize::from(rank <= 10),
                 usize::from(q.common.contains(&scored[0].0)),
                 scored[0].0,
+                rank,
             )
         })
         .collect();
@@ -125,8 +128,13 @@ fn score_model<F: Fn(usize, usize) -> f32 + Sync>(
         (a.0 + x.0, a.1 + x.1, a.2 + x.2)
     });
     let top1s: Vec<usize> = per.iter().map(|x| x.3).collect();
+    let ranks: Vec<usize> = per.iter().map(|x| x.4).collect();
     let nq = queries.len() as f64;
-    ((rr / nq, hits10 as f64 / nq, top1 as f64 / nq), top1s)
+    (
+        (rr / nq, hits10 as f64 / nq, top1 as f64 / nq),
+        top1s,
+        ranks,
+    )
 }
 
 /// L1 size (half-perimeter) of concept `c`'s box.
@@ -149,8 +157,8 @@ fn score_join_contain(
     dim: usize,
     lambda: f32,
     n: usize,
-) -> ((f64, f64, f64), Vec<usize>) {
-    let per: Vec<(f64, usize, usize, usize)> = queries
+) -> ScoreResult {
+    let per: Vec<(f64, usize, usize, usize, usize)> = queries
         .par_iter()
         .map(|q| {
             let (ao, bo) = (q.a * dim, q.b * dim);
@@ -186,6 +194,7 @@ fn score_join_contain(
                 usize::from(rank <= 10),
                 usize::from(q.common.contains(&scored[0].0)),
                 scored[0].0,
+                rank,
             )
         })
         .collect();
@@ -196,6 +205,7 @@ fn score_join_contain(
     (
         (rr / nq, hits10 as f64 / nq, top1 as f64 / nq),
         per.iter().map(|x| x.3).collect(),
+        per.iter().map(|x| x.4).collect(),
     )
 }
 
@@ -209,8 +219,8 @@ fn score_join(
     offsets: &[f32],
     dim: usize,
     n: usize,
-) -> ((f64, f64, f64), Vec<usize>) {
-    let per: Vec<(f64, usize, usize, usize)> = queries
+) -> ScoreResult {
+    let per: Vec<(f64, usize, usize, usize, usize)> = queries
         .par_iter()
         .map(|q| {
             let (ao, bo) = (q.a * dim, q.b * dim);
@@ -242,6 +252,7 @@ fn score_join(
                 usize::from(rank <= 10),
                 usize::from(q.common.contains(&scored[0].0)),
                 scored[0].0,
+                rank,
             )
         })
         .collect();
@@ -252,6 +263,7 @@ fn score_join(
     (
         (rr / nq, hits10 as f64 / nq, top1 as f64 / nq),
         per.iter().map(|x| x.3).collect(),
+        per.iter().map(|x| x.4).collect(),
     )
 }
 
@@ -273,8 +285,8 @@ fn score_join_gated(
     dim: usize,
     tau: f32,
     n: usize,
-) -> ((f64, f64, f64), Vec<usize>) {
-    let per: Vec<(f64, usize, usize, usize)> = queries
+) -> ScoreResult {
+    let per: Vec<(f64, usize, usize, usize, usize)> = queries
         .par_iter()
         .map(|q| {
             let (ao, bo) = (q.a * dim, q.b * dim);
@@ -310,6 +322,7 @@ fn score_join_gated(
                 usize::from(rank <= 10),
                 usize::from(q.common.contains(&scored[0].0)),
                 scored[0].0,
+                rank,
             )
         })
         .collect();
@@ -320,6 +333,7 @@ fn score_join_gated(
     (
         (rr / nq, hits10 as f64 / nq, top1 as f64 / nq),
         per.iter().map(|x| x.3).collect(),
+        per.iter().map(|x| x.4).collect(),
     )
 }
 
@@ -378,6 +392,28 @@ fn set_size_summary(sizes: &[usize]) -> (f32, usize, usize, usize) {
         quantile_usize(sizes, 0.90),
         *sizes.iter().max().unwrap(),
     )
+}
+
+fn print_rank_diagnostic(label: &str, ranks: &[usize]) {
+    if ranks.is_empty() {
+        println!("[rank] {label}: n=0");
+        return;
+    }
+    let recall =
+        |k: usize| ranks.iter().filter(|&&rank| rank <= k).count() as f32 / ranks.len() as f32;
+    println!(
+        "[rank] {label}: n={} r@10={:.3} r@100={:.3} r@1000={:.3} r@5000={:.3} p50={} p90={} p95={} p99={} max={}",
+        ranks.len(),
+        recall(10),
+        recall(100),
+        recall(1000),
+        recall(5000),
+        quantile_usize(ranks, 0.50),
+        quantile_usize(ranks, 0.90),
+        quantile_usize(ranks, 0.95),
+        quantile_usize(ranks, 0.99),
+        quantile_usize(ranks, 1.00)
+    );
 }
 
 fn best_nonquery_score(degrees: &[f32], a: usize, b: usize) -> f32 {
@@ -799,7 +835,7 @@ fn main() {
     let mut box_mrr = 0.0f64;
     let mut box_top1s: Vec<usize> = Vec::new();
     for (i, &lam) in lambdas.iter().enumerate() {
-        let ((mrr, h10, t1), top1s) = score_model(
+        let ((mrr, h10, t1), top1s, ranks) = score_model(
             &queries,
             |a, x| box_degree(&centers, &offsets, a, x, dim),
             &box_sizes,
@@ -814,22 +850,29 @@ fn main() {
             box_mrr = mrr;
             box_top1s = top1s;
         }
+        if (lam - 0.02).abs() < f32::EPSILON {
+            print_rank_diagnostic("boxes (lam=0.02)", &ranks);
+        }
     }
     // Non-containment scorer: rank by match to the join box (the LCA's expected
     // shape), sidestepping the widest-region-wins degeneracy of containment.
-    let ((jm_mrr, jm_h10, jm_t1), _) = score_join(&queries, &centers, &offsets, dim, n);
+    let ((jm_mrr, jm_h10, jm_t1), _, jm_ranks) = score_join(&queries, &centers, &offsets, dim, n);
     println!(
         "{:<22} {jm_mrr:>8.3} {jm_h10:>8.3} {jm_t1:>8.3}",
         "boxes (join-match)"
     );
+    print_rank_diagnostic("boxes (join-match)", &jm_ranks);
     // Smallest-container-of-the-join score, swept over the size penalty.
     for jl in [0.02f32, 0.05, 0.1] {
-        let ((c_mrr, c_h10, c_t1), _) =
+        let ((c_mrr, c_h10, c_t1), _, c_ranks) =
             score_join_contain(&queries, &centers, &offsets, dim, jl, n);
         println!(
             "{:<22} {c_mrr:>8.3} {c_h10:>8.3} {c_t1:>8.3}",
             format!("boxes (join-cont l={jl})")
         );
+        if (jl - 0.02).abs() < f32::EPSILON {
+            print_rank_diagnostic("boxes (join-cont l=0.02)", &c_ranks);
+        }
     }
     // Containment-gated proximity: the synthesis readout, swept over the
     // proximity temperature. tau scales the L1-distance-to-degree map; too small
@@ -837,17 +880,19 @@ fn main() {
     // proximity tie-break. Swept relative to the mean box-to-join distance.
     let clqa = BoxClqa::new(&centers, &offsets, dim).expect("trained box slices align");
     for tau in [5.0f32, 20.0, 50.0] {
-        let ((g_mrr, g_h10, g_t1), _) = score_join_gated(&queries, &centers, &offsets, dim, tau, n);
+        let ((g_mrr, g_h10, g_t1), _, g_ranks) =
+            score_join_gated(&queries, &centers, &offsets, dim, tau, n);
         println!(
             "{:<22} {g_mrr:>8.3} {g_h10:>8.3} {g_t1:>8.3}",
             format!("boxes (join-gate t={tau})")
         );
+        print_rank_diagnostic(&format!("boxes (join-gate t={tau})"), &g_ranks);
     }
     report_gated_conformal(&queries, &clqa, 20.0);
     if let Some((emb, rel)) = &transe {
         // TransE is a point model: no box size, so no size penalty.
         let zeros = vec![0.0f32; n];
-        let ((te_mrr, te_h10, te_t1), _) = score_model(
+        let ((te_mrr, te_h10, te_t1), _, te_ranks) = score_model(
             &queries,
             |a, x| transe_degree(emb, rel, a, x),
             &zeros,
@@ -858,6 +903,7 @@ fn main() {
             "{:<22} {te_mrr:>8.3} {te_h10:>8.3} {te_t1:>8.3}",
             "plain KGE (TransE)"
         );
+        print_rank_diagnostic("plain KGE (TransE)", &te_ranks);
         let delta = box_mrr - te_mrr;
         println!(
             "\nLCA MRR delta (faithful - plain): {delta:+.3}  ({} on real {dataset})",
