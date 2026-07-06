@@ -8,6 +8,15 @@ use subsume::clqa::{DirectFrontier, FrontierCandidate};
 
 const FRONTIER_FEATURES: usize = 5;
 
+#[derive(Clone, Copy)]
+struct LearnedRankerConfig {
+    extra_hops: usize,
+    epochs: usize,
+    lr: f32,
+    l2: f32,
+    repeats: usize,
+}
+
 fn query_split_indices(queries: &[CQuery]) -> (Vec<usize>, Vec<usize>) {
     let order = query_order_indices(queries);
     let split = order.len() / 2;
@@ -15,6 +24,10 @@ fn query_split_indices(queries: &[CQuery]) -> (Vec<usize>, Vec<usize>) {
 }
 
 fn query_order_indices(queries: &[CQuery]) -> Vec<usize> {
+    query_order_indices_with_salt(queries, 0)
+}
+
+fn query_order_indices_with_salt(queries: &[CQuery], salt: usize) -> Vec<usize> {
     let mut order: Vec<usize> = (0..queries.len()).collect();
     order.sort_by_key(|&i| {
         let q = &queries[i];
@@ -22,6 +35,11 @@ fn query_order_indices(queries: &[CQuery]) -> Vec<usize> {
             .wrapping_add(q.b.wrapping_mul(40_503))
             .wrapping_add(i.wrapping_mul(97_531))
     });
+    if !order.is_empty() && salt > 0 {
+        let len = order.len();
+        let shift = salt.wrapping_mul(len / 3 + 1) % len;
+        order.rotate_left(shift);
+    }
     order
 }
 
@@ -269,27 +287,25 @@ fn learned_answer_set(scored: &[(usize, f32)], qhat: f32) -> Vec<(usize, f32)> {
         .collect()
 }
 
-fn report_learned_conformal(
+struct LearnedConformalResult {
+    alpha: f32,
+    q_hat: f32,
+    empirical: f64,
+    pool_recall: f64,
+    mean_set: f32,
+    p50_set: usize,
+    p90_set: usize,
+    max_set: usize,
+}
+
+fn learned_conformal_results(
     queries: &[CQuery],
     frontier: &DirectFrontier,
     extra_hops: usize,
     weights: &[f32; FRONTIER_FEATURES],
-    param: &str,
-    metrics: &mut MetricsCsv,
-) {
-    if queries.len() < 8 {
-        println!("\n[learned conformal] skipped: need at least 8 queries");
-        return;
-    }
-    let order = query_order_indices(queries);
-    let train_end = order.len() / 2;
-    let cal_end = train_end + (order.len() - train_end) / 2;
-    let cal_idx = &order[train_end..cal_end];
-    let test_idx = &order[cal_end..];
-    if cal_idx.is_empty() || test_idx.is_empty() {
-        println!("\n[learned conformal] skipped: empty calibration or test split");
-        return;
-    }
+    cal_idx: &[usize],
+    test_idx: &[usize],
+) -> (Vec<f32>, Vec<LearnedConformalResult>) {
     let cal_scores: Vec<(usize, Vec<(usize, f32)>)> = cal_idx
         .iter()
         .map(|&i| {
@@ -317,6 +333,59 @@ fn report_learned_conformal(
         .filter(|(i, scored)| scored.iter().any(|&(x, _)| queries[*i].is_target(x)))
         .count() as f64
         / test_scores.len() as f64;
+    let results = [0.3f32, 0.2, 0.1]
+        .into_iter()
+        .map(|alpha| {
+            let threshold = calibrate_scores(&cal_nonconf, alpha).expect("non-empty calibration");
+            let mut covered = 0usize;
+            let mut sizes = Vec::with_capacity(test_scores.len());
+            for (i, scored) in &test_scores {
+                let set = learned_answer_set(scored, threshold.qhat);
+                if set.iter().any(|&(x, _)| queries[*i].is_target(x)) {
+                    covered += 1;
+                }
+                sizes.push(set.len());
+            }
+            let empirical = covered as f64 / test_scores.len() as f64;
+            let (mean_set, p50_set, p90_set, max_set) = set_size_summary(&sizes);
+            LearnedConformalResult {
+                alpha,
+                q_hat: threshold.qhat,
+                empirical,
+                pool_recall,
+                mean_set,
+                p50_set,
+                p90_set,
+                max_set,
+            }
+        })
+        .collect();
+    (cal_nonconf, results)
+}
+
+fn report_learned_conformal(
+    queries: &[CQuery],
+    frontier: &DirectFrontier,
+    extra_hops: usize,
+    weights: &[f32; FRONTIER_FEATURES],
+    param: &str,
+    metrics: &mut MetricsCsv,
+) {
+    if queries.len() < 8 {
+        println!("\n[learned conformal] skipped: need at least 8 queries");
+        return;
+    }
+    let order = query_order_indices(queries);
+    let train_end = order.len() / 2;
+    let cal_end = train_end + (order.len() - train_end) / 2;
+    let cal_idx = &order[train_end..cal_end];
+    let test_idx = &order[cal_end..];
+    if cal_idx.is_empty() || test_idx.is_empty() {
+        println!("\n[learned conformal] skipped: empty calibration or test split");
+        return;
+    }
+    let (cal_nonconf, results) =
+        learned_conformal_results(queries, frontier, extra_hops, weights, cal_idx, test_idx);
     println!(
         "\n[learned conformal] direct-frontier ranker sets (extra={extra_hops}, {} calibration, {} test)",
         cal_idx.len(),
@@ -330,39 +399,157 @@ fn report_learned_conformal(
         "{:<8} {:>8} {:>10} {:>10} {:>10} {:>10} {:>8} {:>8} {:>8}",
         "alpha", "1-alpha", "q_hat", "empirical", "poolrecall", "mean|set|", "p50", "p90", "max"
     );
-    for &alpha in &[0.3f32, 0.2, 0.1] {
-        let threshold = calibrate_scores(&cal_nonconf, alpha).expect("non-empty calibration");
-        let mut covered = 0usize;
-        let mut sizes = Vec::with_capacity(test_scores.len());
-        for (i, scored) in &test_scores {
-            let set = learned_answer_set(scored, threshold.qhat);
-            if set.iter().any(|&(x, _)| queries[*i].is_target(x)) {
-                covered += 1;
-            }
-            sizes.push(set.len());
-        }
-        let empirical = covered as f64 / test_scores.len() as f64;
-        let (mean_set, p50_set, p90_set, max_set) = set_size_summary(&sizes);
+    for result in results {
         println!(
-            "{alpha:<8.2} {:>8.2} {:>10.3} {empirical:>10.3} {pool_recall:>10.3} {mean_set:>10.1} {p50_set:>8} {p90_set:>8} {max_set:>8}",
-            1.0 - alpha,
-            threshold.qhat
+            "{:<8.2} {:>8.2} {:>10.3} {:>10.3} {:>10.3} {:>10.1} {:>8} {:>8} {:>8}",
+            result.alpha,
+            1.0 - result.alpha,
+            result.q_hat,
+            result.empirical,
+            result.pool_recall,
+            result.mean_set,
+            result.p50_set,
+            result.p90_set,
+            result.max_set
         );
         emit_conformal_metrics(
             metrics,
             "learned_frontier_conformal",
             "pairwise_linear",
             param,
-            alpha,
+            result.alpha,
             ConformalMetrics {
-                q_hat: threshold.qhat,
-                empirical,
-                pool_recall,
-                mean_set,
-                p50_set,
-                p90_set,
-                max_set,
+                q_hat: result.q_hat,
+                empirical: result.empirical,
+                pool_recall: result.pool_recall,
+                mean_set: result.mean_set,
+                p50_set: result.p50_set,
+                p90_set: result.p90_set,
+                max_set: result.max_set,
             },
+        );
+    }
+}
+
+fn report_repeated_learned_conformal(
+    queries: &[CQuery],
+    frontier: &DirectFrontier,
+    config: LearnedRankerConfig,
+    metrics: &mut MetricsCsv,
+) {
+    if config.repeats <= 1 || queries.len() < 8 {
+        return;
+    }
+    let mut rows: Vec<Vec<LearnedConformalResult>> = Vec::with_capacity(config.repeats);
+    for repeat in 0..config.repeats {
+        let order = query_order_indices_with_salt(queries, repeat + 1);
+        let train_end = order.len() / 2;
+        let cal_end = train_end + (order.len() - train_end) / 2;
+        let train_idx = &order[..train_end];
+        let cal_idx = &order[train_end..cal_end];
+        let test_idx = &order[cal_end..];
+        if train_idx.is_empty() || cal_idx.is_empty() || test_idx.is_empty() {
+            continue;
+        }
+        let (weights, _, _) = train_frontier_ranker(
+            queries,
+            train_idx,
+            frontier,
+            config.extra_hops,
+            config.epochs,
+            config.lr,
+            config.l2,
+        );
+        let (_, results) = learned_conformal_results(
+            queries,
+            frontier,
+            config.extra_hops,
+            &weights,
+            cal_idx,
+            test_idx,
+        );
+        rows.push(results);
+    }
+    if rows.is_empty() {
+        println!("\n[learned conformal repeats] skipped: empty repeated splits");
+        return;
+    }
+    println!(
+        "\n[learned conformal repeats] {}/{} deterministic train/cal/test splits (extra={extra_hops}, epochs={epochs})",
+        rows.len(),
+        config.repeats,
+        extra_hops = config.extra_hops,
+        epochs = config.epochs
+    );
+    println!(
+        "{:<8} {:>10} {:>10} {:>10} {:>10} {:>10}",
+        "alpha", "cov_mean", "cov_min", "cov_max", "set_mean", "recall_min"
+    );
+    for alpha in [0.3f32, 0.2, 0.1] {
+        let mut coverages = Vec::new();
+        let mut mean_sets = Vec::new();
+        let mut recalls = Vec::new();
+        for repeat_results in &rows {
+            if let Some(result) = repeat_results.iter().find(|result| result.alpha == alpha) {
+                coverages.push(result.empirical as f32);
+                mean_sets.push(result.mean_set);
+                recalls.push(result.pool_recall as f32);
+            }
+        }
+        if coverages.is_empty() {
+            continue;
+        }
+        let coverage_mean = coverages.iter().sum::<f32>() / coverages.len() as f32;
+        let set_mean = mean_sets.iter().sum::<f32>() / mean_sets.len() as f32;
+        let coverage_min = coverages.iter().copied().fold(f32::INFINITY, f32::min);
+        let coverage_max = coverages.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let recall_min = recalls.iter().copied().fold(f32::INFINITY, f32::min);
+        println!(
+            "{alpha:<8.2} {coverage_mean:>10.3} {coverage_min:>10.3} {coverage_max:>10.3} {set_mean:>10.1} {recall_min:>10.3}"
+        );
+        let param = format!(
+            "extra={};epochs={};lr={};l2={};repeats={}",
+            config.extra_hops, config.epochs, config.lr, config.l2, config.repeats
+        );
+        metrics.emit(
+            "learned_frontier_conformal_repeats",
+            "pairwise_linear",
+            &param,
+            Some(alpha),
+            "coverage_mean",
+            coverage_mean,
+        );
+        metrics.emit(
+            "learned_frontier_conformal_repeats",
+            "pairwise_linear",
+            &param,
+            Some(alpha),
+            "coverage_min",
+            coverage_min,
+        );
+        metrics.emit(
+            "learned_frontier_conformal_repeats",
+            "pairwise_linear",
+            &param,
+            Some(alpha),
+            "coverage_max",
+            coverage_max,
+        );
+        metrics.emit(
+            "learned_frontier_conformal_repeats",
+            "pairwise_linear",
+            &param,
+            Some(alpha),
+            "mean_set_mean",
+            set_mean,
+        );
+        metrics.emit(
+            "learned_frontier_conformal_repeats",
+            "pairwise_linear",
+            &param,
+            Some(alpha),
+            "pool_recall_min",
+            recall_min,
         );
     }
 }
@@ -392,6 +579,10 @@ pub(super) fn report_learned_frontier_ranker(
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(1e-4);
+    let repeats: usize = std::env::var("LEARNED_REPEATS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
     let (train_idx, test_idx) = query_split_indices(queries);
     let (weights, losses, pairs_per_epoch) =
         train_frontier_ranker(queries, &train_idx, frontier, extra_hops, epochs, lr, l2);
@@ -456,4 +647,16 @@ pub(super) fn report_learned_frontier_ranker(
         );
     }
     report_learned_conformal(queries, frontier, extra_hops, &weights, &param, metrics);
+    report_repeated_learned_conformal(
+        queries,
+        frontier,
+        LearnedRankerConfig {
+            extra_hops,
+            epochs,
+            lr,
+            l2,
+            repeats,
+        },
+        metrics,
+    );
 }

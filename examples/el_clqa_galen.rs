@@ -48,6 +48,7 @@
 //! Use `SYMBOLIC_ONLY=1` to run the direct-frontier retrieval diagnostics
 //! without training the box model. Add `LEARNED_RETRIEVAL=1` to train a
 //! deterministic graph-feature ranker over the direct-frontier candidate pool.
+//! Set `LEARNED_REPEATS=N` to repeat the learned conformal split diagnostic.
 //! Set `METRICS_CSV=path/to/run.csv` to also write the main aggregate metrics
 //! as machine-readable CSV rows.
 
