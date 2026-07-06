@@ -17,6 +17,32 @@ struct LearnedRankerConfig {
     repeats: usize,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct CandidateScore {
+    concept: usize,
+    score: f32,
+    frontier_depth: usize,
+    path_len: usize,
+    parent_count: usize,
+}
+
+struct ConformalCase<'a> {
+    query_index: usize,
+    query: &'a CQuery,
+    scored: &'a [CandidateScore],
+    set: &'a [CandidateScore],
+}
+
+struct LearnedCaseSource<'a> {
+    queries: &'a [CQuery],
+    frontier: &'a DirectFrontier,
+    extra_hops: usize,
+    weights: &'a [f32; FRONTIER_FEATURES],
+    test_idx: &'a [usize],
+    results: &'a [LearnedConformalResult],
+    base_param: &'a str,
+}
+
 fn query_split_indices(queries: &[CQuery]) -> (Vec<usize>, Vec<usize>) {
     let order = query_order_indices(queries);
     let split = order.len() / 2;
@@ -227,63 +253,67 @@ fn evaluate_frontier_ranker(
     }
 }
 
-fn scored_frontier_pool(
+fn scored_frontier_pool_details(
     q: &CQuery,
     frontier: &DirectFrontier,
     extra_hops: usize,
     weights: &[f32; FRONTIER_FEATURES],
-) -> Vec<(usize, f32)> {
-    let mut scored: Vec<(usize, f32, usize, usize, usize)> = frontier
+) -> Vec<CandidateScore> {
+    let mut scored: Vec<CandidateScore> = frontier
         .pool(q.a, q.b, extra_hops)
         .expect("query ids come from the same ontology as the direct frontier")
         .iter()
         .map(|candidate| {
-            (
-                candidate.concept,
-                dot_frontier(weights, &frontier_features(candidate, frontier)),
-                candidate.frontier_depth,
-                candidate.path_len,
-                candidate.concept,
-            )
+            let parent_count = frontier
+                .parents(candidate.concept)
+                .expect("frontier candidate concept came from the same frontier")
+                .len();
+            CandidateScore {
+                concept: candidate.concept,
+                score: dot_frontier(weights, &frontier_features(candidate, frontier)),
+                frontier_depth: candidate.frontier_depth,
+                path_len: candidate.path_len,
+                parent_count,
+            }
         })
         .collect();
     scored.sort_by(|p, r| {
-        r.1.total_cmp(&p.1)
-            .then_with(|| p.2.cmp(&r.2))
-            .then_with(|| p.3.cmp(&r.3))
-            .then_with(|| p.4.cmp(&r.4))
+        r.score
+            .total_cmp(&p.score)
+            .then_with(|| p.frontier_depth.cmp(&r.frontier_depth))
+            .then_with(|| p.path_len.cmp(&r.path_len))
+            .then_with(|| p.concept.cmp(&r.concept))
     });
     scored
-        .into_iter()
-        .map(|(x, score, _, _, _)| (x, score))
-        .collect()
 }
 
-fn learned_nonconformity(q: &CQuery, scored: &[(usize, f32)]) -> f32 {
-    let Some(best_score) = scored.first().map(|&(_, score)| score) else {
+fn learned_nonconformity(q: &CQuery, scored: &[CandidateScore]) -> f32 {
+    let Some(best_score) = scored.first().map(|candidate| candidate.score) else {
         return f32::INFINITY;
     };
     let Some(target_score) = scored
         .iter()
-        .filter(|&&(x, _)| q.is_target(x))
-        .map(|&(_, score)| score)
+        .filter(|candidate| q.is_target(candidate.concept))
+        .map(|candidate| candidate.score)
         .max_by(f32::total_cmp)
     else {
-        let worst_score = scored.last().map_or(best_score, |&(_, score)| score);
+        let worst_score = scored
+            .last()
+            .map_or(best_score, |candidate| candidate.score);
         return (best_score - worst_score).abs() + 1.0;
     };
     best_score - target_score
 }
 
-fn learned_answer_set(scored: &[(usize, f32)], qhat: f32) -> Vec<(usize, f32)> {
-    let Some(best_score) = scored.first().map(|&(_, score)| score) else {
+fn learned_answer_set(scored: &[CandidateScore], qhat: f32) -> Vec<CandidateScore> {
+    let Some(best_score) = scored.first().map(|candidate| candidate.score) else {
         return Vec::new();
     };
     let cutoff = best_score - qhat;
     scored
         .iter()
         .copied()
-        .filter(|&(_, score)| score >= cutoff)
+        .filter(|candidate| candidate.score >= cutoff)
         .collect()
 }
 
@@ -306,21 +336,21 @@ fn learned_conformal_results(
     cal_idx: &[usize],
     test_idx: &[usize],
 ) -> (Vec<f32>, Vec<LearnedConformalResult>) {
-    let cal_scores: Vec<(usize, Vec<(usize, f32)>)> = cal_idx
+    let cal_scores: Vec<(usize, Vec<CandidateScore>)> = cal_idx
         .iter()
         .map(|&i| {
             (
                 i,
-                scored_frontier_pool(&queries[i], frontier, extra_hops, weights),
+                scored_frontier_pool_details(&queries[i], frontier, extra_hops, weights),
             )
         })
         .collect();
-    let test_scores: Vec<(usize, Vec<(usize, f32)>)> = test_idx
+    let test_scores: Vec<(usize, Vec<CandidateScore>)> = test_idx
         .iter()
         .map(|&i| {
             (
                 i,
-                scored_frontier_pool(&queries[i], frontier, extra_hops, weights),
+                scored_frontier_pool_details(&queries[i], frontier, extra_hops, weights),
             )
         })
         .collect();
@@ -330,7 +360,11 @@ fn learned_conformal_results(
         .collect();
     let pool_recall = test_scores
         .iter()
-        .filter(|(i, scored)| scored.iter().any(|&(x, _)| queries[*i].is_target(x)))
+        .filter(|(i, scored)| {
+            scored
+                .iter()
+                .any(|candidate| queries[*i].is_target(candidate.concept))
+        })
         .count() as f64
         / test_scores.len() as f64;
     let results = [0.3f32, 0.2, 0.1]
@@ -341,7 +375,10 @@ fn learned_conformal_results(
             let mut sizes = Vec::with_capacity(test_scores.len());
             for (i, scored) in &test_scores {
                 let set = learned_answer_set(scored, threshold.qhat);
-                if set.iter().any(|&(x, _)| queries[*i].is_target(x)) {
+                if set
+                    .iter()
+                    .any(|candidate| queries[*i].is_target(candidate.concept))
+                {
                     covered += 1;
                 }
                 sizes.push(set.len());
@@ -361,6 +398,281 @@ fn learned_conformal_results(
         })
         .collect();
     (cal_nonconf, results)
+}
+
+fn learned_case_limit() -> usize {
+    std::env::var("LEARNED_CASE_LIMIT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(64)
+}
+
+fn emit_optional_usize(
+    metrics: &mut MetricsCsv,
+    label: &str,
+    param: &str,
+    alpha: f32,
+    metric: &str,
+    value: Option<usize>,
+) {
+    if let Some(value) = value {
+        metrics.emit(
+            "learned_frontier_conformal_case",
+            label,
+            param,
+            Some(alpha),
+            metric,
+            value,
+        );
+    }
+}
+
+fn emit_optional_f32(
+    metrics: &mut MetricsCsv,
+    label: &str,
+    param: &str,
+    alpha: f32,
+    metric: &str,
+    value: Option<f32>,
+) {
+    if let Some(value) = value {
+        metrics.emit(
+            "learned_frontier_conformal_case",
+            label,
+            param,
+            Some(alpha),
+            metric,
+            value,
+        );
+    }
+}
+
+fn emit_case_metric(
+    metrics: &mut MetricsCsv,
+    label: &str,
+    param: &str,
+    alpha: f32,
+    metric: &str,
+    value: impl std::fmt::Display,
+) {
+    metrics.emit(
+        "learned_frontier_conformal_case",
+        label,
+        param,
+        Some(alpha),
+        metric,
+        value,
+    );
+}
+
+fn emit_one_conformal_case(
+    metrics: &mut MetricsCsv,
+    label: &str,
+    base_param: &str,
+    alpha: f32,
+    case: ConformalCase<'_>,
+) {
+    let param = format!(
+        "{base_param};query={query_index};a={};b={}",
+        case.query.a,
+        case.query.b,
+        query_index = case.query_index
+    );
+    let pool_hit = case
+        .scored
+        .iter()
+        .any(|candidate| case.query.is_target(candidate.concept));
+    let covered = case
+        .set
+        .iter()
+        .any(|candidate| case.query.is_target(candidate.concept));
+    let best_target = case
+        .scored
+        .iter()
+        .enumerate()
+        .find(|(_, candidate)| case.query.is_target(candidate.concept));
+    let top = case.scored.first();
+    let target_recovered = case
+        .set
+        .iter()
+        .filter(|candidate| case.query.is_target(candidate.concept))
+        .count();
+    let target_set_recall = if case.query.lcas.is_empty() {
+        0.0
+    } else {
+        target_recovered as f32 / case.query.lcas.len() as f32
+    };
+    let score_gap = top
+        .zip(best_target)
+        .map(|(top, (_, target))| top.score - target.score);
+
+    emit_case_metric(
+        metrics,
+        label,
+        &param,
+        alpha,
+        "covered",
+        usize::from(covered),
+    );
+    emit_case_metric(
+        metrics,
+        label,
+        &param,
+        alpha,
+        "pool_hit",
+        usize::from(pool_hit),
+    );
+    emit_case_metric(
+        metrics,
+        label,
+        &param,
+        alpha,
+        "pool_size",
+        case.scored.len(),
+    );
+    emit_case_metric(metrics, label, &param, alpha, "set_size", case.set.len());
+    emit_case_metric(
+        metrics,
+        label,
+        &param,
+        alpha,
+        "target_count",
+        case.query.lcas.len(),
+    );
+    emit_case_metric(
+        metrics,
+        label,
+        &param,
+        alpha,
+        "target_set_recall",
+        target_set_recall,
+    );
+    emit_optional_usize(
+        metrics,
+        label,
+        &param,
+        alpha,
+        "target_rank",
+        best_target.map(|(rank, _)| rank + 1),
+    );
+    emit_optional_f32(metrics, label, &param, alpha, "target_score_gap", score_gap);
+    emit_optional_usize(
+        metrics,
+        label,
+        &param,
+        alpha,
+        "top_frontier_depth",
+        top.map(|candidate| candidate.frontier_depth),
+    );
+    emit_optional_usize(
+        metrics,
+        label,
+        &param,
+        alpha,
+        "target_frontier_depth",
+        best_target.map(|(_, candidate)| candidate.frontier_depth),
+    );
+    emit_optional_usize(
+        metrics,
+        label,
+        &param,
+        alpha,
+        "top_path_len",
+        top.map(|candidate| candidate.path_len),
+    );
+    emit_optional_usize(
+        metrics,
+        label,
+        &param,
+        alpha,
+        "target_path_len",
+        best_target.map(|(_, candidate)| candidate.path_len),
+    );
+    emit_optional_usize(
+        metrics,
+        label,
+        &param,
+        alpha,
+        "top_parent_count",
+        top.map(|candidate| candidate.parent_count),
+    );
+    emit_optional_usize(
+        metrics,
+        label,
+        &param,
+        alpha,
+        "target_parent_count",
+        best_target.map(|(_, candidate)| candidate.parent_count),
+    );
+}
+
+fn emit_learned_case_metrics(source: LearnedCaseSource<'_>, metrics: &mut MetricsCsv) {
+    if !metrics.enabled() {
+        return;
+    }
+    let limit = learned_case_limit();
+    if limit == 0 {
+        return;
+    }
+    let covered_limit = limit;
+    let scored: Vec<(usize, Vec<CandidateScore>)> = source
+        .test_idx
+        .iter()
+        .map(|&i| {
+            (
+                i,
+                scored_frontier_pool_details(
+                    &source.queries[i],
+                    source.frontier,
+                    source.extra_hops,
+                    source.weights,
+                ),
+            )
+        })
+        .collect();
+    for result in source.results {
+        let mut missed = 0usize;
+        let mut covered = 0usize;
+        for (query_index, scored) in &scored {
+            let query = &source.queries[*query_index];
+            let set = learned_answer_set(scored, result.q_hat);
+            let is_covered = set
+                .iter()
+                .any(|candidate| query.is_target(candidate.concept));
+            if !is_covered && missed < limit {
+                emit_one_conformal_case(
+                    metrics,
+                    "missed",
+                    source.base_param,
+                    result.alpha,
+                    ConformalCase {
+                        query_index: *query_index,
+                        query,
+                        scored,
+                        set: &set,
+                    },
+                );
+                missed += 1;
+            } else if is_covered && covered < covered_limit {
+                emit_one_conformal_case(
+                    metrics,
+                    "covered",
+                    source.base_param,
+                    result.alpha,
+                    ConformalCase {
+                        query_index: *query_index,
+                        query,
+                        scored,
+                        set: &set,
+                    },
+                );
+                covered += 1;
+            }
+            if missed >= limit && covered >= covered_limit {
+                break;
+            }
+        }
+    }
 }
 
 fn report_learned_conformal(
@@ -398,6 +710,18 @@ fn report_learned_conformal(
     println!(
         "{:<8} {:>8} {:>10} {:>10} {:>10} {:>10} {:>8} {:>8} {:>8}",
         "alpha", "1-alpha", "q_hat", "empirical", "poolrecall", "mean|set|", "p50", "p90", "max"
+    );
+    emit_learned_case_metrics(
+        LearnedCaseSource {
+            queries,
+            frontier,
+            extra_hops,
+            weights,
+            test_idx,
+            results: &results,
+            base_param: param,
+        },
+        metrics,
     );
     for result in results {
         println!(
@@ -685,4 +1009,91 @@ pub(super) fn report_learned_frontier_ranker(
         },
         metrics,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    fn query(a: usize, b: usize) -> CQuery {
+        CQuery {
+            a,
+            b,
+            common: HashSet::new(),
+            lcas: vec![0],
+        }
+    }
+
+    #[test]
+    fn query_split_indices_partition_queries() {
+        let queries: Vec<CQuery> = (0..12).map(|i| query(i, i + 100)).collect();
+        let (train, test) = query_split_indices(&queries);
+        assert_eq!(train.len(), 6);
+        assert_eq!(test.len(), 6);
+
+        let mut all = train.clone();
+        all.extend(test.iter().copied());
+        all.sort_unstable();
+        assert_eq!(all, (0..queries.len()).collect::<Vec<_>>());
+
+        let train_set: HashSet<usize> = train.into_iter().collect();
+        assert!(test.iter().all(|i| !train_set.contains(i)));
+    }
+
+    #[test]
+    fn salted_query_orders_keep_membership_and_change_order() {
+        let queries: Vec<CQuery> = (0..12).map(|i| query(i, i + 100)).collect();
+        let base = query_order_indices_with_salt(&queries, 0);
+        let salted = query_order_indices_with_salt(&queries, 1);
+        assert_ne!(base, salted);
+
+        for order in [base, salted, query_order_indices_with_salt(&queries, 2)] {
+            let mut sorted = order;
+            sorted.sort_unstable();
+            assert_eq!(sorted, (0..queries.len()).collect::<Vec<_>>());
+        }
+    }
+
+    #[test]
+    fn learned_answer_set_grows_with_nonconformity_threshold() {
+        let scored = vec![
+            CandidateScore {
+                concept: 1,
+                score: 3.0,
+                frontier_depth: 1,
+                path_len: 2,
+                parent_count: 1,
+            },
+            CandidateScore {
+                concept: 2,
+                score: 2.5,
+                frontier_depth: 1,
+                path_len: 2,
+                parent_count: 1,
+            },
+            CandidateScore {
+                concept: 3,
+                score: 1.0,
+                frontier_depth: 2,
+                path_len: 4,
+                parent_count: 2,
+            },
+        ];
+
+        assert_eq!(
+            learned_answer_set(&scored, 0.0)
+                .iter()
+                .map(|candidate| candidate.concept)
+                .collect::<Vec<_>>(),
+            vec![1]
+        );
+        assert_eq!(
+            learned_answer_set(&scored, 0.5)
+                .iter()
+                .map(|candidate| candidate.concept)
+                .collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+    }
 }
