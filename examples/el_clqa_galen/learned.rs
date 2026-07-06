@@ -48,6 +48,7 @@ struct LearnedCaseSource<'a> {
 #[derive(Clone, Copy)]
 enum LearnedConformalScoring {
     ScoreGap,
+    NormalizedScoreGap,
     Rank,
 }
 
@@ -55,6 +56,7 @@ impl LearnedConformalScoring {
     fn label(self) -> &'static str {
         match self {
             Self::ScoreGap => "pairwise_linear",
+            Self::NormalizedScoreGap => "pairwise_linear_norm",
             Self::Rank => "pairwise_linear_rank",
         }
     }
@@ -62,6 +64,7 @@ impl LearnedConformalScoring {
     fn param_value(self) -> &'static str {
         match self {
             Self::ScoreGap => "score_gap",
+            Self::NormalizedScoreGap => "score_gap_norm",
             Self::Rank => "rank",
         }
     }
@@ -69,6 +72,7 @@ impl LearnedConformalScoring {
     fn distribution_label(self) -> &'static str {
         match self {
             Self::ScoreGap => "learned ranker calibration nonconformity (best - target)",
+            Self::NormalizedScoreGap => "learned ranker calibration normalized score gap",
             Self::Rank => "learned ranker calibration target rank index",
         }
     }
@@ -76,6 +80,7 @@ impl LearnedConformalScoring {
     fn nonconformity(self, q: &CQuery, scored: &[CandidateScore]) -> f32 {
         match self {
             Self::ScoreGap => learned_score_gap_nonconformity(q, scored),
+            Self::NormalizedScoreGap => learned_normalized_score_gap_nonconformity(q, scored),
             Self::Rank => learned_rank_nonconformity(q, scored),
         }
     }
@@ -83,13 +88,15 @@ impl LearnedConformalScoring {
     fn answer_set(self, scored: &[CandidateScore], qhat: f32) -> Vec<CandidateScore> {
         match self {
             Self::ScoreGap => learned_score_gap_answer_set(scored, qhat),
+            Self::NormalizedScoreGap => learned_normalized_score_gap_answer_set(scored, qhat),
             Self::Rank => learned_rank_answer_set(scored, qhat),
         }
     }
 }
 
-const LEARNED_CONFORMAL_SCORINGS: [LearnedConformalScoring; 2] = [
+const LEARNED_CONFORMAL_SCORINGS: [LearnedConformalScoring; 3] = [
     LearnedConformalScoring::ScoreGap,
+    LearnedConformalScoring::NormalizedScoreGap,
     LearnedConformalScoring::Rank,
 ];
 
@@ -363,6 +370,16 @@ fn learned_score_gap_nonconformity(q: &CQuery, scored: &[CandidateScore]) -> f32
     best_score - target_score
 }
 
+fn learned_score_range(scored: &[CandidateScore]) -> Option<f32> {
+    let best = scored.first()?.score;
+    let worst = scored.last()?.score;
+    Some((best - worst).abs().max(1e-6))
+}
+
+fn learned_normalized_score_gap_nonconformity(q: &CQuery, scored: &[CandidateScore]) -> f32 {
+    learned_score_gap_nonconformity(q, scored) / learned_score_range(scored).unwrap_or(1.0)
+}
+
 fn learned_rank_nonconformity(q: &CQuery, scored: &[CandidateScore]) -> f32 {
     scored
         .iter()
@@ -375,6 +392,24 @@ fn learned_score_gap_answer_set(scored: &[CandidateScore], qhat: f32) -> Vec<Can
         return Vec::new();
     };
     let cutoff = best_score - qhat;
+    scored
+        .iter()
+        .copied()
+        .filter(|candidate| candidate.score >= cutoff)
+        .collect()
+}
+
+fn learned_normalized_score_gap_answer_set(
+    scored: &[CandidateScore],
+    qhat: f32,
+) -> Vec<CandidateScore> {
+    let Some(best_score) = scored.first().map(|candidate| candidate.score) else {
+        return Vec::new();
+    };
+    let Some(score_range) = learned_score_range(scored) else {
+        return Vec::new();
+    };
+    let cutoff = best_score - qhat * score_range;
     scored
         .iter()
         .copied()
@@ -1346,6 +1381,67 @@ mod tests {
         );
         assert_eq!(
             learned_score_gap_answer_set(&scored, 0.5)
+                .iter()
+                .map(|candidate| candidate.concept)
+                .collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+    }
+
+    #[test]
+    fn learned_score_range_has_floor_for_tied_scores() {
+        let scored = vec![
+            CandidateScore {
+                concept: 1,
+                score: 3.0,
+                frontier_depth: 1,
+                path_len: 2,
+                parent_count: 1,
+            },
+            CandidateScore {
+                concept: 2,
+                score: 3.0,
+                frontier_depth: 1,
+                path_len: 2,
+                parent_count: 1,
+            },
+        ];
+
+        assert_eq!(learned_score_range(&scored), Some(1e-6));
+    }
+
+    #[test]
+    fn learned_normalized_score_gap_scales_by_query_score_range() {
+        let mut q = query(1, 2);
+        q.lcas = vec![2];
+        let scored = vec![
+            CandidateScore {
+                concept: 1,
+                score: 3.0,
+                frontier_depth: 1,
+                path_len: 2,
+                parent_count: 1,
+            },
+            CandidateScore {
+                concept: 2,
+                score: 2.0,
+                frontier_depth: 1,
+                path_len: 2,
+                parent_count: 1,
+            },
+            CandidateScore {
+                concept: 3,
+                score: 1.0,
+                frontier_depth: 2,
+                path_len: 4,
+                parent_count: 2,
+            },
+        ];
+
+        assert_eq!(learned_score_range(&scored), Some(2.0));
+        assert_eq!(learned_normalized_score_gap_nonconformity(&q, &scored), 0.5);
+        assert_eq!(
+            learned_normalized_score_gap_answer_set(&scored, 0.5)
                 .iter()
                 .map(|candidate| candidate.concept)
                 .collect::<Vec<_>>(),
