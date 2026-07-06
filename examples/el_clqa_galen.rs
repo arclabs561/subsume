@@ -50,7 +50,8 @@
 //! deterministic graph-feature ranker over the direct-frontier candidate pool.
 //! Set `LEARNED_REPEATS=N` to repeat the learned conformal split diagnostic.
 //! Set `LEARNED_SPLIT_SEED=N` to change the deterministic learned split seed.
-//! Learned conformal rows include score-gap and rank-threshold variants.
+//! Learned conformal rows include score-gap, normalized score-gap, and
+//! rank-threshold variants.
 //! Set `LEARNED_CASE_LIMIT=N` to emit up to N missed and covered learned
 //! conformal case rows per alpha when `METRICS_CSV` is set.
 //! Set `METRICS_CSV=path/to/run.csv` to also write aggregate and learned-repeat
