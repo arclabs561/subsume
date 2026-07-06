@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.15.2] - 2026-07-06
+
 ### Added
 
 - `el_clqa_galen` can run direct-frontier retrieval diagnostics without box
