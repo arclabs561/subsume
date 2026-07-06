@@ -640,6 +640,67 @@ fn print_candidate_pool_diagnostic(
     }
 }
 
+fn score_rank_fusion(
+    queries: &[CQuery],
+    centers: &[f32],
+    offsets: &[f32],
+    box_sizes: &[f32],
+    dim: usize,
+    n: usize,
+) -> ScoreResult {
+    let rrf_k = 60.0f32;
+    let per: Vec<(f64, usize, usize, usize, usize)> = queries
+        .par_iter()
+        .map(|q| {
+            let (jc, jo) = join_box(centers, offsets, q.a, q.b, dim);
+            let rankings = [
+                top_k_by_score(n, q.a, q.b, n, |x| {
+                    box_degree(centers, offsets, q.a, x, dim)
+                        .min(box_degree(centers, offsets, q.b, x, dim))
+                        * (-0.02 * box_sizes[x]).exp()
+                }),
+                top_k_by_score(n, q.a, q.b, n, |x| {
+                    join_match_score(centers, offsets, dim, &jc, &jo, x)
+                }),
+                top_k_by_score(n, q.a, q.b, n, |x| {
+                    join_contain_score(centers, offsets, dim, &jc, &jo, 0.02, x)
+                }),
+                top_k_by_score(n, q.a, q.b, n, |x| {
+                    join_gated_score(centers, offsets, dim, &jc, &jo, 20.0, x)
+                }),
+                top_k_by_score(n, q.a, q.b, n, |x| {
+                    join_gated_score(centers, offsets, dim, &jc, &jo, 50.0, x)
+                }),
+            ];
+            let mut fused: HashMap<usize, f32> = HashMap::with_capacity(n.saturating_sub(2));
+            for ranking in &rankings {
+                for (rank, &x) in ranking.iter().enumerate() {
+                    *fused.entry(x).or_default() += 1.0 / (rrf_k + rank as f32 + 1.0);
+                }
+            }
+            let mut scored: Vec<(usize, f32)> = fused.into_iter().collect();
+            scored.sort_by(|p, r| r.1.partial_cmp(&p.1).unwrap());
+            let rank = 1 + scored.iter().position(|&(x, _)| x == q.lca).unwrap();
+            (
+                1.0 / rank as f64,
+                usize::from(rank <= 10),
+                usize::from(q.common.contains(&scored[0].0)),
+                scored[0].0,
+                rank,
+            )
+        })
+        .collect();
+    let (rr, hits10, top1) = per.iter().fold((0.0f64, 0usize, 0usize), |a, x| {
+        (a.0 + x.0, a.1 + x.1, a.2 + x.2)
+    });
+    let nq = queries.len() as f64;
+    (
+        (rr / nq, hits10 as f64 / nq, top1 as f64 / nq),
+        per.iter().map(|x| x.3).collect(),
+        per.iter().map(|x| x.4).collect(),
+    )
+}
+
 fn best_nonquery_score(degrees: &[f32], a: usize, b: usize) -> f32 {
     degrees
         .iter()
@@ -1112,6 +1173,13 @@ fn main() {
         );
         print_rank_diagnostic(&format!("boxes (join-gate t={tau})"), &g_ranks);
     }
+    let ((rf_mrr, rf_h10, rf_t1), _, rf_ranks) =
+        score_rank_fusion(&queries, &centers, &offsets, &box_sizes, dim, n);
+    println!(
+        "{:<22} {rf_mrr:>8.3} {rf_h10:>8.3} {rf_t1:>8.3}",
+        "boxes (rank-fusion)"
+    );
+    print_rank_diagnostic("boxes (rank-fusion)", &rf_ranks);
     print_candidate_pool_diagnostic(&queries, &centers, &offsets, &box_sizes, dim, n);
     report_gated_conformal(&queries, &clqa, 20.0);
     if let Some((emb, rel)) = &transe {
