@@ -50,9 +50,9 @@
 
 use heyting::conformal::{answer_set_from_degrees, calibrate_scores, ConformalThreshold};
 use rayon::prelude::*;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use subsume::clqa::BoxClqa;
+use subsume::clqa::{BoxClqa, DirectFrontier};
 use subsume::el_dataset::load_el_axioms;
 use subsume::el_training::{Axiom, Ontology};
 use subsume::trainer::burn_el_trainer::{BurnElConfig, BurnElTrainer};
@@ -669,77 +669,24 @@ fn print_candidate_pool_diagnostic(
     }
 }
 
-fn direct_parent_graph(ont: &Ontology, n: usize) -> Vec<Vec<usize>> {
-    let mut parents = vec![Vec::new(); n];
-    for ax in &ont.axioms {
-        if let Axiom::SubClassOf { sub, sup } = ax {
-            if *sub < n && *sup < n {
-                parents[*sub].push(*sup);
-            }
-        }
-    }
-    for ps in &mut parents {
-        ps.sort_unstable();
-        ps.dedup();
-    }
-    parents
-}
-
-fn upward_distances(parents: &[Vec<usize>], start: usize) -> Vec<Option<usize>> {
-    let mut dist = vec![None; parents.len()];
-    let mut queue = VecDeque::new();
-    dist[start] = Some(0);
-    queue.push_back(start);
-    while let Some(cur) = queue.pop_front() {
-        let next_dist = dist[cur].unwrap() + 1;
-        for &parent in &parents[cur] {
-            if dist[parent].is_none() {
-                dist[parent] = Some(next_dist);
-                queue.push_back(parent);
-            }
-        }
-    }
-    dist
-}
-
-fn direct_frontier_pool(
-    q: &CQuery,
-    parents: &[Vec<usize>],
-    extra_hops: usize,
-) -> Vec<(usize, usize, usize)> {
-    let dist_a = upward_distances(parents, q.a);
-    let dist_b = upward_distances(parents, q.b);
-    let min_frontier = (0..parents.len())
-        .filter(|&x| x != q.a && x != q.b)
-        .filter_map(|x| Some(dist_a[x]?.max(dist_b[x]?)))
-        .min();
-    let Some(min_frontier) = min_frontier else {
-        return Vec::new();
-    };
-    let mut pool: Vec<(usize, usize, usize)> = (0..parents.len())
-        .filter(|&x| x != q.a && x != q.b)
-        .filter_map(|x| {
-            let da = dist_a[x]?;
-            let db = dist_b[x]?;
-            let frontier = da.max(db);
-            (frontier <= min_frontier + extra_hops).then_some((x, frontier, da + db))
-        })
-        .collect();
-    pool.sort_by_key(|&(x, frontier, sum)| (frontier, sum, x));
-    pool
-}
-
 fn direct_frontier_gated_scores(
     q: &CQuery,
     clqa: &BoxClqa<'_>,
-    parents: &[Vec<usize>],
+    frontier: &DirectFrontier,
     extra_hops: usize,
     tau: f32,
 ) -> Vec<(usize, f32)> {
     let (jc, jo) = clqa.join(q.a, q.b);
-    let mut scored: Vec<(usize, f32)> = direct_frontier_pool(q, parents, extra_hops)
+    let mut scored: Vec<(usize, f32)> = frontier
+        .pool(q.a, q.b, extra_hops)
+        .expect("query ids come from the same ontology as the direct frontier")
         .into_iter()
-        .map(|(x, _, _)| (x, clqa.score_lca(&jc, &jo, x, tau)))
+        .map(|candidate| {
+            (
+                candidate.concept,
+                clqa.score_lca(&jc, &jo, candidate.concept, tau),
+            )
+        })
         .collect();
     scored.sort_by(|p, r| r.1.partial_cmp(&p.1).unwrap().then_with(|| p.0.cmp(&r.0)));
     scored
@@ -755,7 +702,7 @@ fn target_rank_in_scored(q: &CQuery, scored: &[(usize, f32)]) -> Option<usize> {
 fn print_direct_frontier_pool_diagnostic(
     queries: &[CQuery],
     clqa: &BoxClqa<'_>,
-    parents: &[Vec<usize>],
+    frontier: &DirectFrontier,
 ) {
     println!(
         "\n[symbolic] direct-frontier candidate pool (direct SubClassOf BFS; no precomputed closure in generator)"
@@ -768,7 +715,7 @@ fn print_direct_frontier_pool_diagnostic(
         let per: Vec<(bool, usize, Option<usize>, bool)> = queries
             .par_iter()
             .map(|q| {
-                let scored = direct_frontier_gated_scores(q, clqa, parents, extra_hops, 20.0);
+                let scored = direct_frontier_gated_scores(q, clqa, frontier, extra_hops, 20.0);
                 let hit = scored.iter().any(|&(x, _)| q.is_target(x));
                 let top1 = scored.first().is_some_and(|&(x, _)| q.is_target(x));
                 (hit, scored.len(), target_rank_in_scored(q, &scored), top1)
@@ -798,7 +745,7 @@ fn print_direct_frontier_pool_diagnostic(
     }
 }
 
-fn print_direct_frontier_retrieval_diagnostic(queries: &[CQuery], parents: &[Vec<usize>]) {
+fn print_direct_frontier_retrieval_diagnostic(queries: &[CQuery], frontier: &DirectFrontier) {
     println!(
         "\n[symbolic] direct-frontier retrieval (direct SubClassOf BFS order; no box training)"
     );
@@ -810,12 +757,16 @@ fn print_direct_frontier_retrieval_diagnostic(queries: &[CQuery], parents: &[Vec
         let per: Vec<(bool, usize, Option<usize>, bool)> = queries
             .par_iter()
             .map(|q| {
-                let pool = direct_frontier_pool(q, parents, extra_hops);
-                let hit = pool.iter().any(|&(x, _, _)| q.is_target(x));
-                let top1 = pool.first().is_some_and(|&(x, _, _)| q.is_target(x));
+                let pool = frontier
+                    .pool(q.a, q.b, extra_hops)
+                    .expect("query ids come from the same ontology as the direct frontier");
+                let hit = pool.iter().any(|candidate| q.is_target(candidate.concept));
+                let top1 = pool
+                    .first()
+                    .is_some_and(|candidate| q.is_target(candidate.concept));
                 let rank = pool
                     .iter()
-                    .position(|&(x, _, _)| q.is_target(x))
+                    .position(|candidate| q.is_target(candidate.concept))
                     .map(|i| i + 1);
                 (hit, pool.len(), rank, top1)
             })
@@ -847,7 +798,7 @@ fn print_direct_frontier_retrieval_diagnostic(queries: &[CQuery], parents: &[Vec
 fn report_direct_frontier_conformal(
     queries: &[CQuery],
     clqa: &BoxClqa<'_>,
-    parents: &[Vec<usize>],
+    frontier: &DirectFrontier,
     tau: f32,
 ) {
     if queries.len() < 4 {
@@ -881,7 +832,7 @@ fn report_direct_frontier_conformal(
             .map(|&i| {
                 (
                     i,
-                    direct_frontier_gated_scores(&queries[i], clqa, parents, extra_hops, tau),
+                    direct_frontier_gated_scores(&queries[i], clqa, frontier, extra_hops, tau),
                 )
             })
             .collect();
@@ -890,7 +841,7 @@ fn report_direct_frontier_conformal(
             .map(|&i| {
                 (
                     i,
-                    direct_frontier_gated_scores(&queries[i], clqa, parents, extra_hops, tau),
+                    direct_frontier_gated_scores(&queries[i], clqa, frontier, extra_hops, tau),
                 )
             })
             .collect();
@@ -1599,10 +1550,11 @@ fn main() {
     }
 
     let depths: Vec<usize> = (0..n).map(|c| anc[c].len()).collect();
-    let direct_parents = direct_parent_graph(&ont, n);
+    let direct_frontier = DirectFrontier::from_ontology(&ont)
+        .expect("ontology direct SubClassOf endpoints must reference known concepts");
     println!("\n{} conjunctive queries (DCA depth >= 2)\n", queries.len());
     if symbolic_only {
-        print_direct_frontier_retrieval_diagnostic(&queries, &direct_parents);
+        print_direct_frontier_retrieval_diagnostic(&queries, &direct_frontier);
         return;
     }
 
@@ -1734,8 +1686,8 @@ fn main() {
     );
     print_rank_diagnostic("boxes (rank-fusion)", &rf_ranks);
     print_candidate_pool_diagnostic(&queries, &centers, &offsets, &box_sizes, dim, n);
-    print_direct_frontier_pool_diagnostic(&queries, &clqa, &direct_parents);
-    report_direct_frontier_conformal(&queries, &clqa, &direct_parents, 20.0);
+    print_direct_frontier_pool_diagnostic(&queries, &clqa, &direct_frontier);
+    report_direct_frontier_conformal(&queries, &clqa, &direct_frontier, 20.0);
     print_common_pool_diagnostic(&queries, &clqa, &depths);
     report_common_pool_conformal(&queries, &clqa, 20.0);
     report_gated_conformal(&queries, &clqa, 20.0);

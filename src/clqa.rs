@@ -157,6 +157,193 @@ impl<'a> BoxClqa<'a> {
     }
 }
 
+/// Construction problems [`DirectFrontier`] rejects.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum DirectFrontierError {
+    /// An edge or query referenced a concept outside `0..num_concepts`.
+    InvalidConcept {
+        /// The invalid concept id.
+        concept: usize,
+        /// Number of concepts known to the frontier graph.
+        num_concepts: usize,
+    },
+}
+
+impl std::fmt::Display for DirectFrontierError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidConcept {
+                concept,
+                num_concepts,
+            } => write!(f, "concept id {concept} is outside 0..{num_concepts}"),
+        }
+    }
+}
+
+impl std::error::Error for DirectFrontierError {}
+
+/// A candidate returned by [`DirectFrontier::pool`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FrontierCandidate {
+    /// Candidate concept id.
+    pub concept: usize,
+    /// The larger of the upward direct-edge distances from the two query
+    /// concepts.
+    pub frontier_depth: usize,
+    /// Sum of the two upward direct-edge distances. Used as the secondary
+    /// ordering key within the same frontier.
+    pub path_len: usize,
+}
+
+/// Candidate generator for conjunctive DCA/LCA queries using only direct
+/// `SubClassOf` edges.
+///
+/// For query concepts `(a, b)`, the generator runs upward BFS from both
+/// concepts over direct superclass edges, finds the first common frontier, and
+/// optionally includes ancestors within `extra_hops` of that frontier. It does
+/// not use transitive closure to generate candidates. Closure or labels are
+/// only needed by callers that want to evaluate retrieval risk.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DirectFrontier {
+    parents: Vec<Vec<usize>>,
+}
+
+impl DirectFrontier {
+    /// Build a direct-frontier generator from `(sub, sup)` direct subclass
+    /// edges.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DirectFrontierError::InvalidConcept`] if any edge endpoint is
+    /// outside `0..num_concepts`.
+    pub fn from_edges<I>(num_concepts: usize, edges: I) -> Result<Self, DirectFrontierError>
+    where
+        I: IntoIterator<Item = (usize, usize)>,
+    {
+        let mut parents = vec![Vec::new(); num_concepts];
+        for (sub, sup) in edges {
+            Self::check_concept(sub, num_concepts)?;
+            Self::check_concept(sup, num_concepts)?;
+            parents[sub].push(sup);
+        }
+        for ps in &mut parents {
+            ps.sort_unstable();
+            ps.dedup();
+        }
+        Ok(Self { parents })
+    }
+
+    /// Build from the direct [`Axiom::SubClassOf`](crate::el_training::Axiom::SubClassOf)
+    /// edges in an [`Ontology`](crate::el_training::Ontology).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DirectFrontierError::InvalidConcept`] if the ontology's public
+    /// fields contain an out-of-range `SubClassOf` endpoint.
+    #[cfg(feature = "rand")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
+    pub fn from_ontology(
+        ontology: &crate::el_training::Ontology,
+    ) -> Result<Self, DirectFrontierError> {
+        let num_concepts = ontology.concept_names.len();
+        let edges = ontology.axioms.iter().filter_map(|axiom| match axiom {
+            crate::el_training::Axiom::SubClassOf { sub, sup } => Some((*sub, *sup)),
+            _ => None,
+        });
+        Self::from_edges(num_concepts, edges)
+    }
+
+    /// Number of concepts in the frontier graph.
+    pub fn num_concepts(&self) -> usize {
+        self.parents.len()
+    }
+
+    /// Direct superclasses of `concept`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DirectFrontierError::InvalidConcept`] if `concept` is outside
+    /// `0..num_concepts`.
+    pub fn parents(&self, concept: usize) -> Result<&[usize], DirectFrontierError> {
+        Self::check_concept(concept, self.num_concepts())?;
+        Ok(&self.parents[concept])
+    }
+
+    /// Generate direct-frontier candidates for `(a, b)`.
+    ///
+    /// Candidates are ordered by `(frontier_depth, path_len, concept)`.
+    /// Increasing `extra_hops` can only add candidates; it does not reorder the
+    /// candidates that were already present at smaller values.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DirectFrontierError::InvalidConcept`] if `a` or `b` is outside
+    /// `0..num_concepts`.
+    pub fn pool(
+        &self,
+        a: usize,
+        b: usize,
+        extra_hops: usize,
+    ) -> Result<Vec<FrontierCandidate>, DirectFrontierError> {
+        let n = self.num_concepts();
+        Self::check_concept(a, n)?;
+        Self::check_concept(b, n)?;
+        let dist_a = self.upward_distances(a);
+        let dist_b = self.upward_distances(b);
+        let min_frontier = (0..n)
+            .filter(|&x| x != a && x != b)
+            .filter_map(|x| Some(dist_a[x]?.max(dist_b[x]?)))
+            .min();
+        let Some(min_frontier) = min_frontier else {
+            return Ok(Vec::new());
+        };
+        let mut pool: Vec<FrontierCandidate> = (0..n)
+            .filter(|&x| x != a && x != b)
+            .filter_map(|x| {
+                let da = dist_a[x]?;
+                let db = dist_b[x]?;
+                let frontier_depth = da.max(db);
+                (frontier_depth <= min_frontier + extra_hops).then_some(FrontierCandidate {
+                    concept: x,
+                    frontier_depth,
+                    path_len: da + db,
+                })
+            })
+            .collect();
+        pool.sort_by_key(|c| (c.frontier_depth, c.path_len, c.concept));
+        Ok(pool)
+    }
+
+    fn check_concept(concept: usize, num_concepts: usize) -> Result<(), DirectFrontierError> {
+        if concept < num_concepts {
+            Ok(())
+        } else {
+            Err(DirectFrontierError::InvalidConcept {
+                concept,
+                num_concepts,
+            })
+        }
+    }
+
+    fn upward_distances(&self, start: usize) -> Vec<Option<usize>> {
+        let mut dist = vec![None; self.parents.len()];
+        let mut queue = std::collections::VecDeque::new();
+        dist[start] = Some(0);
+        queue.push_back(start);
+        while let Some(cur) = queue.pop_front() {
+            let next_dist = dist[cur].unwrap() + 1;
+            for &parent in &self.parents[cur] {
+                if dist[parent].is_none() {
+                    dist[parent] = Some(next_dist);
+                    queue.push_back(parent);
+                }
+            }
+        }
+        dist
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -246,6 +433,97 @@ mod tests {
         assert_eq!(
             BoxClqa::new(&[1.0, 2.0, 3.0], &[1.0, 2.0, 3.0], 2).unwrap_err(),
             ClqaError::DimensionMismatch
+        );
+    }
+
+    #[test]
+    fn direct_frontier_returns_first_common_frontier() {
+        // 0 root, 1 parent, 2/3 leaves.
+        let frontier = DirectFrontier::from_edges(4, [(1, 0), (2, 1), (3, 1)]).unwrap();
+        let pool0 = frontier.pool(2, 3, 0).unwrap();
+        assert_eq!(
+            pool0,
+            vec![FrontierCandidate {
+                concept: 1,
+                frontier_depth: 1,
+                path_len: 2,
+            }]
+        );
+        let pool1 = frontier.pool(2, 3, 1).unwrap();
+        assert_eq!(
+            pool1,
+            vec![
+                FrontierCandidate {
+                    concept: 1,
+                    frontier_depth: 1,
+                    path_len: 2,
+                },
+                FrontierCandidate {
+                    concept: 0,
+                    frontier_depth: 2,
+                    path_len: 4,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn direct_frontier_keeps_plural_deepest_ancestors() {
+        // 4 and 5 share two direct parents (1 and 2), both under root 0.
+        let frontier =
+            DirectFrontier::from_edges(6, [(1, 0), (2, 0), (4, 1), (4, 2), (5, 1), (5, 2)])
+                .unwrap();
+        let pool = frontier.pool(4, 5, 0).unwrap();
+        assert_eq!(
+            pool,
+            vec![
+                FrontierCandidate {
+                    concept: 1,
+                    frontier_depth: 1,
+                    path_len: 2,
+                },
+                FrontierCandidate {
+                    concept: 2,
+                    frontier_depth: 1,
+                    path_len: 2,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn direct_frontier_extra_hops_is_monotone() {
+        let frontier = DirectFrontier::from_edges(5, [(1, 0), (2, 1), (3, 1), (4, 0)]).unwrap();
+        let pool0 = frontier.pool(2, 3, 0).unwrap();
+        let pool2 = frontier.pool(2, 3, 2).unwrap();
+        assert!(pool2.starts_with(&pool0));
+        assert!(pool2.len() >= pool0.len());
+    }
+
+    #[test]
+    fn direct_frontier_handles_cycles() {
+        let frontier = DirectFrontier::from_edges(4, [(0, 1), (1, 0), (2, 0), (3, 1)]).unwrap();
+        let pool = frontier.pool(2, 3, 10).unwrap();
+        assert!(pool.iter().any(|c| c.concept == 0));
+        assert!(pool.iter().any(|c| c.concept == 1));
+    }
+
+    #[test]
+    fn direct_frontier_rejects_invalid_concepts() {
+        assert_eq!(
+            DirectFrontier::from_edges(2, [(0, 2)]).unwrap_err(),
+            DirectFrontierError::InvalidConcept {
+                concept: 2,
+                num_concepts: 2,
+            }
+        );
+        let frontier = DirectFrontier::from_edges(2, [(0, 1)]).unwrap();
+        assert_eq!(
+            frontier.pool(0, 2, 0).unwrap_err(),
+            DirectFrontierError::InvalidConcept {
+                concept: 2,
+                num_concepts: 2,
+            }
         );
     }
 }
