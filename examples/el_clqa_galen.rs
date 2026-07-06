@@ -46,7 +46,8 @@
 //! is rayon-parallel. Run:
 //! `DATASET=GALEN cargo run --release --features burn-ndarray,burn-wgpu --example el_clqa_galen`
 //! Use `SYMBOLIC_ONLY=1` to run the direct-frontier retrieval diagnostics
-//! without training the box model.
+//! without training the box model. Add `LEARNED_RETRIEVAL=1` to train a
+//! deterministic graph-feature ranker over the direct-frontier candidate pool.
 //! Set `METRICS_CSV=path/to/run.csv` to also write the main aggregate metrics
 //! as machine-readable CSV rows.
 
@@ -62,6 +63,9 @@ use subsume::el_training::{Axiom, Ontology};
 use subsume::trainer::burn_el_trainer::{BurnElConfig, BurnElTrainer};
 use tranz::burn_train::{train_kge, BurnModelType, BurnTrainConfig};
 use tranz::dataset::TripleIds;
+
+#[path = "el_clqa_galen/learned.rs"]
+mod learned;
 
 #[cfg(feature = "burn-wgpu")]
 type Backend = burn::backend::Autodiff<burn_wgpu::Wgpu>;
@@ -1707,6 +1711,7 @@ fn main() {
         .and_then(|s| s.parse().ok())
         .unwrap_or(0.0);
     let symbolic_only = std::env::var("SYMBOLIC_ONLY").is_ok();
+    let learned_retrieval = std::env::var("LEARNED_RETRIEVAL").is_ok();
 
     let train_path = Path::new("data").join(&dataset).join("train.tsv");
     if !train_path.exists() {
@@ -1802,12 +1807,26 @@ fn main() {
         "config",
         "",
         None,
+        "learned_retrieval",
+        usize::from(learned_retrieval),
+    );
+    metrics.emit(
+        "run",
+        "config",
+        "",
+        None,
         "skip_transe",
         usize::from(skip_transe),
     );
     if symbolic_only {
         print_direct_frontier_retrieval_diagnostic(&queries, &direct_frontier, &mut metrics);
+        if learned_retrieval {
+            learned::report_learned_frontier_ranker(&queries, &direct_frontier, &mut metrics);
+        }
         return;
+    }
+    if learned_retrieval {
+        learned::report_learned_frontier_ranker(&queries, &direct_frontier, &mut metrics);
     }
 
     // --- Faithful boxes ---
