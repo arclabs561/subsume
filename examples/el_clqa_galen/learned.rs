@@ -468,6 +468,32 @@ fn report_repeated_learned_conformal(
             cal_idx,
             test_idx,
         );
+        let repeat_param = format!(
+            "extra={};epochs={};lr={};l2={};repeat={}",
+            config.extra_hops,
+            config.epochs,
+            config.lr,
+            config.l2,
+            repeat + 1
+        );
+        for result in &results {
+            emit_conformal_metrics(
+                metrics,
+                "learned_frontier_conformal_repeat",
+                "pairwise_linear",
+                &repeat_param,
+                result.alpha,
+                ConformalMetrics {
+                    q_hat: result.q_hat,
+                    empirical: result.empirical,
+                    pool_recall: result.pool_recall,
+                    mean_set: result.mean_set,
+                    p50_set: result.p50_set,
+                    p90_set: result.p90_set,
+                    max_set: result.max_set,
+                },
+            );
+        }
         rows.push(results);
     }
     if rows.is_empty() {
