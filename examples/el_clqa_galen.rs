@@ -701,6 +701,97 @@ fn score_rank_fusion(
     )
 }
 
+fn score_common_pool_gated(queries: &[CQuery], clqa: &BoxClqa<'_>, tau: f32) -> ScoreResult {
+    let per: Vec<(f64, usize, usize, usize, usize)> = queries
+        .par_iter()
+        .map(|q| {
+            let (jc, jo) = clqa.join(q.a, q.b);
+            let mut scored: Vec<(usize, f32)> = q
+                .common
+                .iter()
+                .copied()
+                .filter(|&x| x != q.a && x != q.b)
+                .map(|x| (x, clqa.score_lca(&jc, &jo, x, tau)))
+                .collect();
+            scored.sort_by(|p, r| r.1.partial_cmp(&p.1).unwrap().then_with(|| p.0.cmp(&r.0)));
+            let rank = 1 + scored.iter().position(|&(x, _)| x == q.lca).unwrap();
+            (
+                1.0 / rank as f64,
+                usize::from(rank <= 10),
+                usize::from(scored[0].0 == q.lca),
+                scored[0].0,
+                rank,
+            )
+        })
+        .collect();
+    let (rr, hits10, top1) = per.iter().fold((0.0f64, 0usize, 0usize), |a, x| {
+        (a.0 + x.0, a.1 + x.1, a.2 + x.2)
+    });
+    let nq = queries.len() as f64;
+    (
+        (rr / nq, hits10 as f64 / nq, top1 as f64 / nq),
+        per.iter().map(|x| x.3).collect(),
+        per.iter().map(|x| x.4).collect(),
+    )
+}
+
+fn score_common_pool_depth(queries: &[CQuery], depths: &[usize]) -> ScoreResult {
+    let per: Vec<(f64, usize, usize, usize, usize)> = queries
+        .par_iter()
+        .map(|q| {
+            let mut scored: Vec<usize> = q
+                .common
+                .iter()
+                .copied()
+                .filter(|&x| x != q.a && x != q.b)
+                .collect();
+            scored.sort_by_key(|&x| (std::cmp::Reverse(depths[x]), x));
+            let rank = 1 + scored.iter().position(|&x| x == q.lca).unwrap();
+            (
+                1.0 / rank as f64,
+                usize::from(rank <= 10),
+                usize::from(scored[0] == q.lca),
+                scored[0],
+                rank,
+            )
+        })
+        .collect();
+    let (rr, hits10, top1) = per.iter().fold((0.0f64, 0usize, 0usize), |a, x| {
+        (a.0 + x.0, a.1 + x.1, a.2 + x.2)
+    });
+    let nq = queries.len() as f64;
+    (
+        (rr / nq, hits10 as f64 / nq, top1 as f64 / nq),
+        per.iter().map(|x| x.3).collect(),
+        per.iter().map(|x| x.4).collect(),
+    )
+}
+
+fn print_common_pool_diagnostic(queries: &[CQuery], clqa: &BoxClqa<'_>, depths: &[usize]) {
+    let pool_sizes: Vec<usize> = queries.iter().map(|q| q.common.len()).collect();
+    let (mean_pool, p50_pool, p90_pool, max_pool) = set_size_summary(&pool_sizes);
+    println!("\n[symbolic] common-ancestor candidate pool (ontology-closure retrieval oracle)");
+    println!(
+        "[symbolic] pool size: n={} mean={mean_pool:.1} p50={p50_pool} p90={p90_pool} max={max_pool}",
+        queries.len()
+    );
+    println!(
+        "{:<22} {:>8} {:>8} {:>8}",
+        "readout", "LCA MRR", "Hits@10", "top1LCA"
+    );
+    for tau in [20.0f32, 50.0] {
+        let ((mrr, h10, t1), _, ranks) = score_common_pool_gated(queries, clqa, tau);
+        println!(
+            "{:<22} {mrr:>8.3} {h10:>8.3} {t1:>8.3}",
+            format!("common + gate{tau}")
+        );
+        print_rank_diagnostic(&format!("common + gate{tau}"), &ranks);
+    }
+    let ((mrr, h10, t1), _, ranks) = score_common_pool_depth(queries, depths);
+    println!("{:<22} {mrr:>8.3} {h10:>8.3} {t1:>8.3}", "common + depth");
+    print_rank_diagnostic("common + depth", &ranks);
+}
+
 fn best_nonquery_score(degrees: &[f32], a: usize, b: usize) -> f32 {
     degrees
         .iter()
@@ -1097,13 +1188,14 @@ fn main() {
         }
         let common: HashSet<usize> = anc[a].intersection(&anc[b]).copied().collect();
         let lca = match common.iter().max_by_key(|&&x| depth(x)) {
-            Some(&l) if depth(l) >= 2 => l,
+            Some(&l) if l != a && l != b && depth(l) >= 2 => l,
             _ => continue,
         };
         queries.push(CQuery { a, b, common, lca });
     }
 
     let box_sizes: Vec<f32> = (0..n).map(|c| offset_l1(&offsets, c, dim)).collect();
+    let depths: Vec<usize> = (0..n).map(|c| anc[c].len()).collect();
     println!("\n{} conjunctive queries (LCA depth >= 2)\n", queries.len());
     println!(
         "{:<22} {:>8} {:>8} {:>8}",
@@ -1181,6 +1273,7 @@ fn main() {
     );
     print_rank_diagnostic("boxes (rank-fusion)", &rf_ranks);
     print_candidate_pool_diagnostic(&queries, &centers, &offsets, &box_sizes, dim, n);
+    print_common_pool_diagnostic(&queries, &clqa, &depths);
     report_gated_conformal(&queries, &clqa, 20.0);
     if let Some((emb, rel)) = &transe {
         // TransE is a point model: no box size, so no size penalty.
