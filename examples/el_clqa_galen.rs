@@ -7,8 +7,8 @@
 //!
 //! Conjunctive queries "X such that A subset-of X AND B subset-of X" are sampled
 //! from concept pairs sharing a non-trivial common ancestor in the deductive
-//! closure; the certain answers are the common ancestors, and the least common
-//! ancestor (the deepest, most specific shared superclass) is the key target.
+//! closure; the certain answers are the common ancestors, and the deepest common
+//! ancestors (the most specific shared superclasses) are the key targets.
 //! Both models rank every concept by min(deg(A subset-of X), deg(B subset-of
 //! X)); the box model uses containment, TransE uses its isa translation.
 //!
@@ -86,13 +86,40 @@ struct CQuery {
     a: usize,
     b: usize,
     common: HashSet<usize>,
-    lca: usize,
+    lcas: Vec<usize>,
 }
 
 type ScoreResult = ((f64, f64, f64), Vec<usize>, Vec<usize>);
 
-/// Metrics `(LCA MRR, LCA Hits@10, top-1-is-valid-CA)` plus the top-1 concept
-/// and LCA rank per query. Queries are independent, so the per-query ranking
+impl CQuery {
+    fn is_target(&self, x: usize) -> bool {
+        self.lcas.binary_search(&x).is_ok()
+    }
+
+    fn target_score(&self, degrees: &[f32]) -> f32 {
+        self.lcas
+            .iter()
+            .map(|&x| degrees[x])
+            .fold(f32::NEG_INFINITY, f32::max)
+    }
+}
+
+fn target_rank_pairs(q: &CQuery, scored: &[(usize, f32)]) -> usize {
+    1 + scored
+        .iter()
+        .position(|&(x, _)| q.is_target(x))
+        .expect("target deepest common ancestor is in the ranked candidate set")
+}
+
+fn target_rank_ids(q: &CQuery, ranked: &[usize]) -> usize {
+    1 + ranked
+        .iter()
+        .position(|&x| q.is_target(x))
+        .expect("target deepest common ancestor is in the ranked candidate set")
+}
+
+/// Metrics `(DCA MRR, DCA Hits@10, top-1-is-valid-CA)` plus the top-1 concept
+/// and deepest-common-ancestor rank per query. Queries are independent, so the per-query ranking
 /// (the GALEN-scale O(queries * n) cost) is rayon-parallel.
 fn score_model<F: Fn(usize, usize) -> f32 + Sync>(
     queries: &[CQuery],
@@ -114,7 +141,7 @@ fn score_model<F: Fn(usize, usize) -> f32 + Sync>(
                 .map(|x| (x, deg(q.a, x).min(deg(q.b, x)) * (-lambda * sizes[x]).exp()))
                 .collect();
             scored.sort_by(|p, r| r.1.partial_cmp(&p.1).unwrap());
-            let rank = 1 + scored.iter().position(|&(x, _)| x == q.lca).unwrap();
+            let rank = target_rank_pairs(q, &scored);
             (
                 1.0 / rank as f64,
                 usize::from(rank <= 10),
@@ -188,7 +215,7 @@ fn score_join_contain(
                 })
                 .collect();
             scored.sort_by(|p, r| r.1.partial_cmp(&p.1).unwrap());
-            let rank = 1 + scored.iter().position(|&(x, _)| x == q.lca).unwrap();
+            let rank = target_rank_pairs(q, &scored);
             (
                 1.0 / rank as f64,
                 usize::from(rank <= 10),
@@ -246,7 +273,7 @@ fn score_join(
                 })
                 .collect();
             scored.sort_by(|p, r| r.1.partial_cmp(&p.1).unwrap());
-            let rank = 1 + scored.iter().position(|&(x, _)| x == q.lca).unwrap();
+            let rank = target_rank_pairs(q, &scored);
             (
                 1.0 / rank as f64,
                 usize::from(rank <= 10),
@@ -316,7 +343,7 @@ fn score_join_gated(
                 })
                 .collect();
             scored.sort_by(|p, r| r.1.partial_cmp(&p.1).unwrap());
-            let rank = 1 + scored.iter().position(|&(x, _)| x == q.lca).unwrap();
+            let rank = target_rank_pairs(q, &scored);
             (
                 1.0 / rank as f64,
                 usize::from(rank <= 10),
@@ -585,7 +612,7 @@ fn print_candidate_pool_diagnostic(
     ];
 
     println!(
-        "\n[pool] candidate recall (true LCA in top-k; retrieval stage only, no conformal guarantee)"
+        "\n[pool] candidate recall (true DCA in top-k; retrieval stage only, no conformal guarantee)"
     );
     println!(
         "{:<8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>10} {:>10}",
@@ -606,7 +633,7 @@ fn print_candidate_pool_diagnostic(
                 let hits = queries
                     .iter()
                     .enumerate()
-                    .filter(|&(i, q)| candidates[i].iter().take(k).any(|&x| x == q.lca))
+                    .filter(|&(i, q)| candidates[i].iter().take(k).any(|&x| q.is_target(x)))
                     .count();
                 hits as f32 / queries.len() as f32
             })
@@ -618,7 +645,7 @@ fn print_candidate_pool_diagnostic(
             for (_, candidates) in &method_candidates {
                 pool.extend(candidates[i].iter().take(k).copied());
             }
-            if pool.contains(&q.lca) {
+            if pool.iter().any(|&x| q.is_target(x)) {
                 union_hits += 1;
             }
             union_sizes.push(pool.len());
@@ -680,7 +707,7 @@ fn score_rank_fusion(
             }
             let mut scored: Vec<(usize, f32)> = fused.into_iter().collect();
             scored.sort_by(|p, r| r.1.partial_cmp(&p.1).unwrap());
-            let rank = 1 + scored.iter().position(|&(x, _)| x == q.lca).unwrap();
+            let rank = target_rank_pairs(q, &scored);
             (
                 1.0 / rank as f64,
                 usize::from(rank <= 10),
@@ -714,11 +741,11 @@ fn score_common_pool_gated(queries: &[CQuery], clqa: &BoxClqa<'_>, tau: f32) -> 
                 .map(|x| (x, clqa.score_lca(&jc, &jo, x, tau)))
                 .collect();
             scored.sort_by(|p, r| r.1.partial_cmp(&p.1).unwrap().then_with(|| p.0.cmp(&r.0)));
-            let rank = 1 + scored.iter().position(|&(x, _)| x == q.lca).unwrap();
+            let rank = target_rank_pairs(q, &scored);
             (
                 1.0 / rank as f64,
                 usize::from(rank <= 10),
-                usize::from(scored[0].0 == q.lca),
+                usize::from(q.is_target(scored[0].0)),
                 scored[0].0,
                 rank,
             )
@@ -746,12 +773,55 @@ fn score_common_pool_depth(queries: &[CQuery], depths: &[usize]) -> ScoreResult 
                 .filter(|&x| x != q.a && x != q.b)
                 .collect();
             scored.sort_by_key(|&x| (std::cmp::Reverse(depths[x]), x));
-            let rank = 1 + scored.iter().position(|&x| x == q.lca).unwrap();
+            let rank = target_rank_ids(q, &scored);
             (
                 1.0 / rank as f64,
                 usize::from(rank <= 10),
-                usize::from(scored[0] == q.lca),
+                usize::from(q.is_target(scored[0])),
                 scored[0],
+                rank,
+            )
+        })
+        .collect();
+    let (rr, hits10, top1) = per.iter().fold((0.0f64, 0usize, 0usize), |a, x| {
+        (a.0 + x.0, a.1 + x.1, a.2 + x.2)
+    });
+    let nq = queries.len() as f64;
+    (
+        (rr / nq, hits10 as f64 / nq, top1 as f64 / nq),
+        per.iter().map(|x| x.3).collect(),
+        per.iter().map(|x| x.4).collect(),
+    )
+}
+
+fn score_common_pool_depth_gated(
+    queries: &[CQuery],
+    clqa: &BoxClqa<'_>,
+    depths: &[usize],
+    tau: f32,
+) -> ScoreResult {
+    let per: Vec<(f64, usize, usize, usize, usize)> = queries
+        .par_iter()
+        .map(|q| {
+            let (jc, jo) = clqa.join(q.a, q.b);
+            let mut scored: Vec<(usize, usize, f32)> = q
+                .common
+                .iter()
+                .copied()
+                .filter(|&x| x != q.a && x != q.b)
+                .map(|x| (x, depths[x], clqa.score_lca(&jc, &jo, x, tau)))
+                .collect();
+            scored.sort_by(|p, r| {
+                r.1.cmp(&p.1)
+                    .then_with(|| r.2.partial_cmp(&p.2).unwrap())
+                    .then_with(|| p.0.cmp(&r.0))
+            });
+            let rank = 1 + scored.iter().position(|&(x, _, _)| q.is_target(x)).unwrap();
+            (
+                1.0 / rank as f64,
+                usize::from(rank <= 10),
+                usize::from(q.is_target(scored[0].0)),
+                scored[0].0,
                 rank,
             )
         })
@@ -770,14 +840,19 @@ fn score_common_pool_depth(queries: &[CQuery], depths: &[usize]) -> ScoreResult 
 fn print_common_pool_diagnostic(queries: &[CQuery], clqa: &BoxClqa<'_>, depths: &[usize]) {
     let pool_sizes: Vec<usize> = queries.iter().map(|q| q.common.len()).collect();
     let (mean_pool, p50_pool, p90_pool, max_pool) = set_size_summary(&pool_sizes);
+    let target_sizes: Vec<usize> = queries.iter().map(|q| q.lcas.len()).collect();
+    let (mean_target, p50_target, p90_target, max_target) = set_size_summary(&target_sizes);
     println!("\n[symbolic] common-ancestor candidate pool (ontology-closure retrieval oracle)");
     println!(
         "[symbolic] pool size: n={} mean={mean_pool:.1} p50={p50_pool} p90={p90_pool} max={max_pool}",
         queries.len()
     );
     println!(
+        "[symbolic] deepest common ancestors: mean={mean_target:.1} p50={p50_target} p90={p90_target} max={max_target}"
+    );
+    println!(
         "{:<22} {:>8} {:>8} {:>8}",
-        "readout", "LCA MRR", "Hits@10", "top1LCA"
+        "readout", "DCA MRR", "Hits@10", "top1DCA"
     );
     for tau in [20.0f32, 50.0] {
         let ((mrr, h10, t1), _, ranks) = score_common_pool_gated(queries, clqa, tau);
@@ -790,6 +865,14 @@ fn print_common_pool_diagnostic(queries: &[CQuery], clqa: &BoxClqa<'_>, depths: 
     let ((mrr, h10, t1), _, ranks) = score_common_pool_depth(queries, depths);
     println!("{:<22} {mrr:>8.3} {h10:>8.3} {t1:>8.3}", "common + depth");
     print_rank_diagnostic("common + depth", &ranks);
+    for tau in [20.0f32, 50.0] {
+        let ((mrr, h10, t1), _, ranks) = score_common_pool_depth_gated(queries, clqa, depths, tau);
+        println!(
+            "{:<22} {mrr:>8.3} {h10:>8.3} {t1:>8.3}",
+            format!("depth + gate{tau}")
+        );
+        print_rank_diagnostic(&format!("depth + gate{tau}"), &ranks);
+    }
 }
 
 fn best_nonquery_score(degrees: &[f32], a: usize, b: usize) -> f32 {
@@ -868,21 +951,21 @@ fn report_gated_conformal(queries: &[CQuery], clqa: &BoxClqa<'_>, tau: f32) {
         .zip(cal_degrees.iter())
         .map(|(&i, (_, degs))| {
             let q = &queries[i];
-            1.0 - degs[q.lca]
+            1.0 - q.target_score(degs)
         })
         .collect();
-    let cal_lca_degrees: Vec<f32> = cal_nonconf.iter().map(|s| 1.0 - *s).collect();
+    let cal_target_degrees: Vec<f32> = cal_nonconf.iter().map(|s| 1.0 - *s).collect();
 
     println!(
-        "\n[conformal] gated LCA sets (tau={tau}, {} calibration, {} test)",
+        "\n[conformal] gated DCA target sets (tau={tau}, {} calibration, {} test)",
         cal_idx.len(),
         test_idx.len()
     );
     print_f32_distribution(
-        "calibration nonconformity (1 - true LCA score)",
+        "calibration nonconformity (1 - target DCA score)",
         &cal_nonconf,
     );
-    print_f32_distribution("calibration true-LCA score", &cal_lca_degrees);
+    print_f32_distribution("calibration target-DCA score", &cal_target_degrees);
     println!(
         "{:<8} {:>8} {:>10} {:>12} {:>12} {:>8} {:>8} {:>8}",
         "alpha", "1-alpha", "q_hat", "empirical", "mean|set|", "p50", "p90", "max"
@@ -894,7 +977,7 @@ fn report_gated_conformal(queries: &[CQuery], clqa: &BoxClqa<'_>, tau: f32) {
         for &(i, ref degs) in &test_degrees {
             let q = &queries[i];
             let set = nonquery_answer_set(degs, &thr, q.a, q.b);
-            if set.iter().any(|&(x, _)| x == q.lca) {
+            if set.iter().any(|&(x, _)| q.is_target(x)) {
                 hits += 1;
             }
             set_sizes.push(set.len());
@@ -928,7 +1011,7 @@ fn report_gated_conformal(queries: &[CQuery], clqa: &BoxClqa<'_>, tau: f32) {
             for &(i, ref degs) in &test_degrees {
                 let q = &queries[i];
                 let set = capped_nonquery_answer_set(degs, &thr, q.a, q.b, cap);
-                if set.iter().any(|&(x, _)| x == q.lca) {
+                if set.iter().any(|&(x, _)| q.is_target(x)) {
                     hits += 1;
                 }
                 set_sizes.push(set.len());
@@ -959,7 +1042,10 @@ fn report_gated_conformal(queries: &[CQuery], clqa: &BoxClqa<'_>, tau: f32) {
         .zip(cal_degrees.iter())
         .map(|(&i, (_, degs))| {
             let q = &queries[i];
-            (best_nonquery_score(degs, q.a, q.b), 1.0 - degs[q.lca])
+            (
+                best_nonquery_score(degs, q.a, q.b),
+                1.0 - q.target_score(degs),
+            )
         })
         .collect();
     cal_conf.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
@@ -980,7 +1066,7 @@ fn report_gated_conformal(queries: &[CQuery], clqa: &BoxClqa<'_>, tau: f32) {
     let cal_best_scores: Vec<f32> = cal_conf.iter().map(|(score, _)| *score).collect();
     print_f32_distribution("calibration best non-query score", &cal_best_scores);
     println!(
-        "\n[conformal] confidence-bucketed gated LCA sets (best-score cutoffs {:.3}, {:.3})",
+        "\n[conformal] confidence-bucketed gated DCA target sets (best-score cutoffs {:.3}, {:.3})",
         cutoffs[0], cutoffs[1]
     );
     println!(
@@ -1001,7 +1087,7 @@ fn report_gated_conformal(queries: &[CQuery], clqa: &BoxClqa<'_>, tau: f32) {
             let bucket = confidence_bucket(best_nonquery_score(degs, q.a, q.b), &cutoffs);
             bucket_counts[bucket] += 1;
             let set = nonquery_answer_set(degs, &thresholds[bucket], q.a, q.b);
-            if set.iter().any(|&(x, _)| x == q.lca) {
+            if set.iter().any(|&(x, _)| q.is_target(x)) {
                 hits += 1;
                 bucket_hits[bucket] += 1;
             }
@@ -1168,7 +1254,7 @@ fn main() {
         }
     }
 
-    // Sample concept pairs with a non-trivial common ancestor (LCA depth >= 2),
+    // Sample concept pairs with a non-trivial deepest common ancestor (DCA depth >= 2),
     // deterministically via an LCG so the query set is reproducible.
     let mut seed = 0x9E3779B97F4A7C15u64;
     let mut lcg = || {
@@ -1187,19 +1273,30 @@ fn main() {
             continue;
         }
         let common: HashSet<usize> = anc[a].intersection(&anc[b]).copied().collect();
-        let lca = match common.iter().max_by_key(|&&x| depth(x)) {
-            Some(&l) if l != a && l != b && depth(l) >= 2 => l,
-            _ => continue,
+        let max_depth = common
+            .iter()
+            .copied()
+            .filter(|&x| x != a && x != b)
+            .map(depth)
+            .max();
+        let Some(max_depth) = max_depth.filter(|&d| d >= 2) else {
+            continue;
         };
-        queries.push(CQuery { a, b, common, lca });
+        let mut lcas: Vec<usize> = common
+            .iter()
+            .copied()
+            .filter(|&x| x != a && x != b && depth(x) == max_depth)
+            .collect();
+        lcas.sort_unstable();
+        queries.push(CQuery { a, b, common, lcas });
     }
 
     let box_sizes: Vec<f32> = (0..n).map(|c| offset_l1(&offsets, c, dim)).collect();
     let depths: Vec<usize> = (0..n).map(|c| anc[c].len()).collect();
-    println!("\n{} conjunctive queries (LCA depth >= 2)\n", queries.len());
+    println!("\n{} conjunctive queries (DCA depth >= 2)\n", queries.len());
     println!(
         "{:<22} {:>8} {:>8} {:>8}",
-        "model", "LCA MRR", "Hits@10", "top1CA"
+        "model", "DCA MRR", "Hits@10", "top1CA"
     );
     println!("{}", "-".repeat(48));
     // Sweep the size-penalty lambda (train once, eval many). TIGHTNESS unset
@@ -1292,7 +1389,7 @@ fn main() {
         print_rank_diagnostic("plain KGE (TransE)", &te_ranks);
         let delta = box_mrr - te_mrr;
         println!(
-            "\nLCA MRR delta (faithful - plain): {delta:+.3}  ({} on real {dataset})",
+            "\nDCA MRR delta (faithful - plain): {delta:+.3}  ({} on real {dataset})",
             if delta > 0.0 {
                 "faithful wins"
             } else {
