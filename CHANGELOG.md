@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added
+
+- `el_clqa_galen` can run direct-frontier retrieval diagnostics without box
+  training via `SYMBOLIC_ONLY=1`, making cross-ontology candidate-pool checks
+  cheap on GALEN, GO, and Anatomy.
+
 ## [0.15.1] - 2026-07-06
 
 ### Added
