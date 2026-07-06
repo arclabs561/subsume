@@ -330,6 +330,75 @@ fn gated_lca_degrees(clqa: &BoxClqa<'_>, a: usize, b: usize, tau: f32) -> Vec<f3
         .collect()
 }
 
+fn quantile_f32(values: &[f32], q: f32) -> f32 {
+    if values.is_empty() {
+        return f32::NAN;
+    }
+    let mut sorted = values.to_vec();
+    sorted.sort_by(|a, b| a.total_cmp(b));
+    let idx = ((sorted.len() - 1) as f32 * q).round() as usize;
+    sorted[idx.min(sorted.len() - 1)]
+}
+
+fn quantile_usize(values: &[usize], q: f32) -> usize {
+    if values.is_empty() {
+        return 0;
+    }
+    let mut sorted = values.to_vec();
+    sorted.sort_unstable();
+    let idx = ((sorted.len() - 1) as f32 * q).round() as usize;
+    sorted[idx.min(sorted.len() - 1)]
+}
+
+fn print_f32_distribution(label: &str, values: &[f32]) {
+    if values.is_empty() {
+        println!("[diag] {label}: n=0");
+        return;
+    }
+    let mean = values.iter().sum::<f32>() / values.len() as f32;
+    println!(
+        "[diag] {label}: n={} mean={mean:.4} p50={:.4} p90={:.4} p95={:.4} p99={:.4} max={:.4}",
+        values.len(),
+        quantile_f32(values, 0.50),
+        quantile_f32(values, 0.90),
+        quantile_f32(values, 0.95),
+        quantile_f32(values, 0.99),
+        quantile_f32(values, 1.00)
+    );
+}
+
+fn set_size_summary(sizes: &[usize]) -> (f32, usize, usize, usize) {
+    if sizes.is_empty() {
+        return (0.0, 0, 0, 0);
+    }
+    let mean = sizes.iter().sum::<usize>() as f32 / sizes.len() as f32;
+    (
+        mean,
+        quantile_usize(sizes, 0.50),
+        quantile_usize(sizes, 0.90),
+        *sizes.iter().max().unwrap(),
+    )
+}
+
+fn best_nonquery_score(degrees: &[f32], a: usize, b: usize) -> f32 {
+    degrees
+        .iter()
+        .enumerate()
+        .filter(|(x, _)| *x != a && *x != b)
+        .map(|(_, d)| *d)
+        .fold(0.0, f32::max)
+}
+
+fn confidence_bucket(score: f32, cutoffs: &[f32; 2]) -> usize {
+    if score <= cutoffs[0] {
+        0
+    } else if score <= cutoffs[1] {
+        1
+    } else {
+        2
+    }
+}
+
 fn report_gated_conformal(queries: &[CQuery], clqa: &BoxClqa<'_>, tau: f32) {
     if queries.len() < 4 {
         println!("\n[conformal] skipped: need at least 4 queries for a held-out split");
@@ -351,19 +420,26 @@ fn report_gated_conformal(queries: &[CQuery], clqa: &BoxClqa<'_>, tau: f32) {
             1.0 - gated_lca_degrees(clqa, q.a, q.b, tau)[q.lca]
         })
         .collect();
+    let cal_lca_degrees: Vec<f32> = cal_nonconf.iter().map(|s| 1.0 - *s).collect();
 
     println!(
         "\n[conformal] gated LCA sets (tau={tau}, {} calibration, {} test)",
         cal_idx.len(),
         test_idx.len()
     );
+    print_f32_distribution(
+        "calibration nonconformity (1 - true LCA score)",
+        &cal_nonconf,
+    );
+    print_f32_distribution("calibration true-LCA score", &cal_lca_degrees);
     println!(
-        "{:<8} {:>8} {:>10} {:>12} {:>12}",
-        "alpha", "1-alpha", "q_hat", "empirical", "mean|set|"
+        "{:<8} {:>8} {:>10} {:>12} {:>12} {:>8} {:>8} {:>8}",
+        "alpha", "1-alpha", "q_hat", "empirical", "mean|set|", "p50", "p90", "max"
     );
     for &alpha in &[0.3f32, 0.2, 0.1] {
         let thr = calibrate_scores(&cal_nonconf, alpha).expect("non-empty calibration");
-        let (mut hits, mut set_total) = (0usize, 0usize);
+        let mut hits = 0usize;
+        let mut set_sizes = Vec::with_capacity(test_idx.len());
         for &i in test_idx {
             let q = &queries[i];
             let degs = gated_lca_degrees(clqa, q.a, q.b, tau);
@@ -374,17 +450,116 @@ fn report_gated_conformal(queries: &[CQuery], clqa: &BoxClqa<'_>, tau: f32) {
             if set.iter().any(|&(x, _)| x == q.lca) {
                 hits += 1;
             }
-            set_total += set.len();
+            set_sizes.push(set.len());
         }
         let coverage = hits as f32 / test_idx.len() as f32;
-        let mean_set = set_total as f32 / test_idx.len() as f32;
+        let (mean_set, p50_set, p90_set, max_set) = set_size_summary(&set_sizes);
         println!(
-            "{alpha:<8.2} {:>8.2} {:>10.3} {:>12.3} {:>12.1}",
+            "{alpha:<8.2} {:>8.2} {:>10.3} {:>12.3} {:>12.1} {:>8} {:>8} {:>8}",
             1.0 - alpha,
             thr.qhat,
             coverage,
-            mean_set
+            mean_set,
+            p50_set,
+            p90_set,
+            max_set
         );
+    }
+
+    if cal_idx.len() < 9 {
+        println!("\n[conformal] skipped confidence buckets: need at least 9 calibration examples");
+        return;
+    }
+
+    let mut cal_conf: Vec<(f32, f32)> = cal_idx
+        .iter()
+        .map(|&i| {
+            let q = &queries[i];
+            let degs = gated_lca_degrees(clqa, q.a, q.b, tau);
+            (best_nonquery_score(&degs, q.a, q.b), 1.0 - degs[q.lca])
+        })
+        .collect();
+    cal_conf.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    let cutoffs = [
+        cal_conf[cal_conf.len() / 3].0,
+        cal_conf[cal_conf.len() * 2 / 3].0,
+    ];
+    let mut bucket_scores = [Vec::new(), Vec::new(), Vec::new()];
+    for &(confidence, nonconf) in &cal_conf {
+        bucket_scores[confidence_bucket(confidence, &cutoffs)].push(nonconf);
+    }
+    if bucket_scores.iter().any(Vec::is_empty) {
+        println!(
+            "\n[conformal] skipped confidence buckets: calibration scores collapsed into an empty bucket"
+        );
+        return;
+    }
+    let cal_best_scores: Vec<f32> = cal_conf.iter().map(|(score, _)| *score).collect();
+    print_f32_distribution("calibration best non-query score", &cal_best_scores);
+    println!(
+        "\n[conformal] confidence-bucketed gated LCA sets (best-score cutoffs {:.3}, {:.3})",
+        cutoffs[0], cutoffs[1]
+    );
+    println!(
+        "{:<8} {:>8} {:>12} {:>12} {:>8} {:>8} {:>8} {:>12}",
+        "alpha", "1-alpha", "empirical", "mean|set|", "p50", "p90", "max", "bucket n"
+    );
+    for &alpha in &[0.3f32, 0.2, 0.1] {
+        let thresholds = bucket_scores.each_ref().map(|scores| {
+            calibrate_scores(scores, alpha).expect("confidence bucket has calibration examples")
+        });
+        let mut hits = 0usize;
+        let mut bucket_counts = [0usize; 3];
+        let mut bucket_hits = [0usize; 3];
+        let mut bucket_set_sizes = [Vec::new(), Vec::new(), Vec::new()];
+        let mut all_set_sizes = Vec::with_capacity(test_idx.len());
+        for &i in test_idx {
+            let q = &queries[i];
+            let degs = gated_lca_degrees(clqa, q.a, q.b, tau);
+            let bucket = confidence_bucket(best_nonquery_score(&degs, q.a, q.b), &cutoffs);
+            bucket_counts[bucket] += 1;
+            let set: Vec<(usize, f32)> = answer_set_from_degrees(&degs, &thresholds[bucket])
+                .into_iter()
+                .filter(|&(x, _)| x != q.a && x != q.b)
+                .collect();
+            if set.iter().any(|&(x, _)| x == q.lca) {
+                hits += 1;
+                bucket_hits[bucket] += 1;
+            }
+            bucket_set_sizes[bucket].push(set.len());
+            all_set_sizes.push(set.len());
+        }
+        let coverage = hits as f32 / test_idx.len() as f32;
+        let (mean_set, p50_set, p90_set, max_set) = set_size_summary(&all_set_sizes);
+        let bucket_counts_label = format!(
+            "{}/{}/{}",
+            bucket_counts[0], bucket_counts[1], bucket_counts[2]
+        );
+        println!(
+            "{alpha:<8.2} {:>8.2} {:>12.3} {:>12.1} {:>8} {:>8} {:>8} {:>12}",
+            1.0 - alpha,
+            coverage,
+            mean_set,
+            p50_set,
+            p90_set,
+            max_set,
+            bucket_counts_label
+        );
+        for bucket in 0..3 {
+            let (bucket_mean, bucket_p50, bucket_p90, bucket_max) =
+                set_size_summary(&bucket_set_sizes[bucket]);
+            let bucket_coverage = if bucket_counts[bucket] == 0 {
+                0.0
+            } else {
+                bucket_hits[bucket] as f32 / bucket_counts[bucket] as f32
+            };
+            println!(
+                "  bucket {bucket}: cal={} test={} q_hat={:.3} coverage={bucket_coverage:.3} mean|set|={bucket_mean:.1} p50={bucket_p50} p90={bucket_p90} max={bucket_max}",
+                bucket_scores[bucket].len(),
+                bucket_counts[bucket],
+                thresholds[bucket].qhat
+            );
+        }
     }
 }
 
@@ -468,7 +643,17 @@ fn main() {
     let trainer = BurnElTrainer::<Backend>::new();
     let mut model =
         BurnElTrainer::<Backend>::init_model(n, ont.role_names.len().max(1), dim, &device);
-    trainer.fit(&mut model, &ont, &box_cfg, &device);
+    let epoch_losses = trainer.fit(&mut model, &ont, &box_cfg, &device);
+    let finite_losses: Vec<f32> = epoch_losses
+        .iter()
+        .copied()
+        .filter(|loss| loss.is_finite())
+        .collect();
+    print_f32_distribution("training epoch loss", &finite_losses);
+    let nonfinite_losses = epoch_losses.len().saturating_sub(finite_losses.len());
+    if nonfinite_losses > 0 {
+        println!("[diag] training epoch loss: {nonfinite_losses} non-finite epochs");
+    }
     let centers = BurnElTrainer::<Backend>::extract_centers(&model, &device);
     let offsets = BurnElTrainer::<Backend>::extract_offsets(&model, &device);
 
