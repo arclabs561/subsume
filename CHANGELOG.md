@@ -1,5 +1,18 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- GALEN CLQA diagnostics now report DCA-set targets, candidate-rank and
+  candidate-pool recall, rank fusion, symbolic common-ancestor pools, and
+  conformal set sizes inside those symbolic pools.
+
+### Fixed
+
+- Burn ellipsoid InfoNCE loss clamps the positive score before `log`, avoiding
+  non-finite batch losses when a large KL underflows the sigmoid score to zero.
+
 ## [0.15.0] - 2026-07-05
 
 ### Added
