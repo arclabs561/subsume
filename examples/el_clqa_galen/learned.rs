@@ -39,10 +39,59 @@ struct LearnedCaseSource<'a> {
     frontier: &'a DirectFrontier,
     extra_hops: usize,
     weights: &'a [f32; FRONTIER_FEATURES],
+    scoring: LearnedConformalScoring,
     test_idx: &'a [usize],
     results: &'a [LearnedConformalResult],
     base_param: &'a str,
 }
+
+#[derive(Clone, Copy)]
+enum LearnedConformalScoring {
+    ScoreGap,
+    Rank,
+}
+
+impl LearnedConformalScoring {
+    fn label(self) -> &'static str {
+        match self {
+            Self::ScoreGap => "pairwise_linear",
+            Self::Rank => "pairwise_linear_rank",
+        }
+    }
+
+    fn param_value(self) -> &'static str {
+        match self {
+            Self::ScoreGap => "score_gap",
+            Self::Rank => "rank",
+        }
+    }
+
+    fn distribution_label(self) -> &'static str {
+        match self {
+            Self::ScoreGap => "learned ranker calibration nonconformity (best - target)",
+            Self::Rank => "learned ranker calibration target rank index",
+        }
+    }
+
+    fn nonconformity(self, q: &CQuery, scored: &[CandidateScore]) -> f32 {
+        match self {
+            Self::ScoreGap => learned_score_gap_nonconformity(q, scored),
+            Self::Rank => learned_rank_nonconformity(q, scored),
+        }
+    }
+
+    fn answer_set(self, scored: &[CandidateScore], qhat: f32) -> Vec<CandidateScore> {
+        match self {
+            Self::ScoreGap => learned_score_gap_answer_set(scored, qhat),
+            Self::Rank => learned_rank_answer_set(scored, qhat),
+        }
+    }
+}
+
+const LEARNED_CONFORMAL_SCORINGS: [LearnedConformalScoring; 2] = [
+    LearnedConformalScoring::ScoreGap,
+    LearnedConformalScoring::Rank,
+];
 
 fn query_split_indices(queries: &[CQuery], split_seed: u64) -> (Vec<usize>, Vec<usize>) {
     let order = query_order_indices(queries, split_seed);
@@ -296,7 +345,7 @@ fn scored_frontier_pool_details(
     scored
 }
 
-fn learned_nonconformity(q: &CQuery, scored: &[CandidateScore]) -> f32 {
+fn learned_score_gap_nonconformity(q: &CQuery, scored: &[CandidateScore]) -> f32 {
     let Some(best_score) = scored.first().map(|candidate| candidate.score) else {
         return f32::INFINITY;
     };
@@ -314,7 +363,14 @@ fn learned_nonconformity(q: &CQuery, scored: &[CandidateScore]) -> f32 {
     best_score - target_score
 }
 
-fn learned_answer_set(scored: &[CandidateScore], qhat: f32) -> Vec<CandidateScore> {
+fn learned_rank_nonconformity(q: &CQuery, scored: &[CandidateScore]) -> f32 {
+    scored
+        .iter()
+        .position(|candidate| q.is_target(candidate.concept))
+        .map_or(scored.len() as f32, |rank| rank as f32)
+}
+
+fn learned_score_gap_answer_set(scored: &[CandidateScore], qhat: f32) -> Vec<CandidateScore> {
     let Some(best_score) = scored.first().map(|candidate| candidate.score) else {
         return Vec::new();
     };
@@ -323,6 +379,21 @@ fn learned_answer_set(scored: &[CandidateScore], qhat: f32) -> Vec<CandidateScor
         .iter()
         .copied()
         .filter(|candidate| candidate.score >= cutoff)
+        .collect()
+}
+
+fn learned_rank_answer_set(scored: &[CandidateScore], qhat: f32) -> Vec<CandidateScore> {
+    if scored.is_empty() {
+        return Vec::new();
+    }
+    if !qhat.is_finite() {
+        return scored.to_vec();
+    }
+    let last_rank = qhat.max(0.0).floor() as usize;
+    scored
+        .iter()
+        .take(last_rank.saturating_add(1))
+        .copied()
         .collect()
 }
 
@@ -344,6 +415,7 @@ fn learned_conformal_results(
     weights: &[f32; FRONTIER_FEATURES],
     cal_idx: &[usize],
     test_idx: &[usize],
+    scoring: LearnedConformalScoring,
 ) -> (Vec<f32>, Vec<LearnedConformalResult>) {
     let cal_scores: Vec<(usize, Vec<CandidateScore>)> = cal_idx
         .iter()
@@ -365,7 +437,7 @@ fn learned_conformal_results(
         .collect();
     let cal_nonconf: Vec<f32> = cal_scores
         .iter()
-        .map(|(i, scored)| learned_nonconformity(&queries[*i], scored))
+        .map(|(i, scored)| scoring.nonconformity(&queries[*i], scored))
         .collect();
     let pool_recall = test_scores
         .iter()
@@ -383,7 +455,7 @@ fn learned_conformal_results(
             let mut covered = 0usize;
             let mut sizes = Vec::with_capacity(test_scores.len());
             for (i, scored) in &test_scores {
-                let set = learned_answer_set(scored, threshold.qhat);
+                let set = scoring.answer_set(scored, threshold.qhat);
                 if set
                     .iter()
                     .any(|candidate| queries[*i].is_target(candidate.concept))
@@ -416,8 +488,16 @@ fn learned_case_limit() -> usize {
         .unwrap_or(64)
 }
 
-fn learned_conformal_param(base_param: &str, cal_len: usize, test_len: usize) -> String {
-    format!("{base_param};cal={cal_len};conformal_test={test_len}")
+fn learned_conformal_param(
+    base_param: &str,
+    cal_len: usize,
+    test_len: usize,
+    scoring: LearnedConformalScoring,
+) -> String {
+    format!(
+        "{base_param};cal={cal_len};conformal_test={test_len};conformal_score={}",
+        scoring.param_value()
+    )
 }
 
 fn repeat_param(
@@ -699,7 +779,7 @@ fn emit_learned_case_metrics(source: LearnedCaseSource<'_>, metrics: &mut Metric
         let mut covered = 0usize;
         for (query_index, scored) in &scored {
             let query = &source.queries[*query_index];
-            let set = learned_answer_set(scored, result.q_hat);
+            let set = source.scoring.answer_set(scored, result.q_hat);
             let is_covered = set
                 .iter()
                 .any(|candidate| query.is_target(candidate.concept));
@@ -761,63 +841,74 @@ fn report_learned_conformal(
         println!("\n[learned conformal] skipped: empty calibration or test split");
         return;
     }
-    let conformal_param = learned_conformal_param(param, cal_idx.len(), test_idx.len());
-    let (cal_nonconf, results) =
-        learned_conformal_results(queries, frontier, extra_hops, weights, cal_idx, test_idx);
     println!(
         "\n[learned conformal] direct-frontier ranker sets (extra={extra_hops}, {} calibration, {} test)",
         cal_idx.len(),
         test_idx.len()
     );
-    print_f32_distribution(
-        "learned ranker calibration nonconformity (best - target)",
-        &cal_nonconf,
-    );
-    println!(
-        "{:<8} {:>8} {:>10} {:>10} {:>10} {:>10} {:>8} {:>8} {:>8}",
-        "alpha", "1-alpha", "q_hat", "empirical", "poolrecall", "mean|set|", "p50", "p90", "max"
-    );
-    emit_learned_case_metrics(
-        LearnedCaseSource {
-            queries,
-            frontier,
-            extra_hops,
-            weights,
-            test_idx,
-            results: &results,
-            base_param: &conformal_param,
-        },
-        metrics,
-    );
-    for result in results {
+    for scoring in LEARNED_CONFORMAL_SCORINGS {
+        let conformal_param =
+            learned_conformal_param(param, cal_idx.len(), test_idx.len(), scoring);
+        let (cal_nonconf, results) = learned_conformal_results(
+            queries, frontier, extra_hops, weights, cal_idx, test_idx, scoring,
+        );
+        println!("[learned conformal] score={}", scoring.param_value());
+        print_f32_distribution(scoring.distribution_label(), &cal_nonconf);
         println!(
-            "{:<8.2} {:>8.2} {:>10.3} {:>10.3} {:>10.3} {:>10.1} {:>8} {:>8} {:>8}",
-            result.alpha,
-            1.0 - result.alpha,
-            result.q_hat,
-            result.empirical,
-            result.pool_recall,
-            result.mean_set,
-            result.p50_set,
-            result.p90_set,
-            result.max_set
+            "{:<8} {:>8} {:>10} {:>10} {:>10} {:>10} {:>8} {:>8} {:>8}",
+            "alpha",
+            "1-alpha",
+            "q_hat",
+            "empirical",
+            "poolrecall",
+            "mean|set|",
+            "p50",
+            "p90",
+            "max"
         );
-        emit_conformal_metrics(
-            metrics,
-            "learned_frontier_conformal",
-            "pairwise_linear",
-            &conformal_param,
-            result.alpha,
-            ConformalMetrics {
-                q_hat: result.q_hat,
-                empirical: result.empirical,
-                pool_recall: result.pool_recall,
-                mean_set: result.mean_set,
-                p50_set: result.p50_set,
-                p90_set: result.p90_set,
-                max_set: result.max_set,
+        emit_learned_case_metrics(
+            LearnedCaseSource {
+                queries,
+                frontier,
+                extra_hops,
+                weights,
+                scoring,
+                test_idx,
+                results: &results,
+                base_param: &conformal_param,
             },
+            metrics,
         );
+        for result in results {
+            println!(
+                "{:<8.2} {:>8.2} {:>10.3} {:>10.3} {:>10.3} {:>10.1} {:>8} {:>8} {:>8}",
+                result.alpha,
+                1.0 - result.alpha,
+                result.q_hat,
+                result.empirical,
+                result.pool_recall,
+                result.mean_set,
+                result.p50_set,
+                result.p90_set,
+                result.max_set
+            );
+            emit_conformal_metrics(
+                metrics,
+                "learned_frontier_conformal",
+                scoring.label(),
+                &conformal_param,
+                result.alpha,
+                ConformalMetrics {
+                    q_hat: result.q_hat,
+                    empirical: result.empirical,
+                    pool_recall: result.pool_recall,
+                    mean_set: result.mean_set,
+                    p50_set: result.p50_set,
+                    p90_set: result.p90_set,
+                    max_set: result.max_set,
+                },
+            );
+        }
     }
 }
 
@@ -830,7 +921,11 @@ fn report_repeated_learned_conformal(
     if config.repeats <= 1 || queries.len() < 8 {
         return;
     }
-    let mut rows: Vec<Vec<LearnedConformalResult>> = Vec::with_capacity(config.repeats);
+    let mut rows_by_scoring: Vec<(LearnedConformalScoring, Vec<Vec<LearnedConformalResult>>)> =
+        LEARNED_CONFORMAL_SCORINGS
+            .into_iter()
+            .map(|scoring| (scoring, Vec::with_capacity(config.repeats)))
+            .collect();
     for repeat in 0..config.repeats {
         let repeat_split_seed = config.split_seed.wrapping_add(repeat as u64 + 1);
         let order = query_order_indices_with_seed(queries, repeat_split_seed);
@@ -851,14 +946,6 @@ fn report_repeated_learned_conformal(
             config.lr,
             config.l2,
         );
-        let (_, results) = learned_conformal_results(
-            queries,
-            frontier,
-            config.extra_hops,
-            &weights,
-            cal_idx,
-            test_idx,
-        );
         let repeat_row_param = repeat_param(
             config,
             repeat + 1,
@@ -867,168 +954,202 @@ fn report_repeated_learned_conformal(
             cal_idx.len(),
             test_idx.len(),
         );
-        for result in &results {
-            emit_conformal_metrics(
-                metrics,
-                "learned_frontier_conformal_repeat",
-                "pairwise_linear",
-                &repeat_row_param,
-                result.alpha,
-                ConformalMetrics {
-                    q_hat: result.q_hat,
-                    empirical: result.empirical,
-                    pool_recall: result.pool_recall,
-                    mean_set: result.mean_set,
-                    p50_set: result.p50_set,
-                    p90_set: result.p90_set,
-                    max_set: result.max_set,
-                },
+        for (scoring, rows) in &mut rows_by_scoring {
+            let (_, results) = learned_conformal_results(
+                queries,
+                frontier,
+                config.extra_hops,
+                &weights,
+                cal_idx,
+                test_idx,
+                *scoring,
             );
+            let repeat_row_param = format!(
+                "{};conformal_score={}",
+                repeat_row_param,
+                scoring.param_value()
+            );
+            for result in &results {
+                emit_conformal_metrics(
+                    metrics,
+                    "learned_frontier_conformal_repeat",
+                    scoring.label(),
+                    &repeat_row_param,
+                    result.alpha,
+                    ConformalMetrics {
+                        q_hat: result.q_hat,
+                        empirical: result.empirical,
+                        pool_recall: result.pool_recall,
+                        mean_set: result.mean_set,
+                        p50_set: result.p50_set,
+                        p90_set: result.p90_set,
+                        max_set: result.max_set,
+                    },
+                );
+            }
+            rows.push(results);
         }
-        rows.push(results);
     }
-    if rows.is_empty() {
+    if rows_by_scoring.iter().all(|(_, rows)| rows.is_empty()) {
         println!("\n[learned conformal repeats] skipped: empty repeated splits");
         return;
     }
+    let effective_repeats = rows_by_scoring
+        .iter()
+        .map(|(_, rows)| rows.len())
+        .max()
+        .unwrap_or(0);
     println!(
         "\n[learned conformal repeats] {}/{} deterministic train/cal/test splits (extra={extra_hops}, epochs={epochs})",
-        rows.len(),
+        effective_repeats,
         config.repeats,
         extra_hops = config.extra_hops,
         epochs = config.epochs
     );
-    println!(
-        "{:<8} {:>10} {:>10} {:>10} {:>10} {:>10}",
-        "alpha", "cov_mean", "cov_min", "cov_max", "set_mean", "recall_min"
-    );
-    for alpha in [0.3f32, 0.2, 0.1] {
-        let mut coverages = Vec::new();
-        let mut mean_sets = Vec::new();
-        let mut recalls = Vec::new();
-        for repeat_results in &rows {
-            if let Some(result) = repeat_results.iter().find(|result| result.alpha == alpha) {
-                coverages.push(result.empirical as f32);
-                mean_sets.push(result.mean_set);
-                recalls.push(result.pool_recall as f32);
-            }
-        }
-        if coverages.is_empty() {
+    for (scoring, rows) in rows_by_scoring {
+        if rows.is_empty() {
             continue;
         }
-        let mut qhats = Vec::new();
-        for repeat_results in &rows {
-            if let Some(result) = repeat_results.iter().find(|result| result.alpha == alpha) {
-                qhats.push(result.q_hat);
-            }
-        }
-        let (coverage_mean, coverage_std) = mean_sample_std(&coverages);
-        let (set_mean, set_std) = mean_sample_std(&mean_sets);
-        let (recall_mean, recall_std) = mean_sample_std(&recalls);
-        let (qhat_mean, qhat_std) = mean_sample_std(&qhats);
-        let coverage_min = coverages.iter().copied().fold(f32::INFINITY, f32::min);
-        let coverage_max = coverages.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-        let recall_min = recalls.iter().copied().fold(f32::INFINITY, f32::min);
         println!(
-            "{alpha:<8.2} {coverage_mean:>10.3} {coverage_min:>10.3} {coverage_max:>10.3} {set_mean:>10.1} {recall_min:>10.3}"
+            "[learned conformal repeats] score={}",
+            scoring.param_value()
         );
-        let param = repeat_summary_param(config, rows.len());
-        metrics.emit(
-            "learned_frontier_conformal_repeats",
-            "pairwise_linear",
-            &param,
-            Some(alpha),
-            "coverage_mean",
-            coverage_mean,
+        println!(
+            "{:<8} {:>10} {:>10} {:>10} {:>10} {:>10}",
+            "alpha", "cov_mean", "cov_min", "cov_max", "set_mean", "recall_min"
         );
-        metrics.emit(
-            "learned_frontier_conformal_repeats",
-            "pairwise_linear",
-            &param,
-            Some(alpha),
-            "coverage_sample_std",
-            coverage_std,
-        );
-        metrics.emit(
-            "learned_frontier_conformal_repeats",
-            "pairwise_linear",
-            &param,
-            Some(alpha),
-            "coverage_min",
-            coverage_min,
-        );
-        metrics.emit(
-            "learned_frontier_conformal_repeats",
-            "pairwise_linear",
-            &param,
-            Some(alpha),
-            "coverage_max",
-            coverage_max,
-        );
-        metrics.emit(
-            "learned_frontier_conformal_repeats",
-            "pairwise_linear",
-            &param,
-            Some(alpha),
-            "mean_set_mean",
-            set_mean,
-        );
-        metrics.emit(
-            "learned_frontier_conformal_repeats",
-            "pairwise_linear",
-            &param,
-            Some(alpha),
-            "mean_set_sample_std",
-            set_std,
-        );
-        metrics.emit(
-            "learned_frontier_conformal_repeats",
-            "pairwise_linear",
-            &param,
-            Some(alpha),
-            "pool_recall_mean",
-            recall_mean,
-        );
-        metrics.emit(
-            "learned_frontier_conformal_repeats",
-            "pairwise_linear",
-            &param,
-            Some(alpha),
-            "pool_recall_min",
-            recall_min,
-        );
-        metrics.emit(
-            "learned_frontier_conformal_repeats",
-            "pairwise_linear",
-            &param,
-            Some(alpha),
-            "pool_recall_sample_std",
-            recall_std,
-        );
-        metrics.emit(
-            "learned_frontier_conformal_repeats",
-            "pairwise_linear",
-            &param,
-            Some(alpha),
-            "q_hat_mean",
-            qhat_mean,
-        );
-        metrics.emit(
-            "learned_frontier_conformal_repeats",
-            "pairwise_linear",
-            &param,
-            Some(alpha),
-            "q_hat_sample_std",
-            qhat_std,
-        );
-        metrics.emit(
-            "learned_frontier_conformal_repeats",
-            "pairwise_linear",
-            &param,
-            Some(alpha),
-            "split_count",
-            coverages.len(),
-        );
+        for alpha in [0.3f32, 0.2, 0.1] {
+            let mut coverages = Vec::new();
+            let mut mean_sets = Vec::new();
+            let mut recalls = Vec::new();
+            for repeat_results in &rows {
+                if let Some(result) = repeat_results.iter().find(|result| result.alpha == alpha) {
+                    coverages.push(result.empirical as f32);
+                    mean_sets.push(result.mean_set);
+                    recalls.push(result.pool_recall as f32);
+                }
+            }
+            if coverages.is_empty() {
+                continue;
+            }
+            let mut qhats = Vec::new();
+            for repeat_results in &rows {
+                if let Some(result) = repeat_results.iter().find(|result| result.alpha == alpha) {
+                    qhats.push(result.q_hat);
+                }
+            }
+            let (coverage_mean, coverage_std) = mean_sample_std(&coverages);
+            let (set_mean, set_std) = mean_sample_std(&mean_sets);
+            let (recall_mean, recall_std) = mean_sample_std(&recalls);
+            let (qhat_mean, qhat_std) = mean_sample_std(&qhats);
+            let coverage_min = coverages.iter().copied().fold(f32::INFINITY, f32::min);
+            let coverage_max = coverages.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+            let recall_min = recalls.iter().copied().fold(f32::INFINITY, f32::min);
+            println!(
+                "{alpha:<8.2} {coverage_mean:>10.3} {coverage_min:>10.3} {coverage_max:>10.3} {set_mean:>10.1} {recall_min:>10.3}"
+            );
+            let param = format!(
+                "{};conformal_score={}",
+                repeat_summary_param(config, rows.len()),
+                scoring.param_value()
+            );
+            metrics.emit(
+                "learned_frontier_conformal_repeats",
+                scoring.label(),
+                &param,
+                Some(alpha),
+                "coverage_mean",
+                coverage_mean,
+            );
+            metrics.emit(
+                "learned_frontier_conformal_repeats",
+                scoring.label(),
+                &param,
+                Some(alpha),
+                "coverage_sample_std",
+                coverage_std,
+            );
+            metrics.emit(
+                "learned_frontier_conformal_repeats",
+                scoring.label(),
+                &param,
+                Some(alpha),
+                "coverage_min",
+                coverage_min,
+            );
+            metrics.emit(
+                "learned_frontier_conformal_repeats",
+                scoring.label(),
+                &param,
+                Some(alpha),
+                "coverage_max",
+                coverage_max,
+            );
+            metrics.emit(
+                "learned_frontier_conformal_repeats",
+                scoring.label(),
+                &param,
+                Some(alpha),
+                "mean_set_mean",
+                set_mean,
+            );
+            metrics.emit(
+                "learned_frontier_conformal_repeats",
+                scoring.label(),
+                &param,
+                Some(alpha),
+                "mean_set_sample_std",
+                set_std,
+            );
+            metrics.emit(
+                "learned_frontier_conformal_repeats",
+                scoring.label(),
+                &param,
+                Some(alpha),
+                "pool_recall_mean",
+                recall_mean,
+            );
+            metrics.emit(
+                "learned_frontier_conformal_repeats",
+                scoring.label(),
+                &param,
+                Some(alpha),
+                "pool_recall_min",
+                recall_min,
+            );
+            metrics.emit(
+                "learned_frontier_conformal_repeats",
+                scoring.label(),
+                &param,
+                Some(alpha),
+                "pool_recall_sample_std",
+                recall_std,
+            );
+            metrics.emit(
+                "learned_frontier_conformal_repeats",
+                scoring.label(),
+                &param,
+                Some(alpha),
+                "q_hat_mean",
+                qhat_mean,
+            );
+            metrics.emit(
+                "learned_frontier_conformal_repeats",
+                scoring.label(),
+                &param,
+                Some(alpha),
+                "q_hat_sample_std",
+                qhat_std,
+            );
+            metrics.emit(
+                "learned_frontier_conformal_repeats",
+                scoring.label(),
+                &param,
+                Some(alpha),
+                "split_count",
+                coverages.len(),
+            );
+        }
     }
 }
 
@@ -1191,7 +1312,7 @@ mod tests {
     }
 
     #[test]
-    fn learned_answer_set_grows_with_nonconformity_threshold() {
+    fn learned_score_gap_answer_set_grows_with_nonconformity_threshold() {
         let scored = vec![
             CandidateScore {
                 concept: 1,
@@ -1217,14 +1338,14 @@ mod tests {
         ];
 
         assert_eq!(
-            learned_answer_set(&scored, 0.0)
+            learned_score_gap_answer_set(&scored, 0.0)
                 .iter()
                 .map(|candidate| candidate.concept)
                 .collect::<Vec<_>>(),
             vec![1]
         );
         assert_eq!(
-            learned_answer_set(&scored, 0.5)
+            learned_score_gap_answer_set(&scored, 0.5)
                 .iter()
                 .map(|candidate| candidate.concept)
                 .collect::<Vec<_>>(),
@@ -1233,12 +1354,98 @@ mod tests {
     }
 
     #[test]
+    fn learned_rank_scoring_uses_target_position() {
+        let mut q = query(1, 2);
+        q.lcas = vec![3];
+        let scored = vec![
+            CandidateScore {
+                concept: 1,
+                score: 3.0,
+                frontier_depth: 1,
+                path_len: 2,
+                parent_count: 1,
+            },
+            CandidateScore {
+                concept: 2,
+                score: 2.5,
+                frontier_depth: 1,
+                path_len: 2,
+                parent_count: 1,
+            },
+            CandidateScore {
+                concept: 3,
+                score: 1.0,
+                frontier_depth: 2,
+                path_len: 4,
+                parent_count: 2,
+            },
+        ];
+
+        assert_eq!(learned_rank_nonconformity(&q, &scored), 2.0);
+        q.lcas = vec![4];
+        assert_eq!(learned_rank_nonconformity(&q, &scored), 3.0);
+    }
+
+    #[test]
+    fn learned_rank_answer_set_grows_by_rank_threshold() {
+        let scored = vec![
+            CandidateScore {
+                concept: 1,
+                score: 3.0,
+                frontier_depth: 1,
+                path_len: 2,
+                parent_count: 1,
+            },
+            CandidateScore {
+                concept: 2,
+                score: 2.5,
+                frontier_depth: 1,
+                path_len: 2,
+                parent_count: 1,
+            },
+            CandidateScore {
+                concept: 3,
+                score: 1.0,
+                frontier_depth: 2,
+                path_len: 4,
+                parent_count: 2,
+            },
+        ];
+
+        assert_eq!(
+            learned_rank_answer_set(&scored, 0.0)
+                .iter()
+                .map(|candidate| candidate.concept)
+                .collect::<Vec<_>>(),
+            vec![1]
+        );
+        assert_eq!(
+            learned_rank_answer_set(&scored, 1.0)
+                .iter()
+                .map(|candidate| candidate.concept)
+                .collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+        assert_eq!(
+            learned_rank_answer_set(&scored, 99.0)
+                .iter()
+                .map(|candidate| candidate.concept)
+                .collect::<Vec<_>>(),
+            vec![1, 2, 3]
+        );
+    }
+
+    #[test]
     fn learned_conformal_param_keeps_ranker_and_conformal_splits_separate() {
-        let param =
-            learned_conformal_param("extra=10;epochs=20;ranker_train=6;ranker_test=6", 3, 3);
+        let param = learned_conformal_param(
+            "extra=10;epochs=20;ranker_train=6;ranker_test=6",
+            3,
+            3,
+            LearnedConformalScoring::Rank,
+        );
         assert_eq!(
             param,
-            "extra=10;epochs=20;ranker_train=6;ranker_test=6;cal=3;conformal_test=3"
+            "extra=10;epochs=20;ranker_train=6;ranker_test=6;cal=3;conformal_test=3;conformal_score=rank"
         );
     }
 
