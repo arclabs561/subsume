@@ -47,10 +47,14 @@
 //! `DATASET=GALEN cargo run --release --features burn-ndarray,burn-wgpu --example el_clqa_galen`
 //! Use `SYMBOLIC_ONLY=1` to run the direct-frontier retrieval diagnostics
 //! without training the box model.
+//! Set `METRICS_CSV=path/to/run.csv` to also write the main aggregate metrics
+//! as machine-readable CSV rows.
 
 use heyting::conformal::{answer_set_from_degrees, calibrate_scores, ConformalThreshold};
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
+use std::fs::File;
+use std::io::{BufWriter, Write};
 use std::path::Path;
 use subsume::clqa::{BoxClqa, DirectFrontier};
 use subsume::el_dataset::load_el_axioms;
@@ -92,6 +96,177 @@ struct CQuery {
 }
 
 type ScoreResult = ((f64, f64, f64), Vec<usize>, Vec<usize>);
+
+struct MetricsCsv {
+    writer: Option<BufWriter<File>>,
+    dataset: String,
+    dim: usize,
+    epochs: usize,
+    queries: usize,
+}
+
+impl MetricsCsv {
+    fn from_env(dataset: &str, dim: usize, epochs: usize, queries: usize) -> std::io::Result<Self> {
+        let writer = match std::env::var("METRICS_CSV") {
+            Ok(path) => {
+                let mut writer = BufWriter::new(File::create(path)?);
+                writeln!(
+                    writer,
+                    "dataset,dim,epochs,queries,section,label,param,alpha,metric,value"
+                )?;
+                Some(writer)
+            }
+            Err(_) => None,
+        };
+        Ok(Self {
+            writer,
+            dataset: dataset.to_string(),
+            dim,
+            epochs,
+            queries,
+        })
+    }
+
+    fn emit(
+        &mut self,
+        section: &str,
+        label: &str,
+        param: &str,
+        alpha: Option<f32>,
+        metric: &str,
+        value: impl std::fmt::Display,
+    ) {
+        let Some(writer) = &mut self.writer else {
+            return;
+        };
+        let alpha = alpha.map_or_else(String::new, |a| format!("{a:.6}"));
+        writeln!(
+            writer,
+            "{},{},{},{},{},{},{},{},{},{}",
+            csv_cell(&self.dataset),
+            self.dim,
+            self.epochs,
+            self.queries,
+            csv_cell(section),
+            csv_cell(label),
+            csv_cell(param),
+            csv_cell(&alpha),
+            csv_cell(metric),
+            value
+        )
+        .expect("failed to write METRICS_CSV row");
+    }
+}
+
+fn csv_cell(value: &str) -> String {
+    format!("\"{}\"", value.replace('"', "\"\""))
+}
+
+fn emit_score_result(
+    metrics: &mut MetricsCsv,
+    label: &str,
+    param: &str,
+    mrr: f64,
+    hits10: f64,
+    top1_dca: f64,
+) {
+    metrics.emit("model_score", label, param, None, "mrr", mrr);
+    metrics.emit("model_score", label, param, None, "hits10", hits10);
+    metrics.emit("model_score", label, param, None, "top1_dca", top1_dca);
+}
+
+struct RetrievalMetrics {
+    recall: f64,
+    mean_pool: f32,
+    p90_pool: usize,
+    mrr: f64,
+    hits10: f64,
+    top1_dca: f64,
+}
+
+fn emit_retrieval_metrics(
+    metrics: &mut MetricsCsv,
+    section: &str,
+    label: &str,
+    param: &str,
+    values: RetrievalMetrics,
+) {
+    metrics.emit(section, label, param, None, "recall", values.recall);
+    metrics.emit(section, label, param, None, "mean_pool", values.mean_pool);
+    metrics.emit(section, label, param, None, "p90_pool", values.p90_pool);
+    metrics.emit(section, label, param, None, "mrr", values.mrr);
+    metrics.emit(section, label, param, None, "hits10", values.hits10);
+    metrics.emit(section, label, param, None, "top1_dca", values.top1_dca);
+}
+
+struct ConformalMetrics {
+    q_hat: f32,
+    empirical: f64,
+    pool_recall: f64,
+    mean_set: f32,
+    p50_set: usize,
+    p90_set: usize,
+    max_set: usize,
+}
+
+fn emit_conformal_metrics(
+    metrics: &mut MetricsCsv,
+    section: &str,
+    label: &str,
+    param: &str,
+    alpha: f32,
+    values: ConformalMetrics,
+) {
+    metrics.emit(section, label, param, Some(alpha), "q_hat", values.q_hat);
+    metrics.emit(
+        section,
+        label,
+        param,
+        Some(alpha),
+        "empirical_coverage",
+        values.empirical,
+    );
+    metrics.emit(
+        section,
+        label,
+        param,
+        Some(alpha),
+        "pool_recall",
+        values.pool_recall,
+    );
+    metrics.emit(
+        section,
+        label,
+        param,
+        Some(alpha),
+        "mean_set",
+        values.mean_set,
+    );
+    metrics.emit(
+        section,
+        label,
+        param,
+        Some(alpha),
+        "p50_set",
+        values.p50_set,
+    );
+    metrics.emit(
+        section,
+        label,
+        param,
+        Some(alpha),
+        "p90_set",
+        values.p90_set,
+    );
+    metrics.emit(
+        section,
+        label,
+        param,
+        Some(alpha),
+        "max_set",
+        values.max_set,
+    );
+}
 
 impl CQuery {
     fn is_target(&self, x: usize) -> bool {
@@ -703,6 +878,7 @@ fn print_direct_frontier_pool_diagnostic(
     queries: &[CQuery],
     clqa: &BoxClqa<'_>,
     frontier: &DirectFrontier,
+    metrics: &mut MetricsCsv,
 ) {
     println!(
         "\n[symbolic] direct-frontier candidate pool (direct SubClassOf BFS; no precomputed closure in generator)"
@@ -742,10 +918,29 @@ fn print_direct_frontier_pool_diagnostic(
             mean_pool,
             p90_pool
         );
+        let param = format!("extra={extra_hops}");
+        emit_retrieval_metrics(
+            metrics,
+            "direct_frontier_gated_pool",
+            "gate20",
+            &param,
+            RetrievalMetrics {
+                recall: hits as f64 / queries.len() as f64,
+                mean_pool,
+                p90_pool,
+                mrr,
+                hits10: h10,
+                top1_dca: top1,
+            },
+        );
     }
 }
 
-fn print_direct_frontier_retrieval_diagnostic(queries: &[CQuery], frontier: &DirectFrontier) {
+fn print_direct_frontier_retrieval_diagnostic(
+    queries: &[CQuery],
+    frontier: &DirectFrontier,
+    metrics: &mut MetricsCsv,
+) {
     println!(
         "\n[symbolic] direct-frontier retrieval (direct SubClassOf BFS order; no box training)"
     );
@@ -792,6 +987,21 @@ fn print_direct_frontier_retrieval_diagnostic(queries: &[CQuery], frontier: &Dir
             mean_pool,
             p90_pool
         );
+        let param = format!("extra={extra_hops}");
+        emit_retrieval_metrics(
+            metrics,
+            "direct_frontier_retrieval",
+            "bfs_order",
+            &param,
+            RetrievalMetrics {
+                recall: hits as f64 / queries.len() as f64,
+                mean_pool,
+                p90_pool,
+                mrr,
+                hits10: h10,
+                top1_dca: top1,
+            },
+        );
     }
 }
 
@@ -800,6 +1010,7 @@ fn report_direct_frontier_conformal(
     clqa: &BoxClqa<'_>,
     frontier: &DirectFrontier,
     tau: f32,
+    metrics: &mut MetricsCsv,
 ) {
     if queries.len() < 4 {
         println!(
@@ -871,6 +1082,23 @@ fn report_direct_frontier_conformal(
                 "{:<8} {alpha:>7.2} {:>9.3} {empirical:>10.3} {pool_recall:>10.3} {mean_size:>10.1} {p50:>8} {p90:>8} {max_size:>8}",
                 extra_hops,
                 threshold.qhat
+            );
+            let param = format!("extra={extra_hops};tau={tau}");
+            emit_conformal_metrics(
+                metrics,
+                "direct_frontier_conformal",
+                "gate20",
+                &param,
+                alpha,
+                ConformalMetrics {
+                    q_hat: threshold.qhat,
+                    empirical,
+                    pool_recall,
+                    mean_set: mean_size,
+                    p50_set: p50,
+                    p90_set: p90,
+                    max_set: max_size,
+                },
             );
         }
     }
@@ -1553,8 +1781,32 @@ fn main() {
     let direct_frontier = DirectFrontier::from_ontology(&ont)
         .expect("ontology direct SubClassOf endpoints must reference known concepts");
     println!("\n{} conjunctive queries (DCA depth >= 2)\n", queries.len());
+    let mut metrics = MetricsCsv::from_env(&dataset, dim, epochs, queries.len())
+        .expect("METRICS_CSV path must be writable");
+    metrics.emit("run", "dataset", "", None, "concepts", n);
+    metrics.emit("run", "dataset", "", None, "axioms", ont.axioms.len());
+    metrics.emit("run", "config", "", None, "batch", batch);
+    metrics.emit("run", "config", "", None, "lr", lr);
+    metrics.emit("run", "config", "", None, "offset_clamp", offset_clamp);
+    metrics.emit("run", "config", "", None, "tightness", lambda);
+    metrics.emit(
+        "run",
+        "config",
+        "",
+        None,
+        "symbolic_only",
+        usize::from(symbolic_only),
+    );
+    metrics.emit(
+        "run",
+        "config",
+        "",
+        None,
+        "skip_transe",
+        usize::from(skip_transe),
+    );
     if symbolic_only {
-        print_direct_frontier_retrieval_diagnostic(&queries, &direct_frontier);
+        print_direct_frontier_retrieval_diagnostic(&queries, &direct_frontier, &mut metrics);
         return;
     }
 
@@ -1636,6 +1888,14 @@ fn main() {
             "{:<22} {mrr:>8.3} {h10:>8.3} {t1:>8.3}",
             format!("boxes (lam={lam})")
         );
+        emit_score_result(
+            &mut metrics,
+            "boxes",
+            &format!("lambda={lam}"),
+            mrr,
+            h10,
+            t1,
+        );
         if i == 0 {
             box_mrr = mrr;
             box_top1s = top1s;
@@ -1651,6 +1911,7 @@ fn main() {
         "{:<22} {jm_mrr:>8.3} {jm_h10:>8.3} {jm_t1:>8.3}",
         "boxes (join-match)"
     );
+    emit_score_result(&mut metrics, "boxes_join_match", "", jm_mrr, jm_h10, jm_t1);
     print_rank_diagnostic("boxes (join-match)", &jm_ranks);
     // Smallest-container-of-the-join score, swept over the size penalty.
     for jl in [0.02f32, 0.05, 0.1] {
@@ -1659,6 +1920,14 @@ fn main() {
         println!(
             "{:<22} {c_mrr:>8.3} {c_h10:>8.3} {c_t1:>8.3}",
             format!("boxes (join-cont l={jl})")
+        );
+        emit_score_result(
+            &mut metrics,
+            "boxes_join_contain",
+            &format!("lambda={jl}"),
+            c_mrr,
+            c_h10,
+            c_t1,
         );
         if (jl - 0.02).abs() < f32::EPSILON {
             print_rank_diagnostic("boxes (join-cont l=0.02)", &c_ranks);
@@ -1676,6 +1945,14 @@ fn main() {
             "{:<22} {g_mrr:>8.3} {g_h10:>8.3} {g_t1:>8.3}",
             format!("boxes (join-gate t={tau})")
         );
+        emit_score_result(
+            &mut metrics,
+            "boxes_join_gate",
+            &format!("tau={tau}"),
+            g_mrr,
+            g_h10,
+            g_t1,
+        );
         print_rank_diagnostic(&format!("boxes (join-gate t={tau})"), &g_ranks);
     }
     let ((rf_mrr, rf_h10, rf_t1), _, rf_ranks) =
@@ -1684,10 +1961,11 @@ fn main() {
         "{:<22} {rf_mrr:>8.3} {rf_h10:>8.3} {rf_t1:>8.3}",
         "boxes (rank-fusion)"
     );
+    emit_score_result(&mut metrics, "boxes_rank_fusion", "", rf_mrr, rf_h10, rf_t1);
     print_rank_diagnostic("boxes (rank-fusion)", &rf_ranks);
     print_candidate_pool_diagnostic(&queries, &centers, &offsets, &box_sizes, dim, n);
-    print_direct_frontier_pool_diagnostic(&queries, &clqa, &direct_frontier);
-    report_direct_frontier_conformal(&queries, &clqa, &direct_frontier, 20.0);
+    print_direct_frontier_pool_diagnostic(&queries, &clqa, &direct_frontier, &mut metrics);
+    report_direct_frontier_conformal(&queries, &clqa, &direct_frontier, 20.0, &mut metrics);
     print_common_pool_diagnostic(&queries, &clqa, &depths);
     report_common_pool_conformal(&queries, &clqa, 20.0);
     report_gated_conformal(&queries, &clqa, 20.0);
@@ -1705,6 +1983,7 @@ fn main() {
             "{:<22} {te_mrr:>8.3} {te_h10:>8.3} {te_t1:>8.3}",
             "plain KGE (TransE)"
         );
+        emit_score_result(&mut metrics, "plain_kge_transe", "", te_mrr, te_h10, te_t1);
         print_rank_diagnostic("plain KGE (TransE)", &te_ranks);
         let delta = box_mrr - te_mrr;
         println!(

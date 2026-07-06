@@ -9,6 +9,9 @@
   cheap on GALEN, GO, and Anatomy.
 - `clqa::DirectFrontier` exposes the direct-edge candidate generator used by
   the GALEN/GO/Anatomy diagnostics.
+- `el_clqa_galen` can write aggregate run metrics to CSV with
+  `METRICS_CSV=path`, covering run metadata, model scores,
+  direct-frontier retrieval, and direct-frontier conformal diagnostics.
 
 ## [0.15.1] - 2026-07-06
 
