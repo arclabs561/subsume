@@ -204,6 +204,17 @@ pub struct FrontierCandidate {
 /// optionally includes ancestors within `extra_hops` of that frontier. It does
 /// not use transitive closure to generate candidates. Closure or labels are
 /// only needed by callers that want to evaluate retrieval risk.
+///
+/// ```
+/// use subsume::clqa::DirectFrontier;
+///
+/// // 0 root, 1 parent, 2/3 leaves.
+/// let frontier = DirectFrontier::from_edges(4, [(1, 0), (2, 1), (3, 1)])?;
+/// let pool = frontier.pool(2, 3, 0)?;
+/// assert_eq!(pool[0].concept, 1);
+/// assert_eq!(pool[0].frontier_depth, 1);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DirectFrontier {
     parents: Vec<Vec<usize>>,
