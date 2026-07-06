@@ -46,7 +46,7 @@
 //! is rayon-parallel. Run:
 //! `DATASET=GALEN cargo run --release --features burn-ndarray,burn-wgpu --example el_clqa_galen`
 
-use heyting::conformal::{answer_set_from_degrees, calibrate_scores};
+use heyting::conformal::{answer_set_from_degrees, calibrate_scores, ConformalThreshold};
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -399,6 +399,30 @@ fn confidence_bucket(score: f32, cutoffs: &[f32; 2]) -> usize {
     }
 }
 
+fn nonquery_answer_set(
+    degrees: &[f32],
+    threshold: &ConformalThreshold,
+    a: usize,
+    b: usize,
+) -> Vec<(usize, f32)> {
+    answer_set_from_degrees(degrees, threshold)
+        .into_iter()
+        .filter(|&(x, _)| x != a && x != b)
+        .collect()
+}
+
+fn capped_nonquery_answer_set(
+    degrees: &[f32],
+    threshold: &ConformalThreshold,
+    a: usize,
+    b: usize,
+    cap: usize,
+) -> Vec<(usize, f32)> {
+    let mut set = nonquery_answer_set(degrees, threshold, a, b);
+    set.truncate(cap);
+    set
+}
+
 fn report_gated_conformal(queries: &[CQuery], clqa: &BoxClqa<'_>, tau: f32) {
     if queries.len() < 4 {
         println!("\n[conformal] skipped: need at least 4 queries for a held-out split");
@@ -413,11 +437,26 @@ fn report_gated_conformal(queries: &[CQuery], clqa: &BoxClqa<'_>, tau: f32) {
     });
     let split = order.len() / 2;
     let (cal_idx, test_idx) = order.split_at(split);
-    let cal_nonconf: Vec<f32> = cal_idx
+    let cal_degrees: Vec<(usize, Vec<f32>)> = cal_idx
         .iter()
         .map(|&i| {
             let q = &queries[i];
-            1.0 - gated_lca_degrees(clqa, q.a, q.b, tau)[q.lca]
+            (i, gated_lca_degrees(clqa, q.a, q.b, tau))
+        })
+        .collect();
+    let test_degrees: Vec<(usize, Vec<f32>)> = test_idx
+        .iter()
+        .map(|&i| {
+            let q = &queries[i];
+            (i, gated_lca_degrees(clqa, q.a, q.b, tau))
+        })
+        .collect();
+    let cal_nonconf: Vec<f32> = cal_idx
+        .iter()
+        .zip(cal_degrees.iter())
+        .map(|(&i, (_, degs))| {
+            let q = &queries[i];
+            1.0 - degs[q.lca]
         })
         .collect();
     let cal_lca_degrees: Vec<f32> = cal_nonconf.iter().map(|s| 1.0 - *s).collect();
@@ -440,13 +479,9 @@ fn report_gated_conformal(queries: &[CQuery], clqa: &BoxClqa<'_>, tau: f32) {
         let thr = calibrate_scores(&cal_nonconf, alpha).expect("non-empty calibration");
         let mut hits = 0usize;
         let mut set_sizes = Vec::with_capacity(test_idx.len());
-        for &i in test_idx {
+        for &(i, ref degs) in &test_degrees {
             let q = &queries[i];
-            let degs = gated_lca_degrees(clqa, q.a, q.b, tau);
-            let set: Vec<(usize, f32)> = answer_set_from_degrees(&degs, &thr)
-                .into_iter()
-                .filter(|&(x, _)| x != q.a && x != q.b)
-                .collect();
+            let set = nonquery_answer_set(degs, &thr, q.a, q.b);
             if set.iter().any(|&(x, _)| x == q.lca) {
                 hits += 1;
             }
@@ -466,6 +501,42 @@ fn report_gated_conformal(queries: &[CQuery], clqa: &BoxClqa<'_>, tau: f32) {
         );
     }
 
+    println!(
+        "\n[conformal] size-capped diagnostic (cap truncates the conformal set; empirical only, no marginal guarantee)"
+    );
+    println!(
+        "{:<8} {:>8} {:>8} {:>10} {:>12} {:>12} {:>8} {:>8} {:>8}",
+        "alpha", "1-alpha", "cap", "q_hat", "empirical", "mean|set|", "p50", "p90", "max"
+    );
+    for &alpha in &[0.3f32, 0.2, 0.1] {
+        let thr = calibrate_scores(&cal_nonconf, alpha).expect("non-empty calibration");
+        for &cap in &[10usize, 100, 1000, 5000] {
+            let mut hits = 0usize;
+            let mut set_sizes = Vec::with_capacity(test_idx.len());
+            for &(i, ref degs) in &test_degrees {
+                let q = &queries[i];
+                let set = capped_nonquery_answer_set(degs, &thr, q.a, q.b, cap);
+                if set.iter().any(|&(x, _)| x == q.lca) {
+                    hits += 1;
+                }
+                set_sizes.push(set.len());
+            }
+            let coverage = hits as f32 / test_idx.len() as f32;
+            let (mean_set, p50_set, p90_set, max_set) = set_size_summary(&set_sizes);
+            println!(
+                "{alpha:<8.2} {:>8.2} {:>8} {:>10.3} {:>12.3} {:>12.1} {:>8} {:>8} {:>8}",
+                1.0 - alpha,
+                cap,
+                thr.qhat,
+                coverage,
+                mean_set,
+                p50_set,
+                p90_set,
+                max_set
+            );
+        }
+    }
+
     if cal_idx.len() < 9 {
         println!("\n[conformal] skipped confidence buckets: need at least 9 calibration examples");
         return;
@@ -473,10 +544,10 @@ fn report_gated_conformal(queries: &[CQuery], clqa: &BoxClqa<'_>, tau: f32) {
 
     let mut cal_conf: Vec<(f32, f32)> = cal_idx
         .iter()
-        .map(|&i| {
+        .zip(cal_degrees.iter())
+        .map(|(&i, (_, degs))| {
             let q = &queries[i];
-            let degs = gated_lca_degrees(clqa, q.a, q.b, tau);
-            (best_nonquery_score(&degs, q.a, q.b), 1.0 - degs[q.lca])
+            (best_nonquery_score(degs, q.a, q.b), 1.0 - degs[q.lca])
         })
         .collect();
     cal_conf.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
@@ -513,15 +584,11 @@ fn report_gated_conformal(queries: &[CQuery], clqa: &BoxClqa<'_>, tau: f32) {
         let mut bucket_hits = [0usize; 3];
         let mut bucket_set_sizes = [Vec::new(), Vec::new(), Vec::new()];
         let mut all_set_sizes = Vec::with_capacity(test_idx.len());
-        for &i in test_idx {
+        for &(i, ref degs) in &test_degrees {
             let q = &queries[i];
-            let degs = gated_lca_degrees(clqa, q.a, q.b, tau);
-            let bucket = confidence_bucket(best_nonquery_score(&degs, q.a, q.b), &cutoffs);
+            let bucket = confidence_bucket(best_nonquery_score(degs, q.a, q.b), &cutoffs);
             bucket_counts[bucket] += 1;
-            let set: Vec<(usize, f32)> = answer_set_from_degrees(&degs, &thresholds[bucket])
-                .into_iter()
-                .filter(|&(x, _)| x != q.a && x != q.b)
-                .collect();
+            let set = nonquery_answer_set(degs, &thresholds[bucket], q.a, q.b);
             if set.iter().any(|&(x, _)| x == q.lca) {
                 hits += 1;
                 bucket_hits[bucket] += 1;
