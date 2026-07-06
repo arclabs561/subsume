@@ -45,6 +45,8 @@
 //! (wgpu) via cfg; large batch amortizes wgpu dispatch overhead; the eval loop
 //! is rayon-parallel. Run:
 //! `DATASET=GALEN cargo run --release --features burn-ndarray,burn-wgpu --example el_clqa_galen`
+//! Use `SYMBOLIC_ONLY=1` to run the direct-frontier retrieval diagnostics
+//! without training the box model.
 
 use heyting::conformal::{answer_set_from_degrees, calibrate_scores, ConformalThreshold};
 use rayon::prelude::*;
@@ -796,6 +798,52 @@ fn print_direct_frontier_pool_diagnostic(
     }
 }
 
+fn print_direct_frontier_retrieval_diagnostic(queries: &[CQuery], parents: &[Vec<usize>]) {
+    println!(
+        "\n[symbolic] direct-frontier retrieval (direct SubClassOf BFS order; no box training)"
+    );
+    println!(
+        "{:<8} {:>8} {:>10} {:>10} {:>8} {:>8} {:>8}",
+        "extra", "recall", "mean|pool|", "p90|pool|", "MRR", "Hits@10", "top1DCA"
+    );
+    for extra_hops in [0usize, 1, 2, 3, 5, 10] {
+        let per: Vec<(bool, usize, Option<usize>, bool)> = queries
+            .par_iter()
+            .map(|q| {
+                let pool = direct_frontier_pool(q, parents, extra_hops);
+                let hit = pool.iter().any(|&(x, _, _)| q.is_target(x));
+                let top1 = pool.first().is_some_and(|&(x, _, _)| q.is_target(x));
+                let rank = pool
+                    .iter()
+                    .position(|&(x, _, _)| q.is_target(x))
+                    .map(|i| i + 1);
+                (hit, pool.len(), rank, top1)
+            })
+            .collect();
+        let hits = per.iter().filter(|x| x.0).count();
+        let pool_sizes: Vec<usize> = per.iter().map(|x| x.1).collect();
+        let (mean_pool, _, p90_pool, _) = set_size_summary(&pool_sizes);
+        let mrr = per
+            .iter()
+            .filter_map(|x| x.2.map(|rank| 1.0 / rank as f64))
+            .sum::<f64>()
+            / queries.len() as f64;
+        let h10 = per
+            .iter()
+            .filter(|x| x.2.is_some_and(|rank| rank <= 10))
+            .count() as f64
+            / queries.len() as f64;
+        let top1 = per.iter().filter(|x| x.3).count() as f64 / queries.len() as f64;
+        println!(
+            "{:<8} {:>8.3} {:>10.1} {:>10} {mrr:>8.3} {h10:>8.3} {top1:>8.3}",
+            extra_hops,
+            hits as f32 / queries.len() as f32,
+            mean_pool,
+            p90_pool
+        );
+    }
+}
+
 fn report_direct_frontier_conformal(
     queries: &[CQuery],
     clqa: &BoxClqa<'_>,
@@ -1479,6 +1527,7 @@ fn main() {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(0.0);
+    let symbolic_only = std::env::var("SYMBOLIC_ONLY").is_ok();
 
     let train_path = Path::new("data").join(&dataset).join("train.tsv");
     if !train_path.exists() {
@@ -1502,6 +1551,60 @@ fn main() {
         "{dataset}: {n} concepts, {} axioms, dim {dim}, {epochs} epochs",
         ont.axioms.len()
     );
+
+    // Ancestor sets from the deductive closure.
+    let closure = ont.subsumption_closure();
+    let mut anc: Vec<HashSet<usize>> = vec![HashSet::new(); n];
+    for &(s, a) in &closure {
+        if s < n && a < n {
+            anc[s].insert(a);
+        }
+    }
+
+    // Sample concept pairs with a non-trivial deepest common ancestor (DCA depth >= 2),
+    // deterministically via an LCG so the query set is reproducible.
+    let mut seed = 0x9E3779B97F4A7C15u64;
+    let mut lcg = || {
+        seed = seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        (seed >> 33) as usize
+    };
+    let depth = |x: usize| anc[x].len();
+    let mut queries: Vec<CQuery> = Vec::new();
+    let mut attempts = 0;
+    while queries.len() < n_queries && attempts < n_queries * 400 {
+        attempts += 1;
+        let (a, b) = (lcg() % n, lcg() % n);
+        if a == b || anc[a].is_empty() || anc[b].is_empty() {
+            continue;
+        }
+        let common: HashSet<usize> = anc[a].intersection(&anc[b]).copied().collect();
+        let max_depth = common
+            .iter()
+            .copied()
+            .filter(|&x| x != a && x != b)
+            .map(depth)
+            .max();
+        let Some(max_depth) = max_depth.filter(|&d| d >= 2) else {
+            continue;
+        };
+        let mut lcas: Vec<usize> = common
+            .iter()
+            .copied()
+            .filter(|&x| x != a && x != b && depth(x) == max_depth)
+            .collect();
+        lcas.sort_unstable();
+        queries.push(CQuery { a, b, common, lcas });
+    }
+
+    let depths: Vec<usize> = (0..n).map(|c| anc[c].len()).collect();
+    let direct_parents = direct_parent_graph(&ont, n);
+    println!("\n{} conjunctive queries (DCA depth >= 2)\n", queries.len());
+    if symbolic_only {
+        print_direct_frontier_retrieval_diagnostic(&queries, &direct_parents);
+        return;
+    }
 
     // --- Faithful boxes ---
     let box_cfg = BurnElConfig {
@@ -1554,56 +1657,7 @@ fn main() {
         Some((kge.entity_vecs, kge.relation_vecs[0].clone()))
     };
 
-    // Ancestor sets from the deductive closure.
-    let closure = ont.subsumption_closure();
-    let mut anc: Vec<HashSet<usize>> = vec![HashSet::new(); n];
-    for &(s, a) in &closure {
-        if s < n && a < n {
-            anc[s].insert(a);
-        }
-    }
-
-    // Sample concept pairs with a non-trivial deepest common ancestor (DCA depth >= 2),
-    // deterministically via an LCG so the query set is reproducible.
-    let mut seed = 0x9E3779B97F4A7C15u64;
-    let mut lcg = || {
-        seed = seed
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(1442695040888963407);
-        (seed >> 33) as usize
-    };
-    let depth = |x: usize| anc[x].len();
-    let mut queries: Vec<CQuery> = Vec::new();
-    let mut attempts = 0;
-    while queries.len() < n_queries && attempts < n_queries * 400 {
-        attempts += 1;
-        let (a, b) = (lcg() % n, lcg() % n);
-        if a == b || anc[a].is_empty() || anc[b].is_empty() {
-            continue;
-        }
-        let common: HashSet<usize> = anc[a].intersection(&anc[b]).copied().collect();
-        let max_depth = common
-            .iter()
-            .copied()
-            .filter(|&x| x != a && x != b)
-            .map(depth)
-            .max();
-        let Some(max_depth) = max_depth.filter(|&d| d >= 2) else {
-            continue;
-        };
-        let mut lcas: Vec<usize> = common
-            .iter()
-            .copied()
-            .filter(|&x| x != a && x != b && depth(x) == max_depth)
-            .collect();
-        lcas.sort_unstable();
-        queries.push(CQuery { a, b, common, lcas });
-    }
-
     let box_sizes: Vec<f32> = (0..n).map(|c| offset_l1(&offsets, c, dim)).collect();
-    let depths: Vec<usize> = (0..n).map(|c| anc[c].len()).collect();
-    let direct_parents = direct_parent_graph(&ont, n);
-    println!("\n{} conjunctive queries (DCA depth >= 2)\n", queries.len());
     println!(
         "{:<22} {:>8} {:>8} {:>8}",
         "model", "DCA MRR", "Hits@10", "top1CA"
