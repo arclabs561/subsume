@@ -732,15 +732,7 @@ fn score_common_pool_gated(queries: &[CQuery], clqa: &BoxClqa<'_>, tau: f32) -> 
     let per: Vec<(f64, usize, usize, usize, usize)> = queries
         .par_iter()
         .map(|q| {
-            let (jc, jo) = clqa.join(q.a, q.b);
-            let mut scored: Vec<(usize, f32)> = q
-                .common
-                .iter()
-                .copied()
-                .filter(|&x| x != q.a && x != q.b)
-                .map(|x| (x, clqa.score_lca(&jc, &jo, x, tau)))
-                .collect();
-            scored.sort_by(|p, r| r.1.partial_cmp(&p.1).unwrap().then_with(|| p.0.cmp(&r.0)));
+            let scored = common_pool_gated_scores(q, clqa, tau);
             let rank = target_rank_pairs(q, &scored);
             (
                 1.0 / rank as f64,
@@ -760,6 +752,39 @@ fn score_common_pool_gated(queries: &[CQuery], clqa: &BoxClqa<'_>, tau: f32) -> 
         per.iter().map(|x| x.3).collect(),
         per.iter().map(|x| x.4).collect(),
     )
+}
+
+fn common_pool_gated_scores(q: &CQuery, clqa: &BoxClqa<'_>, tau: f32) -> Vec<(usize, f32)> {
+    let (jc, jo) = clqa.join(q.a, q.b);
+    let mut scored: Vec<(usize, f32)> = q
+        .common
+        .iter()
+        .copied()
+        .filter(|&x| x != q.a && x != q.b)
+        .map(|x| (x, clqa.score_lca(&jc, &jo, x, tau)))
+        .collect();
+    scored.sort_by(|p, r| r.1.partial_cmp(&p.1).unwrap().then_with(|| p.0.cmp(&r.0)));
+    scored
+}
+
+fn common_pool_target_score(q: &CQuery, scored: &[(usize, f32)]) -> f32 {
+    scored
+        .iter()
+        .filter(|&&(x, _)| q.is_target(x))
+        .map(|&(_, score)| score)
+        .fold(f32::NEG_INFINITY, f32::max)
+}
+
+fn common_pool_answer_set(
+    scored: &[(usize, f32)],
+    threshold: &ConformalThreshold,
+) -> Vec<(usize, f32)> {
+    let cutoff = 1.0 - threshold.qhat;
+    scored
+        .iter()
+        .copied()
+        .filter(|&(_, score)| score >= cutoff)
+        .collect()
 }
 
 fn score_common_pool_depth(queries: &[CQuery], depths: &[usize]) -> ScoreResult {
@@ -872,6 +897,80 @@ fn print_common_pool_diagnostic(queries: &[CQuery], clqa: &BoxClqa<'_>, depths: 
             format!("depth + gate{tau}")
         );
         print_rank_diagnostic(&format!("depth + gate{tau}"), &ranks);
+    }
+}
+
+fn report_common_pool_conformal(queries: &[CQuery], clqa: &BoxClqa<'_>, tau: f32) {
+    if queries.len() < 4 {
+        println!(
+            "\n[conformal] skipped symbolic pool: need at least 4 queries for a held-out split"
+        );
+        return;
+    }
+    let mut order: Vec<usize> = (0..queries.len()).collect();
+    order.sort_by_key(|&i| {
+        let q = &queries[i];
+        q.a.wrapping_mul(2_654_435_761)
+            .wrapping_add(q.b.wrapping_mul(40_503))
+            .wrapping_add(i.wrapping_mul(97_531))
+    });
+    let split = order.len() / 2;
+    let (cal_idx, test_idx) = order.split_at(split);
+    let cal_scores: Vec<(usize, Vec<(usize, f32)>)> = cal_idx
+        .iter()
+        .map(|&i| (i, common_pool_gated_scores(&queries[i], clqa, tau)))
+        .collect();
+    let test_scores: Vec<(usize, Vec<(usize, f32)>)> = test_idx
+        .iter()
+        .map(|&i| (i, common_pool_gated_scores(&queries[i], clqa, tau)))
+        .collect();
+    let cal_nonconf: Vec<f32> = cal_scores
+        .iter()
+        .map(|(i, scored)| 1.0 - common_pool_target_score(&queries[*i], scored))
+        .collect();
+    let cal_target_scores: Vec<f32> = cal_nonconf.iter().map(|s| 1.0 - *s).collect();
+
+    println!(
+        "\n[conformal] symbolic-pool gated DCA sets (tau={tau}, {} calibration, {} test)",
+        cal_idx.len(),
+        test_idx.len()
+    );
+    print_f32_distribution(
+        "symbolic-pool calibration nonconformity (1 - target DCA score)",
+        &cal_nonconf,
+    );
+    print_f32_distribution(
+        "symbolic-pool calibration target-DCA score",
+        &cal_target_scores,
+    );
+    println!(
+        "{:<8} {:>8} {:>10} {:>12} {:>12} {:>8} {:>8} {:>8}",
+        "alpha", "1-alpha", "q_hat", "empirical", "mean|set|", "p50", "p90", "max"
+    );
+    for &alpha in &[0.3f32, 0.2, 0.1] {
+        let thr = calibrate_scores(&cal_nonconf, alpha).expect("non-empty calibration");
+        let mut hits = 0usize;
+        let mut set_sizes = Vec::with_capacity(test_scores.len());
+        for (i, scored) in &test_scores {
+            let q = &queries[*i];
+            let set = common_pool_answer_set(scored, &thr);
+            if set.iter().any(|&(x, _)| q.is_target(x)) {
+                hits += 1;
+            }
+            set_sizes.push(set.len());
+        }
+        let coverage = hits as f32 / test_scores.len() as f32;
+        let (mean_set, p50_set, p90_set, max_set) = set_size_summary(&set_sizes);
+        println!(
+            "{alpha:<8.2} {:>8.2} {:>10.3} {:>12.3} {:>12.1} {:>8} {:>8} {:>8}",
+            1.0 - alpha,
+            thr.qhat,
+            coverage,
+            mean_set,
+            p50_set,
+            p90_set,
+            max_set
+        );
     }
 }
 
@@ -1371,6 +1470,7 @@ fn main() {
     print_rank_diagnostic("boxes (rank-fusion)", &rf_ranks);
     print_candidate_pool_diagnostic(&queries, &centers, &offsets, &box_sizes, dim, n);
     print_common_pool_diagnostic(&queries, &clqa, &depths);
+    report_common_pool_conformal(&queries, &clqa, 20.0);
     report_gated_conformal(&queries, &clqa, 20.0);
     if let Some((emb, rel)) = &transe {
         // TransE is a point model: no box size, so no size penalty.
