@@ -407,6 +407,53 @@ fn learned_case_limit() -> usize {
         .unwrap_or(64)
 }
 
+fn learned_conformal_param(base_param: &str, cal_len: usize, test_len: usize) -> String {
+    format!("{base_param};cal={cal_len};conformal_test={test_len}")
+}
+
+fn repeat_param(
+    config: LearnedRankerConfig,
+    repeat: usize,
+    ranker_train_len: usize,
+    cal_len: usize,
+    conformal_test_len: usize,
+) -> String {
+    format!(
+        "extra={};epochs={};lr={};l2={};split=rotated_hash;repeat={};ranker_train={};cal={};conformal_test={}",
+        config.extra_hops,
+        config.epochs,
+        config.lr,
+        config.l2,
+        repeat,
+        ranker_train_len,
+        cal_len,
+        conformal_test_len
+    )
+}
+
+fn repeat_summary_param(config: LearnedRankerConfig, effective_repeats: usize) -> String {
+    format!(
+        "extra={};epochs={};lr={};l2={};split=rotated_hash;repeats={};effective_repeats={}",
+        config.extra_hops, config.epochs, config.lr, config.l2, config.repeats, effective_repeats
+    )
+}
+
+fn mean_sample_std(values: &[f32]) -> (f32, f32) {
+    if values.is_empty() {
+        return (0.0, 0.0);
+    }
+    let mean = values.iter().sum::<f32>() / values.len() as f32;
+    if values.len() == 1 {
+        return (mean, 0.0);
+    }
+    let variance = values
+        .iter()
+        .map(|value| (value - mean).powi(2))
+        .sum::<f32>()
+        / (values.len() - 1) as f32;
+    (mean, variance.sqrt())
+}
+
 fn emit_optional_usize(
     metrics: &mut MetricsCsv,
     label: &str,
@@ -696,6 +743,7 @@ fn report_learned_conformal(
         println!("\n[learned conformal] skipped: empty calibration or test split");
         return;
     }
+    let conformal_param = learned_conformal_param(param, cal_idx.len(), test_idx.len());
     let (cal_nonconf, results) =
         learned_conformal_results(queries, frontier, extra_hops, weights, cal_idx, test_idx);
     println!(
@@ -719,7 +767,7 @@ fn report_learned_conformal(
             weights,
             test_idx,
             results: &results,
-            base_param: param,
+            base_param: &conformal_param,
         },
         metrics,
     );
@@ -740,7 +788,7 @@ fn report_learned_conformal(
             metrics,
             "learned_frontier_conformal",
             "pairwise_linear",
-            param,
+            &conformal_param,
             result.alpha,
             ConformalMetrics {
                 q_hat: result.q_hat,
@@ -792,20 +840,19 @@ fn report_repeated_learned_conformal(
             cal_idx,
             test_idx,
         );
-        let repeat_param = format!(
-            "extra={};epochs={};lr={};l2={};repeat={}",
-            config.extra_hops,
-            config.epochs,
-            config.lr,
-            config.l2,
-            repeat + 1
+        let repeat_row_param = repeat_param(
+            config,
+            repeat + 1,
+            train_idx.len(),
+            cal_idx.len(),
+            test_idx.len(),
         );
         for result in &results {
             emit_conformal_metrics(
                 metrics,
                 "learned_frontier_conformal_repeat",
                 "pairwise_linear",
-                &repeat_param,
+                &repeat_row_param,
                 result.alpha,
                 ConformalMetrics {
                     q_hat: result.q_hat,
@@ -849,18 +896,23 @@ fn report_repeated_learned_conformal(
         if coverages.is_empty() {
             continue;
         }
-        let coverage_mean = coverages.iter().sum::<f32>() / coverages.len() as f32;
-        let set_mean = mean_sets.iter().sum::<f32>() / mean_sets.len() as f32;
+        let mut qhats = Vec::new();
+        for repeat_results in &rows {
+            if let Some(result) = repeat_results.iter().find(|result| result.alpha == alpha) {
+                qhats.push(result.q_hat);
+            }
+        }
+        let (coverage_mean, coverage_std) = mean_sample_std(&coverages);
+        let (set_mean, set_std) = mean_sample_std(&mean_sets);
+        let (recall_mean, recall_std) = mean_sample_std(&recalls);
+        let (qhat_mean, qhat_std) = mean_sample_std(&qhats);
         let coverage_min = coverages.iter().copied().fold(f32::INFINITY, f32::min);
         let coverage_max = coverages.iter().copied().fold(f32::NEG_INFINITY, f32::max);
         let recall_min = recalls.iter().copied().fold(f32::INFINITY, f32::min);
         println!(
             "{alpha:<8.2} {coverage_mean:>10.3} {coverage_min:>10.3} {coverage_max:>10.3} {set_mean:>10.1} {recall_min:>10.3}"
         );
-        let param = format!(
-            "extra={};epochs={};lr={};l2={};repeats={}",
-            config.extra_hops, config.epochs, config.lr, config.l2, config.repeats
-        );
+        let param = repeat_summary_param(config, rows.len());
         metrics.emit(
             "learned_frontier_conformal_repeats",
             "pairwise_linear",
@@ -868,6 +920,14 @@ fn report_repeated_learned_conformal(
             Some(alpha),
             "coverage_mean",
             coverage_mean,
+        );
+        metrics.emit(
+            "learned_frontier_conformal_repeats",
+            "pairwise_linear",
+            &param,
+            Some(alpha),
+            "coverage_sample_std",
+            coverage_std,
         );
         metrics.emit(
             "learned_frontier_conformal_repeats",
@@ -898,8 +958,56 @@ fn report_repeated_learned_conformal(
             "pairwise_linear",
             &param,
             Some(alpha),
+            "mean_set_sample_std",
+            set_std,
+        );
+        metrics.emit(
+            "learned_frontier_conformal_repeats",
+            "pairwise_linear",
+            &param,
+            Some(alpha),
+            "pool_recall_mean",
+            recall_mean,
+        );
+        metrics.emit(
+            "learned_frontier_conformal_repeats",
+            "pairwise_linear",
+            &param,
+            Some(alpha),
             "pool_recall_min",
             recall_min,
+        );
+        metrics.emit(
+            "learned_frontier_conformal_repeats",
+            "pairwise_linear",
+            &param,
+            Some(alpha),
+            "pool_recall_sample_std",
+            recall_std,
+        );
+        metrics.emit(
+            "learned_frontier_conformal_repeats",
+            "pairwise_linear",
+            &param,
+            Some(alpha),
+            "q_hat_mean",
+            qhat_mean,
+        );
+        metrics.emit(
+            "learned_frontier_conformal_repeats",
+            "pairwise_linear",
+            &param,
+            Some(alpha),
+            "q_hat_sample_std",
+            qhat_std,
+        );
+        metrics.emit(
+            "learned_frontier_conformal_repeats",
+            "pairwise_linear",
+            &param,
+            Some(alpha),
+            "split_count",
+            coverages.len(),
         );
     }
 }
@@ -974,7 +1082,7 @@ pub(super) fn report_learned_frontier_ranker(
         ),
     ];
     let param = format!(
-        "extra={extra_hops};epochs={epochs};lr={lr};l2={l2};train={};test={}",
+        "extra={extra_hops};epochs={epochs};lr={lr};l2={l2};ranker_train={};ranker_test={}",
         train_idx.len(),
         test_idx.len()
     );
@@ -1095,5 +1203,44 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![1, 2]
         );
+    }
+
+    #[test]
+    fn learned_conformal_param_keeps_ranker_and_conformal_splits_separate() {
+        let param =
+            learned_conformal_param("extra=10;epochs=20;ranker_train=6;ranker_test=6", 3, 3);
+        assert_eq!(
+            param,
+            "extra=10;epochs=20;ranker_train=6;ranker_test=6;cal=3;conformal_test=3"
+        );
+    }
+
+    #[test]
+    fn repeat_params_record_effective_split_shape() {
+        let config = LearnedRankerConfig {
+            extra_hops: 10,
+            epochs: 20,
+            lr: 0.03,
+            l2: 1e-4,
+            repeats: 5,
+        };
+        assert_eq!(
+            repeat_param(config, 2, 6, 3, 3),
+            "extra=10;epochs=20;lr=0.03;l2=0.0001;split=rotated_hash;repeat=2;ranker_train=6;cal=3;conformal_test=3"
+        );
+        assert_eq!(
+            repeat_summary_param(config, 4),
+            "extra=10;epochs=20;lr=0.03;l2=0.0001;split=rotated_hash;repeats=5;effective_repeats=4"
+        );
+    }
+
+    #[test]
+    fn mean_sample_std_reports_repeat_dispersion() {
+        assert_eq!(mean_sample_std(&[]), (0.0, 0.0));
+        assert_eq!(mean_sample_std(&[2.0]), (2.0, 0.0));
+
+        let (mean, std) = mean_sample_std(&[1.0, 3.0, 5.0]);
+        assert_eq!(mean, 3.0);
+        assert!((std - 2.0).abs() < 1e-6);
     }
 }
