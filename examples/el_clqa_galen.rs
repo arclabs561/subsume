@@ -416,6 +416,230 @@ fn print_rank_diagnostic(label: &str, ranks: &[usize]) {
     );
 }
 
+fn top_k_by_score<F: Fn(usize) -> f32>(
+    n: usize,
+    a: usize,
+    b: usize,
+    k: usize,
+    score: F,
+) -> Vec<usize> {
+    let mut scored: Vec<(usize, f32)> = (0..n)
+        .filter(|&x| x != a && x != b)
+        .map(|x| (x, score(x)))
+        .collect();
+    scored.sort_by(|p, r| r.1.partial_cmp(&p.1).unwrap());
+    scored
+        .into_iter()
+        .take(k.min(n.saturating_sub(2)))
+        .map(|(x, _)| x)
+        .collect()
+}
+
+fn join_box(
+    centers: &[f32],
+    offsets: &[f32],
+    a: usize,
+    b: usize,
+    dim: usize,
+) -> (Vec<f32>, Vec<f32>) {
+    let (ao, bo) = (a * dim, b * dim);
+    let mut jc = vec![0f32; dim];
+    let mut jo = vec![0f32; dim];
+    for i in 0..dim {
+        let lo = (centers[ao + i] - offsets[ao + i]).min(centers[bo + i] - offsets[bo + i]);
+        let hi = (centers[ao + i] + offsets[ao + i]).max(centers[bo + i] + offsets[bo + i]);
+        jc[i] = (lo + hi) / 2.0;
+        jo[i] = (hi - lo) / 2.0;
+    }
+    (jc, jo)
+}
+
+fn join_match_score(
+    centers: &[f32],
+    offsets: &[f32],
+    dim: usize,
+    jc: &[f32],
+    jo: &[f32],
+    x: usize,
+) -> f32 {
+    let xo = x * dim;
+    let mut d = 0f32;
+    for i in 0..dim {
+        d += (centers[xo + i] - jc[i]).abs() + (offsets[xo + i] - jo[i]).abs();
+    }
+    -d
+}
+
+fn join_contain_score(
+    centers: &[f32],
+    offsets: &[f32],
+    dim: usize,
+    jc: &[f32],
+    jo: &[f32],
+    lambda: f32,
+    x: usize,
+) -> f32 {
+    let xo = x * dim;
+    let mut incl = 0f32;
+    let mut size = 0f32;
+    for i in 0..dim {
+        let v = ((jc[i] - centers[xo + i]).abs() + jo[i] - offsets[xo + i]).max(0.0);
+        incl += v * v;
+        size += offsets[xo + i].abs();
+    }
+    (-incl.sqrt()).exp() * (-lambda * size).exp()
+}
+
+fn join_gated_score(
+    centers: &[f32],
+    offsets: &[f32],
+    dim: usize,
+    jc: &[f32],
+    jo: &[f32],
+    tau: f32,
+    x: usize,
+) -> f32 {
+    let xo = x * dim;
+    let mut incl = 0f32;
+    let mut prox = 0f32;
+    for i in 0..dim {
+        let v = ((jc[i] - centers[xo + i]).abs() + jo[i] - offsets[xo + i]).max(0.0);
+        incl += v * v;
+        prox += (centers[xo + i] - jc[i]).abs() + (offsets[xo + i] - jo[i]).abs();
+    }
+    (-incl.sqrt()).exp() * (-prox / tau).exp()
+}
+
+fn print_candidate_pool_diagnostic(
+    queries: &[CQuery],
+    centers: &[f32],
+    offsets: &[f32],
+    box_sizes: &[f32],
+    dim: usize,
+    n: usize,
+) {
+    let ks = [10usize, 100, 1000, 5000];
+    let max_k = ks[ks.len() - 1].min(n.saturating_sub(2));
+    let method_candidates: [(&str, Vec<Vec<usize>>); 5] = [
+        (
+            "lam=.02",
+            queries
+                .par_iter()
+                .map(|q| {
+                    top_k_by_score(n, q.a, q.b, max_k, |x| {
+                        box_degree(centers, offsets, q.a, x, dim)
+                            .min(box_degree(centers, offsets, q.b, x, dim))
+                            * (-0.02 * box_sizes[x]).exp()
+                    })
+                })
+                .collect(),
+        ),
+        (
+            "join",
+            queries
+                .par_iter()
+                .map(|q| {
+                    let (jc, jo) = join_box(centers, offsets, q.a, q.b, dim);
+                    top_k_by_score(n, q.a, q.b, max_k, |x| {
+                        join_match_score(centers, offsets, dim, &jc, &jo, x)
+                    })
+                })
+                .collect(),
+        ),
+        (
+            "cont=.02",
+            queries
+                .par_iter()
+                .map(|q| {
+                    let (jc, jo) = join_box(centers, offsets, q.a, q.b, dim);
+                    top_k_by_score(n, q.a, q.b, max_k, |x| {
+                        join_contain_score(centers, offsets, dim, &jc, &jo, 0.02, x)
+                    })
+                })
+                .collect(),
+        ),
+        (
+            "gate20",
+            queries
+                .par_iter()
+                .map(|q| {
+                    let (jc, jo) = join_box(centers, offsets, q.a, q.b, dim);
+                    top_k_by_score(n, q.a, q.b, max_k, |x| {
+                        join_gated_score(centers, offsets, dim, &jc, &jo, 20.0, x)
+                    })
+                })
+                .collect(),
+        ),
+        (
+            "gate50",
+            queries
+                .par_iter()
+                .map(|q| {
+                    let (jc, jo) = join_box(centers, offsets, q.a, q.b, dim);
+                    top_k_by_score(n, q.a, q.b, max_k, |x| {
+                        join_gated_score(centers, offsets, dim, &jc, &jo, 50.0, x)
+                    })
+                })
+                .collect(),
+        ),
+    ];
+
+    println!(
+        "\n[pool] candidate recall (true LCA in top-k; retrieval stage only, no conformal guarantee)"
+    );
+    println!(
+        "{:<8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>10} {:>10}",
+        "k",
+        method_candidates[0].0,
+        method_candidates[1].0,
+        method_candidates[2].0,
+        method_candidates[3].0,
+        method_candidates[4].0,
+        "union",
+        "mean|pool|",
+        "p90|pool|"
+    );
+    for &k in &ks {
+        let method_recalls: Vec<f32> = method_candidates
+            .iter()
+            .map(|(_, candidates)| {
+                let hits = queries
+                    .iter()
+                    .enumerate()
+                    .filter(|&(i, q)| candidates[i].iter().take(k).any(|&x| x == q.lca))
+                    .count();
+                hits as f32 / queries.len() as f32
+            })
+            .collect();
+        let mut union_hits = 0usize;
+        let mut union_sizes = Vec::with_capacity(queries.len());
+        for (i, q) in queries.iter().enumerate() {
+            let mut pool = HashSet::new();
+            for (_, candidates) in &method_candidates {
+                pool.extend(candidates[i].iter().take(k).copied());
+            }
+            if pool.contains(&q.lca) {
+                union_hits += 1;
+            }
+            union_sizes.push(pool.len());
+        }
+        let union_recall = union_hits as f32 / queries.len() as f32;
+        let (mean_pool, _, p90_pool, _) = set_size_summary(&union_sizes);
+        println!(
+            "{:<8} {:>8.3} {:>8.3} {:>8.3} {:>8.3} {:>8.3} {:>8.3} {:>10.1} {:>10}",
+            k,
+            method_recalls[0],
+            method_recalls[1],
+            method_recalls[2],
+            method_recalls[3],
+            method_recalls[4],
+            union_recall,
+            mean_pool,
+            p90_pool
+        );
+    }
+}
+
 fn best_nonquery_score(degrees: &[f32], a: usize, b: usize) -> f32 {
     degrees
         .iter()
@@ -888,6 +1112,7 @@ fn main() {
         );
         print_rank_diagnostic(&format!("boxes (join-gate t={tau})"), &g_ranks);
     }
+    print_candidate_pool_diagnostic(&queries, &centers, &offsets, &box_sizes, dim, n);
     report_gated_conformal(&queries, &clqa, 20.0);
     if let Some((emb, rel)) = &transe {
         // TransE is a point model: no box size, so no size penalty.
