@@ -46,9 +46,11 @@
 //! is rayon-parallel. Run:
 //! `DATASET=GALEN cargo run --release --features burn-ndarray,burn-wgpu --example el_clqa_galen`
 
+use heyting::conformal::{answer_set_from_degrees, calibrate_scores};
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use subsume::clqa::BoxClqa;
 use subsume::el_dataset::load_el_axioms;
 use subsume::el_training::{Axiom, Ontology};
 use subsume::trainer::burn_el_trainer::{BurnElConfig, BurnElTrainer};
@@ -321,6 +323,71 @@ fn score_join_gated(
     )
 }
 
+fn gated_lca_degrees(clqa: &BoxClqa<'_>, a: usize, b: usize, tau: f32) -> Vec<f32> {
+    let (jc, jo) = clqa.join(a, b);
+    (0..clqa.num_concepts())
+        .map(|x| clqa.score_lca(&jc, &jo, x, tau))
+        .collect()
+}
+
+fn report_gated_conformal(queries: &[CQuery], clqa: &BoxClqa<'_>, tau: f32) {
+    if queries.len() < 4 {
+        println!("\n[conformal] skipped: need at least 4 queries for a held-out split");
+        return;
+    }
+    let mut order: Vec<usize> = (0..queries.len()).collect();
+    order.sort_by_key(|&i| {
+        let q = &queries[i];
+        q.a.wrapping_mul(2_654_435_761)
+            .wrapping_add(q.b.wrapping_mul(40_503))
+            .wrapping_add(i.wrapping_mul(97_531))
+    });
+    let split = order.len() / 2;
+    let (cal_idx, test_idx) = order.split_at(split);
+    let cal_nonconf: Vec<f32> = cal_idx
+        .iter()
+        .map(|&i| {
+            let q = &queries[i];
+            1.0 - gated_lca_degrees(clqa, q.a, q.b, tau)[q.lca]
+        })
+        .collect();
+
+    println!(
+        "\n[conformal] gated LCA sets (tau={tau}, {} calibration, {} test)",
+        cal_idx.len(),
+        test_idx.len()
+    );
+    println!(
+        "{:<8} {:>8} {:>10} {:>12} {:>12}",
+        "alpha", "1-alpha", "q_hat", "empirical", "mean|set|"
+    );
+    for &alpha in &[0.3f32, 0.2, 0.1] {
+        let thr = calibrate_scores(&cal_nonconf, alpha).expect("non-empty calibration");
+        let (mut hits, mut set_total) = (0usize, 0usize);
+        for &i in test_idx {
+            let q = &queries[i];
+            let degs = gated_lca_degrees(clqa, q.a, q.b, tau);
+            let set: Vec<(usize, f32)> = answer_set_from_degrees(&degs, &thr)
+                .into_iter()
+                .filter(|&(x, _)| x != q.a && x != q.b)
+                .collect();
+            if set.iter().any(|&(x, _)| x == q.lca) {
+                hits += 1;
+            }
+            set_total += set.len();
+        }
+        let coverage = hits as f32 / test_idx.len() as f32;
+        let mean_set = set_total as f32 / test_idx.len() as f32;
+        println!(
+            "{alpha:<8.2} {:>8.2} {:>10.3} {:>12.3} {:>12.1}",
+            1.0 - alpha,
+            thr.qhat,
+            coverage,
+            mean_set
+        );
+    }
+}
+
 fn main() {
     let device = Default::default();
     <Backend as burn::tensor::backend::Backend>::seed(&device, 3);
@@ -516,6 +583,7 @@ fn main() {
     // proximity temperature. tau scales the L1-distance-to-degree map; too small
     // collapses to the saturating join-cont behaviour, too large washes out the
     // proximity tie-break. Swept relative to the mean box-to-join distance.
+    let clqa = BoxClqa::new(&centers, &offsets, dim).expect("trained box slices align");
     for tau in [5.0f32, 20.0, 50.0] {
         let ((g_mrr, g_h10, g_t1), _) = score_join_gated(&queries, &centers, &offsets, dim, tau, n);
         println!(
@@ -523,6 +591,7 @@ fn main() {
             format!("boxes (join-gate t={tau})")
         );
     }
+    report_gated_conformal(&queries, &clqa, 20.0);
     if let Some((emb, rel)) = &transe {
         // TransE is a point model: no box size, so no size penalty.
         let zeros = vec![0.0f32; n];
