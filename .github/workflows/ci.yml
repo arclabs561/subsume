@@ -43,6 +43,9 @@ jobs:
         # modules are burn_-prefixed; the filter keeps the step at ~45 tests.
         run: cargo test --features "burn-ndarray,kge" burn_
 
+      - name: Test GALEN learned diagnostics
+        run: cargo test --features burn-ndarray --example el_clqa_galen
+
       - name: run example assertions
         run: |
           FEATS="ndarray-backend,rand,kge,petgraph,density"

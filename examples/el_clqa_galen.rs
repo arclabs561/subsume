@@ -49,6 +49,8 @@
 //! without training the box model. Add `LEARNED_RETRIEVAL=1` to train a
 //! deterministic graph-feature ranker over the direct-frontier candidate pool.
 //! Set `LEARNED_REPEATS=N` to repeat the learned conformal split diagnostic.
+//! Set `LEARNED_CASE_LIMIT=N` to emit up to N missed and covered learned
+//! conformal case rows per alpha when `METRICS_CSV` is set.
 //! Set `METRICS_CSV=path/to/run.csv` to also write aggregate and learned-repeat
 //! metrics as machine-readable CSV rows.
 
@@ -160,6 +162,10 @@ impl MetricsCsv {
             value
         )
         .expect("failed to write METRICS_CSV row");
+    }
+
+    fn enabled(&self) -> bool {
+        self.writer.is_some()
     }
 }
 
