@@ -377,7 +377,7 @@ impl<B: AutodiffBackend> BurnEllipsoidTrainer<B> {
         let neg_loss = neg_score.clamp(1e-6, 1.0 - 1e-6).log().neg(); // [bs, n_neg]
 
         if config.use_infonce {
-            let pos_score_2d = sigmoid((pos_kl.neg() * k).reshape([bs, 1]));
+            let pos_score_2d = sigmoid((pos_kl.neg() * k).reshape([bs, 1])).clamp(1e-6, 1.0 - 1e-6);
             let neg_score_2d = sigmoid(neg_kl.reshape([bs, n_neg]).neg() * k);
             let logits = Tensor::cat(vec![pos_score_2d.clone(), neg_score_2d], 1) * k;
             let max_logit = logits.clone().max_dim(1);
