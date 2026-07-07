@@ -57,7 +57,9 @@
 //! Set `METRICS_CSV=path/to/run.csv` to also write aggregate and learned-repeat
 //! metrics as machine-readable CSV rows.
 
-use heyting::conformal::{answer_set_from_degrees, calibrate_scores, ConformalThreshold};
+use heyting::conformal::{
+    answer_set_from_degrees, answer_set_from_scored_pool, calibrate_scores, ConformalThreshold,
+};
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
@@ -1040,7 +1042,7 @@ fn report_direct_frontier_conformal(
             let mut covered = 0usize;
             let mut sizes = Vec::with_capacity(test_scores.len());
             for (i, scored) in &test_scores {
-                let set = common_pool_answer_set(scored, &threshold);
+                let set = answer_set_from_scored_pool(scored, &threshold);
                 if set.iter().any(|&(x, _)| queries[*i].is_target(x)) {
                     covered += 1;
                 }
@@ -1172,18 +1174,6 @@ fn common_pool_target_score(q: &CQuery, scored: &[(usize, f32)]) -> f32 {
         .filter(|&&(x, _)| q.is_target(x))
         .map(|&(_, score)| score)
         .fold(f32::NEG_INFINITY, f32::max)
-}
-
-fn common_pool_answer_set(
-    scored: &[(usize, f32)],
-    threshold: &ConformalThreshold,
-) -> Vec<(usize, f32)> {
-    let cutoff = 1.0 - threshold.qhat;
-    scored
-        .iter()
-        .copied()
-        .filter(|&(_, score)| score >= cutoff)
-        .collect()
 }
 
 fn score_common_pool_depth(queries: &[CQuery], depths: &[usize]) -> ScoreResult {
@@ -1352,7 +1342,7 @@ fn report_common_pool_conformal(queries: &[CQuery], clqa: &BoxClqa<'_>, tau: f32
         let mut set_sizes = Vec::with_capacity(test_scores.len());
         for (i, scored) in &test_scores {
             let q = &queries[*i];
-            let set = common_pool_answer_set(scored, &thr);
+            let set = answer_set_from_scored_pool(scored, &thr);
             if set.iter().any(|&(x, _)| q.is_target(x)) {
                 hits += 1;
             }

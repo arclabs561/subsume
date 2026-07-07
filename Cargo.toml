@@ -78,7 +78,7 @@ precinct = "0.8"
 # Baseline for examples/el_clqa_benchmark: plain point-embedding (TransE) KGE.
 tranz = { version = "0.7", features = ["burn-ndarray"] }
 # Conformal calibration core for the GALEN gated-LCA stress example.
-heyting = { version = "0.14", default-features = false }
+heyting = { version = "0.15", default-features = false }
 # Parallel eval loop in examples/el_clqa_galen (queries are independent).
 rayon = "1"
 
