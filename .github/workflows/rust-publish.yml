@@ -25,8 +25,14 @@ jobs:
 
       - name: Check Burn example metadata
         run: |
-          cargo check --features "burn-wgpu,kge" --examples
-          cargo check --features "burn-backend,kge" --examples
+          for features in "burn-wgpu,kge" "burn-backend,kge"; do
+            for ex in el_benchmark_burn el_clqa_trained el_clqa_benchmark \
+                      el_clqa_galen taxobell_box_uncertainty taxobell_precinct \
+                      wn18rr_ball_burn wn18rr_box_burn wn18rr_cone_burn \
+                      wn18rr_geometry_comparison_burn wn18rr_transbox_burn; do
+              cargo check --no-default-features --features "$features" --example "$ex"
+            done
+          done
 
   publish:
     name: Publish to crates.io

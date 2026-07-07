@@ -25,77 +25,140 @@ pub mod ball_trainer;
 /// Box embedding trainer, loss computation, and analytical gradients.
 pub mod box_trainer;
 /// Burn-based annular sector trainer with autodiff (multi-backend: ndarray/wgpu/tch).
-#[cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge"))]
+#[cfg(all(
+    any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+    feature = "kge"
+))]
 #[cfg_attr(
     docsrs,
-    doc(cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge")))
+    doc(cfg(all(
+        any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+        feature = "kge"
+    )))
 )]
 pub mod burn_annular_trainer;
 /// Burn-based ball trainer with autodiff (multi-backend: ndarray/wgpu/tch).
-#[cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge"))]
+#[cfg(all(
+    any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+    feature = "kge"
+))]
 #[cfg_attr(
     docsrs,
-    doc(cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge")))
+    doc(cfg(all(
+        any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+        feature = "kge"
+    )))
 )]
 pub mod burn_ball_trainer;
 /// Burn-based hard-box subsumption trainer with autodiff (multi-backend: ndarray/wgpu/tch).
-#[cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge"))]
+#[cfg(all(
+    any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+    feature = "kge"
+))]
 #[cfg_attr(
     docsrs,
-    doc(cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge")))
+    doc(cfg(all(
+        any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+        feature = "kge"
+    )))
 )]
 pub mod burn_box_trainer;
 /// Burn-based spherical cap trainer with autodiff (multi-backend: ndarray/wgpu/tch).
-#[cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge"))]
+#[cfg(all(
+    any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+    feature = "kge"
+))]
 #[cfg_attr(
     docsrs,
-    doc(cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge")))
+    doc(cfg(all(
+        any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+        feature = "kge"
+    )))
 )]
 pub mod burn_cap_trainer;
 /// Burn-based cone (ConE) subsumption trainer with autodiff (multi-backend: ndarray/wgpu/tch).
-#[cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge"))]
+#[cfg(all(
+    any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+    feature = "kge"
+))]
 #[cfg_attr(
     docsrs,
-    doc(cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge")))
+    doc(cfg(all(
+        any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+        feature = "kge"
+    )))
 )]
 pub mod burn_cone_trainer;
 /// Burn-based EL++ ontology embedding trainer with autodiff (multi-backend: ndarray/wgpu/tch).
-#[cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))]
-#[cfg_attr(docsrs, doc(cfg(any(feature = "burn-ndarray", feature = "burn-wgpu"))))]
-pub mod burn_el_trainer;
-/// Burn-based diagonal-Gaussian ellipsoid trainer with autodiff (multi-backend: ndarray/wgpu/tch).
-#[cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge"))]
+#[cfg(any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"))]
 #[cfg_attr(
     docsrs,
-    doc(cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge")))
+    doc(cfg(any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch")))
+)]
+pub mod burn_el_trainer;
+/// Burn-based diagonal-Gaussian ellipsoid trainer with autodiff (multi-backend: ndarray/wgpu/tch).
+#[cfg(all(
+    any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+    feature = "kge"
+))]
+#[cfg_attr(
+    docsrs,
+    doc(cfg(all(
+        any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+        feature = "kge"
+    )))
 )]
 pub mod burn_ellipsoid_trainer;
 /// Burn-based relation-aware octagon trainer with autodiff (multi-backend: ndarray/wgpu/tch).
-#[cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge"))]
+#[cfg(all(
+    any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+    feature = "kge"
+))]
 #[cfg_attr(
     docsrs,
-    doc(cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge")))
+    doc(cfg(all(
+        any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+        feature = "kge"
+    )))
 )]
 pub mod burn_octagon_trainer;
 /// Burn-based subspace trainer with autodiff (multi-backend: ndarray/wgpu/tch).
-#[cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge"))]
+#[cfg(all(
+    any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+    feature = "kge"
+))]
 #[cfg_attr(
     docsrs,
-    doc(cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge")))
+    doc(cfg(all(
+        any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+        feature = "kge"
+    )))
 )]
 pub mod burn_subspace_trainer;
 /// Burn-based TaxoBell Gaussian-box MLP encoder trainer with autodiff (multi-backend: ndarray/wgpu/tch).
-#[cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge"))]
+#[cfg(all(
+    any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+    feature = "kge"
+))]
 #[cfg_attr(
     docsrs,
-    doc(cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge")))
+    doc(cfg(all(
+        any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+        feature = "kge"
+    )))
 )]
 pub mod burn_taxobell_trainer;
 /// Burn-based TransBox trainer with autodiff (multi-backend: ndarray/wgpu/tch).
-#[cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge"))]
+#[cfg(all(
+    any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+    feature = "kge"
+))]
 #[cfg_attr(
     docsrs,
-    doc(cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge")))
+    doc(cfg(all(
+        any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+        feature = "kge"
+    )))
 )]
 pub mod burn_transbox_trainer;
 /// Cone embedding trainer, loss computation, and analytical gradients.
@@ -656,74 +719,128 @@ pub use transbox_trainer::TransBoxTrainer;
 pub use annular_trainer::AnnularTrainer;
 
 // Burn ball trainer
-#[cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge"))]
+#[cfg(all(
+    any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+    feature = "kge"
+))]
 #[cfg_attr(
     docsrs,
-    doc(cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge")))
+    doc(cfg(all(
+        any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+        feature = "kge"
+    )))
 )]
 pub use burn_ball_trainer::BurnBallTrainer;
 
 // Burn cap trainer
-#[cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge"))]
+#[cfg(all(
+    any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+    feature = "kge"
+))]
 #[cfg_attr(
     docsrs,
-    doc(cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge")))
+    doc(cfg(all(
+        any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+        feature = "kge"
+    )))
 )]
 pub use burn_cap_trainer::BurnCapTrainer;
 
 // Burn box trainer
-#[cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge"))]
+#[cfg(all(
+    any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+    feature = "kge"
+))]
 #[cfg_attr(
     docsrs,
-    doc(cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge")))
+    doc(cfg(all(
+        any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+        feature = "kge"
+    )))
 )]
 pub use burn_box_trainer::BurnBoxTrainer;
 
 // Burn cone trainer
-#[cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge"))]
+#[cfg(all(
+    any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+    feature = "kge"
+))]
 #[cfg_attr(
     docsrs,
-    doc(cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge")))
+    doc(cfg(all(
+        any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+        feature = "kge"
+    )))
 )]
 pub use burn_cone_trainer::BurnConeTrainer;
 
 // Burn ellipsoid trainer
-#[cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge"))]
+#[cfg(all(
+    any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+    feature = "kge"
+))]
 #[cfg_attr(
     docsrs,
-    doc(cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge")))
+    doc(cfg(all(
+        any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+        feature = "kge"
+    )))
 )]
 pub use burn_ellipsoid_trainer::BurnEllipsoidTrainer;
 
 // Burn octagon trainer
-#[cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge"))]
+#[cfg(all(
+    any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+    feature = "kge"
+))]
 #[cfg_attr(
     docsrs,
-    doc(cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge")))
+    doc(cfg(all(
+        any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+        feature = "kge"
+    )))
 )]
 pub use burn_octagon_trainer::BurnOctagonTrainer;
 
 // Burn subspace trainer
-#[cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge"))]
+#[cfg(all(
+    any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+    feature = "kge"
+))]
 #[cfg_attr(
     docsrs,
-    doc(cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge")))
+    doc(cfg(all(
+        any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+        feature = "kge"
+    )))
 )]
 pub use burn_subspace_trainer::BurnSubspaceTrainer;
 
 // Burn TransBox trainer
-#[cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge"))]
+#[cfg(all(
+    any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+    feature = "kge"
+))]
 #[cfg_attr(
     docsrs,
-    doc(cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge")))
+    doc(cfg(all(
+        any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+        feature = "kge"
+    )))
 )]
 pub use burn_transbox_trainer::BurnTransBoxTrainer;
 
 // Burn annular trainer
-#[cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge"))]
+#[cfg(all(
+    any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+    feature = "kge"
+))]
 #[cfg_attr(
     docsrs,
-    doc(cfg(all(any(feature = "burn-ndarray", feature = "burn-wgpu"), feature = "kge")))
+    doc(cfg(all(
+        any(feature = "burn-ndarray", feature = "burn-wgpu", feature = "burn-tch"),
+        feature = "kge"
+    )))
 )]
 pub use burn_annular_trainer::BurnAnnularTrainer;
 

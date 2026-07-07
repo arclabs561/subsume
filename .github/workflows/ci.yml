@@ -47,13 +47,25 @@ jobs:
         # GitHub's runner is not a reliable GPU runtime, but this makes the
         # burn-wgpu feature surface compile and verifies that dual-backend
         # examples select WGPU when that feature is enabled.
-        run: cargo check --features "burn-wgpu,kge" --examples
+        run: |
+          for ex in el_benchmark_burn el_clqa_trained el_clqa_benchmark \
+                    el_clqa_galen taxobell_box_uncertainty taxobell_precinct \
+                    wn18rr_ball_burn wn18rr_box_burn wn18rr_cone_burn \
+                    wn18rr_geometry_comparison_burn wn18rr_transbox_burn; do
+            cargo check --no-default-features --features "burn-wgpu,kge" --example "$ex"
+          done
 
       - name: Check Burn backend example metadata
         # `required-features` has no OR semantics, so dual-backend examples use
         # burn-ndarray as their Cargo-visible CPU fallback. Keep the shared
         # burn-backend gate compiling too.
-        run: cargo check --features "burn-backend,kge" --examples
+        run: |
+          for ex in el_benchmark_burn el_clqa_trained el_clqa_benchmark \
+                    el_clqa_galen taxobell_box_uncertainty taxobell_precinct \
+                    wn18rr_ball_burn wn18rr_box_burn wn18rr_cone_burn \
+                    wn18rr_geometry_comparison_burn wn18rr_transbox_burn; do
+            cargo check --no-default-features --features "burn-backend,kge" --example "$ex"
+          done
 
       - name: Test GALEN learned diagnostics
         run: cargo test --features burn-ndarray --example el_clqa_galen
