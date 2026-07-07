@@ -24,8 +24,8 @@ expose the ndarray box backend for small CPU examples. Larger training examples
 use Burn; prefer `burn-wgpu` for GPU training and `burn-ndarray` as the CPU
 fallback.
 
-Scoring: Query2Box distance, fuzzy t-norms for logical queries, EL++ ontology
-losses (Box2EL/TransBox). Training: CPU trainer with analytical gradients or
+Scoring: Query2Box distance and EL++ ontology losses (Box2EL/TransBox).
+Training: CPU trainer with analytical gradients or
 GPU trainer with AdamW autograd. Evaluation: MRR, Hits@k, Mean Rank (filtered).
 
 The `Region` trait gives a geometry-generic subsumption interface (`dim` +
@@ -38,7 +38,7 @@ region_generic`.
 
 ```toml
 [dependencies]
-subsume = "0.16.1"
+subsume = "0.17.0"
 ndarray = "0.16"
 ```
 
@@ -102,7 +102,7 @@ cargo run --example dataset_training --release # full pipeline: WN18RR data, tra
 cargo run --example el_training              # EL++ ontology embedding
 ```
 
-34 examples cover geometry demos, training, benchmarks, and integration adapters.
+32 examples cover geometry demos, training, benchmarks, and integration adapters.
 See [`examples/README.md`](examples/README.md) for the full list.
 For the real-ontology CLQA evaluation harness, see [`docs/CLQA_EVAL.md`](docs/CLQA_EVAL.md).
 
@@ -118,7 +118,6 @@ Unit, property, and doc tests covering:
 - Gumbel boxes: membership probability, temperature edge cases, Bessel volume
 - Cones: angular containment, negation closure, aperture bounds
 - Octagon: intersection closure, containment, Sutherland-Hodgman volume
-- Fuzzy: t-norm/t-conorm commutativity, associativity, De Morgan duality
 - Gaussian boxes, EL++ ontology losses, sheaf networks, hyperbolic geometry
 - Training: MRR, Hits@k, Mean Rank, negative sampling (uniform, Bernoulli), AMSGrad
 
@@ -324,7 +323,6 @@ See `examples/README.md` for all available examples.
 - Chen et al. (2021). "Probabilistic Box Embeddings for Uncertain Knowledge Graph Reasoning" (BEUrRE, ACL 2021)
 - Gebhart, Hansen & Schrater (2021). "Knowledge Sheaves: A Sheaf-Theoretic Framework for Knowledge Graph Embedding"
 - Zhang et al. (2021). "ConE: Cone Embeddings for Multi-Hop Reasoning over Knowledge Graphs"
-- Chen et al. (2022). "Fuzzy Logic Based Logical Query Answering on Knowledge Graphs"
 - Jackermeier et al. (2023). "Dual Box Embeddings for the Description Logic EL++"
 - Yang, Chen & Sattler (2024). "TransBox: EL++-closed Ontology Embedding"
 - Bourgaux et al. (2024). "Knowledge Base Embeddings: Semantics and Theoretical Properties" (KR 2024)
