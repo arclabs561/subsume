@@ -300,8 +300,7 @@ impl NdarrayCone {
     /// is NOT a conservative superset: when one sector is much wider than the
     /// other and their axes differ, the result can exclude points that lie in
     /// both inputs (see `intersection_is_heuristic_not_exact`). Downstream
-    /// conjunctions (`ConeQuery::Intersection`, AND over cone scorers) inherit
-    /// this approximation.
+    /// conjunctions over cone scorers inherit this approximation.
     ///
     /// # Errors
     ///

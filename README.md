@@ -43,7 +43,7 @@ ndarray = "0.16"
 ```
 
 ```rust
-use subsume::ndarray_backend::NdarrayBox;
+use subsume::{HyperBox, ndarray_backend::NdarrayBox};
 use ndarray::array;
 
 // Box A: [0,0,0] to [1,1,1] (general concept)

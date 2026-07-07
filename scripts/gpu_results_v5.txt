@@ -1,4 +1,5 @@
 === GPU Run (v5) Tue Mar 24 14:45:50 UTC 2026 ===
+Historical pre-0.17 result from the removed Candle/CUDA backend.
 --- dim=200, 300ep, inside+vol_reg ---
 === WN18RR Candle Box Training ===
 Device: CUDA
