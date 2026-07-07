@@ -15,7 +15,6 @@
 //! | Understand the core abstraction | [`HyperBox`] trait, [`BoxError`] |
 //! | Use probabilistic (Gumbel) boxes | [`NdarrayGumbelBox`](ndarray_backend::NdarrayGumbelBox) |
 //! | Use octagon embeddings (box + diagonal constraints) | [`NdarrayOctagon`](ndarray_backend::ndarray_octagon::NdarrayOctagon), [`octagon`] module |
-//! | Fuzzy query answering (t-norms) | [`fuzzy::TNorm`], [`fuzzy::TConorm`], [`fuzzy`] module |
 //! | Load a knowledge graph dataset | [`Dataset`], [`Triple`] |
 //! | Train box embeddings (CPU) | [`BoxEmbeddingTrainer`], [`TrainingConfig`] |
 //!
@@ -62,7 +61,6 @@
 //! ## Representations and scoring
 //!
 //! - [`distance`] -- Query2Box distance scoring
-//! - [`fuzzy`] -- t-norms, t-conorms, and negation for fuzzy query answering (FuzzQE)
 //!
 //! ## Ontology and taxonomy
 //!
@@ -274,11 +272,6 @@ pub mod el_dataset;
 /// EL++ ontology embedding primitives for cones (angular containment).
 pub mod cone_el;
 
-/// Composable cone query operators for first-order logical query answering.
-#[cfg(feature = "ndarray-backend")]
-#[cfg_attr(docsrs, doc(cfg(feature = "ndarray-backend")))]
-pub mod cone_query;
-
 /// EL++ ontology embedding training: axiom parsing, training loop, evaluation.
 #[cfg(feature = "rand")]
 #[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
@@ -287,9 +280,6 @@ pub mod el_training;
 /// Conjunctive least-common-ancestor queries over faithful EL++ box embeddings
 /// via containment-gated proximity to the join box.
 pub mod clqa;
-
-/// Fuzzy set-theoretic operators: t-norms, t-conorms, and negation (FuzzQE).
-pub mod fuzzy;
 
 /// Taxonomy dataset loading for the TaxoBell format (`.terms` / `.taxo` / `dic.json`).
 #[cfg(feature = "kge")]
@@ -412,12 +402,6 @@ pub use el_training::{
 pub use cone_el::{
     compose_cone_roles, cone_disjointness_loss, cone_existential, cone_inclusion_loss,
 };
-
-// Re-exports: cone query operators
-#[cfg(feature = "ndarray-backend")]
-#[cfg_attr(docsrs, doc(cfg(feature = "ndarray-backend")))]
-#[allow(deprecated)]
-pub use cone_query::{cone_containment_score, ConeQuery};
 
 // ---------------------------------------------------------------------------
 // Feature-gated backends

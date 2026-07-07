@@ -19,7 +19,6 @@
 //! Related examples:
 //! - `containment_hierarchy`: box containment and overlap (no diagonal constraints)
 //! - `query2box`: compositional query answering with box intersection
-//! - `fuzzy_query`: fuzzy operators for query answering (complementary approach)
 
 use ndarray::array;
 use subsume::ndarray_backend::ndarray_octagon::{NdarrayDiagBounds, NdarrayOctagon};

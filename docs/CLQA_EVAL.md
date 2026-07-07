@@ -48,5 +48,5 @@ Boundary:
 - `heyting` owns conformal answer-set construction.
 - `subsume` owns region geometry, Burn training, and CLQA candidate/readout code.
 - `tranz` supplies the point-embedding baseline for comparison.
-- Deprecated in-crate fuzzy/cone-query helpers remain compatibility shims until
-  the next breaking release.
+- Query-layer truth algebras and conformal sets live in `heyting`; `subsume`
+  no longer exports the legacy fuzzy/cone-query helpers.

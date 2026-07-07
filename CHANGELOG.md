@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-07-07
+
+### Added
+
+- `scripts/run_clqa_eval.sh`: a real-ontology CLQA harness for box, full,
+  symbolic, and learned-ranker runs. It defaults to `burn-wgpu` and supports
+  `BACKEND=ndarray` as the CPU fallback.
+- `docs/CLQA_EVAL.md`: documents the CLQA harness, metrics CSV artifact, learned
+  ranker controls, and the `subsume`/`heyting`/`tranz` boundary.
+- `BoxEmbeddingTrainer::export_embeddings()` now has a regression test covering
+  row alignment between exported embeddings and entity ids.
+
+### Changed
+
+- The CLQA harness forwards learned-ranker controls with the `LEARNED_*` prefix
+  and writes model, hyperparameter, retrieval, and conformal rows into one CSV.
+
+### Removed
+
+- Removed the deprecated `fuzzy` module and `cone_query` module, including
+  `TNorm`, `TConorm`, `fuzzy_negation`, `ConeQuery`, and
+  `cone_containment_score`. Query-layer truth algebras and conformal answer-set
+  construction now live in `heyting`; `subsume` stays the geometry, training,
+  and CLQA candidate/readout crate.
+- Removed the deprecated `fuzzy_query` and `cone_query_answering` examples.
+
 ## [0.16.1] - 2026-07-06
 
 ### Fixed

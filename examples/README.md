@@ -10,14 +10,12 @@
 | `box_training` | Training box embeddings with direct coordinate updates on a 25-entity taxonomy; volume reflects generality |
 | `query2box` | Query2Box-style compositional query answering: multi-hop KG queries via box intersection, containment ranking, and alpha-weighted distance scoring |
 | `octagon_demo` | Octagon embeddings: diagonal constraints, point containment, intersection (closure), volume comparison, soft containment/overlap |
-| `fuzzy_query` | Fuzzy query answering with t-norms (Min/Product/Lukasiewicz), t-conorms, negation, and De Morgan duality on a small KG |
 | `taxobell_demo` | TaxoBell Gaussian box losses on a mini taxonomy (no training, loss inspection only) |
 | `dataset_training` | Full pipeline: load WN18RR-format dataset, train box embeddings, evaluate with MRR/Hits@k |
 | `save_checkpoint` | Generate the pretrained WordNet subset checkpoint (writes `pretrained/wordnet_subset.json`) |
 | `imagenet_hierarchy` | Real-scale training on 252 Tiny ImageNet WordNet synsets; volume-depth correlation (Spearman) |
 | `hyperbolic_demo` | Poincare ball embeddings: norm-depth correlation, hierarchy preservation, exponential capacity |
 | `el_training` | End-to-end EL++ box embedding training on a biomedical-style ontology |
-| `cone_query_answering` | FOL queries (conjunction, disjunction, negation) via cone algebra on a small KG |
 | `density_el_demo` | Density matrix EL++ training; parent-child fidelity vs disjoint-pair fidelity |
 | `el_benchmark` | Full EL++ evaluation on Box2EL datasets (GALEN, GO, Anatomy); per-NF MRR/Hits@k |
 | `el_benchmark_burn` | Box2EL benchmark via Burn; GPU via `burn-wgpu`, CPU fallback via `burn-ndarray` |
@@ -53,9 +51,6 @@
 - **Want to understand octagon embeddings (boxes + diagonal constraints)?**
   Start with `octagon_demo`.
 
-- **Want to explore fuzzy logic operators for query answering?**
-  Start with `fuzzy_query`.
-
 - **Want to embed a tree-like hierarchy in hyperbolic space?**
   Start with `hyperbolic_demo`.
 
@@ -88,9 +83,6 @@
 - **Want to serve trained region embeddings?**
   Start with `taxobell_precinct`, which indexes TaxoBell boxes in precinct.
 
-- **Want to understand cone query algebra (conjunction, disjunction, negation)?**
-  Start with `cone_query_answering`.
-
 - **Want to see TaxoBell losses without training?**
   Start with `taxobell_demo`.
 
@@ -103,14 +95,12 @@ cargo run -p subsume --example cone_training --release
 cargo run -p subsume --example box_training --release
 cargo run -p subsume --example query2box
 cargo run -p subsume --example octagon_demo
-cargo run -p subsume --example fuzzy_query
 cargo run -p subsume --example taxobell_demo
 cargo run -p subsume --example dataset_training --release
 cargo run -p subsume --example save_checkpoint
 cargo run -p subsume --example imagenet_hierarchy --release
 cargo run -p subsume --features hyperbolic --example hyperbolic_demo
 cargo run -p subsume --example el_training --release
-cargo run -p subsume --example cone_query_answering
 cargo run -p subsume --features density,rand --example density_el_demo --release
 cargo run -p subsume --example el_benchmark --release -- data/GALEN
 cargo run -p subsume --features burn-wgpu --example el_benchmark_burn --release
@@ -316,70 +306,6 @@ Part 5: Bounding box (drop diagonal constraints)
   - Diagonal cuts remove unreachable corners, improving fit
   - Closed under intersection: composing relations stays in the octagon domain
   - O(d) storage: 2d axis bounds + 4(d-1) diagonal bounds
-```
-
-</details>
-
-<details>
-<summary><b>fuzzy_query</b> -- fuzzy logic operators for query answering</summary>
-
-```text
-=== Fuzzy Query Answering with T-norms ===
-
-Query 1: aquatic AND mammal  (t-norm = intersection)
-
-      entity |  mammal aquatic |     Min Product  Lukasz
-  -----------+-----------------+------------------------
-     dolphin |   0.950   0.900 |   0.900   0.855   0.850
-       whale |   0.980   0.920 |   0.920   0.902   0.900
-       shark |   0.050   0.990 |   0.050   0.049   0.040
-      salmon |   0.020   0.950 |   0.020   0.019   0.000
-       eagle |   0.010   0.050 |   0.010   0.001   0.000
-       tiger |   0.970   0.100 |   0.100   0.097   0.070
-       panda |   0.990   0.020 |   0.020   0.020   0.010
-
-Query 2: aquatic OR endangered  (t-conorm = union)
-
-      entity | aquatic  endgrd |     Max    Prob  Lukasz
-  -----------+-----------------+------------------------
-     dolphin |   0.900   0.600 |   0.900   0.960   1.000
-       whale |   0.920   0.850 |   0.920   0.988   1.000
-       shark |   0.990   0.700 |   0.990   0.997   1.000
-      salmon |   0.950   0.300 |   0.950   0.965   1.000
-       eagle |   0.050   0.750 |   0.750   0.762   0.800
-       tiger |   0.100   0.900 |   0.900   0.910   1.000
-       panda |   0.020   0.950 |   0.950   0.951   0.970
-
-Query 3: NOT mammal AND aquatic  (negation + t-norm)
-
-      entity |  mammal   NOT_m aquatic |  result
-  -----------+-------------------------+--------
-     dolphin |   0.950   0.050   0.900 |   0.045
-       whale |   0.980   0.020   0.920 |   0.018
-       shark |   0.050   0.950   0.990 |   0.941
-      salmon |   0.020   0.980   0.950 |   0.931
-       eagle |   0.010   0.990   0.050 |   0.049
-       tiger |   0.970   0.030   0.100 |   0.003
-       panda |   0.990   0.010   0.020 |   0.000
-
-De Morgan: neg(T(a,b)) = S(neg(a), neg(b))
-
-  Min: neg(T(0.7,0.4)) = 0.600000,  S(neg(0.7),neg(0.4)) = 0.600000,  match=true
-  Product: neg(T(0.7,0.4)) = 0.720000,  S(neg(0.7),neg(0.4)) = 0.720000,  match=true
-  Lukasiewicz: neg(T(0.7,0.4)) = 0.900000,  S(neg(0.7),neg(0.4)) = 0.900000,  match=true
-
-Ranking: top-3 aquatic mammals by each t-norm
-
-  Min: whale(0.920), dolphin(0.900), tiger(0.100)
-  Product: whale(0.902), dolphin(0.855), tiger(0.097)
-  Lukasiewicz: whale(0.900), dolphin(0.850), tiger(0.070)
-
---- Summary ---
-
-  Min t-norm: conservative, score = weakest link
-  Product t-norm: balanced, penalizes low scores multiplicatively
-  Lukasiewicz t-norm: strictest, requires both inputs high (additive threshold)
-  All three agree on top entity (dolphin/whale) but differ on cutoff sharpness
 ```
 
 </details>
