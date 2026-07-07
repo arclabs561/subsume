@@ -1197,42 +1197,6 @@ fn boundary_distance(
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
 }
 
-/// Compute fuzzy containment score between two cones.
-///
-/// Returns a score in [0, 1] using sigmoid: ``1 / (1 + exp(gamma * distance))``.
-/// Higher scores mean stronger containment of ``entity`` within ``query``.
-///
-/// Args:
-///     query_axes: Axis angles for the query cone.
-///     query_apertures: Apertures for the query cone.
-///     entity_axes: Axis angles for the entity cone.
-///     entity_apertures: Apertures for the entity cone.
-///     cen: Center weight for ConE distance (default: 0.02).
-///     gamma: Sigmoid steepness (default: 10.0).
-#[pyfunction]
-#[pyo3(signature = (query_axes, query_apertures, entity_axes, entity_apertures, cen=0.02, gamma=10.0))]
-fn cone_containment_score(
-    query_axes: Vec<f32>,
-    query_apertures: Vec<f32>,
-    entity_axes: Vec<f32>,
-    entity_apertures: Vec<f32>,
-    cen: f32,
-    gamma: f32,
-) -> PyResult<f32> {
-    let query = NdarrayCone::new(
-        ndarray::Array1::from(query_axes),
-        ndarray::Array1::from(query_apertures),
-    )
-    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-    let entity = NdarrayCone::new(
-        ndarray::Array1::from(entity_axes),
-        ndarray::Array1::from(entity_apertures),
-    )
-    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-    subsume::cone_query::cone_containment_score(&query, &entity, cen, gamma)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
-}
-
 /// Load a KG dataset from a directory containing train.txt, valid.txt, test.txt.
 ///
 /// Each file has one triple per line: ``head\trelation\ttail`` (tab or space separated).
@@ -1646,7 +1610,6 @@ fn subsumer(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(containment_probability, m)?)?;
     m.add_function(wrap_pyfunction!(vector_to_box_distance, m)?)?;
     m.add_function(wrap_pyfunction!(boundary_distance, m)?)?;
-    m.add_function(wrap_pyfunction!(cone_containment_score, m)?)?;
     m.add_function(wrap_pyfunction!(load_dataset, m)?)?;
     m.add_function(wrap_pyfunction!(load_el_axioms, m)?)?;
     m.add_function(wrap_pyfunction!(el_inclusion_loss, m)?)?;
