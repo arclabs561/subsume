@@ -37,7 +37,7 @@ region_generic`.
 
 ```toml
 [dependencies]
-subsume = { version = "0.15", features = ["ndarray-backend"] }
+subsume = { version = "0.16", features = ["ndarray-backend"] }
 ndarray = "0.16"
 ```
 
@@ -286,7 +286,7 @@ Key techniques:
 Reproduce (burn backend, Metal GPU):
 ```sh
 DIM=200 EPOCHS=5000 DATASET=GALEN \
-  cargo run --features "burn-ndarray,burn-wgpu" --example el_benchmark_burn --release
+  cargo run --features burn-wgpu --example el_benchmark_burn --release
 ```
 
 Full experiment log with all ablations: `experiments/el_log.md`.
@@ -299,6 +299,10 @@ The burn ball trainer runs on ndarray (CPU) or wgpu (GPU/AMD/WebGPU):
 # CPU via burn-ndarray
 DIM=64 EPOCHS=300 LR=0.01 BATCH=512 NEG=10 \
   cargo run --features burn-ndarray --example wn18rr_ball_burn --release
+
+# GPU via burn-wgpu
+DIM=64 EPOCHS=300 LR=0.01 BATCH=512 NEG=10 \
+  cargo run --features burn-wgpu --example wn18rr_ball_burn --release
 ```
 
 See `examples/README.md` for all available examples.

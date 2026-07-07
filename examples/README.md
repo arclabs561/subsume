@@ -29,8 +29,8 @@
 | `taxobell_box_uncertainty` | Propagate input uncertainty through a Burn TaxoBell encoder with `stableprop` and compare against Monte Carlo |
 | `taxobell_precinct` | Train TaxoBell Gaussian boxes, convert them to precinct `AxisBox` regions, and query them through `RegionIndex` |
 | `wn18rr_ball` | Ball embeddings (SpherE + RegD) on WN18RR; per-triple SGD with analytical gradients |
-| `wn18rr_ball_burn` | Batched ball training on WN18RR via burn-ndarray; InfoNCE loss (requires `--features burn-ndarray`) |
-| `wn18rr_transbox_burn` | Batched TransBox training on WN18RR via burn-ndarray |
+| `wn18rr_ball_burn` | Batched ball training on WN18RR via Burn; InfoNCE loss; supports burn-wgpu or burn-ndarray |
+| `wn18rr_transbox_burn` | Batched TransBox training on WN18RR via Burn; supports burn-wgpu or burn-ndarray |
 | `wn18rr_training` | Box embeddings on WN18RR via CPU ndarray backend; reference pipeline |
 
 ## Decision tree
@@ -65,7 +65,7 @@
 
 - **Want to train ball embeddings on WN18RR?**
   - Per-triple SGD (no extra features required): `wn18rr_ball`
-  - Batched training via burn (requires `--features burn-ndarray`): `wn18rr_ball_burn`
+  - Batched training via Burn (`--features burn-wgpu,kge` or `--features burn-ndarray,kge`): `wn18rr_ball_burn`
 
 - **Want to run the full WN18RR benchmark?**
   - CPU ndarray (boxes): `wn18rr_training`
@@ -106,7 +106,7 @@ cargo run -p subsume --example el_training --release
 cargo run -p subsume --example cone_query_answering
 cargo run -p subsume --features density,rand --example density_el_demo --release
 cargo run -p subsume --example el_benchmark --release -- data/GALEN
-cargo run -p subsume --features burn-ndarray --example el_benchmark_burn --release
+cargo run -p subsume --features burn-wgpu --example el_benchmark_burn --release
 cargo run -p subsume --example gene_ontology --release
 cargo run -p subsume --example geometry_comparison --release
 cargo run -p subsume --features kge --example lattix_bridge
@@ -115,8 +115,8 @@ cargo run -p subsume --example region_generic
 cargo run -p subsume --features burn-ndarray,kge --example taxobell_box_uncertainty --release
 cargo run -p subsume --features burn-ndarray,kge --example taxobell_precinct --release
 cargo run -p subsume --example wn18rr_ball --release
-cargo run -p subsume --features burn-ndarray --example wn18rr_ball_burn --release
-cargo run -p subsume --features burn-ndarray --example wn18rr_transbox_burn --release
+cargo run -p subsume --features burn-wgpu,kge --example wn18rr_ball_burn --release
+cargo run -p subsume --features burn-wgpu,kge --example wn18rr_transbox_burn --release
 cargo run -p subsume --example wn18rr_training --release
 ```
 

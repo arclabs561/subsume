@@ -18,10 +18,14 @@
 //! `AtomicScorer` driven by these extracted arrays.
 //!
 //! Run: `cargo run --features burn-ndarray --example el_clqa_trained`
+//! or `cargo run --features burn-wgpu --example el_clqa_trained`
 
 use subsume::el_training::{Axiom, Ontology};
 use subsume::trainer::burn_el_trainer::{BurnElConfig, BurnElTrainer};
 
+#[cfg(feature = "burn-wgpu")]
+type Backend = burn::backend::Autodiff<burn_wgpu::Wgpu>;
+#[cfg(all(feature = "burn-ndarray", not(feature = "burn-wgpu")))]
 type Backend = burn::backend::Autodiff<burn_ndarray::NdArray>;
 
 /// Graded box inclusion `A ⊆ B` in `[0, 1]` from flat center/offset arrays:
@@ -49,7 +53,10 @@ fn lukasiewicz(a: f32, b: f32) -> f32 {
 }
 
 fn main() {
-    let device = Default::default();
+    #[cfg(feature = "burn-wgpu")]
+    let device = burn_wgpu::WgpuDevice::default();
+    #[cfg(all(feature = "burn-ndarray", not(feature = "burn-wgpu")))]
+    let device = burn_ndarray::NdArrayDevice::default();
     let dim = 50;
 
     // Known hierarchy: Animal > {Mammal, Bird, Fish} > leaves.

@@ -44,7 +44,7 @@
 //! the Box2EL conversion the el_benchmark examples describe). Runs on burn Metal
 //! (wgpu) via cfg; large batch amortizes wgpu dispatch overhead; the eval loop
 //! is rayon-parallel. Run:
-//! `DATASET=GALEN cargo run --release --features burn-ndarray,burn-wgpu --example el_clqa_galen`
+//! `DATASET=GALEN cargo run --release --features burn-wgpu --example el_clqa_galen`
 //! Use `SYMBOLIC_ONLY=1` to run the direct-frontier retrieval diagnostics
 //! without training the box model. Add `LEARNED_RETRIEVAL=1` to train a
 //! deterministic graph-feature ranker over the direct-frontier candidate pool.
