@@ -3,13 +3,16 @@ use crate::trainable::TrainableBox;
 use crate::BoxError;
 use std::collections::{HashMap, HashSet};
 
-#[cfg(feature = "rand")]
+#[cfg(all(feature = "rand", feature = "ndarray-backend", feature = "kge"))]
 use rand::seq::SliceRandom;
-#[cfg(feature = "rand")]
+#[cfg(all(feature = "rand", feature = "ndarray-backend", feature = "kge"))]
 use rand::{Rng, SeedableRng};
 
+#[cfg(all(feature = "rand", feature = "ndarray-backend", feature = "kge"))]
 use super::negative_sampling::RelationCardinality;
-use super::{CpuBoxTrainingConfig, NegativeSamplingStrategy, RelationTransform};
+#[cfg(all(feature = "ndarray-backend", feature = "kge"))]
+use super::RelationTransform;
+use super::{CpuBoxTrainingConfig, NegativeSamplingStrategy};
 #[cfg(all(feature = "ndarray-backend", feature = "kge"))]
 use super::{EvaluationResults, TrainingResult};
 #[cfg(all(feature = "ndarray-backend", feature = "kge"))]
@@ -411,10 +414,12 @@ pub struct BoxEmbeddingTrainer {
     pub(crate) relation_translations: HashMap<usize, Vec<f32>>,
     /// AMSGrad optimizer state for per-relation translation vectors.
     #[serde(default)]
+    #[cfg(all(feature = "rand", feature = "ndarray-backend", feature = "kge"))]
     pub(crate) relation_optimizer_states: HashMap<usize, AMSGradState>,
     /// Cached per-relation cardinality statistics for Bernoulli negative sampling.
     /// Computed from training triples when `config.bernoulli_sampling` is true.
     #[serde(skip)]
+    #[cfg(all(feature = "rand", feature = "ndarray-backend", feature = "kge"))]
     pub(crate) relation_cardinalities: HashMap<usize, RelationCardinality>,
 }
 
@@ -466,7 +471,9 @@ impl BoxEmbeddingTrainer {
             dim,
             current_beta,
             relation_translations: HashMap::new(),
+            #[cfg(all(feature = "rand", feature = "ndarray-backend", feature = "kge"))]
             relation_optimizer_states: HashMap::new(),
+            #[cfg(all(feature = "rand", feature = "ndarray-backend", feature = "kge"))]
             relation_cardinalities: HashMap::new(),
         }
     }
@@ -500,6 +507,7 @@ impl BoxEmbeddingTrainer {
     }
 
     /// Ensure a relation translation vector exists; initialize to zeros if missing.
+    #[cfg(all(feature = "rand", feature = "ndarray-backend", feature = "kge"))]
     fn ensure_relation(&mut self, rel_id: usize) {
         if !self.relation_translations.contains_key(&rel_id) {
             self.relation_translations
@@ -512,6 +520,7 @@ impl BoxEmbeddingTrainer {
     }
 
     /// Get all known entity IDs (for full-pool negative sampling).
+    #[cfg(all(feature = "rand", feature = "ndarray-backend", feature = "kge"))]
     fn all_entity_ids(&self) -> Vec<usize> {
         self.boxes.keys().copied().collect()
     }
@@ -521,7 +530,7 @@ impl BoxEmbeddingTrainer {
     /// Respects `config.negative_strategy` and `config.bernoulli_sampling`.
     /// When Bernoulli sampling is enabled and strategy is `Uniform`, the
     /// head/tail corruption probability is adjusted by relation cardinality.
-    #[cfg(feature = "rand")]
+    #[cfg(all(feature = "rand", feature = "ndarray-backend", feature = "kge"))]
     fn sample_negative(
         &self,
         h: usize,
@@ -593,7 +602,7 @@ impl BoxEmbeddingTrainer {
     ///
     /// When `rng` is provided, negatives are sampled randomly from the
     /// full entity pool. Otherwise falls back to deterministic hash-based sampling.
-    #[cfg(feature = "rand")]
+    #[cfg(all(feature = "rand", feature = "ndarray-backend", feature = "kge"))]
     fn train_step_minibatch(
         &mut self,
         triples: &[(usize, usize, usize)],
