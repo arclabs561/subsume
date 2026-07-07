@@ -17,7 +17,7 @@ operation for hierarchy, ontology, and set-query tasks.
 
 ```toml
 [dependencies]
-subsume = "0.17.0"
+subsume = "0.17.1"
 ndarray = "0.16"
 ```
 
