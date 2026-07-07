@@ -1,131 +1,52 @@
-//! # subsume
+//! Region embeddings for entailment and set containment.
 //!
-//! Geometric region embeddings for subsumption, entailment, and logical query answering.
-//!
-//! `subsume` provides framework-agnostic traits and concrete backends for
-//! geometric embeddings -- boxes, cones, octagons, Gaussians, and hyperbolic
-//! intervals -- that encode hierarchical relationships through geometric
-//! containment. If region A contains region B (B ⊆ A), then A *subsumes* B:
-//! the more general concept contains the more specific one.
-//!
-//! # Getting Started
-//!
-//! | Goal | Start here |
-//! |------|-----------|
-//! | Understand the core abstraction | [`HyperBox`] trait, [`BoxError`] |
-//! | Use probabilistic (Gumbel) boxes | [`NdarrayGumbelBox`](ndarray_backend::NdarrayGumbelBox) |
-//! | Use octagon embeddings (box + diagonal constraints) | [`NdarrayOctagon`](ndarray_backend::ndarray_octagon::NdarrayOctagon), [`octagon`] module |
-//! | Load a knowledge graph dataset | [`Dataset`], [`Triple`] |
-//! | Train box embeddings (CPU) | [`BoxEmbeddingTrainer`], [`TrainingConfig`] |
-//!
-//! # Why regions instead of points?
-//!
-//! Point embeddings (TransE, RotatE) work for link prediction but cannot encode
-//! containment, volume, or set operations. Regions become necessary when the task
-//! requires:
-//!
-//! - **Subsumption**: box A inside box B means A is-a B
-//! - **Generality**: large volume = broad concept, small volume = specific
-//! - **Intersection**: combining two concepts (A ∧ B) yields a valid region
-//! - **Negation**: cone complement is another cone (FOL queries with ¬)
-//!
-//! For standard triple scoring, points are simpler and equally accurate. For
-//! ontology completion (EL++), taxonomy expansion, and logical query answering,
-//! regions are structurally required.
-//!
-//! # Key Concepts
-//!
-//! **Box embeddings** represent concepts as hyperrectangles. Unlike point vectors,
-//! boxes have volume, which encodes generality: a broad concept ("animal") is a
-//! large box containing smaller boxes ("dog", "cat").
-//!
-//! **Gumbel boxes** solve the *local identifiability problem* of hard boxes by
-//! modeling coordinates as Gumbel random variables. This ensures dense gradients
-//! throughout training -- hard boxes create flat regions where gradients vanish.
-//!
-//! **Containment probability** measures entailment (P(B ⊆ A)), while **overlap
-//! probability** measures relatedness without strict hierarchy. These two scores
-//! are the primary outputs of box embedding models.
-//!
-//! # Module Organization
-//!
-//! ## Core traits and geometry
-//!
-//! - [`box_trait`] -- the [`HyperBox`] trait: containment, overlap, volume
-//! - [`octagon`] -- octagon error types (implementations in [`ndarray_backend`])
-//! - [`cone`] -- cone error types (implementations in [`ndarray_backend`])
-//! - `hyperbolic` -- Poincare ball embeddings for tree-like hierarchies (feature-gated)
-//! - `sheaf` -- sheaf neural networks for transitivity/consistency on graphs
-//! - [`gaussian`] -- diagonal Gaussian box embeddings (KL, Bhattacharyya)
-//!
-//! ## Representations and scoring
-//!
-//! - [`distance`] -- Query2Box distance scoring
-//!
-//! ## Ontology and taxonomy
-//!
-//! - [`el`] -- EL++ ontology embedding primitives (Box2EL / TransBox)
-//! - [`taxonomy`] -- TaxoBell-format taxonomy dataset loader
-//! - [`taxobell`] -- TaxoBell combined training loss
-//!
-//! ## Training and evaluation
-//!
-//! - [`dataset`] -- load WN18RR, FB15k-237, YAGO3-10, and similar KG datasets
-//! - [`trainable`] -- [`trainable::TrainableBox`] and [`trainable::TrainableCone`] with learnable parameters
-//! - [`trainer`] -- negative sampling, loss computation, link prediction evaluation.
-//!   with AdamW, cosine LR, self-adversarial NS, and filtered evaluation.
-//! - [`metrics`] -- rank-based metrics (MRR, Hits@k, Mean Rank)
-//! - [`optimizer`] -- AMSGrad state management
-//! - [`utils`] -- numerical stability (log-space volume, stable sigmoid, Gumbel operations)
-//!
-//! ## Backends (feature-gated)
-//!
-//! - [`ndarray_backend`] -- `NdarrayBox`, `NdarrayGumbelBox`, distance functions
-//!   (feature = `ndarray-backend`, **on by default**)
-//!
-//! # Feature Flags
-//!
-//! | Feature | Default | Provides |
-//! |---------|---------|----------|
-//! | `ndarray-backend` | yes | [`ndarray_backend`] module (also enables `rand`) |
-//! | `rand` | yes (via `ndarray-backend`) | Negative sampling utilities in [`trainer`] |
-//! | `kge` | yes | [`dataset`], [`metrics`], and `lattix_bridge` modules (KGE dataset loading, metrics) |
-//! | `hyperbolic` | no | `hyperbolic` module (Poincare ball via `hyperball` + `skel`) |
-//! | `petgraph` | no | `petgraph_adapter` module (convert petgraph graphs to datasets) |
-//! | `sheaf` | no | `sheaf` module (sheaf diffusion primitives) |
-//! | `rankops` | no | Re-exports `rankops` (rank fusion, nDCG, MAP) |
-//! | `spherical` | no | `spherical` module (unit-sphere embeddings, experimental) |
-//! | `density` | no | `density` + `density_el` modules (density matrix embeddings, experimental) |
+//! `subsume` represents concepts as geometric regions. A general concept
+//! contains the regions for its more specific concepts, so containment becomes
+//! the scoring operation for hierarchy, ontology, and set-query tasks.
 //!
 //! # Example
 //!
-//! ```rust,ignore
-//! // Rename to avoid shadowing std::boxed::Box
-//! use subsume::HyperBox as BoxRegion;
+//! ```rust
+//! use ndarray::array;
+//! use subsume::{ndarray_backend::NdarrayBox, HyperBox};
 //!
-//! fn compute_entailment<B: BoxRegion>(
-//!     premise: &B,
-//!     hypothesis: &B,
-//! ) -> Result<f32, subsume::BoxError> {
-//!     premise.containment_prob(hypothesis)
-//! }
+//! # fn main() -> Result<(), subsume::BoxError> {
+//! let premise = NdarrayBox::new(array![0., 0., 0.], array![1., 1., 1.], 1.0)?;
+//! let hypothesis = NdarrayBox::new(array![0.2, 0.2, 0.2], array![0.8, 0.8, 0.8], 1.0)?;
+//!
+//! let p = premise.containment_prob(&hypothesis)?;
+//! assert!(p > 0.9);
+//! # Ok(())
+//! # }
 //! ```
 //!
-//! # References
+//! # Choosing a Geometry
 //!
-//! - Vilnis et al. (2018), "Probabilistic Embedding of Knowledge Graphs with Box Lattice Measures"
-//! - Abboud et al. (2020), "BoxE: A Box Embedding Model for Knowledge Base Completion"
-//! - Li et al. (2019), "Smoothing the Geometry of Probabilistic Box Embeddings" (ICLR 2019)
-//! - Dasgupta et al. (2020), "Improving Local Identifiability in Probabilistic Box Embeddings"
-//! - Chen et al. (2021), "Uncertainty-Aware Knowledge Graph Embeddings" (UKGE)
-//! - Lee et al. (2022), "Box Embeddings for Event-Event Relation Extraction" (BERE)
-//! - Cao et al. (2024, ACM Computing Surveys), "KG Embedding: A Survey from the
-//!   Perspective of Representation Spaces" -- positions box/cone/octagon embeddings
-//!   within the broader KGE taxonomy (Euclidean, hyperbolic, complex, geometric)
-//! - Bourgaux et al. (2024, KR), "Knowledge Base Embeddings: Semantics and Theoretical Properties"
-//! - Lacerda et al. (2024, TGDK), "Strong Faithfulness for ELH Ontology Embeddings"
-//! - Yang & Chen (2025), "RegD: Achieving Hyperbolic-Like Expressiveness with Arbitrary
-//!   Euclidean Regions" -- source of the depth/boundary dissimilarity metrics in [`distance`]
+//! | Task | Start with |
+//! | --- | --- |
+//! | Containment hierarchy | `ndarray_backend::NdarrayBox` or `NdarrayGumbelBox` |
+//! | Logical queries with negation | Cone or subspace |
+//! | Taxonomy expansion with uncertainty | Gaussian boxes |
+//! | EL++ ontology completion | `el`, `transbox` |
+//! | Tree-like hierarchies in low dimension | Hyperbolic intervals or balls |
+//!
+//! Scores are meaningful within a geometry. Do not compare raw scores across
+//! geometries without calibration.
+//!
+//! # Modules
+//!
+//! - `box_trait`: `HyperBox`, containment, overlap, volume, and intersection.
+//! - `ndarray_backend`: default CPU box and Gumbel-box implementations.
+//! - `dataset`, `trainer`, `metrics`: knowledge-graph loading, training, and
+//!   rank-based evaluation.
+//! - `el`: EL++ ontology embedding losses.
+//! - `gaussian`, `cone`, `octagon`, `hyperbolic`: additional geometries.
+//!
+//! # Limits
+//!
+//! - For ordinary link prediction, point embeddings are often simpler.
+//! - Region scores from different geometries are not directly comparable.
+//! - Several geometry trainers are research paths, not recommended defaults.
 
 #![warn(missing_docs)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
