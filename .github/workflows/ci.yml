@@ -20,6 +20,9 @@ jobs:
       - name: Check formatting
         run: cargo fmt --check
 
+      - name: Check shell scripts
+        run: bash -n scripts/run_clqa_eval.sh
+
       - name: Clippy
         run: cargo clippy --features "ndarray-backend,rand,sheaf,rankops,petgraph,kge,spherical,density" --lib --tests --examples -- -Dwarnings
       - name: bare build (no default features)

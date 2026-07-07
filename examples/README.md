@@ -133,6 +133,15 @@ cargo run -p subsume --features burn-wgpu,kge --example wn18rr_transbox_burn --r
 cargo run -p subsume --example wn18rr_training --release
 ```
 
+For the real-ontology CLQA benchmark, use the harness:
+
+```bash
+scripts/run_clqa_eval.sh box
+```
+
+It writes a metrics CSV under `target/clqa-eval/` and exits successfully with a
+message when the Box2EL dataset files are absent. See [`docs/CLQA_EVAL.md`](../docs/CLQA_EVAL.md).
+
 ## Example output
 
 Each example below shows actual output from a single run.

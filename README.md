@@ -104,6 +104,7 @@ cargo run --example el_training              # EL++ ontology embedding
 
 34 examples cover geometry demos, training, benchmarks, and integration adapters.
 See [`examples/README.md`](examples/README.md) for the full list.
+For the real-ontology CLQA evaluation harness, see [`docs/CLQA_EVAL.md`](docs/CLQA_EVAL.md).
 
 ## Tests
 
