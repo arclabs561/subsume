@@ -23,6 +23,9 @@ docs-open: docs
 docs-watch:
     RUSTDOCFLAGS="-D warnings --html-in-header docs/katex-header.html" cargo watch -x "doc --all-features --no-deps"
 
+clqa-eval MODE="box":
+    ./scripts/run_clqa_eval.sh "{{MODE}}"
+
 typst-docs:
     ./docs/typst/build.sh
 
