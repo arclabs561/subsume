@@ -18,8 +18,8 @@ cd "$PROJECT_ROOT"
 echo "📚 Generating rustdoc with KaTeX support..."
 echo "   Header file: $HEADER_FILE"
 
-# Generate docs with KaTeX header
-RUSTDOCFLAGS="--html-in-header $HEADER_FILE" cargo doc --no-deps
+# Generate docs with KaTeX header and the same feature surface docs.rs builds.
+RUSTDOCFLAGS="-D warnings --html-in-header $HEADER_FILE" cargo doc --all-features --no-deps
 
 if [ "$1" = "--open" ] || [ "$1" = "-o" ]; then
     echo "🌐 Opening in browser..."
@@ -44,5 +44,4 @@ fi
 
 echo ""
 echo "💡 Tip: Edit Rust source files and run this script again to regenerate"
-echo "   Or use: cargo doc --no-deps --open (with RUSTDOCFLAGS set)"
-
+echo "   Or use: cargo doc --all-features --no-deps --open (with RUSTDOCFLAGS set)"
