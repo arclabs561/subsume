@@ -2,7 +2,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["matplotlib", "numpy"]
 # ///
-"""T-norm and t-conorm comparison for the fuzzy module.
+"""T-norm and t-conorm comparison for fuzzy query semantics.
 
 Shows the three standard t-norm families as 2D contour plots (heat maps)
 and 1D slices. Inspired by FuzzQE (Chen et al., AAAI 2022) Figure 2.
