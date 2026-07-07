@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-07-06
+
+### Added
+
+- `BoxClqa::rank_lca_candidates`: scores caller-supplied candidate pools with
+  the join-gated LCA readout.
+- `clqa::DirectFrontierQuery`, `clqa::CandidatePoolMetrics`, and
+  `DirectFrontier::pool_metrics`: reusable candidate-pool recall, size, MRR,
+  Hits@10, and top-1 target metrics for direct-frontier DCA/LCA retrieval.
+
+### Changed
+
+- `el_clqa_galen` now reuses `subsume::clqa` candidate metrics and
+  `heyting::conformal::answer_set_from_scored_pool` instead of carrying local
+  copies of those mechanics.
+- Burn examples that support either backend are now enabled by `burn-wgpu`
+  without also requiring `burn-ndarray`; CI checks that WGPU examples compile.
+
 ## [0.15.2] - 2026-07-06
 
 ### Added

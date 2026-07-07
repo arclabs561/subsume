@@ -7,7 +7,7 @@
 //! examples.
 //!
 //! Run (Metal / GPU on Apple Silicon):
-//!   cargo run --features "burn-ndarray,burn-wgpu,kge" --example wn18rr_geometry_comparison_burn --release
+//!   cargo run --features "burn-wgpu,kge" --example wn18rr_geometry_comparison_burn --release
 //!
 //! Run (CPU / rayon):
 //!   cargo run --features "burn-ndarray,kge" --example wn18rr_geometry_comparison_burn --release

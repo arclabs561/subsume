@@ -27,6 +27,7 @@
 //! is not a general claim that faithful boxes beat plain KGE in practice.
 //!
 //! Run: `cargo run --features burn-ndarray --example el_clqa_benchmark`
+//! or `cargo run --features burn-wgpu --example el_clqa_benchmark`
 
 use std::collections::HashSet;
 use subsume::el_training::{Axiom, Ontology};
@@ -34,6 +35,9 @@ use subsume::trainer::burn_el_trainer::{BurnElConfig, BurnElTrainer};
 use tranz::burn_train::{train_kge, BurnModelType, BurnTrainConfig};
 use tranz::dataset::TripleIds;
 
+#[cfg(feature = "burn-wgpu")]
+type Backend = burn::backend::Autodiff<burn_wgpu::Wgpu>;
+#[cfg(all(feature = "burn-ndarray", not(feature = "burn-wgpu")))]
 type Backend = burn::backend::Autodiff<burn_ndarray::NdArray>;
 
 /// Faithful box containment `A ⊆ B` as a degree in `[0, 1]`.
@@ -94,7 +98,10 @@ fn score_model<F: Fn(usize, usize) -> f32>(
 }
 
 fn main() {
-    let device = Default::default();
+    #[cfg(feature = "burn-wgpu")]
+    let device = burn_wgpu::WgpuDevice::default();
+    #[cfg(all(feature = "burn-ndarray", not(feature = "burn-wgpu")))]
+    let device = burn_ndarray::NdArrayDevice::default();
     <Backend as burn::tensor::backend::Backend>::seed(&device, 3);
     let dim = 40;
 

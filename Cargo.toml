@@ -1,6 +1,6 @@
 [package]
 name = "subsume"
-version = "0.15.2"
+version = "0.16.0"
 edition = "2021"
 rust-version = "1.87"
 license = "MIT OR Apache-2.0"
@@ -54,8 +54,9 @@ fastrand = "2.3.0"
 default = ["ndarray-backend", "kge"]
 ndarray-backend = ["dep:ndarray", "dep:serde_json", "rand"]
 rand = ["dep:rand"]
-burn-ndarray = ["dep:burn", "dep:burn-ndarray", "dep:burn-autodiff"]
-burn-wgpu = ["dep:burn", "dep:burn-wgpu", "dep:burn-autodiff"]
+burn-backend = ["dep:burn", "dep:burn-autodiff"]
+burn-ndarray = ["burn-backend", "dep:burn-ndarray"]
+burn-wgpu = ["burn-backend", "dep:burn-wgpu"]
 burn-tch = ["dep:burn", "dep:burn-tch", "dep:burn-autodiff"]
 petgraph = ["dep:petgraph"]
 rankops = ["dep:rankops"]
@@ -118,40 +119,39 @@ required-features = ["density", "rand"]
 
 [[example]]
 name = "wn18rr_ball_burn"
-required-features = ["burn-ndarray", "kge"]
+required-features = ["burn-backend", "kge"]
 
 [[example]]
 name = "wn18rr_transbox_burn"
-required-features = ["burn-ndarray", "kge"]
+required-features = ["burn-backend", "kge"]
 
 [[example]]
 name = "wn18rr_box_burn"
-required-features = ["burn-ndarray", "kge"]
+required-features = ["burn-backend", "kge"]
 
 [[example]]
 name = "wn18rr_cone_burn"
-required-features = ["burn-ndarray", "kge"]
+required-features = ["burn-backend", "kge"]
 
 [[example]]
 name = "wn18rr_geometry_comparison_burn"
-required-features = ["burn-ndarray", "kge"]
+required-features = ["burn-backend", "kge"]
 
 [[example]]
 name = "el_benchmark_burn"
-required-features = ["burn-ndarray"]
-# burn-wgpu also works: cargo run --features "burn-ndarray,burn-wgpu" prefers wgpu via cfg
+required-features = ["burn-backend"]
 
 [[example]]
 name = "el_clqa_trained"
-required-features = ["burn-ndarray"]
+required-features = ["burn-backend"]
 
 [[example]]
 name = "el_clqa_benchmark"
-required-features = ["burn-ndarray"]
+required-features = ["burn-backend"]
 
 [[example]]
 name = "el_clqa_galen"
-required-features = ["burn-ndarray"]
+required-features = ["burn-backend"]
 
 [[example]]
 name = "geometry_comparison"

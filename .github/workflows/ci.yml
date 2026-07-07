@@ -43,6 +43,12 @@ jobs:
         # modules are burn_-prefixed; the filter keeps the step at ~45 tests.
         run: cargo test --features "burn-ndarray,kge" burn_
 
+      - name: Check WGPU burn examples
+        # GitHub's runner is not a reliable GPU runtime, but this makes the
+        # burn-wgpu feature surface compile and keeps dual-backend examples
+        # visible without requiring burn-ndarray.
+        run: cargo check --features "burn-wgpu,kge" --examples
+
       - name: Test GALEN learned diagnostics
         run: cargo test --features burn-ndarray --example el_clqa_galen
 
