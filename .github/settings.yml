@@ -21,6 +21,10 @@ repository:
     - entailment
     - geometric
     - geometric-embeddings
+    - knowledge-graph
+    - knowledge-graphs
     - ml
     - nlp
+    - ontology
     - rust
+    - subsumption

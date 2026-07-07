@@ -2,7 +2,6 @@
 
 [![crates.io](https://img.shields.io/crates/v/subsume.svg)](https://crates.io/crates/subsume)
 [![Documentation](https://docs.rs/subsume/badge.svg)](https://docs.rs/subsume)
-[![CI](https://github.com/arclabs561/subsume/actions/workflows/ci.yml/badge.svg)](https://github.com/arclabs561/subsume/actions/workflows/ci.yml)
 
 Region embeddings for entailment and set containment.
 

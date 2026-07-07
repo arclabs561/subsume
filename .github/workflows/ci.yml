@@ -32,7 +32,7 @@ jobs:
         run: cargo test --features "ndarray-backend,rand,sheaf,rankops,petgraph,kge,density"
 
       - name: Doc
-        run: cargo doc --features "ndarray-backend,rand,sheaf,rankops,petgraph,kge,spherical,density,hyperbolic" --no-deps
+        run: RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps
 
       - name: Test (burn trainers)
         # The burn trainers' synthetic-MRR guards are cfg-gated on

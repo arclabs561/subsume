@@ -11,7 +11,7 @@ check:
     just test
 
 docs:
-    RUSTDOCFLAGS="--html-in-header docs/katex-header.html" cargo doc --no-deps
+    RUSTDOCFLAGS="-D warnings --html-in-header docs/katex-header.html" cargo doc --all-features --no-deps
     @echo "Docs generated at: target/doc/subsume/index.html"
 
 docs-open: docs
@@ -21,7 +21,7 @@ docs-open: docs
     else echo "Open: target/doc/subsume/index.html"; fi
 
 docs-watch:
-    cargo watch -x "doc --no-deps --html-in-header docs/katex-header.html"
+    RUSTDOCFLAGS="-D warnings --html-in-header docs/katex-header.html" cargo watch -x "doc --all-features --no-deps"
 
 typst-docs:
     ./docs/typst/build.sh
@@ -29,4 +29,3 @@ typst-docs:
 typst-preview FILE:
     if [[ -z "{{FILE}}" ]]; then echo "Usage: just typst-preview <filename>"; exit 1; fi
     ./docs/typst/preview.sh "{{FILE}}"
-
