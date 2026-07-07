@@ -1495,6 +1495,27 @@ mod tests {
         }
     }
 
+    #[test]
+    fn export_embeddings_returns_sorted_aligned_rows() {
+        let mut trainer = BoxEmbeddingTrainer::new(CpuBoxTrainingConfig::default(), 3);
+        trainer.ensure_entity(7);
+        trainer.ensure_entity(2);
+
+        let (ids, mins, maxs) = trainer.export_embeddings();
+
+        assert_eq!(ids, vec![2, 7]);
+        assert_eq!(mins.len(), ids.len() * trainer.dim());
+        assert_eq!(maxs.len(), ids.len() * trainer.dim());
+
+        for (row, id) in ids.iter().enumerate() {
+            let expected = trainer.boxes()[id].to_box();
+            let start = row * trainer.dim();
+            let end = start + trainer.dim();
+            assert_eq!(&mins[start..end], expected.min.as_slice());
+            assert_eq!(&maxs[start..end], expected.max.as_slice());
+        }
+    }
+
     // -----------------------------------------------------------------------
     // compute_pair_loss edge cases
     // -----------------------------------------------------------------------
