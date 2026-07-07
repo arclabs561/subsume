@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [0.16.1] - 2026-07-06
+
+### Fixed
+
+- `burn-wgpu` and `burn-backend` now select the ndarray Burn backend as their
+  CPU fallback, so examples whose Cargo metadata requires `burn-ndarray` still
+  compile when callers enable WGPU or the shared Burn gate directly.
+- README and example metadata now match the 0.16.x release surface: crate
+  description, example counts, Burn backend commands, and documented example
+  rows are synced to the Cargo targets.
+
 ## [0.16.0] - 2026-07-06
 
 ### Added

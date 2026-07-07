@@ -23,6 +23,11 @@ jobs:
       - name: Test (non-CUDA features)
         run: cargo test --features "ndarray-backend,rand,sheaf,rankops,petgraph"
 
+      - name: Check Burn example metadata
+        run: |
+          cargo check --features "burn-wgpu,kge" --examples
+          cargo check --features "burn-backend,kge" --examples
+
   publish:
     name: Publish to crates.io
     needs: [test]

@@ -20,7 +20,10 @@
 | `cone_query_answering` | FOL queries (conjunction, disjunction, negation) via cone algebra on a small KG |
 | `density_el_demo` | Density matrix EL++ training; parent-child fidelity vs disjoint-pair fidelity |
 | `el_benchmark` | Full EL++ evaluation on Box2EL datasets (GALEN, GO, Anatomy); per-NF MRR/Hits@k |
-| `el_benchmark_burn` | Burn backend version of the Box2EL benchmark; CPU via burn-ndarray or GPU via burn-wgpu |
+| `el_benchmark_burn` | Box2EL benchmark via Burn; GPU via `burn-wgpu`, CPU fallback via `burn-ndarray` |
+| `el_clqa_trained` | Conjunctive LCA queries over trained EL++ Burn boxes |
+| `el_clqa_benchmark` | Synthetic CLQA benchmark comparing faithful EL++ boxes with TransE |
+| `el_clqa_galen` | Data-gated GALEN CLQA benchmark with containment and join-match scoring |
 | `gene_ontology` | EL++ box embeddings on a Gene Ontology subset; full train/eval pipeline |
 | `geometry_comparison` | All 6 new geometry types (ball, cap, subspace, ellipsoid, transbox, annular) on a WordNet subset; side-by-side MRR/Hits@k/MeanRank |
 | `lattix_bridge` | Convert a `lattix::KnowledgeGraph` into a subsume `Dataset` |
@@ -29,8 +32,11 @@
 | `taxobell_box_uncertainty` | Propagate input uncertainty through a Burn TaxoBell encoder with `stableprop` and compare against Monte Carlo |
 | `taxobell_precinct` | Train TaxoBell Gaussian boxes, convert them to precinct `AxisBox` regions, and query them through `RegionIndex` |
 | `wn18rr_ball` | Ball embeddings (SpherE + RegD) on WN18RR; per-triple SGD with analytical gradients |
-| `wn18rr_ball_burn` | Batched ball training on WN18RR via Burn; InfoNCE loss; supports burn-wgpu or burn-ndarray |
-| `wn18rr_transbox_burn` | Batched TransBox training on WN18RR via Burn; supports burn-wgpu or burn-ndarray |
+| `wn18rr_ball_burn` | Batched ball training on WN18RR via Burn; InfoNCE loss; GPU via `burn-wgpu`, CPU fallback via `burn-ndarray` |
+| `wn18rr_box_burn` | Batched relation-aware box training on WN18RR via Burn |
+| `wn18rr_cone_burn` | Batched relation-aware cone training on WN18RR via Burn |
+| `wn18rr_geometry_comparison_burn` | Compare Burn region trainers on WN18RR |
+| `wn18rr_transbox_burn` | Batched TransBox training on WN18RR via Burn; GPU via `burn-wgpu`, CPU fallback via `burn-ndarray` |
 | `wn18rr_training` | Box embeddings on WN18RR via CPU ndarray backend; reference pipeline |
 
 ## Decision tree
@@ -100,6 +106,7 @@ cargo run -p subsume --example octagon_demo
 cargo run -p subsume --example fuzzy_query
 cargo run -p subsume --example taxobell_demo
 cargo run -p subsume --example dataset_training --release
+cargo run -p subsume --example save_checkpoint
 cargo run -p subsume --example imagenet_hierarchy --release
 cargo run -p subsume --features hyperbolic --example hyperbolic_demo
 cargo run -p subsume --example el_training --release
@@ -107,6 +114,9 @@ cargo run -p subsume --example cone_query_answering
 cargo run -p subsume --features density,rand --example density_el_demo --release
 cargo run -p subsume --example el_benchmark --release -- data/GALEN
 cargo run -p subsume --features burn-wgpu --example el_benchmark_burn --release
+cargo run -p subsume --features burn-wgpu --example el_clqa_trained --release
+cargo run -p subsume --features burn-wgpu --example el_clqa_benchmark --release
+cargo run -p subsume --features burn-wgpu --example el_clqa_galen --release
 cargo run -p subsume --example gene_ontology --release
 cargo run -p subsume --example geometry_comparison --release
 cargo run -p subsume --features kge --example lattix_bridge
@@ -116,6 +126,9 @@ cargo run -p subsume --features burn-ndarray,kge --example taxobell_box_uncertai
 cargo run -p subsume --features burn-ndarray,kge --example taxobell_precinct --release
 cargo run -p subsume --example wn18rr_ball --release
 cargo run -p subsume --features burn-wgpu,kge --example wn18rr_ball_burn --release
+cargo run -p subsume --features burn-wgpu,kge --example wn18rr_box_burn --release
+cargo run -p subsume --features burn-wgpu,kge --example wn18rr_cone_burn --release
+cargo run -p subsume --features burn-wgpu,kge --example wn18rr_geometry_comparison_burn --release
 cargo run -p subsume --features burn-wgpu,kge --example wn18rr_transbox_burn --release
 cargo run -p subsume --example wn18rr_training --release
 ```
