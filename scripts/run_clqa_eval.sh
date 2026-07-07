@@ -15,6 +15,7 @@ usage() {
     printf '  DIM           embedding dimension passed to the example (default: example default)\n'
     printf '  EPOCHS        training epochs passed to the example (default: example default)\n'
     printf '  QUERIES       query count passed to the example (default: example default)\n'
+    printf '  LEARNED_*     learned-ranker knobs forwarded to the example\n'
 }
 
 mode="${1:-box}"
@@ -71,7 +72,7 @@ case "$mode" in
         ;;
 esac
 
-for var in DIM EPOCHS QUERIES BATCH LR OFFSET_CLAMP TIGHTNESS LEARNED_REPEATS LEARNED_SPLIT_SEED LEARNED_CASE_LIMIT; do
+for var in DIM EPOCHS QUERIES BATCH LR OFFSET_CLAMP TIGHTNESS LEARNED_EXTRA_HOPS LEARNED_EPOCHS LEARNED_LR LEARNED_L2 LEARNED_REPEATS LEARNED_SPLIT_SEED LEARNED_CASE_LIMIT; do
     if [[ ${!var+x} ]]; then
         env_args+=("$var=${!var}")
     fi
