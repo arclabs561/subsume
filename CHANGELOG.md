@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-07-07
+
+### Changed
+
+- The `el_clqa_trained` example now uses `tnorms` for its standard fuzzy
+  conjunction formulas.
+
 ## [0.17.0] - 2026-07-07
 
 ### Added

@@ -1,6 +1,6 @@
 [package]
 name = "subsume"
-version = "0.17.0"
+version = "0.17.1"
 edition = "2021"
 rust-version = "1.87"
 license = "MIT OR Apache-2.0"
@@ -82,6 +82,8 @@ precinct = "0.8"
 tranz = { version = "0.7", features = ["burn-ndarray"] }
 # Conformal calibration core for the GALEN gated-LCA stress example.
 heyting = { version = "0.15", default-features = false }
+# T-norm formulas for the trained CLQA example.
+tnorms = "0.1.2"
 # Parallel eval loop in examples/el_clqa_galen (queries are independent).
 rayon = "1"
 

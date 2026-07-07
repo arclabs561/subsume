@@ -12,10 +12,10 @@
 //! `Dog` inside `Mammal` (not `Bird`) and `Sparrow` inside `Bird` (not
 //! `Mammal`). A plain link predictor with no faithful model has no reason to.
 //!
-//! Composition is inline (Godel / Product / Lukasiewicz t-norms) to keep the
-//! example self-contained in subsume; the heyting engine composes identically
-//! (see heyting's `el_clqa`). The eventual production path is a heyting
-//! `AtomicScorer` driven by these extracted arrays.
+//! Composition uses `tnorms` for the standard Godel / Product / Lukasiewicz
+//! t-norm formulas; the heyting engine composes identically (see heyting's
+//! `el_clqa`). The eventual production path is a heyting `AtomicScorer` driven
+//! by these extracted arrays.
 //!
 //! Run: `cargo run --features burn-ndarray --example el_clqa_trained`
 //! or `cargo run --features burn-wgpu --example el_clqa_trained`
@@ -39,17 +39,6 @@ fn subsumption_degree(centers: &[f32], offsets: &[f32], a: usize, b: usize, dim:
         acc += v * v;
     }
     (-acc.sqrt()).exp()
-}
-
-/// Godel/Product/Lukasiewicz t-norms (fuzzy conjunction).
-fn godel(a: f32, b: f32) -> f32 {
-    a.min(b)
-}
-fn product(a: f32, b: f32) -> f32 {
-    a * b
-}
-fn lukasiewicz(a: f32, b: f32) -> f32 {
-    (a + b - 1.0).max(0.0)
 }
 
 fn main() {
@@ -145,13 +134,18 @@ fn main() {
 
     // Common-superclass query: rank each candidate Z by the t-norm of
     // (X ⊑ Z) and (Y ⊑ Z), excluding X and Y themselves.
-    let common_superclass = |x: &str, y: &str, tnorm: fn(f32, f32) -> f32| -> Vec<(String, f32)> {
+    let common_superclass = |x: &str, y: &str, logic: tnorms::LogicFamily| -> Vec<(String, f32)> {
         let (xi, yi) = (id(x), id(y));
         let mut scored: Vec<(String, f32)> = names
             .iter()
             .enumerate()
             .filter(|&(i, _)| i != xi && i != yi)
-            .map(|(i, &n)| (n.to_string(), tnorm(sub(x, names[i]), sub(y, names[i]))))
+            .map(|(i, &n)| {
+                (
+                    n.to_string(),
+                    logic.tnorm_f32(sub(x, names[i]), sub(y, names[i])),
+                )
+            })
             .collect();
         scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
         scored
@@ -168,16 +162,16 @@ fn main() {
     // --- Query 1: common superclasses of Dog and Cat -> Mammal, Animal ---
     println!("\nQuery 1: X such that Dog ⊑ X AND Cat ⊑ X  (siblings, common = Mammal, Animal)");
     for (label, tn) in [
-        ("Godel", godel as fn(f32, f32) -> f32),
-        ("Product", product),
-        ("Lukasiewicz", lukasiewicz),
+        ("Godel", tnorms::LogicFamily::Godel),
+        ("Product", tnorms::LogicFamily::Product),
+        ("Lukasiewicz", tnorms::LogicFamily::Lukasiewicz),
     ] {
         println!(
             "  {label:<12} {}",
             show(&common_superclass("Dog", "Cat", tn))
         );
     }
-    let q1 = common_superclass("Dog", "Cat", godel);
+    let q1 = common_superclass("Dog", "Cat", tnorms::LogicFamily::Godel);
     let top2: Vec<&str> = q1.iter().take(2).map(|(n, _)| n.as_str()).collect();
     assert!(
         top2.contains(&"Mammal") && top2.contains(&"Animal"),
@@ -190,16 +184,16 @@ fn main() {
         "\nQuery 2: X such that Dog ⊑ X AND Sparrow ⊑ X  (cross-branch, common = Animal only)"
     );
     for (label, tn) in [
-        ("Godel", godel as fn(f32, f32) -> f32),
-        ("Product", product),
-        ("Lukasiewicz", lukasiewicz),
+        ("Godel", tnorms::LogicFamily::Godel),
+        ("Product", tnorms::LogicFamily::Product),
+        ("Lukasiewicz", tnorms::LogicFamily::Lukasiewicz),
     ] {
         println!(
             "  {label:<12} {}",
             show(&common_superclass("Dog", "Sparrow", tn))
         );
     }
-    let q2 = common_superclass("Dog", "Sparrow", godel);
+    let q2 = common_superclass("Dog", "Sparrow", tnorms::LogicFamily::Godel);
     assert_eq!(
         q2[0].0, "Animal",
         "Dog+Sparrow common superclass must be Animal, got {}",
