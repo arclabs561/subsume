@@ -20,8 +20,10 @@ For background on why region embeddings work and how the geometries relate, see 
 15 geometry types: boxes (hard and Gumbel), cones, octagons, Gaussians (TaxoBell),
 hyperbolic intervals, spherical, density matrices, sheaf networks, balls, spherical
 caps, subspaces, ellipsoids, TransBox, and annular sectors. Each implements
-containment probability, volume, intersection, and distance. CPU backend via
-ndarray, GPU via burn (`features = ["burn-ndarray"]` or `["burn-wgpu"]`).
+containment probability, volume, intersection, and distance. The default features
+expose the ndarray box backend for small CPU examples. Larger training examples
+use Burn; prefer `burn-wgpu` for GPU training and `burn-ndarray` as the CPU
+fallback.
 
 Scoring: Query2Box distance, fuzzy t-norms for logical queries, EL++ ontology
 losses (Box2EL/TransBox). Training: CPU trainer with analytical gradients or
@@ -37,7 +39,7 @@ region_generic`.
 
 ```toml
 [dependencies]
-subsume = { version = "0.16", features = ["ndarray-backend"] }
+subsume = "0.16.1"
 ndarray = "0.16"
 ```
 
@@ -101,7 +103,7 @@ cargo run --example dataset_training --release # full pipeline: WN18RR data, tra
 cargo run --example el_training              # EL++ ontology embedding
 ```
 
-28 examples total covering all geometries, training modes, and query types.
+34 examples cover geometry demos, training, benchmarks, and integration adapters.
 See [`examples/README.md`](examples/README.md) for the full list.
 
 ## Tests
@@ -134,7 +136,7 @@ Unit, property, and doc tests covering:
 | Subspace | Conjunction/disjunction/negation via projection | Yes | Closed under set ops; finite-diff gradients slow at high dim |
 | Ellipsoid | Full-covariance containment via Cholesky; anisotropic | No | Expressiveness at cost of O(d²) parameters; numerical care near degenerate shapes |
 | TransBox | EL++-closed ontology embedding (Yang et al., 2024) | No | Designed for DL semantics; requires box parameterization |
-| AnnularSector | Angular position + spread; rotation uncertainty (Zhu & Zeng, 2025) | No | Best empirical MRR on small hierarchies; novel parameterization |
+| AnnularSector | Angular position + spread; rotation uncertainty (Zhu & Zeng, 2025) | No | Experimental KGE geometry; benchmark behavior depends on dataset shape |
 
 ## Why regions instead of points?
 
@@ -174,8 +176,8 @@ Three tasks where point embeddings structurally fail:
    both what it is (similarity) and how general it is (volume). TaxoBell uses Gaussian
    boxes where KL divergence gives asymmetric parent-child containment for free.
 
-If your task is link prediction or entity similarity, use RotatE. If you need
-containment, set operations, or volume, you need regions.
+For link prediction or entity similarity, point embeddings are often simpler.
+Regions are for tasks that need containment, set operations, or volume.
 
 On general knowledge graphs without explicit DL semantics, foundation models now
 match or exceed geometric methods. The geometric advantage is strongest in
