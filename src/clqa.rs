@@ -147,12 +147,31 @@ impl<'a> BoxClqa<'a> {
     /// `b` themselves. Each entry is `(concept, score)`; scores are the
     /// [`score_lca`](Self::score_lca) product in `[0, 1]`.
     pub fn rank_lca(&self, a: usize, b: usize, tau: f32) -> Vec<(usize, f32)> {
+        self.rank_lca_candidates(a, b, (0..self.n).filter(|&x| x != a && x != b), tau)
+    }
+
+    /// Rank a caller-supplied candidate set as the LCA of `(a, b)`, best first.
+    ///
+    /// This is the scoring half of a two-stage retrieval pipeline: a symbolic
+    /// or approximate generator supplies candidate concept ids, and the box
+    /// readout scores only those ids. Invalid candidate ids panic in the same
+    /// way as [`score_lca`](Self::score_lca).
+    pub fn rank_lca_candidates<I>(
+        &self,
+        a: usize,
+        b: usize,
+        candidates: I,
+        tau: f32,
+    ) -> Vec<(usize, f32)>
+    where
+        I: IntoIterator<Item = usize>,
+    {
         let (jc, jo) = self.join(a, b);
-        let mut scored: Vec<(usize, f32)> = (0..self.n)
-            .filter(|&x| x != a && x != b)
+        let mut scored: Vec<(usize, f32)> = candidates
+            .into_iter()
             .map(|x| (x, self.score_lca(&jc, &jo, x, tau)))
             .collect();
-        scored.sort_by(|p, r| r.1.partial_cmp(&p.1).unwrap());
+        scored.sort_by(|p, r| r.1.partial_cmp(&p.1).unwrap().then_with(|| p.0.cmp(&r.0)));
         scored
     }
 }
@@ -194,6 +213,120 @@ pub struct FrontierCandidate {
     /// Sum of the two upward direct-edge distances. Used as the secondary
     /// ordering key within the same frontier.
     pub path_len: usize,
+}
+
+/// A two-anchor DCA/LCA query for candidate-pool evaluation.
+///
+/// `targets` is the set of acceptable deepest common ancestors for `(a, b)`.
+/// Multiple targets are valid in ontologies with multiple inheritance. The
+/// candidate-pool metrics treat a query as retrieved when any target appears in
+/// the pool.
+#[derive(Debug, Clone, Copy)]
+pub struct DirectFrontierQuery<'a> {
+    /// First query concept.
+    pub a: usize,
+    /// Second query concept.
+    pub b: usize,
+    /// Acceptable target concepts, usually the deepest common ancestors.
+    pub targets: &'a [usize],
+}
+
+impl<'a> DirectFrontierQuery<'a> {
+    /// Build a direct-frontier evaluation query.
+    pub fn new(a: usize, b: usize, targets: &'a [usize]) -> Self {
+        Self { a, b, targets }
+    }
+
+    fn is_target(&self, concept: usize) -> bool {
+        self.targets.contains(&concept)
+    }
+}
+
+/// Aggregate retrieval metrics for a ranked DCA/LCA candidate pool.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CandidatePoolMetrics {
+    /// Fraction of queries whose pool contains at least one target.
+    pub recall: f64,
+    /// Mean number of candidates in the pool.
+    pub mean_pool: f32,
+    /// 90th percentile pool size.
+    pub p90_pool: usize,
+    /// Mean reciprocal rank of the first target in the pool ordering.
+    ///
+    /// Queries whose target is absent contribute `0`.
+    pub mrr: f64,
+    /// Fraction of queries whose first target is ranked at most 10.
+    pub hits10: f64,
+    /// Fraction of queries whose first candidate is a target.
+    pub top1_target: f64,
+}
+
+impl CandidatePoolMetrics {
+    /// Zeroed metrics for an empty query set.
+    pub fn empty() -> Self {
+        Self {
+            recall: 0.0,
+            mean_pool: 0.0,
+            p90_pool: 0,
+            mrr: 0.0,
+            hits10: 0.0,
+            top1_target: 0.0,
+        }
+    }
+
+    /// Compute metrics from already-ranked candidate pools.
+    ///
+    /// `ranked_pools[i]` is the ranked candidate concept ids for `queries[i]`.
+    /// The first target in a pool determines MRR and Hits@10. Missing targets
+    /// count as retrieval misses and contribute zero to ranking metrics.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `ranked_pools.len() != queries.len()`.
+    pub fn from_ranked_pools<P>(queries: &[DirectFrontierQuery<'_>], ranked_pools: &[P]) -> Self
+    where
+        P: AsRef<[usize]>,
+    {
+        assert_eq!(
+            queries.len(),
+            ranked_pools.len(),
+            "queries and ranked_pools must align"
+        );
+        if queries.is_empty() {
+            return Self::empty();
+        }
+
+        let mut hits = 0usize;
+        let mut reciprocal_rank_sum = 0.0f64;
+        let mut hits10 = 0usize;
+        let mut top1 = 0usize;
+        let mut pool_sizes = Vec::with_capacity(queries.len());
+
+        for (query, pool) in queries.iter().zip(ranked_pools) {
+            let pool = pool.as_ref();
+            pool_sizes.push(pool.len());
+            if let Some(rank0) = pool.iter().position(|&concept| query.is_target(concept)) {
+                hits += 1;
+                let rank = rank0 + 1;
+                reciprocal_rank_sum += 1.0 / rank as f64;
+                hits10 += usize::from(rank <= 10);
+            }
+            top1 += usize::from(
+                pool.first()
+                    .is_some_and(|&concept| query.is_target(concept)),
+            );
+        }
+
+        let n = queries.len() as f64;
+        Self {
+            recall: hits as f64 / n,
+            mean_pool: pool_sizes.iter().sum::<usize>() as f32 / pool_sizes.len() as f32,
+            p90_pool: quantile_usize(&pool_sizes, 0.90),
+            mrr: reciprocal_rank_sum / n,
+            hits10: hits10 as f64 / n,
+            top1_target: top1 as f64 / n,
+        }
+    }
 }
 
 /// Candidate generator for conjunctive DCA/LCA queries using only direct
@@ -326,6 +459,36 @@ impl DirectFrontier {
         Ok(pool)
     }
 
+    /// Evaluate the retrieval quality of [`pool`](Self::pool) over DCA/LCA
+    /// queries.
+    ///
+    /// This measures only the candidate generator and its deterministic BFS
+    /// ordering. It does not score candidates with embeddings. A target missing
+    /// from the pool is counted as a retrieval miss and contributes zero to MRR,
+    /// Hits@10, and top-1 target accuracy.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DirectFrontierError::InvalidConcept`] if any query concept is
+    /// outside `0..num_concepts`.
+    pub fn pool_metrics(
+        &self,
+        queries: &[DirectFrontierQuery<'_>],
+        extra_hops: usize,
+    ) -> Result<CandidatePoolMetrics, DirectFrontierError> {
+        let pools: Vec<Vec<usize>> = queries
+            .iter()
+            .map(|query| {
+                self.pool(query.a, query.b, extra_hops).map(|pool| {
+                    pool.into_iter()
+                        .map(|candidate| candidate.concept)
+                        .collect()
+                })
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(CandidatePoolMetrics::from_ranked_pools(queries, &pools))
+    }
+
     fn check_concept(concept: usize, num_concepts: usize) -> Result<(), DirectFrontierError> {
         if concept < num_concepts {
             Ok(())
@@ -353,6 +516,16 @@ impl DirectFrontier {
         }
         dist
     }
+}
+
+fn quantile_usize(values: &[usize], q: f32) -> usize {
+    if values.is_empty() {
+        return 0;
+    }
+    let mut sorted = values.to_vec();
+    sorted.sort_unstable();
+    let idx = ((sorted.len() - 1) as f32 * q).round() as usize;
+    sorted[idx.min(sorted.len() - 1)]
 }
 
 #[cfg(test)]
@@ -415,6 +588,17 @@ mod tests {
         assert!(
             par_pos < sib_pos,
             "container must outrank non-container: {ranked:?}"
+        );
+    }
+
+    #[test]
+    fn rank_lca_candidates_scores_only_supplied_pool() {
+        let (c, o, dim) = fixture();
+        let q = BoxClqa::new(&c, &o, dim).unwrap();
+        let ranked = q.rank_lca_candidates(2, 3, [4, 0, 1], 1.0);
+        assert_eq!(
+            ranked.iter().map(|&(x, _)| x).collect::<Vec<_>>(),
+            [1, 0, 4]
         );
     }
 
@@ -534,6 +718,71 @@ mod tests {
             DirectFrontierError::InvalidConcept {
                 concept: 2,
                 num_concepts: 2,
+            }
+        );
+    }
+
+    #[test]
+    fn direct_frontier_pool_metrics_count_plural_targets() {
+        let frontier =
+            DirectFrontier::from_edges(6, [(1, 0), (2, 0), (4, 1), (4, 2), (5, 1), (5, 2)])
+                .unwrap();
+        let targets = [1, 2];
+        let queries = [DirectFrontierQuery::new(4, 5, &targets)];
+        let metrics = frontier.pool_metrics(&queries, 0).unwrap();
+        assert_eq!(metrics.recall, 1.0);
+        assert_eq!(metrics.mean_pool, 2.0);
+        assert_eq!(metrics.p90_pool, 2);
+        assert_eq!(metrics.mrr, 1.0);
+        assert_eq!(metrics.hits10, 1.0);
+        assert_eq!(metrics.top1_target, 1.0);
+    }
+
+    #[test]
+    fn direct_frontier_pool_metrics_missing_target_is_retrieval_loss() {
+        let frontier = DirectFrontier::from_edges(4, [(1, 0), (2, 1), (3, 1)]).unwrap();
+        let targets = [99];
+        let queries = [DirectFrontierQuery::new(2, 3, &targets)];
+        let metrics = frontier.pool_metrics(&queries, 1).unwrap();
+        assert_eq!(metrics.recall, 0.0);
+        assert_eq!(metrics.mean_pool, 2.0);
+        assert_eq!(metrics.p90_pool, 2);
+        assert_eq!(metrics.mrr, 0.0);
+        assert_eq!(metrics.hits10, 0.0);
+        assert_eq!(metrics.top1_target, 0.0);
+    }
+
+    #[test]
+    fn candidate_pool_metrics_respect_external_ranking() {
+        let targets0 = [3];
+        let targets1 = [4];
+        let queries = [
+            DirectFrontierQuery::new(0, 1, &targets0),
+            DirectFrontierQuery::new(1, 2, &targets1),
+        ];
+        let ranked_pools = [vec![2, 3], vec![4, 3, 2]];
+        let metrics = CandidatePoolMetrics::from_ranked_pools(&queries, &ranked_pools);
+        assert_eq!(metrics.recall, 1.0);
+        assert_eq!(metrics.mean_pool, 2.5);
+        assert_eq!(metrics.p90_pool, 3);
+        assert_eq!(metrics.mrr, 0.75);
+        assert_eq!(metrics.hits10, 1.0);
+        assert_eq!(metrics.top1_target, 0.5);
+    }
+
+    #[test]
+    fn direct_frontier_pool_metrics_empty_query_set_is_zeroed() {
+        let frontier = DirectFrontier::from_edges(2, [(0, 1)]).unwrap();
+        let metrics = frontier.pool_metrics(&[], 0).unwrap();
+        assert_eq!(
+            metrics,
+            CandidatePoolMetrics {
+                recall: 0.0,
+                mean_pool: 0.0,
+                p90_pool: 0,
+                mrr: 0.0,
+                hits10: 0.0,
+                top1_target: 0.0,
             }
         );
     }

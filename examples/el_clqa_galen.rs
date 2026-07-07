@@ -63,7 +63,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
-use subsume::clqa::{BoxClqa, DirectFrontier};
+use subsume::clqa::{BoxClqa, CandidatePoolMetrics, DirectFrontier, DirectFrontierQuery};
 use subsume::el_dataset::load_el_axioms;
 use subsume::el_training::{Axiom, Ontology};
 use subsume::trainer::burn_el_trainer::{BurnElConfig, BurnElTrainer};
@@ -865,27 +865,12 @@ fn direct_frontier_gated_scores(
     extra_hops: usize,
     tau: f32,
 ) -> Vec<(usize, f32)> {
-    let (jc, jo) = clqa.join(q.a, q.b);
-    let mut scored: Vec<(usize, f32)> = frontier
+    let candidates = frontier
         .pool(q.a, q.b, extra_hops)
         .expect("query ids come from the same ontology as the direct frontier")
         .into_iter()
-        .map(|candidate| {
-            (
-                candidate.concept,
-                clqa.score_lca(&jc, &jo, candidate.concept, tau),
-            )
-        })
-        .collect();
-    scored.sort_by(|p, r| r.1.partial_cmp(&p.1).unwrap().then_with(|| p.0.cmp(&r.0)));
-    scored
-}
-
-fn target_rank_in_scored(q: &CQuery, scored: &[(usize, f32)]) -> Option<usize> {
-    scored
-        .iter()
-        .position(|&(x, _)| q.is_target(x))
-        .map(|i| i + 1)
+        .map(|candidate| candidate.concept);
+    clqa.rank_lca_candidates(q.a, q.b, candidates, tau)
 }
 
 fn print_direct_frontier_pool_diagnostic(
@@ -894,6 +879,10 @@ fn print_direct_frontier_pool_diagnostic(
     frontier: &DirectFrontier,
     metrics: &mut MetricsCsv,
 ) {
+    let metric_queries: Vec<_> = queries
+        .iter()
+        .map(|q| DirectFrontierQuery::new(q.a, q.b, &q.lcas))
+        .collect();
     println!(
         "\n[symbolic] direct-frontier candidate pool (direct SubClassOf BFS; no precomputed closure in generator)"
     );
@@ -902,35 +891,23 @@ fn print_direct_frontier_pool_diagnostic(
         "extra", "recall", "mean|pool|", "p90|pool|", "MRR", "Hits@10", "top1DCA"
     );
     for extra_hops in [0usize, 1, 2, 3, 5, 10] {
-        let per: Vec<(bool, usize, Option<usize>, bool)> = queries
+        let ranked_pools: Vec<Vec<usize>> = queries
             .par_iter()
             .map(|q| {
                 let scored = direct_frontier_gated_scores(q, clqa, frontier, extra_hops, 20.0);
-                let hit = scored.iter().any(|&(x, _)| q.is_target(x));
-                let top1 = scored.first().is_some_and(|&(x, _)| q.is_target(x));
-                (hit, scored.len(), target_rank_in_scored(q, &scored), top1)
+                scored.into_iter().map(|(concept, _)| concept).collect()
             })
             .collect();
-        let hits = per.iter().filter(|x| x.0).count();
-        let pool_sizes: Vec<usize> = per.iter().map(|x| x.1).collect();
-        let (mean_pool, _, p90_pool, _) = set_size_summary(&pool_sizes);
-        let mrr = per
-            .iter()
-            .filter_map(|x| x.2.map(|rank| 1.0 / rank as f64))
-            .sum::<f64>()
-            / queries.len() as f64;
-        let h10 = per
-            .iter()
-            .filter(|x| x.2.is_some_and(|rank| rank <= 10))
-            .count() as f64
-            / queries.len() as f64;
-        let top1 = per.iter().filter(|x| x.3).count() as f64 / queries.len() as f64;
+        let values = CandidatePoolMetrics::from_ranked_pools(&metric_queries, &ranked_pools);
         println!(
-            "{:<8} {:>8.3} {:>10.1} {:>10} {mrr:>8.3} {h10:>8.3} {top1:>8.3}",
+            "{:<8} {:>8.3} {:>10.1} {:>10} {:>8.3} {:>8.3} {:>8.3}",
             extra_hops,
-            hits as f32 / queries.len() as f32,
-            mean_pool,
-            p90_pool
+            values.recall,
+            values.mean_pool,
+            values.p90_pool,
+            values.mrr,
+            values.hits10,
+            values.top1_target
         );
         let param = format!("extra={extra_hops}");
         emit_retrieval_metrics(
@@ -939,12 +916,12 @@ fn print_direct_frontier_pool_diagnostic(
             "gate20",
             &param,
             RetrievalMetrics {
-                recall: hits as f64 / queries.len() as f64,
-                mean_pool,
-                p90_pool,
-                mrr,
-                hits10: h10,
-                top1_dca: top1,
+                recall: values.recall,
+                mean_pool: values.mean_pool,
+                p90_pool: values.p90_pool,
+                mrr: values.mrr,
+                hits10: values.hits10,
+                top1_dca: values.top1_target,
             },
         );
     }
@@ -955,6 +932,10 @@ fn print_direct_frontier_retrieval_diagnostic(
     frontier: &DirectFrontier,
     metrics: &mut MetricsCsv,
 ) {
+    let metric_queries: Vec<_> = queries
+        .iter()
+        .map(|q| DirectFrontierQuery::new(q.a, q.b, &q.lcas))
+        .collect();
     println!(
         "\n[symbolic] direct-frontier retrieval (direct SubClassOf BFS order; no box training)"
     );
@@ -963,43 +944,18 @@ fn print_direct_frontier_retrieval_diagnostic(
         "extra", "recall", "mean|pool|", "p90|pool|", "MRR", "Hits@10", "top1DCA"
     );
     for extra_hops in [0usize, 1, 2, 3, 5, 10] {
-        let per: Vec<(bool, usize, Option<usize>, bool)> = queries
-            .par_iter()
-            .map(|q| {
-                let pool = frontier
-                    .pool(q.a, q.b, extra_hops)
-                    .expect("query ids come from the same ontology as the direct frontier");
-                let hit = pool.iter().any(|candidate| q.is_target(candidate.concept));
-                let top1 = pool
-                    .first()
-                    .is_some_and(|candidate| q.is_target(candidate.concept));
-                let rank = pool
-                    .iter()
-                    .position(|candidate| q.is_target(candidate.concept))
-                    .map(|i| i + 1);
-                (hit, pool.len(), rank, top1)
-            })
-            .collect();
-        let hits = per.iter().filter(|x| x.0).count();
-        let pool_sizes: Vec<usize> = per.iter().map(|x| x.1).collect();
-        let (mean_pool, _, p90_pool, _) = set_size_summary(&pool_sizes);
-        let mrr = per
-            .iter()
-            .filter_map(|x| x.2.map(|rank| 1.0 / rank as f64))
-            .sum::<f64>()
-            / queries.len() as f64;
-        let h10 = per
-            .iter()
-            .filter(|x| x.2.is_some_and(|rank| rank <= 10))
-            .count() as f64
-            / queries.len() as f64;
-        let top1 = per.iter().filter(|x| x.3).count() as f64 / queries.len() as f64;
+        let values = frontier
+            .pool_metrics(&metric_queries, extra_hops)
+            .expect("query ids come from the same ontology as the direct frontier");
         println!(
-            "{:<8} {:>8.3} {:>10.1} {:>10} {mrr:>8.3} {h10:>8.3} {top1:>8.3}",
+            "{:<8} {:>8.3} {:>10.1} {:>10} {:>8.3} {:>8.3} {:>8.3}",
             extra_hops,
-            hits as f32 / queries.len() as f32,
-            mean_pool,
-            p90_pool
+            values.recall,
+            values.mean_pool,
+            values.p90_pool,
+            values.mrr,
+            values.hits10,
+            values.top1_target
         );
         let param = format!("extra={extra_hops}");
         emit_retrieval_metrics(
@@ -1008,12 +964,12 @@ fn print_direct_frontier_retrieval_diagnostic(
             "bfs_order",
             &param,
             RetrievalMetrics {
-                recall: hits as f64 / queries.len() as f64,
-                mean_pool,
-                p90_pool,
-                mrr,
-                hits10: h10,
-                top1_dca: top1,
+                recall: values.recall,
+                mean_pool: values.mean_pool,
+                p90_pool: values.p90_pool,
+                mrr: values.mrr,
+                hits10: values.hits10,
+                top1_dca: values.top1_target,
             },
         );
     }
@@ -1206,16 +1162,8 @@ fn score_common_pool_gated(queries: &[CQuery], clqa: &BoxClqa<'_>, tau: f32) -> 
 }
 
 fn common_pool_gated_scores(q: &CQuery, clqa: &BoxClqa<'_>, tau: f32) -> Vec<(usize, f32)> {
-    let (jc, jo) = clqa.join(q.a, q.b);
-    let mut scored: Vec<(usize, f32)> = q
-        .common
-        .iter()
-        .copied()
-        .filter(|&x| x != q.a && x != q.b)
-        .map(|x| (x, clqa.score_lca(&jc, &jo, x, tau)))
-        .collect();
-    scored.sort_by(|p, r| r.1.partial_cmp(&p.1).unwrap().then_with(|| p.0.cmp(&r.0)));
-    scored
+    let candidates = q.common.iter().copied().filter(|&x| x != q.a && x != q.b);
+    clqa.rank_lca_candidates(q.a, q.b, candidates, tau)
 }
 
 fn common_pool_target_score(q: &CQuery, scored: &[(usize, f32)]) -> f32 {
