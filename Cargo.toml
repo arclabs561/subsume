@@ -21,7 +21,9 @@ publish = true
 include = [
   "/src/**/*.rs",
   "/examples/**/*.rs",
+  "/docs/CLQA_EVAL.md",
   "/docs/katex-header.html",
+  "/scripts/run_clqa_eval.sh",
   "/Cargo.toml",
   "/LICENSE-*",
   "/README.md",
