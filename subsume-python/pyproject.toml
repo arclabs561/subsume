@@ -35,3 +35,17 @@ Repository = "https://github.com/arclabs561/subsume"
 features = ["pyo3/extension-module", "pyo3/abi3-py39"]
 python-source = "python"
 module-name = "subsumer.subsumer"
+
+[tool.uv]
+cache-keys = [
+  { file = "pyproject.toml" },
+  { file = "Cargo.toml" },
+  { file = "Cargo.lock" },
+  { file = "src/**/*.rs" },
+  { file = "python/**/*.py" },
+  { file = "subsumer.pyi" },
+  { file = "README.md" },
+  { file = "../Cargo.toml" },
+  { file = "../Cargo.lock" },
+  { file = "../src/**/*.rs" },
+]
