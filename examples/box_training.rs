@@ -294,7 +294,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // Re-enforce min < max invariant.
-        for (_name, (bmin, bmax)) in boxes.iter_mut() {
+        for (bmin, bmax) in boxes.values_mut() {
             for d in 0..dim {
                 if bmin[d] >= bmax[d] {
                     let mid = (bmin[d] + bmax[d]) * 0.5;
