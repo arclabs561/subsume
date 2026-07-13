@@ -220,7 +220,7 @@ fn box_training_convergence() {
         }
 
         // Enforce min < max
-        for (_, (bmin, bmax)) in boxes.iter_mut() {
+        for (bmin, bmax) in boxes.values_mut() {
             for d in 0..dim {
                 if bmin[d] >= bmax[d] {
                     let mid = (bmin[d] + bmax[d]) * 0.5;
@@ -696,7 +696,7 @@ salmon\t_hypernym\tanimal";
         }
 
         // Enforce min < max
-        for (_, (bmin, bmax)) in boxes.iter_mut() {
+        for (bmin, bmax) in boxes.values_mut() {
             for d in 0..dim {
                 if bmin[d] >= bmax[d] {
                     let mid = (bmin[d] + bmax[d]) * 0.5;
