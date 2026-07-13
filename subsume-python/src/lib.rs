@@ -10,7 +10,7 @@ use subsume::trainer::{
 use subsume::Box as BoxTrait;
 
 /// Python wrapper around `subsume::ndarray_backend::NdarrayBox`.
-#[pyclass(name = "BoxEmbedding")]
+#[pyclass(name = "BoxEmbedding", skip_from_py_object)]
 #[derive(Clone)]
 struct PyNdarrayBox {
     inner: NdarrayBox,
@@ -49,14 +49,12 @@ impl PyNdarrayBox {
 
     /// Return min bounds as a numpy array.
     fn min_array<'py>(&self, py: Python<'py>) -> PyResult<Py<PyArray1<f32>>> {
-        let min = self.inner.min().clone();
-        Ok(min.into_pyarray(py).into())
+        Ok(PyArray1::from_vec(py, self.inner.min().to_vec()).unbind())
     }
 
     /// Return max bounds as a numpy array.
     fn max_array<'py>(&self, py: Python<'py>) -> PyResult<Py<PyArray1<f32>>> {
-        let max = self.inner.max().clone();
-        Ok(max.into_pyarray(py).into())
+        Ok(PyArray1::from_vec(py, self.inner.max().to_vec()).unbind())
     }
 
     fn __repr__(&self) -> String {
@@ -66,7 +64,7 @@ impl PyNdarrayBox {
 }
 
 /// Python wrapper around `subsume::ndarray_backend::NdarrayGumbelBox`.
-#[pyclass(name = "GumbelBoxEmbedding")]
+#[pyclass(name = "GumbelBoxEmbedding", skip_from_py_object)]
 #[derive(Clone)]
 struct PyNdarrayGumbelBox {
     inner: NdarrayGumbelBox,
@@ -114,14 +112,12 @@ impl PyNdarrayGumbelBox {
 
     /// Return min bounds as a numpy array.
     fn min_array<'py>(&self, py: Python<'py>) -> PyResult<Py<PyArray1<f32>>> {
-        let min = self.inner.min().clone();
-        Ok(min.into_pyarray(py).into())
+        Ok(PyArray1::from_vec(py, self.inner.min().to_vec()).unbind())
     }
 
     /// Return max bounds as a numpy array.
     fn max_array<'py>(&self, py: Python<'py>) -> PyResult<Py<PyArray1<f32>>> {
-        let max = self.inner.max().clone();
-        Ok(max.into_pyarray(py).into())
+        Ok(PyArray1::from_vec(py, self.inner.max().to_vec()).unbind())
     }
 
     /// Get the temperature parameter.
@@ -155,7 +151,7 @@ enum PyApertures {
 }
 
 /// Python wrapper around `subsume::ndarray_backend::NdarrayCone`.
-#[pyclass(name = "ConeEmbedding")]
+#[pyclass(name = "ConeEmbedding", skip_from_py_object)]
 #[derive(Clone)]
 struct PyNdarrayCone {
     inner: NdarrayCone,
@@ -188,14 +184,12 @@ impl PyNdarrayCone {
 
     /// Return axis angles as a numpy array.
     fn axes<'py>(&self, py: Python<'py>) -> PyResult<Py<PyArray1<f32>>> {
-        let axes = self.inner.axes().clone();
-        Ok(axes.into_pyarray(py).into())
+        Ok(PyArray1::from_vec(py, self.inner.axes().to_vec()).unbind())
     }
 
     /// Return apertures as a numpy array.
     fn apertures<'py>(&self, py: Python<'py>) -> PyResult<Py<PyArray1<f32>>> {
-        let apertures = self.inner.apertures().clone();
-        Ok(apertures.into_pyarray(py).into())
+        Ok(PyArray1::from_vec(py, self.inner.apertures().to_vec()).unbind())
     }
 
     /// Compute the ConE distance between self (query) and another cone (entity).
@@ -216,7 +210,7 @@ impl PyNdarrayCone {
 ///
 ///     config = subsumer.TrainingConfig(learning_rate=0.01, dim=16, epochs=200)
 ///     trainer = subsumer.BoxEmbeddingTrainer.from_config(config)
-#[pyclass(name = "TrainingConfig")]
+#[pyclass(name = "TrainingConfig", skip_from_py_object)]
 #[derive(Clone)]
 struct PyTrainingConfig {
     inner: TrainingConfig,
@@ -274,6 +268,7 @@ impl PyTrainingConfig {
     ///     adversarial_temperature: Temperature for self-adversarial weighting (default: 1.0).
     #[new]
     #[pyo3(signature = (dim, learning_rate=0.001, epochs=100, batch_size=512, margin=1.0, negative_samples=1, negative_weight=1.0, regularization=0.0001, softplus_beta=10.0, softplus_beta_final=50.0, warmup_epochs=10, early_stopping_patience=Some(10), symmetric_loss=false, self_adversarial=false, adversarial_temperature=1.0))]
+    #[allow(clippy::too_many_arguments)]
     fn new(
         dim: usize,
         learning_rate: f32,
@@ -430,6 +425,7 @@ impl PyBoxEmbeddingTrainer {
     ///     list of (head_id, relation_id, tail_id) tuples ready for train_step/fit.
     #[staticmethod]
     #[pyo3(signature = (triples, config=None, reverse=false))]
+    #[allow(clippy::type_complexity)]
     fn from_triples(
         triples: Vec<(String, String, String)>,
         config: Option<&PyTrainingConfig>,
@@ -503,7 +499,7 @@ impl PyBoxEmbeddingTrainer {
         train_triples: Vec<(usize, usize, usize)>,
         val_triples: Option<Vec<(usize, usize, usize)>>,
         num_entities: Option<usize>,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         use subsume::dataset::{TripleIds, Vocab};
 
         let val_data = if let Some(vt) = &val_triples {
@@ -561,7 +557,7 @@ impl PyBoxEmbeddingTrainer {
         &self,
         test_triples: Vec<(usize, usize, usize)>,
         num_entities: Option<usize>,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         use subsume::dataset::{TripleIds, Vocab};
 
         let triple_ids: Vec<TripleIds> = test_triples
@@ -616,15 +612,15 @@ impl PyBoxEmbeddingTrainer {
         let n = ids.len();
         let dim = self.inner.dim();
 
-        let mins_nd = ndarray::Array2::from_shape_vec((n, dim), mins_flat)
+        let mins_nd = numpy::ndarray::Array2::from_shape_vec((n, dim), mins_flat)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-        let maxs_nd = ndarray::Array2::from_shape_vec((n, dim), maxs_flat)
+        let maxs_nd = numpy::ndarray::Array2::from_shape_vec((n, dim), maxs_flat)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         Ok((
             ids,
-            mins_nd.into_pyarray(py).into(),
-            maxs_nd.into_pyarray(py).into(),
+            mins_nd.into_pyarray(py).unbind(),
+            maxs_nd.into_pyarray(py).unbind(),
         ))
     }
 
@@ -723,8 +719,7 @@ impl PyBoxEmbeddingTrainer {
                 scores[eid] = scoring_box.containment_prob(&nb).unwrap_or(0.0);
             }
         }
-        let arr = ndarray::Array1::from(scores);
-        Ok(arr.into_pyarray(py).into())
+        Ok(scores.into_pyarray(py).unbind())
     }
 
     fn __repr__(&self) -> String {
@@ -851,6 +846,7 @@ impl PyConeEmbeddingTrainer {
     ///     list of (head_id, relation_id, tail_id) tuples ready for train_step/fit.
     #[staticmethod]
     #[pyo3(signature = (triples, config=None, reverse=false))]
+    #[allow(clippy::type_complexity)]
     fn from_triples(
         triples: Vec<(String, String, String)>,
         config: Option<&PyTrainingConfig>,
@@ -924,7 +920,7 @@ impl PyConeEmbeddingTrainer {
         train_triples: Vec<(usize, usize, usize)>,
         val_triples: Option<Vec<(usize, usize, usize)>>,
         num_entities: Option<usize>,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         use subsume::dataset::{TripleIds, Vocab};
 
         let val_data = if let Some(vt) = &val_triples {
@@ -978,15 +974,15 @@ impl PyConeEmbeddingTrainer {
         let n = ids.len();
         let dim = self.inner.dim();
 
-        let axes_nd = ndarray::Array2::from_shape_vec((n, dim), axes_flat)
+        let axes_nd = numpy::ndarray::Array2::from_shape_vec((n, dim), axes_flat)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-        let apertures_nd = ndarray::Array2::from_shape_vec((n, dim), apertures_flat)
+        let apertures_nd = numpy::ndarray::Array2::from_shape_vec((n, dim), apertures_flat)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         Ok((
             ids,
-            axes_nd.into_pyarray(py).into(),
-            apertures_nd.into_pyarray(py).into(),
+            axes_nd.into_pyarray(py).unbind(),
+            apertures_nd.into_pyarray(py).unbind(),
         ))
     }
 
@@ -1015,7 +1011,7 @@ impl PyConeEmbeddingTrainer {
         &self,
         test_triples: Vec<(usize, usize, usize)>,
         num_entities: Option<usize>,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         use subsume::dataset::{TripleIds, Vocab};
 
         let triple_ids: Vec<TripleIds> = test_triples
@@ -1212,6 +1208,7 @@ fn boundary_distance(
 ///     where triples are lists of (head_id, relation_id, tail_id).
 #[pyfunction]
 #[pyo3(signature = (path, reverse=false))]
+#[allow(clippy::type_complexity)]
 fn load_dataset(
     path: &str,
     reverse: bool,
@@ -1271,8 +1268,8 @@ fn load_dataset(
 }
 
 /// Convert EvaluationResults to a Python dict.
-fn eval_results_to_dict(results: EvaluationResults) -> PyResult<PyObject> {
-    Python::with_gil(|py| {
+fn eval_results_to_dict(results: EvaluationResults) -> PyResult<Py<PyAny>> {
+    Python::attach(|py| {
         let dict = pyo3::types::PyDict::new(py);
         dict.set_item("mrr", results.mrr)?;
         dict.set_item("head_mrr", results.head_mrr)?;
@@ -1281,13 +1278,13 @@ fn eval_results_to_dict(results: EvaluationResults) -> PyResult<PyObject> {
         dict.set_item("hits_at_3", results.hits_at_3)?;
         dict.set_item("hits_at_10", results.hits_at_10)?;
         dict.set_item("mean_rank", results.mean_rank)?;
-        Ok(dict.into())
+        Ok(dict.into_any().unbind())
     })
 }
 
 /// Convert TrainingResult to a Python dict.
-fn training_result_to_dict(result: TrainingResult) -> PyResult<PyObject> {
-    Python::with_gil(|py| {
+fn training_result_to_dict(result: TrainingResult) -> PyResult<Py<PyAny>> {
+    Python::attach(|py| {
         let dict = pyo3::types::PyDict::new(py);
         dict.set_item("mrr", result.final_results.mrr)?;
         dict.set_item("hits_at_1", result.final_results.hits_at_1)?;
@@ -1297,7 +1294,7 @@ fn training_result_to_dict(result: TrainingResult) -> PyResult<PyObject> {
         dict.set_item("loss_history", result.loss_history)?;
         dict.set_item("validation_mrr_history", result.validation_mrr_history)?;
         dict.set_item("best_epoch", result.best_epoch)?;
-        Ok(dict.into())
+        Ok(dict.into_any().unbind())
     })
 }
 
@@ -1309,11 +1306,11 @@ fn training_result_to_dict(result: TrainingResult) -> PyResult<PyObject> {
 /// File format: one axiom per line, tab-separated, type-tagged.
 /// See ``subsume::el_dataset`` for format details.
 #[pyfunction]
-fn load_el_axioms(path: &str) -> PyResult<PyObject> {
+fn load_el_axioms(path: &str) -> PyResult<Py<PyAny>> {
     let ds = subsume::el_dataset::load_el_axioms(path)
         .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("{e}")))?;
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let dict = pyo3::types::PyDict::new(py);
         let nf1: Vec<(&str, &str, &str)> = ds
             .nf1
@@ -1360,7 +1357,7 @@ fn load_el_axioms(path: &str) -> PyResult<PyObject> {
         dict.set_item("num_classes", ds.classes().len())?;
         dict.set_item("num_roles", ds.roles().len())?;
         dict.set_item("total_axioms", ds.len())?;
-        Ok(dict.into())
+        Ok(dict.into_any().unbind())
     })
 }
 
@@ -1430,6 +1427,7 @@ fn el_intersection_loss(
 ///     epoch_losses: list of per-epoch losses
 #[pyfunction]
 #[pyo3(signature = (axiom_path, dim = 30, epochs = 200, learning_rate = 0.005, margin = 0.1, negative_samples = 2, log_interval = 0))]
+#[allow(clippy::too_many_arguments)]
 fn train_el_embeddings(
     py: Python<'_>,
     axiom_path: &str,
@@ -1439,7 +1437,7 @@ fn train_el_embeddings(
     margin: f32,
     negative_samples: usize,
     log_interval: usize,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let dataset = subsume::el_dataset::load_el_axioms(axiom_path)
         .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("{e}")))?;
 
@@ -1475,7 +1473,7 @@ fn train_el_embeddings(
     dict.set_item("num_concepts", nc)?;
     dict.set_item("num_roles", nr)?;
 
-    Ok(dict.into())
+    Ok(dict.into_any().unbind())
 }
 
 /// Train EL++ embeddings using the burn backend (multi-core CPU).
@@ -1515,7 +1513,7 @@ fn train_el_embeddings_burn(
     margin: f32,
     neg_dist: f32,
     reg_factor: f32,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     use burn::backend::Autodiff;
     use subsume::trainer::burn_el_trainer::{BurnElConfig, BurnElTrainer};
 
@@ -1552,7 +1550,7 @@ fn train_el_embeddings_burn(
     let role_tails = BurnElTrainer::<B>::extract_role_tails(&model, &device);
 
     // Return as 2D numpy arrays.
-    let np2d = |flat: Vec<f32>, cols: usize, py: Python<'_>| -> PyResult<PyObject> {
+    let np2d = |flat: Vec<f32>, cols: usize, py: Python<'_>| -> PyResult<Py<PyAny>> {
         let rows: Vec<Vec<f32>> = flat.chunks(cols).map(|c| c.to_vec()).collect();
         let arr = numpy::PyArray2::from_vec2(py, &rows)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e}")))?;
@@ -1572,7 +1570,7 @@ fn train_el_embeddings_burn(
     dict.set_item("num_roles", nr)?;
     dict.set_item("dim", dim)?;
 
-    Ok(dict.into())
+    Ok(dict.into_any().unbind())
 }
 
 /// Geometric region embeddings for knowledge graph subsumption.
