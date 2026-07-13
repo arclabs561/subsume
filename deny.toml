@@ -9,19 +9,11 @@ ignore = [
     # paste: unmaintained, transitive via burn/tranz dev paths. No replacement
     # available from this crate until those upstreams remove it.
     "RUSTSEC-2024-0436",
-    # rustls-webpki: transitive through optional burn-tch -> torch-sys build
-    # downloads. subsume does not expose TLS/CRL handling; no direct upgrade is
-    # available from this crate while burn-tch pins the path.
-    "RUSTSEC-2026-0098",
-    "RUSTSEC-2026-0099",
-    "RUSTSEC-2026-0104",
 ]
 
 [licenses]
 # Zlib: foldhash (transitive via burn->hashbrown).
-# MPL-2.0: burn transitive deps (half, cblas-sys, etc). CC0-1.0: burn transitive deps.
-# ISC: wgpu/rustls transitive deps (libloading, ring, rustls-webpki, untrusted).
-allow = ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "Unicode-3.0", "Unlicense", "Zlib", "MPL-2.0", "CC0-1.0", "CDLA-Permissive-2.0", "ISC"]
+allow = ["MIT", "Apache-2.0", "BSD-2-Clause", "Unicode-3.0", "Unlicense", "Zlib"]
 confidence-threshold = 0.8
 
 [licenses.private]
