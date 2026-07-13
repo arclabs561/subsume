@@ -201,6 +201,7 @@ mod tests {
         assert_eq!(via_trait, via_free);
     }
 
+    #[cfg(feature = "ndarray-backend")]
     #[test]
     fn ndarray_box_is_a_region() {
         use crate::ndarray_backend::NdarrayBox;
