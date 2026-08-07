@@ -755,7 +755,7 @@ impl<B: AutodiffBackend> BurnElTrainer<B> {
                         let diff = bumped - role_heads[rh_off + i];
                         d += diff * diff;
                     }
-                    if d < target_dist_sq {
+                    if beats(d, target_dist_sq) {
                         rank += 1;
                     }
                 }
@@ -1033,6 +1033,17 @@ fn extract_2d<B: Backend>(tensor: Tensor<B, 2>, device: &B::Device) -> Vec<f32> 
 // Free functions: CPU evaluation (matches CandleElTrainer protocol)
 // ---------------------------------------------------------------------------
 
+/// True when `competitor` strictly outranks `target` (lower score = better).
+///
+/// Non-finite scores are handled defensively so a degenerate/`NaN` embedding
+/// cannot silently inflate rank-based metrics (MRR/H@k): a `NaN` competitor
+/// never beats anyone, and a `NaN` target ranks worst (every finite
+/// competitor outranks it) instead of slipping to rank 1 because
+/// `NaN < x` is always false.
+fn beats(competitor: f32, target: f32) -> bool {
+    competitor.is_finite() && (target.is_nan() || competitor < target)
+}
+
 /// L2 rank of `target` among all concepts.
 fn l2_rank(
     query: &[f32],
@@ -1063,7 +1074,7 @@ fn l2_rank(
             let diff = query[i] - centers[off + i];
             d += diff * diff;
         }
-        if d < target_dist_sq {
+        if beats(d, target_dist_sq) {
             rank += 1;
         }
     }
@@ -1220,7 +1231,7 @@ fn evaluate_nf2_inclusion(
                     continue;
                 }
             }
-            if incl(sub, c) < target {
+            if beats(incl(sub, c), target) {
                 rank += 1;
             }
         }
@@ -1296,7 +1307,7 @@ fn evaluate_nf3(
                 let diff = bumped - role_heads[rh_off + i];
                 d += diff * diff;
             }
-            if d < target_dist_sq {
+            if beats(d, target_dist_sq) {
                 rank += 1;
             }
         }
