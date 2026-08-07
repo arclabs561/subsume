@@ -1328,7 +1328,8 @@ pub fn evaluate_subsumption(result: &ElTrainingResult, axioms: &[Axiom]) -> (f32
                         .filter(|&c| c != *sub)
                         .map(|c| result.subsumption_score(*sub, c))
                         .collect();
-                    all_scores.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                    all_scores
+                        .sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
                     let min_s = all_scores.first().copied().unwrap_or(0.0);
                     let median_s = all_scores.get(all_scores.len() / 2).copied().unwrap_or(0.0);
                     let max_s = all_scores.last().copied().unwrap_or(0.0);

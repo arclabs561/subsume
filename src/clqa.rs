@@ -171,7 +171,15 @@ impl<'a> BoxClqa<'a> {
             .into_iter()
             .map(|x| (x, self.score_lca(&jc, &jo, x, tau)))
             .collect();
-        scored.sort_by(|p, r| r.1.partial_cmp(&p.1).unwrap().then_with(|| p.0.cmp(&r.0)));
+        // NaN-safe: a degenerate/NaN score (e.g. from a NaN box input) must
+        // not panic the sort. A NaN compares `Equal` and falls back to the id
+        // tiebreak, so the whole list still sorts; behavior is unchanged for
+        // all-finite scores.
+        scored.sort_by(|p, r| {
+            r.1.partial_cmp(&p.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| p.0.cmp(&r.0))
+        });
         scored
     }
 }
@@ -613,6 +621,21 @@ mod tests {
         let s_sib = q.score_lca(&jc, &jo, 4, 1.0);
         assert!(s_par > s_sib, "par {s_par} should beat sib {s_sib}");
         assert!((0.0..=1.0).contains(&s_par) && (0.0..=1.0).contains(&s_sib));
+    }
+
+    /// A NaN in a candidate's box (degenerate input) must not panic the
+    /// ranking sort. `rank_lca_candidates` used `.partial_cmp().unwrap()`,
+    /// which panicked on NaN; the NaN-safe comparator sorts it by id instead.
+    #[test]
+    fn rank_lca_handles_nan_boxes_without_panicking() {
+        // Inject a NaN into one concept's offset so its score_lca is NaN.
+        let (c, mut o, dim) = fixture();
+        o[2 * 2] = f32::NAN; // leaf 2's first offset component
+        let q = BoxClqa::new(&c, &o, dim).unwrap();
+        // Must sort (and not panic) even though leaf 2 scores NaN.
+        let ranked = q.rank_lca(2, 3, 1.0);
+        // The list still has the full pool; NaN entries sort via id tiebreak.
+        assert_eq!(ranked.len(), q.num_concepts() - 2, "ranked={ranked:?}");
     }
 
     #[test]
