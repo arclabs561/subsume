@@ -113,12 +113,16 @@ where:
 \]
 
 ### Implementation
-**Note:** The current implementation uses standard box intersection (max/min operations) on the location parameters \(\mu\). The Gumbel properties come into play in:
-1. **Volume calculation**: Uses standard volume formula (product of side lengths), but the Gumbel framework ensures dense gradients
-2. **Membership probability**: Uses Gumbel-Softmax probabilities via `gumbel_membership_prob()`
-3. **Sampling**: Uses Gumbel sampling for generating points via `sample_gumbel()` and `map_gumbel_to_bounds()`
+**Location:** `src/ndarray_backend/ndarray_gumbel.rs`
 
-**Theoretical vs Practical:** The Bessel approximation is the theoretical foundation explaining why Gumbel boxes work (dense gradients, local identifiability), but the implementation uses the simpler standard volume calculation. The key benefit is that Gumbel coordinates ensure all parameters contribute to gradients, even when using the standard volume formula.
+`NdarrayGumbelBox::intersection()` applies `gumbel_lse_min()` to lower bounds
+and `gumbel_lse_max()` to upper bounds. Its `volume()` implementation uses
+`bessel_log_volume()`, the Bessel/softplus approximation described above. These
+operations are specific to `NdarrayGumbelBox`; the ordinary `NdarrayBox` keeps
+hard max/min intersection and geometric volume.
+
+The same backend also uses `gumbel_membership_prob()` for point membership and
+`sample_gumbel()` with `map_gumbel_to_bounds()` for sampling.
 
 **Location:** `src/utils.rs::gumbel_membership_prob()`
 
@@ -299,4 +303,3 @@ The uniform measure assumption is implicit in all volume calculations. Boxes are
 6. **Temperature Scaling**: Controlled through clamping and parameter scheduling
 
 These patterns ensure that the mathematical theory translates correctly to numerical implementation while maintaining stability and efficiency.
-

@@ -7,7 +7,8 @@ This page records benchmark claims that are too detailed for the README.
 Per-normal-form results on Box2EL benchmark datasets (Jackermeier et al., 2023),
 evaluated by center L2 distance ranking to match the Box2EL protocol.
 
-- `subsume`: dim=200, 5000 epochs, single run, default hyperparameters.
+- `subsume`: dim=200, 5000 epochs, single run, LR=0.01, batch=512,
+  negatives=2, margin=0.15, negative distance=5.0, regularization=0.4.
 - Box2EL/TransBox: 5000 epochs, best of 10 runs from TransBox WWW 2025, Table 7.
 
 | Dataset | NF type | subsume MRR | subsume H@1 | subsume H@10 |
@@ -27,11 +28,11 @@ evaluated by center L2 distance ranking to match the Box2EL protocol.
 
 NF3 existential restrictions are the strongest recorded result, with MRR
 0.21-0.37 across all three datasets. GO NF1 reaches MRR 0.216 using Gumbel soft
-intersection with beta annealing.
+intersection.
 
 Techniques used in the recorded run:
 
-- Gumbel soft intersection for NF1 with beta annealing from 0.3 to 2.0.
+- Gumbel soft intersection for NF1.
 - Center attraction fallback for degenerate intersections.
 - Box2EL-style bump translations and dual-direction NF3 negative sampling.
 - GCI0 deductive closure filtering for negative sampling.
@@ -42,9 +43,14 @@ Techniques used in the recorded run:
 Reproduce with the Burn backend:
 
 ```sh
-DIM=200 EPOCHS=5000 DATASET=GALEN \
+DATASET=GALEN DIM=200 EPOCHS=5000 LR=0.01 BATCH=512 NEG=2 \
+  MARGIN=0.15 NEG_DIST=5.0 REG=0.4 \
   cargo run --features burn-wgpu --example el_benchmark_burn --release
 ```
+
+Run the command separately for `GALEN`, `GO`, and `ANATOMY`. The table above is
+a record of those runs, not a claim of matching the multi-run results reported
+for other systems.
 
 ## GPU Training
 

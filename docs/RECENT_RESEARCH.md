@@ -204,9 +204,18 @@ Box embeddings are fundamentally grounded in **lattice theory** and **order theo
 
 ### Order-Theoretic Foundations
 
-The theoretical foundation of box embeddings rests on **order theory**. The "enclose" relation between a child box and parent box creates a **poset (partially ordered set)** where the order relation represents hierarchical containment. The asymmetrical nature of this relation—a fundamental property of hierarchies—cannot be captured by symmetric distance metrics in vector spaces, making box embeddings superior for representing parent-child relationships.
+The theoretical foundation of box embeddings rests on **order theory**. The
+"enclose" relation between a child box and parent box creates a **poset
+(partially ordered set)** where the order relation represents hierarchical
+containment. A symmetric distance between points does not by itself encode the
+direction of a parent-child relation. Box containment supplies that direction
+geometrically: a child box can be enclosed by its parent.
 
-Unlike traditional vector embeddings (which represent entities as single points and can only measure **symmetrical similarity** through distance metrics), box embeddings capture **asymmetrical hierarchical relations**. Vector embeddings inherently cannot differentiate parent and child nodes in a pair, whereas boxes can: a child box is entirely enclosed inside its parent box, and completely separate boxes represent non-hierarchical entities.
+This distinction is about the representation and score, not a general
+impossibility result for point embeddings. Relation-specific transformations,
+cones, order constraints, and other asymmetric point-based constructions can
+also encode directed relations. Boxes make set containment and overlap explicit,
+with their own expressivity and optimization tradeoffs.
 
 ### Probabilistic Extension and Geometric Probability
 
@@ -357,4 +366,3 @@ Boxes are **closed under intersection** but **not under union** in the classical
 16. Cao, Z., et al. (2022). Geometry Interaction Knowledge Graph Embeddings. arXiv:2206.12418
 
 17. Vilnis, L., Li, X., Murty, S., & McCallum, A. (2018). Probabilistic Embedding of Knowledge Graphs with Box Lattice Measures. ACL 2018. arXiv:1805.06627
-

@@ -12,22 +12,22 @@ Historical context and motivation. From points to regions: the evolution of embe
 
 ### Core Mathematical Concepts
 
-**PDF:** [`typst-output/pdf/subsumption.pdf`](typst-output/pdf/subsumption.pdf) | **Markdown:** [`SUBSUMPTION.md`](SUBSUMPTION.md)  
+**PDF:** [`typst-output/pdf/subsumption.pdf`](typst-output/pdf/subsumption.pdf)
 Geometric containment as logical subsumption. How box containment encodes entailment, hierarchies, and logical consequence.
 
-**PDF:** [`typst-output/pdf/gumbel-box-volume.pdf`](typst-output/pdf/gumbel-box-volume.pdf) | **Markdown:** [`GUMBEL_BOX_VOLUME.md`](GUMBEL_BOX_VOLUME.md)  
+**PDF:** [`typst-output/pdf/gumbel-box-volume.pdf`](typst-output/pdf/gumbel-box-volume.pdf)
 Expected volume for Gumbel boxes. Derivation from Gumbel distributions to Bessel function $K_0$, with numerical approximation.
 
-**PDF:** [`typst-output/pdf/containment-probability.pdf`](typst-output/pdf/containment-probability.pdf) | **Markdown:** [`CONTAINMENT_PROBABILITY.md`](CONTAINMENT_PROBABILITY.md)  
+**PDF:** [`typst-output/pdf/containment-probability.pdf`](typst-output/pdf/containment-probability.pdf)
 First-order Taylor approximation for containment probability. Error analysis and validity conditions.
 
-**PDF:** [`typst-output/pdf/gumbel-max-stability.pdf`](typst-output/pdf/gumbel-max-stability.pdf) | **Markdown:** [`GUMBEL_MAX_STABILITY.md`](GUMBEL_MAX_STABILITY.md)  
+**PDF:** [`typst-output/pdf/gumbel-max-stability.pdf`](typst-output/pdf/gumbel-max-stability.pdf)
 Max-stability and min-stability of Gumbel distributions. Why intersection operations preserve the Gumbel family (algebraic closure).
 
-**PDF:** [`typst-output/pdf/log-sum-exp-intersection.pdf`](typst-output/pdf/log-sum-exp-intersection.pdf) | **Markdown:** [`LOG_SUM_EXP_INTERSECTION.md`](LOG_SUM_EXP_INTERSECTION.md)  
+**PDF:** [`typst-output/pdf/log-sum-exp-intersection.pdf`](typst-output/pdf/log-sum-exp-intersection.pdf)
 Log-sum-exp function and its role in Gumbel intersection. Numerical stability and the Gumbel-max property.
 
-**PDF:** [`typst-output/pdf/local-identifiability.pdf`](typst-output/pdf/local-identifiability.pdf) | **Markdown:** [`LOCAL_IDENTIFIABILITY.md`](LOCAL_IDENTIFIABILITY.md)  
+**PDF:** [`typst-output/pdf/local-identifiability.pdf`](typst-output/pdf/local-identifiability.pdf)
 The local identifiability problem and how Gumbel boxes solve it. Why probabilistic boundaries enable gradient-based learning.
 
 ### Modern Applications and Future Directions
@@ -41,13 +41,11 @@ Future directions and open questions. Scaling, expressiveness, uncertainty quant
 ## Formats
 
 - **PDF (Typst)**: Professional typesetting, optimal for printing and detailed study. See [`typst/README.md`](typst/README.md) for build instructions.
-- **Markdown**: Web-friendly, GitHub-compatible, quick reference.
+- **Typst source**: The corresponding source files are in [`typst/`](typst/).
 
-Both formats contain the same content. PDFs are pre-rendered from Typst source for superior math typesetting.
+The PDFs are pre-rendered from the Typst sources.
 
 ## Quick Reference
-
-For formulas and key results, see [`MATH_QUICK_REFERENCE.md`](MATH_QUICK_REFERENCE.md).
 
 For implementation details connecting theory to code, see [`MATH_TO_CODE_CONNECTIONS.md`](MATH_TO_CODE_CONNECTIONS.md).
 
@@ -64,4 +62,4 @@ For implementation details connecting theory to code, see [`MATH_TO_CODE_CONNECT
 8. Applications (modern competitive)
 9. Future Directions (open questions)
 
-**For reference:** Use the quick reference for formulas, or jump to specific documents as needed.
+**For reference:** Jump to a specific document or use the implementation guide.
