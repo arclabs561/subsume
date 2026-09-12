@@ -186,7 +186,17 @@ missing_docs = "warn"
 unsafe_code = "warn"
 
 [package.metadata.docs.rs]
-all-features = true
+# `burn-tch` needs LibTorch headers, which docs.rs does not provide. Keep the
+# portable optional APIs visible without selecting that backend.
+features = [
+  "burn-ndarray",
+  "density",
+  "hyperbolic",
+  "petgraph",
+  "rankops",
+  "sheaf",
+  "spherical",
+]
 rustdoc-args = ["--cfg", "docsrs", "--html-in-header", "docs/katex-header.html"]
 
 [lints.clippy]

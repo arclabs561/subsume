@@ -6,12 +6,13 @@
 Region embeddings for entailment and set containment.
 
 `subsume` represents concepts as geometric regions. A general concept contains
-the regions for its more specific concepts, so containment becomes the scoring
-operation for hierarchy, ontology, and set-query tasks.
+the regions for its more specific concepts. It scores containment for
+hierarchies, ontologies, and set queries.
 
 ![Box embedding concepts](docs/box_concepts.png)
 
-*(a) Containment: nested boxes encode is-a relationships. (b) Gumbel soft boundary: temperature controls membership sharpness.*
+Nested boxes encode an `is-a` relationship. The right panel shows how Gumbel
+boxes replace a hard boundary with a temperature-controlled one.
 
 ## Install
 
@@ -22,104 +23,76 @@ ndarray = "0.16"
 ```
 
 The default features include the ndarray backend and knowledge-graph dataset
-helpers. GPU training examples use Burn through `burn-ndarray` or `burn-wgpu`.
+helpers. Burn training examples require `burn-ndarray` for CPU or `burn-wgpu`
+for a WGPU device.
 
 ## Usage
 
 ```rust
 use ndarray::array;
-use subsume::{ndarray_backend::NdarrayBox, HyperBox};
+use subsume::{ndarray_backend::NdarrayBox, BoxError, HyperBox};
 
-// A is the general concept.
-let premise = NdarrayBox::new(array![0., 0., 0.], array![1., 1., 1.], 1.0)?;
+fn main() -> Result<(), BoxError> {
+    // `general` contains `specific`.
+    let general = NdarrayBox::new(array![0., 0., 0.], array![1., 1., 1.], 1.0)?;
+    let specific = NdarrayBox::new(array![0.2, 0.2, 0.2], array![0.8, 0.8, 0.8], 1.0)?;
 
-// B is the specific concept inside A.
-let hypothesis = NdarrayBox::new(array![0.2, 0.2, 0.2], array![0.8, 0.8, 0.8], 1.0)?;
-
-let p = premise.containment_prob(&hypothesis)?;
-assert!(p > 0.9);
+    let probability = general.containment_prob(&specific)?;
+    println!("P(specific in general) = {probability:.1}");
+    Ok(())
+}
 ```
 
-Triple convention: the head box contains the tail box. For datasets where
-triples are `(child, hypernym, parent)`, pass `reverse=True` to the Python
-loader or reverse the triples before training.
-
-## Training
-
-```rust,ignore
-use std::path::Path;
-use subsume::{dataset::load_dataset, BoxEmbeddingTrainer, TrainingConfig};
-
-let dataset = load_dataset(Path::new("data/wn18rr"))?;
-let interned = dataset.into_interned();
-let train: Vec<_> = interned.train.iter().map(|t| (t.head, t.relation, t.tail)).collect();
-
-let config = TrainingConfig { learning_rate: 0.01, epochs: 50, ..Default::default() };
-let mut trainer = BoxEmbeddingTrainer::new(config, 32);
-let result = trainer.fit(&train, None, None)?;
-println!("MRR: {:.3}", result.final_results.mrr);
+```text
+P(specific in general) = 1.0
 ```
 
-Python bindings are published as `subsumer`:
+For hard boxes, this is the fraction of the specific box's volume that lies in
+the general box. It is a geometric score, not calibrated probability for an
+observed label. The triple convention is `head contains tail`; reverse datasets
+that instead store `(child, hypernym, parent)`.
 
-```bash
-pip install subsumer
-```
-
-See [`subsume-python/README.md`](subsume-python/README.md) for Python examples.
-
-## Choosing A Geometry
+## Choose a geometry
 
 | Task | Start with | Notes |
 | --- | --- | --- |
 | Containment hierarchy | `NdarrayBox` or `NdarrayGumbelBox` | Boxes have volume and intersection; Gumbel boxes give dense gradients |
 | Logical queries with negation | Cone or subspace | Cones and subspaces support complement-like operations |
-| Taxonomy expansion with uncertainty | Gaussian boxes | KL gives asymmetric containment; Bhattacharyya gives overlap |
+| Taxonomy expansion with distributional spread | Gaussian boxes | KL gives asymmetric containment; Bhattacharyya gives overlap |
 | EL++ ontology completion | `el`, `transbox` | Uses axiom losses rather than plain triple scoring |
 | Tree-like hierarchies in low dimension | Hyperbolic intervals or balls | Useful when depth is the main structure |
 
 The full geometry table is in [`docs/geometries.md`](docs/geometries.md).
-Scores are monotone within a geometry but not calibrated across geometries; see
-`cargo run --example region_generic`.
-
-## Why Regions
-
-Point embeddings such as TransE, RotatE, and ComplEx work well for ordinary link
-prediction. Regions are useful when the task needs structure that points do not
-have:
-
-| Need | Point embeddings | Region embeddings |
-| --- | --- | --- |
-| Containment | No interior | Box nesting |
-| Generality | No volume | Larger region = broader concept |
-| Intersection | No set operation | Box intersection |
-| Negation | No complement | Cone or subspace complement |
-| Uncertainty | Extra model-specific machinery | Region size or Gaussian variance |
-
-For background, see [Why Regions, Not Points](https://attobop.net/posts/region-embeddings/)
-and [`docs/SUBSUMPTION_HISTORY.md`](docs/SUBSUMPTION_HISTORY.md).
+Scores are meaningful within one geometry, but are not calibrated across
+geometries. See `cargo run --example region_generic`.
 
 ## Examples
 
 ```bash
 cargo run --example containment_hierarchy
-cargo run --example box_training
-cargo run --example el_training
 ```
 
-The full example map is in [`examples/README.md`](examples/README.md).
+This self-contained example prints containment and overlap scores for a small
+hierarchy. The [example guide](examples/README.md) covers training, ontology,
+query, and data-gated benchmarks.
+
+Python bindings are published as `subsumer`; see
+[`subsume-python/README.md`](subsume-python/README.md).
 
 ## Benchmarks
 
 EL++ ontology completion results and reproduction commands are in
 [`docs/benchmarks.md`](docs/benchmarks.md). The current strongest results are on
 NF3 existential restrictions, with MRR 0.21-0.37 across GALEN, GO, and Anatomy in
-the recorded single-run Burn benchmark.
+recorded single-run Burn runs.
 
 ## Limits
 
 - For ordinary link prediction, point embeddings are often simpler.
 - Region scores from different geometries are not directly comparable.
+- Region volume expresses geometric generality; it is not calibrated epistemic
+  or target uncertainty. Gaussian geometry represents distributional spread,
+  with assumptions set by the caller.
 - Several geometry trainers are research paths, not recommended defaults.
 - GPU examples depend on Burn backend features and dataset files under `data/`.
 
