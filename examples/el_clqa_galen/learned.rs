@@ -1,6 +1,6 @@
 use super::{
-    emit_conformal_metrics, emit_retrieval_metrics, print_f32_distribution, set_size_summary,
-    CQuery, ConformalMetrics, MetricsCsv, RetrievalMetrics,
+    emit_retrieval_metrics, print_f32_distribution, set_size_summary, CQuery, MetricsCsv,
+    RetrievalMetrics,
 };
 use heyting::conformal::calibrate_scores;
 use rayon::prelude::*;
@@ -77,7 +77,10 @@ impl LearnedConformalScoring {
         }
     }
 
-    fn nonconformity(self, q: &CQuery, scored: &[CandidateScore]) -> f32 {
+    fn nonconformity(self, q: &CQuery, scored: &[CandidateScore]) -> Option<f32> {
+        if !candidate_scores_are_finite(scored) {
+            return None;
+        }
         match self {
             Self::ScoreGap => learned_score_gap_nonconformity(q, scored),
             Self::NormalizedScoreGap => learned_normalized_score_gap_nonconformity(q, scored),
@@ -352,50 +355,92 @@ fn scored_frontier_pool_details(
     scored
 }
 
-fn learned_score_gap_nonconformity(q: &CQuery, scored: &[CandidateScore]) -> f32 {
-    let Some(best_score) = scored.first().map(|candidate| candidate.score) else {
-        return f32::INFINITY;
-    };
-    let Some(target_score) = scored
+fn learned_score_gap_nonconformity(q: &CQuery, scored: &[CandidateScore]) -> Option<f32> {
+    let best_score = scored.first()?.score;
+    let target_score = scored
         .iter()
         .filter(|candidate| q.is_target(candidate.concept))
         .map(|candidate| candidate.score)
-        .max_by(f32::total_cmp)
-    else {
-        let worst_score = scored
-            .last()
-            .map_or(best_score, |candidate| candidate.score);
-        return (best_score - worst_score).abs() + 1.0;
-    };
-    best_score - target_score
+        .max_by(f32::total_cmp)?;
+    let nonconformity = best_score - target_score;
+    nonconformity.is_finite().then_some(nonconformity)
+}
+
+fn target_is_in_pool(q: &CQuery, scored: &[CandidateScore]) -> bool {
+    scored
+        .iter()
+        .any(|candidate| q.is_target(candidate.concept))
+}
+
+fn candidate_scores_are_finite(scored: &[CandidateScore]) -> bool {
+    scored.iter().all(|candidate| candidate.score.is_finite())
+}
+
+fn candidate_pool_counts(
+    queries: &[CQuery],
+    scored_queries: &[(usize, Vec<CandidateScore>)],
+) -> (usize, usize, usize) {
+    let mut supported = 0usize;
+    let mut empty = 0usize;
+    let mut nonempty_miss = 0usize;
+    for (index, scored) in scored_queries {
+        if scored.is_empty() {
+            empty += 1;
+        } else if target_is_in_pool(&queries[*index], scored) {
+            supported += 1;
+        } else {
+            nonempty_miss += 1;
+        }
+    }
+    (supported, empty, nonempty_miss)
+}
+
+fn supported_score_is_invalid(
+    scoring: LearnedConformalScoring,
+    query: &CQuery,
+    scored: &[CandidateScore],
+) -> bool {
+    candidate_scores_are_finite(scored)
+        && target_is_in_pool(query, scored)
+        && scoring.nonconformity(query, scored).is_none()
 }
 
 fn learned_score_range(scored: &[CandidateScore]) -> Option<f32> {
     let best = scored.first()?.score;
     let worst = scored.last()?.score;
-    Some((best - worst).abs().max(1e-6))
+    let range = (best - worst).abs().max(1e-6);
+    range.is_finite().then_some(range)
 }
 
-fn learned_normalized_score_gap_nonconformity(q: &CQuery, scored: &[CandidateScore]) -> f32 {
-    learned_score_gap_nonconformity(q, scored) / learned_score_range(scored).unwrap_or(1.0)
+fn learned_normalized_score_gap_nonconformity(
+    q: &CQuery,
+    scored: &[CandidateScore],
+) -> Option<f32> {
+    let nonconformity = learned_score_gap_nonconformity(q, scored)? / learned_score_range(scored)?;
+    nonconformity.is_finite().then_some(nonconformity)
 }
 
-fn learned_rank_nonconformity(q: &CQuery, scored: &[CandidateScore]) -> f32 {
+fn learned_rank_nonconformity(q: &CQuery, scored: &[CandidateScore]) -> Option<f32> {
     scored
         .iter()
         .position(|candidate| q.is_target(candidate.concept))
-        .map_or(scored.len() as f32, |rank| rank as f32)
+        .map(|rank| rank as f32)
 }
 
 fn learned_score_gap_answer_set(scored: &[CandidateScore], qhat: f32) -> Vec<CandidateScore> {
+    if qhat == f32::INFINITY {
+        return scored.to_vec();
+    }
     let Some(best_score) = scored.first().map(|candidate| candidate.score) else {
         return Vec::new();
     };
-    let cutoff = best_score - qhat;
     scored
         .iter()
         .copied()
-        .filter(|candidate| candidate.score >= cutoff)
+        .filter(|candidate| {
+            let nonconformity = best_score - candidate.score;
+            nonconformity.is_finite() && nonconformity <= qhat
+        })
         .collect()
 }
 
@@ -403,17 +448,22 @@ fn learned_normalized_score_gap_answer_set(
     scored: &[CandidateScore],
     qhat: f32,
 ) -> Vec<CandidateScore> {
+    if qhat == f32::INFINITY {
+        return scored.to_vec();
+    }
     let Some(best_score) = scored.first().map(|candidate| candidate.score) else {
         return Vec::new();
     };
     let Some(score_range) = learned_score_range(scored) else {
         return Vec::new();
     };
-    let cutoff = best_score - qhat * score_range;
     scored
         .iter()
         .copied()
-        .filter(|candidate| candidate.score >= cutoff)
+        .filter(|candidate| {
+            let nonconformity = (best_score - candidate.score) / score_range;
+            nonconformity.is_finite() && nonconformity <= qhat
+        })
         .collect()
 }
 
@@ -421,13 +471,11 @@ fn learned_rank_answer_set(scored: &[CandidateScore], qhat: f32) -> Vec<Candidat
     if scored.is_empty() {
         return Vec::new();
     }
-    if !qhat.is_finite() {
-        return scored.to_vec();
-    }
-    let last_rank = qhat.max(0.0).floor() as usize;
     scored
         .iter()
-        .take(last_rank.saturating_add(1))
+        .enumerate()
+        .filter(|(rank, _)| (*rank as f32) <= qhat)
+        .map(|(_, candidate)| candidate)
         .copied()
         .collect()
 }
@@ -435,12 +483,29 @@ fn learned_rank_answer_set(scored: &[CandidateScore], qhat: f32) -> Vec<Candidat
 struct LearnedConformalResult {
     alpha: f32,
     q_hat: f32,
-    empirical: f64,
+    calibrated: bool,
+    conditional_empirical: Option<f64>,
+    end_to_end_empirical: f64,
     pool_recall: f64,
     mean_set: f32,
     p50_set: usize,
     p90_set: usize,
     max_set: usize,
+}
+
+struct LearnedConformalRun {
+    calibration_nonconformities: Vec<f32>,
+    calibration_supported: usize,
+    calibration_empty_pools: usize,
+    calibration_nonempty_misses: usize,
+    calibration_invalid_scores: usize,
+    calibration_invalid_scoring: usize,
+    test_supported: usize,
+    test_empty_pools: usize,
+    test_nonempty_misses: usize,
+    test_invalid_scores: usize,
+    test_invalid_scoring: usize,
+    results: Vec<LearnedConformalResult>,
 }
 
 fn learned_conformal_results(
@@ -451,7 +516,7 @@ fn learned_conformal_results(
     cal_idx: &[usize],
     test_idx: &[usize],
     scoring: LearnedConformalScoring,
-) -> (Vec<f32>, Vec<LearnedConformalResult>) {
+) -> LearnedConformalRun {
     let cal_scores: Vec<(usize, Vec<CandidateScore>)> = cal_idx
         .iter()
         .map(|&i| {
@@ -470,41 +535,68 @@ fn learned_conformal_results(
             )
         })
         .collect();
-    let cal_nonconf: Vec<f32> = cal_scores
+    let calibration_invalid_scores = cal_scores
         .iter()
-        .map(|(i, scored)| scoring.nonconformity(&queries[*i], scored))
+        .filter(|(_, scored)| !candidate_scores_are_finite(scored))
+        .count();
+    let test_invalid_scores = test_scores
+        .iter()
+        .filter(|(_, scored)| !candidate_scores_are_finite(scored))
+        .count();
+    let calibration_invalid_scoring = cal_scores
+        .iter()
+        .filter(|(index, scored)| supported_score_is_invalid(scoring, &queries[*index], scored))
+        .count();
+    let test_invalid_scoring = test_scores
+        .iter()
+        .filter(|(index, scored)| supported_score_is_invalid(scoring, &queries[*index], scored))
+        .count();
+    let (calibration_supported, calibration_empty_pools, calibration_nonempty_misses) =
+        candidate_pool_counts(queries, &cal_scores);
+    let calibration_nonconformities: Vec<f32> = cal_scores
+        .iter()
+        .filter_map(|(i, scored)| scoring.nonconformity(&queries[*i], scored))
         .collect();
-    let pool_recall = test_scores
-        .iter()
-        .filter(|(i, scored)| {
-            scored
-                .iter()
-                .any(|candidate| queries[*i].is_target(candidate.concept))
-        })
-        .count() as f64
-        / test_scores.len() as f64;
-    let results = [0.3f32, 0.2, 0.1]
+    let (test_supported, test_empty_pools, test_nonempty_misses) =
+        candidate_pool_counts(queries, &test_scores);
+    let pool_recall = test_supported as f64 / test_scores.len() as f64;
+    let results = (calibration_invalid_scores == 0
+        && test_invalid_scores == 0
+        && calibration_invalid_scoring == 0
+        && test_invalid_scoring == 0)
+        .then_some([0.3f32, 0.2, 0.1])
         .into_iter()
+        .flatten()
         .map(|alpha| {
-            let threshold = calibrate_scores(&cal_nonconf, alpha).expect("non-empty calibration");
-            let mut covered = 0usize;
+            let (q_hat, calibrated) = if calibration_nonconformities.is_empty() {
+                (f32::INFINITY, false)
+            } else {
+                let threshold = calibrate_scores(&calibration_nonconformities, alpha)
+                    .expect("finite non-empty calibration scores");
+                (threshold.qhat, true)
+            };
+            let mut end_to_end_covered = 0usize;
             let mut sizes = Vec::with_capacity(test_scores.len());
             for (i, scored) in &test_scores {
-                let set = scoring.answer_set(scored, threshold.qhat);
-                if set
+                let set = scoring.answer_set(scored, q_hat);
+                let covered = set
                     .iter()
-                    .any(|candidate| queries[*i].is_target(candidate.concept))
-                {
-                    covered += 1;
+                    .any(|candidate| queries[*i].is_target(candidate.concept));
+                if covered {
+                    end_to_end_covered += 1;
                 }
                 sizes.push(set.len());
             }
-            let empirical = covered as f64 / test_scores.len() as f64;
+            let end_to_end_empirical = end_to_end_covered as f64 / test_scores.len() as f64;
+            let conditional_empirical =
+                (test_supported > 0).then(|| end_to_end_covered as f64 / test_supported as f64);
             let (mean_set, p50_set, p90_set, max_set) = set_size_summary(&sizes);
             LearnedConformalResult {
                 alpha,
-                q_hat: threshold.qhat,
-                empirical,
+                q_hat,
+                calibrated,
+                conditional_empirical,
+                end_to_end_empirical,
                 pool_recall,
                 mean_set,
                 p50_set,
@@ -513,7 +605,158 @@ fn learned_conformal_results(
             }
         })
         .collect();
-    (cal_nonconf, results)
+    LearnedConformalRun {
+        calibration_nonconformities,
+        calibration_supported,
+        calibration_empty_pools,
+        calibration_nonempty_misses,
+        calibration_invalid_scores,
+        calibration_invalid_scoring,
+        test_supported,
+        test_empty_pools,
+        test_nonempty_misses,
+        test_invalid_scores,
+        test_invalid_scoring,
+        results,
+    }
+}
+
+fn threshold_display(result: &LearnedConformalResult) -> String {
+    if result.q_hat.is_finite() {
+        format!("{:.3}", result.q_hat)
+    } else if result.calibrated {
+        "unbounded".to_string()
+    } else {
+        "fallback".to_string()
+    }
+}
+
+fn emit_learned_conformal_metrics(
+    metrics: &mut MetricsCsv,
+    section: &str,
+    label: &str,
+    param: &str,
+    result: &LearnedConformalResult,
+) {
+    if result.q_hat.is_finite() {
+        metrics.emit(
+            section,
+            label,
+            param,
+            Some(result.alpha),
+            "q_hat",
+            result.q_hat,
+        );
+    }
+    metrics.emit(
+        section,
+        label,
+        param,
+        Some(result.alpha),
+        "q_hat_unbounded",
+        usize::from(result.q_hat == f32::INFINITY),
+    );
+    metrics.emit(
+        section,
+        label,
+        param,
+        Some(result.alpha),
+        "q_hat_fallback",
+        usize::from(!result.calibrated),
+    );
+    metrics.emit(
+        section,
+        label,
+        param,
+        Some(result.alpha),
+        "empirical_coverage",
+        result.end_to_end_empirical,
+    );
+    metrics.emit(
+        section,
+        label,
+        param,
+        Some(result.alpha),
+        "pool_recall",
+        result.pool_recall,
+    );
+    metrics.emit(
+        section,
+        label,
+        param,
+        Some(result.alpha),
+        "mean_set",
+        result.mean_set,
+    );
+    metrics.emit(
+        section,
+        label,
+        param,
+        Some(result.alpha),
+        "p50_set",
+        result.p50_set,
+    );
+    metrics.emit(
+        section,
+        label,
+        param,
+        Some(result.alpha),
+        "p90_set",
+        result.p90_set,
+    );
+    metrics.emit(
+        section,
+        label,
+        param,
+        Some(result.alpha),
+        "max_set",
+        result.max_set,
+    );
+    metrics.emit(
+        section,
+        label,
+        param,
+        Some(result.alpha),
+        "calibrated",
+        usize::from(result.calibrated),
+    );
+    if let Some(conditional) = result.conditional_empirical {
+        metrics.emit(
+            section,
+            label,
+            param,
+            Some(result.alpha),
+            "conditional_empirical_coverage",
+            conditional,
+        );
+    }
+}
+
+#[derive(Default)]
+struct RepeatThresholdSummary {
+    finite: Vec<f32>,
+    calibrated_unbounded: usize,
+    fallback: usize,
+}
+
+fn repeat_threshold_summary(
+    rows: &[Vec<LearnedConformalResult>],
+    alpha: f32,
+) -> RepeatThresholdSummary {
+    let mut summary = RepeatThresholdSummary::default();
+    for row in rows {
+        let Some(result) = row.iter().find(|result| result.alpha == alpha) else {
+            continue;
+        };
+        if result.q_hat.is_finite() {
+            summary.finite.push(result.q_hat);
+        } else if result.calibrated {
+            summary.calibrated_unbounded += 1;
+        } else {
+            summary.fallback += 1;
+        }
+    }
+    summary
 }
 
 fn learned_case_limit() -> usize {
@@ -526,11 +769,13 @@ fn learned_case_limit() -> usize {
 fn learned_conformal_param(
     base_param: &str,
     cal_len: usize,
+    calibration_supported: usize,
     test_len: usize,
+    test_supported: usize,
     scoring: LearnedConformalScoring,
 ) -> String {
     format!(
-        "{base_param};cal={cal_len};conformal_test={test_len};conformal_score={}",
+        "{base_param};cal={cal_len};cal_supported={calibration_supported};conformal_test={test_len};test_supported={test_supported};conformal_score={}",
         scoring.param_value()
     )
 }
@@ -570,19 +815,19 @@ fn repeat_summary_param(config: LearnedRankerConfig, effective_repeats: usize) -
     )
 }
 
-fn mean_sample_std(values: &[f32]) -> (f32, f32) {
+fn mean_sample_std(values: &[f32]) -> (f64, f64) {
     if values.is_empty() {
         return (0.0, 0.0);
     }
-    let mean = values.iter().sum::<f32>() / values.len() as f32;
+    let mean = values.iter().map(|&value| f64::from(value)).sum::<f64>() / values.len() as f64;
     if values.len() == 1 {
         return (mean, 0.0);
     }
     let variance = values
         .iter()
-        .map(|value| (value - mean).powi(2))
-        .sum::<f32>()
-        / (values.len() - 1) as f32;
+        .map(|&value| (f64::from(value) - mean).powi(2))
+        .sum::<f64>()
+        / (values.len() - 1) as f64;
     (mean, variance.sqrt())
 }
 
@@ -882,19 +1127,69 @@ fn report_learned_conformal(
         test_idx.len()
     );
     for scoring in LEARNED_CONFORMAL_SCORINGS {
-        let conformal_param =
-            learned_conformal_param(param, cal_idx.len(), test_idx.len(), scoring);
-        let (cal_nonconf, results) = learned_conformal_results(
+        let run = learned_conformal_results(
             queries, frontier, extra_hops, weights, cal_idx, test_idx, scoring,
         );
+        let conformal_param = format!(
+            "{};cal_empty_pool={};cal_nonempty_miss={};test_empty_pool={};test_nonempty_miss={}",
+            learned_conformal_param(
+                param,
+                cal_idx.len(),
+                run.calibration_supported,
+                test_idx.len(),
+                run.test_supported,
+                scoring,
+            ),
+            run.calibration_empty_pools,
+            run.calibration_nonempty_misses,
+            run.test_empty_pools,
+            run.test_nonempty_misses
+        );
         println!("[learned conformal] score={}", scoring.param_value());
-        print_f32_distribution(scoring.distribution_label(), &cal_nonconf);
         println!(
-            "{:<8} {:>8} {:>10} {:>10} {:>10} {:>10} {:>8} {:>8} {:>8}",
+            "[learned conformal] candidate support: {}/{} calibration, {}/{} test",
+            run.calibration_supported,
+            cal_idx.len(),
+            run.test_supported,
+            test_idx.len()
+        );
+        println!(
+            "[learned conformal] retrieval misses: empty pool {}/{} calibration/test; nonempty pool without target {}/{}",
+            run.calibration_empty_pools,
+            run.test_empty_pools,
+            run.calibration_nonempty_misses,
+            run.test_nonempty_misses
+        );
+        if run.calibration_invalid_scores > 0
+            || run.test_invalid_scores > 0
+            || run.calibration_invalid_scoring > 0
+            || run.test_invalid_scoring > 0
+        {
+            println!(
+                "[learned conformal] skipped: invalid candidate scores in {}/{} calibration/test queries; invalid supported score computations in {}/{}",
+                run.calibration_invalid_scores,
+                run.test_invalid_scores,
+                run.calibration_invalid_scoring,
+                run.test_invalid_scoring
+            );
+            continue;
+        }
+        if run.calibration_nonconformities.is_empty() {
+            println!(
+                "[learned conformal] no supported calibration queries: uncalibrated full-pool sets"
+            );
+        }
+        print_f32_distribution(
+            scoring.distribution_label(),
+            &run.calibration_nonconformities,
+        );
+        println!(
+            "{:<8} {:>8} {:>10} {:>12} {:>12} {:>10} {:>10} {:>8} {:>8} {:>8}",
             "alpha",
             "1-alpha",
             "q_hat",
-            "empirical",
+            "conditional",
+            "end_to_end",
             "poolrecall",
             "mean|set|",
             "p50",
@@ -909,39 +1204,34 @@ fn report_learned_conformal(
                 weights,
                 scoring,
                 test_idx,
-                results: &results,
+                results: &run.results,
                 base_param: &conformal_param,
             },
             metrics,
         );
-        for result in results {
+        for result in run.results {
+            let conditional = result
+                .conditional_empirical
+                .map_or_else(|| "n/a".to_string(), |value| format!("{value:.3}"));
             println!(
-                "{:<8.2} {:>8.2} {:>10.3} {:>10.3} {:>10.3} {:>10.1} {:>8} {:>8} {:>8}",
+                "{:<8.2} {:>8.2} {:>10} {:>12} {:>12.3} {:>10.3} {:>10.1} {:>8} {:>8} {:>8}",
                 result.alpha,
                 1.0 - result.alpha,
-                result.q_hat,
-                result.empirical,
+                threshold_display(&result),
+                conditional,
+                result.end_to_end_empirical,
                 result.pool_recall,
                 result.mean_set,
                 result.p50_set,
                 result.p90_set,
                 result.max_set
             );
-            emit_conformal_metrics(
+            emit_learned_conformal_metrics(
                 metrics,
                 "learned_frontier_conformal",
                 scoring.label(),
                 &conformal_param,
-                result.alpha,
-                ConformalMetrics {
-                    q_hat: result.q_hat,
-                    empirical: result.empirical,
-                    pool_recall: result.pool_recall,
-                    mean_set: result.mean_set,
-                    p50_set: result.p50_set,
-                    p90_set: result.p90_set,
-                    max_set: result.max_set,
-                },
+                &result,
             );
         }
     }
@@ -990,7 +1280,7 @@ fn report_repeated_learned_conformal(
             test_idx.len(),
         );
         for (scoring, rows) in &mut rows_by_scoring {
-            let (_, results) = learned_conformal_results(
+            let run = learned_conformal_results(
                 queries,
                 frontier,
                 config.extra_hops,
@@ -999,30 +1289,55 @@ fn report_repeated_learned_conformal(
                 test_idx,
                 *scoring,
             );
+            if run.calibration_invalid_scores > 0
+                || run.test_invalid_scores > 0
+                || run.calibration_invalid_scoring > 0
+                || run.test_invalid_scoring > 0
+            {
+                let invalid_calibration =
+                    run.calibration_invalid_scores + run.calibration_invalid_scoring;
+                let invalid_test = run.test_invalid_scores + run.test_invalid_scoring;
+                println!(
+                    "[learned conformal repeats] repeat={} score={} skipped: invalid scoring in {invalid_calibration}/{invalid_test} calibration/test queries",
+                    repeat + 1,
+                    scoring.param_value()
+                );
+                for (metric, count) in [
+                    ("invalid_calibration_queries", invalid_calibration),
+                    ("invalid_test_queries", invalid_test),
+                ] {
+                    metrics.emit(
+                        "learned_frontier_conformal_repeat",
+                        scoring.label(),
+                        &repeat_row_param,
+                        None,
+                        metric,
+                        count,
+                    );
+                }
+                continue;
+            }
             let repeat_row_param = format!(
-                "{};conformal_score={}",
+                "{};cal_supported={};cal_empty_pool={};cal_nonempty_miss={};test_supported={};test_empty_pool={};test_nonempty_miss={};conformal_score={}",
                 repeat_row_param,
+                run.calibration_supported,
+                run.calibration_empty_pools,
+                run.calibration_nonempty_misses,
+                run.test_supported,
+                run.test_empty_pools,
+                run.test_nonempty_misses,
                 scoring.param_value()
             );
-            for result in &results {
-                emit_conformal_metrics(
+            for result in &run.results {
+                emit_learned_conformal_metrics(
                     metrics,
                     "learned_frontier_conformal_repeat",
                     scoring.label(),
                     &repeat_row_param,
-                    result.alpha,
-                    ConformalMetrics {
-                        q_hat: result.q_hat,
-                        empirical: result.empirical,
-                        pool_recall: result.pool_recall,
-                        mean_set: result.mean_set,
-                        p50_set: result.p50_set,
-                        p90_set: result.p90_set,
-                        max_set: result.max_set,
-                    },
+                    result,
                 );
             }
-            rows.push(results);
+            rows.push(run.results);
         }
     }
     if rows_by_scoring.iter().all(|(_, rows)| rows.is_empty()) {
@@ -1050,42 +1365,75 @@ fn report_repeated_learned_conformal(
             scoring.param_value()
         );
         println!(
-            "{:<8} {:>10} {:>10} {:>10} {:>10} {:>10}",
-            "alpha", "cov_mean", "cov_min", "cov_max", "set_mean", "recall_min"
+            "{:<8} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",
+            "alpha",
+            "end_cov_mean",
+            "end_cov_min",
+            "end_cov_max",
+            "cond_cov",
+            "set_mean",
+            "recall_min"
         );
         for alpha in [0.3f32, 0.2, 0.1] {
-            let mut coverages = Vec::new();
+            let mut end_to_end_coverages = Vec::new();
+            let mut conditional_coverages = Vec::new();
             let mut mean_sets = Vec::new();
             let mut recalls = Vec::new();
             for repeat_results in &rows {
                 if let Some(result) = repeat_results.iter().find(|result| result.alpha == alpha) {
-                    coverages.push(result.empirical as f32);
+                    end_to_end_coverages.push(result.end_to_end_empirical as f32);
+                    if let Some(conditional) = result.conditional_empirical {
+                        conditional_coverages.push(conditional as f32);
+                    }
                     mean_sets.push(result.mean_set);
                     recalls.push(result.pool_recall as f32);
                 }
             }
-            if coverages.is_empty() {
+            if end_to_end_coverages.is_empty() {
                 continue;
             }
-            let mut qhats = Vec::new();
-            for repeat_results in &rows {
-                if let Some(result) = repeat_results.iter().find(|result| result.alpha == alpha) {
-                    qhats.push(result.q_hat);
-                }
-            }
-            let (coverage_mean, coverage_std) = mean_sample_std(&coverages);
+            let thresholds = repeat_threshold_summary(&rows, alpha);
+            let (end_to_end_coverage_mean, end_to_end_coverage_std) =
+                mean_sample_std(&end_to_end_coverages);
+            let (conditional_coverage_mean, conditional_coverage_std) =
+                mean_sample_std(&conditional_coverages);
             let (set_mean, set_std) = mean_sample_std(&mean_sets);
             let (recall_mean, recall_std) = mean_sample_std(&recalls);
-            let (qhat_mean, qhat_std) = mean_sample_std(&qhats);
-            let coverage_min = coverages.iter().copied().fold(f32::INFINITY, f32::min);
-            let coverage_max = coverages.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+            let (qhat_mean, qhat_std) = mean_sample_std(&thresholds.finite);
+            let end_to_end_coverage_min = end_to_end_coverages
+                .iter()
+                .copied()
+                .fold(f32::INFINITY, f32::min);
+            let end_to_end_coverage_max = end_to_end_coverages
+                .iter()
+                .copied()
+                .fold(f32::NEG_INFINITY, f32::max);
             let recall_min = recalls.iter().copied().fold(f32::INFINITY, f32::min);
+            let conditional_display = if conditional_coverages.is_empty() {
+                "n/a".to_string()
+            } else {
+                format!("{conditional_coverage_mean:.3}")
+            };
+            let calibrated_rows = thresholds.finite.len() + thresholds.calibrated_unbounded;
             println!(
-                "{alpha:<8.2} {coverage_mean:>10.3} {coverage_min:>10.3} {coverage_max:>10.3} {set_mean:>10.1} {recall_min:>10.3}"
+                "{alpha:<8.2} {end_to_end_coverage_mean:>10.3} {end_to_end_coverage_min:>10.3} {end_to_end_coverage_max:>10.3} {conditional_display:>10} {set_mean:>10.1} {recall_min:>10.3}"
+            );
+            println!(
+                "           coverage rows: all={}; calibrated={}; fallback={}; qhat finite={}; unbounded={}",
+                end_to_end_coverages.len(),
+                calibrated_rows,
+                thresholds.fallback,
+                thresholds.finite.len(),
+                thresholds.calibrated_unbounded
             );
             let param = format!(
-                "{};conformal_score={}",
+                "{};coverage_rows={};calibrated_rows={};fallback_rows={};qhat_finite_rows={};qhat_unbounded_rows={};conformal_score={}",
                 repeat_summary_param(config, rows.len()),
+                end_to_end_coverages.len(),
+                calibrated_rows,
+                thresholds.fallback,
+                thresholds.finite.len(),
+                thresholds.calibrated_unbounded,
                 scoring.param_value()
             );
             metrics.emit(
@@ -1093,33 +1441,51 @@ fn report_repeated_learned_conformal(
                 scoring.label(),
                 &param,
                 Some(alpha),
-                "coverage_mean",
-                coverage_mean,
+                "end_to_end_coverage_mean",
+                end_to_end_coverage_mean,
             );
             metrics.emit(
                 "learned_frontier_conformal_repeats",
                 scoring.label(),
                 &param,
                 Some(alpha),
-                "coverage_sample_std",
-                coverage_std,
+                "end_to_end_coverage_sample_std",
+                end_to_end_coverage_std,
             );
             metrics.emit(
                 "learned_frontier_conformal_repeats",
                 scoring.label(),
                 &param,
                 Some(alpha),
-                "coverage_min",
-                coverage_min,
+                "end_to_end_coverage_min",
+                end_to_end_coverage_min,
             );
             metrics.emit(
                 "learned_frontier_conformal_repeats",
                 scoring.label(),
                 &param,
                 Some(alpha),
-                "coverage_max",
-                coverage_max,
+                "end_to_end_coverage_max",
+                end_to_end_coverage_max,
             );
+            if !conditional_coverages.is_empty() {
+                metrics.emit(
+                    "learned_frontier_conformal_repeats",
+                    scoring.label(),
+                    &param,
+                    Some(alpha),
+                    "conditional_coverage_mean",
+                    conditional_coverage_mean,
+                );
+                metrics.emit(
+                    "learned_frontier_conformal_repeats",
+                    scoring.label(),
+                    &param,
+                    Some(alpha),
+                    "conditional_coverage_sample_std",
+                    conditional_coverage_std,
+                );
+            }
             metrics.emit(
                 "learned_frontier_conformal_repeats",
                 scoring.label(),
@@ -1160,21 +1526,47 @@ fn report_repeated_learned_conformal(
                 "pool_recall_sample_std",
                 recall_std,
             );
+            if !thresholds.finite.is_empty() {
+                metrics.emit(
+                    "learned_frontier_conformal_repeats",
+                    scoring.label(),
+                    &param,
+                    Some(alpha),
+                    "q_hat_mean",
+                    qhat_mean,
+                );
+                metrics.emit(
+                    "learned_frontier_conformal_repeats",
+                    scoring.label(),
+                    &param,
+                    Some(alpha),
+                    "q_hat_sample_std",
+                    qhat_std,
+                );
+            }
             metrics.emit(
                 "learned_frontier_conformal_repeats",
                 scoring.label(),
                 &param,
                 Some(alpha),
-                "q_hat_mean",
-                qhat_mean,
+                "q_hat_finite_count",
+                thresholds.finite.len(),
             );
             metrics.emit(
                 "learned_frontier_conformal_repeats",
                 scoring.label(),
                 &param,
                 Some(alpha),
-                "q_hat_sample_std",
-                qhat_std,
+                "q_hat_unbounded_count",
+                thresholds.calibrated_unbounded,
+            );
+            metrics.emit(
+                "learned_frontier_conformal_repeats",
+                scoring.label(),
+                &param,
+                Some(alpha),
+                "fallback_count",
+                thresholds.fallback,
             );
             metrics.emit(
                 "learned_frontier_conformal_repeats",
@@ -1182,7 +1574,7 @@ fn report_repeated_learned_conformal(
                 &param,
                 Some(alpha),
                 "split_count",
-                coverages.len(),
+                end_to_end_coverages.len(),
             );
         }
     }
@@ -1316,6 +1708,35 @@ mod tests {
         }
     }
 
+    proptest::proptest! {
+        #[test]
+        fn calibrated_target_enters_exactly_at_its_score(
+            scores in proptest::collection::vec(-1.0e4f32..1.0e4, 1..32),
+            target_index in 0usize..32,
+        ) {
+            let target = target_index % scores.len();
+            let mut scored: Vec<_> = scores.into_iter().enumerate().map(|(concept, score)| {
+                CandidateScore {
+                    concept,
+                    score,
+                    frontier_depth: 0,
+                    path_len: 0,
+                    parent_count: 0,
+                }
+            }).collect();
+            scored.sort_by(|a, b| b.score.total_cmp(&a.score));
+            let mut q = query(100, 101);
+            q.lcas = vec![target];
+            for scoring in LEARNED_CONFORMAL_SCORINGS {
+                let boundary = scoring.nonconformity(&q, &scored).unwrap();
+                let at = scoring.answer_set(&scored, boundary);
+                let below = scoring.answer_set(&scored, boundary.next_down());
+                proptest::prop_assert!(at.iter().any(|c| c.concept == target));
+                proptest::prop_assert!(!below.iter().any(|c| c.concept == target));
+            }
+        }
+    }
+
     #[test]
     fn query_split_indices_partition_queries() {
         let queries: Vec<CQuery> = (0..12).map(|i| query(i, i + 100)).collect();
@@ -1386,6 +1807,21 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![1, 2]
         );
+
+        let mut q = query(1, 2);
+        q.lcas = vec![2];
+        let boundary = learned_score_gap_nonconformity(&q, &scored).unwrap();
+        assert_eq!(boundary, 0.5);
+        assert!(learned_score_gap_answer_set(&scored, boundary)
+            .iter()
+            .any(|candidate| candidate.concept == 2));
+        assert_eq!(
+            learned_score_gap_answer_set(&scored, f32::INFINITY)
+                .iter()
+                .map(|candidate| candidate.concept)
+                .collect::<Vec<_>>(),
+            vec![1, 2, 3]
+        );
     }
 
     #[test]
@@ -1439,13 +1875,27 @@ mod tests {
         ];
 
         assert_eq!(learned_score_range(&scored), Some(2.0));
-        assert_eq!(learned_normalized_score_gap_nonconformity(&q, &scored), 0.5);
+        assert_eq!(
+            learned_normalized_score_gap_nonconformity(&q, &scored),
+            Some(0.5)
+        );
         assert_eq!(
             learned_normalized_score_gap_answer_set(&scored, 0.5)
                 .iter()
                 .map(|candidate| candidate.concept)
                 .collect::<Vec<_>>(),
             vec![1, 2]
+        );
+        let boundary = learned_normalized_score_gap_nonconformity(&q, &scored).unwrap();
+        assert!(learned_normalized_score_gap_answer_set(&scored, boundary)
+            .iter()
+            .any(|candidate| candidate.concept == 2));
+        assert_eq!(
+            learned_normalized_score_gap_answer_set(&scored, f32::INFINITY)
+                .iter()
+                .map(|candidate| candidate.concept)
+                .collect::<Vec<_>>(),
+            vec![1, 2, 3]
         );
     }
 
@@ -1477,9 +1927,258 @@ mod tests {
             },
         ];
 
-        assert_eq!(learned_rank_nonconformity(&q, &scored), 2.0);
+        assert_eq!(learned_rank_nonconformity(&q, &scored), Some(2.0));
         q.lcas = vec![4];
-        assert_eq!(learned_rank_nonconformity(&q, &scored), 3.0);
+        assert_eq!(learned_rank_nonconformity(&q, &scored), None);
+    }
+
+    #[test]
+    fn missing_pool_targets_have_no_calibration_score() {
+        let mut q = query(1, 2);
+        q.lcas = vec![4];
+        let scored = vec![
+            CandidateScore {
+                concept: 1,
+                score: 3.0,
+                frontier_depth: 1,
+                path_len: 2,
+                parent_count: 1,
+            },
+            CandidateScore {
+                concept: 2,
+                score: 1.0,
+                frontier_depth: 2,
+                path_len: 4,
+                parent_count: 2,
+            },
+        ];
+
+        assert!(!target_is_in_pool(&q, &scored));
+        for scoring in LEARNED_CONFORMAL_SCORINGS {
+            assert_eq!(scoring.nonconformity(&q, &scored), None);
+        }
+    }
+
+    #[test]
+    fn candidate_pool_counts_distinguish_empty_and_nonempty_misses() {
+        let queries = vec![query(1, 2), query(3, 4), query(5, 6)];
+        let candidate = |concept| CandidateScore {
+            concept,
+            score: 0.0,
+            frontier_depth: 1,
+            path_len: 2,
+            parent_count: 1,
+        };
+        let scored = vec![
+            (0, vec![]),
+            (1, vec![candidate(1)]),
+            (2, vec![candidate(0)]),
+        ];
+
+        assert_eq!(candidate_pool_counts(&queries, &scored), (1, 1, 1));
+    }
+
+    #[test]
+    fn nonfinite_candidate_scores_are_not_retrieval_misses() {
+        let mut q = query(1, 2);
+        q.lcas = vec![1];
+        let scored = vec![CandidateScore {
+            concept: 1,
+            score: f32::NAN,
+            frontier_depth: 1,
+            path_len: 2,
+            parent_count: 1,
+        }];
+        assert!(target_is_in_pool(&q, &scored));
+        assert!(!candidate_scores_are_finite(&scored));
+        for scoring in LEARNED_CONFORMAL_SCORINGS {
+            assert_eq!(scoring.nonconformity(&q, &scored), None);
+        }
+
+        let frontier = DirectFrontier::from_edges(4, [(1, 0), (2, 1), (3, 1)]).unwrap();
+        let mut supported = query(2, 3);
+        supported.lcas = vec![1];
+        let queries = vec![supported];
+        let run = learned_conformal_results(
+            &queries,
+            &frontier,
+            0,
+            &[f32::NAN; FRONTIER_FEATURES],
+            &[0],
+            &[0],
+            LearnedConformalScoring::Rank,
+        );
+        assert_eq!(run.calibration_invalid_scores, 1);
+        assert_eq!(run.test_invalid_scores, 1);
+        assert_eq!(run.calibration_invalid_scoring, 0);
+        assert_eq!(run.test_invalid_scoring, 0);
+        assert!(run.results.is_empty());
+    }
+
+    #[test]
+    fn finite_extreme_scores_that_overflow_a_gap_are_invalid_scoring() {
+        let mut q = query(1, 2);
+        q.lcas = vec![2];
+        let scored = vec![
+            CandidateScore {
+                concept: 1,
+                score: f32::MAX,
+                frontier_depth: 1,
+                path_len: 2,
+                parent_count: 1,
+            },
+            CandidateScore {
+                concept: 2,
+                score: -f32::MAX,
+                frontier_depth: 2,
+                path_len: 4,
+                parent_count: 1,
+            },
+        ];
+
+        assert!(candidate_scores_are_finite(&scored));
+        assert!(target_is_in_pool(&q, &scored));
+        assert!(supported_score_is_invalid(
+            LearnedConformalScoring::ScoreGap,
+            &q,
+            &scored
+        ));
+        assert!(supported_score_is_invalid(
+            LearnedConformalScoring::NormalizedScoreGap,
+            &q,
+            &scored
+        ));
+        assert!(!supported_score_is_invalid(
+            LearnedConformalScoring::Rank,
+            &q,
+            &scored
+        ));
+    }
+
+    #[test]
+    fn threshold_repeat_summary_separates_finite_unbounded_and_fallback() {
+        let result = |q_hat, calibrated| LearnedConformalResult {
+            alpha: 0.1,
+            q_hat,
+            calibrated,
+            conditional_empirical: Some(1.0),
+            end_to_end_empirical: 1.0,
+            pool_recall: 1.0,
+            mean_set: 1.0,
+            p50_set: 1,
+            p90_set: 1,
+            max_set: 1,
+        };
+        let rows = vec![
+            vec![result(0.5, true)],
+            vec![result(f32::INFINITY, true)],
+            vec![result(f32::INFINITY, false)],
+        ];
+
+        let summary = repeat_threshold_summary(&rows, 0.1);
+        assert_eq!(summary.finite, vec![0.5]);
+        assert_eq!(summary.calibrated_unbounded, 1);
+        assert_eq!(summary.fallback, 1);
+        assert_eq!(mean_sample_std(&summary.finite), (0.5, 0.0));
+    }
+
+    #[test]
+    fn conformal_metrics_keep_candidate_support_conditional() {
+        let frontier = DirectFrontier::from_edges(4, [(1, 0), (2, 1), (3, 1)]).unwrap();
+        let mut supported = query(2, 3);
+        supported.lcas = vec![1];
+        let mut missing = query(2, 3);
+        missing.lcas = vec![0];
+        let queries = vec![supported, missing];
+        let run = learned_conformal_results(
+            &queries,
+            &frontier,
+            0,
+            &[0.0; FRONTIER_FEATURES],
+            &[0],
+            &[0, 1],
+            LearnedConformalScoring::Rank,
+        );
+
+        assert_eq!(run.calibration_supported, 1);
+        assert_eq!(run.calibration_empty_pools, 0);
+        assert_eq!(run.calibration_nonempty_misses, 0);
+        assert_eq!(run.calibration_invalid_scores, 0);
+        assert_eq!(run.test_supported, 1);
+        assert_eq!(run.test_empty_pools, 0);
+        assert_eq!(run.test_nonempty_misses, 1);
+        for result in &run.results {
+            assert_eq!(result.conditional_empirical, Some(1.0));
+            assert_eq!(result.end_to_end_empirical, 0.5);
+            assert_eq!(result.pool_recall, 0.5);
+            assert_eq!(
+                result.end_to_end_empirical,
+                result.pool_recall * result.conditional_empirical.unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn rank_calibration_keeps_raw_thresholds_above_one() {
+        // ceil((4 + 1) * (1 - 0.5)) = 3, so the third order statistic is 2.
+        // A conformal core that clamps raw scores to [0, 1] incorrectly returns 1.
+        let threshold = calibrate_scores(&[0.0, 1.0, 2.0, 3.0], 0.5).unwrap();
+        assert_eq!(threshold.qhat, 2.0);
+    }
+
+    #[test]
+    fn no_supported_calibration_uses_uncalibrated_full_pool() {
+        let frontier = DirectFrontier::from_edges(4, [(1, 0), (2, 1), (3, 1)]).unwrap();
+        let mut supported = query(2, 3);
+        supported.lcas = vec![1];
+        let mut missing = query(2, 3);
+        missing.lcas = vec![0];
+        let queries = vec![supported, missing];
+        let run = learned_conformal_results(
+            &queries,
+            &frontier,
+            0,
+            &[0.0; FRONTIER_FEATURES],
+            &[1],
+            &[0, 1],
+            LearnedConformalScoring::Rank,
+        );
+
+        assert!(run.calibration_nonconformities.is_empty());
+        assert_eq!(run.calibration_supported, 0);
+        for result in &run.results {
+            assert!(!result.calibrated);
+            assert!(result.q_hat.is_infinite());
+            assert_eq!(result.conditional_empirical, Some(1.0));
+            assert_eq!(result.end_to_end_empirical, 0.5);
+            assert_eq!(result.pool_recall, 0.5);
+        }
+    }
+
+    #[test]
+    fn conditional_coverage_is_undefined_without_supported_test_queries() {
+        let frontier = DirectFrontier::from_edges(4, [(1, 0), (2, 1), (3, 1)]).unwrap();
+        let mut supported = query(2, 3);
+        supported.lcas = vec![1];
+        let mut missing = query(2, 3);
+        missing.lcas = vec![0];
+        let queries = vec![supported, missing];
+        let run = learned_conformal_results(
+            &queries,
+            &frontier,
+            0,
+            &[0.0; FRONTIER_FEATURES],
+            &[0],
+            &[1],
+            LearnedConformalScoring::Rank,
+        );
+
+        assert_eq!(run.test_supported, 0);
+        for result in &run.results {
+            assert_eq!(result.conditional_empirical, None);
+            assert_eq!(result.end_to_end_empirical, 0.0);
+            assert_eq!(result.pool_recall, 0.0);
+        }
     }
 
     #[test]
@@ -1537,11 +2236,13 @@ mod tests {
             "extra=10;epochs=20;ranker_train=6;ranker_test=6",
             3,
             3,
+            3,
+            2,
             LearnedConformalScoring::Rank,
         );
         assert_eq!(
             param,
-            "extra=10;epochs=20;ranker_train=6;ranker_test=6;cal=3;conformal_test=3;conformal_score=rank"
+            "extra=10;epochs=20;ranker_train=6;ranker_test=6;cal=3;cal_supported=3;conformal_test=3;test_supported=2;conformal_score=rank"
         );
     }
 
@@ -1563,6 +2264,15 @@ mod tests {
             repeat_summary_param(config, 4),
             "extra=10;epochs=20;lr=0.03;l2=0.0001;split=seeded_hash;base_split_seed=9;repeats=5;effective_repeats=4"
         );
+    }
+
+    #[test]
+    fn finite_threshold_summaries_do_not_overflow_f32() {
+        let largest = f64::from(f32::MAX);
+        assert_eq!(mean_sample_std(&[f32::MAX, f32::MAX]), (largest, 0.0));
+        let (mean, std) = mean_sample_std(&[0.0, f32::MAX]);
+        assert_eq!(mean, largest / 2.0);
+        assert!((std / largest - 1.0 / 2.0f64.sqrt()).abs() < 1e-15);
     }
 
     #[test]

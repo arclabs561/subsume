@@ -137,8 +137,8 @@ jobs:
           toolchain: "1.87.0"
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
-      # Note: criterion + ML-backend deps require a newer toolchain than MSRV
-      # MSRV check only tests core functionality without ML backends
+      # Library MSRV excludes development targets and optional ML backends.
+      # Tests/examples compile newer dev-dependencies, including Heyting.
       - name: Check MSRV
         run: |
           rm -f Cargo.lock  # v4 lock file requires Cargo 1.83+

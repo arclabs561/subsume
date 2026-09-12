@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Calibrate learned candidate sets on supported queries and report retrieval
+  misses separately from conditional and end-to-end answer coverage.
+- Preserve calibrated score-gap boundary ties when constructing answer sets.
+- Keep invalid scores and unbounded thresholds out of finite threshold
+  summaries; accumulate repeat statistics in `f64` to avoid overflow.
+
+### Changed
+
+- Use Heyting 0.17 for raw conformal thresholds, so rank and score-gap
+  thresholds are no longer clamped to the fuzzy-degree range.
+
 ## [0.17.1] - 2026-07-07
 
 ### Changed
