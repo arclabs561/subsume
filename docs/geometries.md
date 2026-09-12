@@ -9,14 +9,14 @@ geometries without calibration.
 
 | Geometry | When to use it | Negation? | Main tradeoff |
 | --- | --- | --- | --- |
-| `NdarrayBox` / `NdarrayGumbelBox` | Containment hierarchies, each dimension independent | No | Simple and fast; Gumbel boxes add dense gradients |
+| `NdarrayBox` / `NdarrayGumbelBox` | Containment hierarchies, each dimension independent | No | Axis-aligned coordinates; Gumbel boxes add dense gradients |
 | Cone | Multi-hop queries requiring negation | Yes | Closed under complement; angular parameterization is harder to initialize |
 | Octagon | Rule-aware KG completion; tighter containment than boxes | No | Diagonal constraints add parameters |
 | Gaussian box | Taxonomy expansion with uncertainty | No | KL is asymmetric containment; Bhattacharyya is symmetric overlap |
 | Hyperbolic interval | Tree-like hierarchies with exponential branching | No | Low-dimensional capacity; numerical care near the Poincare boundary |
 | Ball | Spherical containment | No | Fewer parameters than boxes; analytical gradients available |
 | Spherical cap | Directional containment | No | May need more epochs than boxes |
-| Subspace | Conjunction, disjunction, and negation via projection | Yes | Closed under set operations; finite-difference gradients are slow at high dimension |
+| Subspace | Linear-algebra experiments with span, approximate intersection, and orthogonal complements | Orthogonal complement | Not a closed Boolean/set algebra: zero-dimensional subspaces are unrepresentable; finite-difference gradients are slow at high dimension |
 | Ellipsoid | Full-covariance containment via Cholesky | No | More expressive than boxes; O(d^2) parameters |
 | TransBox | EL++-closed ontology embedding | No | Designed for description-logic semantics; requires box parameterization |
 | Annular sector | Angular position plus spread for KGE | No | Experimental; behavior depends on dataset shape |
@@ -34,3 +34,13 @@ cargo run --features kge --example geometry_comparison
 
 See [`../examples/README.md`](../examples/README.md) for the full example list
 and captured output.
+
+## Subspace operators
+
+Subspace operations are geometric, not logical guarantees. `union` computes a
+linear span, `intersection` uses alternating projections, and
+`orthogonal_complement` returns the orthogonal complement. A zero-dimensional
+subspace cannot be represented: a trivial intersection, and the complement of
+the full ambient space, use a one-dimensional sentinel. Do not treat these
+operators as Boolean conjunction, disjunction, or negation over concept
+extensions.

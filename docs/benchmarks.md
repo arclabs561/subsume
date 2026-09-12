@@ -37,7 +37,9 @@ Techniques used in the recorded run:
 - Box2EL-style bump translations and dual-direction NF3 negative sampling.
 - GCI0 deductive closure filtering for negative sampling.
 - L2-normalized embedding initialization.
-- Cosine learning rate with 10 percent floor and validation checkpointing.
+- Cosine learning rate with 10 percent floor and checkpoint selection from a
+  fixed sample of training NF2/NF3 axioms. This is a training-fit heuristic,
+  not held-out validation.
 - Disjointness training loss.
 
 Reproduce with the Burn backend:
