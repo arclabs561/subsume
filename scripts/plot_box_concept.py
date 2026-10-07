@@ -12,11 +12,14 @@ Style: distill.pub-inspired. Sharp rectangles, muted palette, minimal chrome,
 one idea per panel. No rounded corners (these are axis-aligned hyperrectangles).
 """
 
+from pathlib import Path
+
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
 import numpy as np
+from matplotlib.patches import Rectangle
 
 # ── Color palette (muted, academic) ────────────────────────────────────
 BG = "white"
@@ -152,6 +155,6 @@ ax.set_title("(b) Gumbel soft boundary", fontsize=10, fontweight="bold",
              color=TEXT, pad=10)
 
 # ── Save ───────────────────────────────────────────────────────────────
-fig.savefig("/Users/arc/Documents/dev/subsume/docs/box_concepts.png",
+fig.savefig(Path(__file__).resolve().parent.parent / "docs" / "box_concepts.png",
             dpi=180, bbox_inches="tight", facecolor="white")
 print("Saved subsume/docs/box_concepts.png")

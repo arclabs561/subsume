@@ -12,7 +12,10 @@ Inspired by Dasgupta et al. 2020, Figure 4.
 Style: distill.pub-inspired. Matches the palette of the other subsume plots.
 """
 
+from pathlib import Path
+
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
@@ -83,6 +86,6 @@ ax.text(0.98, 0.02,
         transform=ax.transAxes, fontsize=6, color=SLATE_LIGHT,
         ha="right", va="bottom")
 
-fig.savefig("/Users/arc/Documents/dev/subsume/docs/temperature_sensitivity.png",
+fig.savefig(Path(__file__).resolve().parent.parent / "docs" / "temperature_sensitivity.png",
             dpi=180, bbox_inches="tight", facecolor="white")
 print("Saved subsume/docs/temperature_sensitivity.png")

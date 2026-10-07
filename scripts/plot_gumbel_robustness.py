@@ -16,6 +16,8 @@ Reference: Dasgupta et al. 2020, Section 3.
 Style: distill.pub-inspired. Muted palette, minimal chrome.
 """
 
+from pathlib import Path
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -141,7 +143,7 @@ ax.tick_params(labelsize=7, colors=SLATE_LIGHT)
 
 # ── Save ─────────────────────────────────────────────────────────────
 fig.savefig(
-    "/Users/arc/Documents/dev/subsume/docs/gumbel_robustness.png",
+    Path(__file__).resolve().parent.parent / "docs" / "gumbel_robustness.png",
     dpi=180,
     bbox_inches="tight",
     facecolor="white",

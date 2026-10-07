@@ -14,7 +14,10 @@ Two rows:
 Style: distill.pub-inspired. Consistent with other subsume plots.
 """
 
+from pathlib import Path
+
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
@@ -128,6 +131,6 @@ for i, (name, fn) in enumerate(tnorms):
 fig.suptitle("T-norm families: fuzzy intersection operators",
              fontsize=11, fontweight="bold", color=TEXT, y=0.98)
 
-fig.savefig("/Users/arc/Documents/dev/subsume/docs/fuzzy_tnorms.png",
+fig.savefig(Path(__file__).resolve().parent.parent / "docs" / "fuzzy_tnorms.png",
             dpi=180, bbox_inches="tight", facecolor="white")
 print("Saved subsume/docs/fuzzy_tnorms.png")
