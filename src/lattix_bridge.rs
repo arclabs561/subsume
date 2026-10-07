@@ -1,6 +1,6 @@
 //! Bridge between [`lattix`] knowledge graphs and subsume datasets.
 //!
-//! Converts a [`lattix::KnowledgeGraph`] into subsume's [`Dataset`](crate::dataset::Dataset)
+//! Converts a [`lattix::KnowledgeGraph`] into subsume's [`Dataset`]
 //! for training box/cone embeddings. Supports loading from any format lattix handles
 //! (N-Triples, Turtle, N-Quads, CSV, JSON-LD).
 //!

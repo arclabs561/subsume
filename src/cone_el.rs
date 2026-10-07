@@ -1,6 +1,6 @@
 //! EL++ ontology embedding primitives for cones.
 //!
-//! Parallel to [`el`](crate::el) (which uses boxes), this module provides
+//! Parallel to [`el`] (which uses boxes), this module provides
 //! loss functions and operations for embedding OWL EL++ ontologies using
 //! cone geometry. The angular containment model has one key advantage over
 //! boxes: **closure under complement**, enabling negation in logical queries.
