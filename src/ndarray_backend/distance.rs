@@ -209,8 +209,8 @@ mod tests {
         let q = NdarrayBox::new(array![0.0, 0.0], array![2.0, 2.0], 1.0).unwrap();
         let e = array![5.0, 5.0];
         let d = query2box_distance(&q, &e, 0.02).unwrap();
-        // d_out = (5-2) + (5-2) = 6
-        assert!((d - 6.0).abs() < 1e-5, "expected 6.0, got {d}");
+        // d_out = (5-2) + (5-2) = 6; d_in = offset sum = 2 (Query2Box Eq. 3)
+        assert!((d - 6.04).abs() < 1e-5, "expected 6.04, got {d}");
     }
 
     #[test]

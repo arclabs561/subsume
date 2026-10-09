@@ -27,8 +27,9 @@ use crate::BoxError;
 /// where:
 /// - `d_out(q, v)` = per-dimension distance from entity to nearest box boundary,
 ///   summed over dimensions. Zero if the entity is inside the box.
-/// - `d_in(q, v)` = per-dimension distance from entity to box center,
-///   summed over dimensions. Zero if the entity is outside the box.
+/// - `d_in(q, v)` = per-dimension distance from the box center to the entity
+///   clamped into the box, summed over dimensions. In a dimension where the
+///   entity is outside the box, this equals the box offset.
 /// - `alpha < 1` (typically 0.02) penalizes inside-center distance less than
 ///   outside distance, so entities inside the box are scored closer than entities
 ///   the same Euclidean distance away but outside.
@@ -104,10 +105,11 @@ pub fn query2box_distance(
             d_out += lo - v;
         } else if v > hi {
             d_out += v - hi;
-        } else {
-            // Inside: distance to center.
-            d_in += (v - query_center[i]).abs();
         }
+        // Eq. 3: distance from the center to v clamped into the box. Outside the
+        // box this is the offset, which keeps the score continuous at the boundary.
+        // `max`/`min` rather than `clamp`, which panics on a negative offset.
+        d_in += (v.max(lo).min(hi) - query_center[i]).abs();
     }
 
     Ok(d_out + alpha * d_in)
@@ -144,11 +146,40 @@ mod tests {
     fn query2box_entity_outside_box() {
         // Entity at (5, 5), box [0,2]x[0,2].
         let d = query2box_distance(&[1.0, 1.0], &[1.0, 1.0], &[5.0, 5.0], 0.02).unwrap();
-        // d_out = (5-2) + (5-2) = 6, d_in = 0
+        // Query2Box Eq. 3: d_out = (5-2) + (5-2) = 6.
+        // d_in = |cen - clamp(v)|_1 = |1-2| + |1-2| = 2 (the offset), so d = 6 + 0.02 * 2.
         assert!(
-            (d - 6.0).abs() < EPS,
-            "entity outside: expected 6.0, got {d}"
+            (d - 6.04).abs() < EPS,
+            "entity outside: expected 6.04, got {d}"
         );
+    }
+
+    #[test]
+    fn query2box_inside_term_is_offset_outside_box() {
+        // Query box [-1, 1], alpha = 0.02. Eq. 3 clamps v into the box before
+        // measuring to the center, so outside the box d_in equals the offset.
+        let inside = query2box_distance(&[0.0], &[1.0], &[0.99], 0.02).unwrap();
+        assert!((inside - 0.0198).abs() < EPS, "inside: got {inside}");
+        let outside = query2box_distance(&[0.0], &[1.0], &[1.0001], 0.02).unwrap();
+        assert!(
+            (outside - 0.0201).abs() < EPS,
+            "just outside: got {outside}"
+        );
+    }
+
+    #[test]
+    fn query2box_is_continuous_and_monotone_across_boundary() {
+        // Moving outward along one axis never lowers the distance.
+        let mut prev = f32::NEG_INFINITY;
+        for i in 0..=40 {
+            let v = 0.5 + 0.025 * i as f32; // 0.5 .. 1.5, crossing hi = 1
+            let d = query2box_distance(&[0.0], &[1.0], &[v], 0.02).unwrap();
+            assert!(
+                d >= prev - EPS,
+                "distance dropped at v = {v}: {prev} -> {d}"
+            );
+            prev = d;
+        }
     }
 
     #[test]
