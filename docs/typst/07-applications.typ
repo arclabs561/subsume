@@ -103,7 +103,7 @@ This document surveys modern applications of box embeddings (2023-2025), demonst
 
 === Geometric Algebra Embeddings
 
-**Xu et al. (2020, 2022)** - arXiv:2010.00989, arXiv:2202.09464
+**Xu et al. (2020, 2022)** - arXiv:2010.00989, arXiv:2202.09464 (withdrawn by its authors)
 
 *Key Contribution*: Knowledge graph embeddings using geometric algebras (Clifford algebras), extending beyond quaternions to more general algebraic structures.
 

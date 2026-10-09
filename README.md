@@ -8,6 +8,9 @@ Region embeddings for entailment and set containment.
 `subsume` represents concepts as geometric regions. A general concept contains
 the regions for its more specific concepts. It scores containment for
 hierarchies, ontologies, and set queries.
+In Python, UMass IESL's `box-embeddings` (PyTorch and TensorFlow) implements
+hard and Gumbel boxes; use `subsume` for the same box scoring from Rust, or for
+its other region geometries (cones, balls, Gaussians and more).
 
 ![Box embedding concepts](docs/box_concepts.png)
 
@@ -60,7 +63,7 @@ that instead store `(child, hypernym, parent)`.
 | Logical queries with negation | Cone or subspace | Cones and subspaces support complement-like operations |
 | Taxonomy expansion with distributional spread | Gaussian boxes | KL gives asymmetric containment; Bhattacharyya gives overlap |
 | EL++ ontology completion | `el`, `transbox` | Uses axiom losses rather than plain triple scoring |
-| Tree-like hierarchies in low dimension | Hyperbolic intervals or balls | Useful when depth is the main structure |
+| Tree-like hierarchies in low dimension | Hyperbolic points or balls | Useful when depth is the main structure |
 
 The full geometry table is in [`docs/geometries.md`](docs/geometries.md).
 Scores are meaningful within one geometry, but are not calibrated across

@@ -309,7 +309,7 @@ pub fn bhattacharyya_coefficient(a: &GaussianBox, b: &GaussianBox) -> Result<f32
 
 /// Volume regularization loss for a Gaussian box.
 ///
-/// Variance floor loss (paper's L_reg, Eq. 13): prevents variance collapse.
+/// Variance floor loss (paper's L_reg, Eq. 11): prevents variance collapse.
 ///
 /// Per-dimension squared hinge on variance falling below a threshold:
 ///
@@ -317,7 +317,7 @@ pub fn bhattacharyya_coefficient(a: &GaussianBox, b: &GaussianBox) -> Result<f32
 /// L_reg = (1/d) * sum_i max(0, min_var - sigma_i^2)^2
 /// ```
 ///
-/// This matches TaxoBell Eq. 13: `(1/d) * ||(delta_var * I - Sigma)_+||_F^2`
+/// This matches TaxoBell Eq. 11: `(1/d) * ||(delta_var * I - Sigma)_+||_F^2`
 /// for diagonal Sigma.
 ///
 /// # Arguments
@@ -341,7 +341,7 @@ pub fn volume_regularization(g: &GaussianBox, min_var: f32) -> f32 {
     sum / d as f32
 }
 
-/// Variance ceiling loss (paper's L_clip, Eq. 14): prevents variance explosion.
+/// Variance ceiling loss (paper's L_clip, Eq. 12): prevents variance explosion.
 ///
 /// Linear hinge on variance exceeding a maximum threshold:
 ///
@@ -349,7 +349,7 @@ pub fn volume_regularization(g: &GaussianBox, min_var: f32) -> f32 {
 /// L_clip = (1/d) * sum_i max(0, sigma_i^2 - max_var)
 /// ```
 ///
-/// This matches TaxoBell Eq. 14: `(1/d) * tr([Sigma - M * I]_+)` for
+/// This matches TaxoBell Eq. 12: `(1/d) * tr([Sigma - M * I]_+)` for
 /// diagonal Sigma.
 ///
 /// Use together with [`volume_regularization`] (floor) to bound variance
@@ -725,7 +725,7 @@ mod tests {
         assert!(kl_ba >= 0.0);
     }
 
-    /// Volume regularization (Eq. 13) is 0 when all variances >= min_var.
+    /// Volume regularization (Eq. 11) is 0 when all variances >= min_var.
     #[test]
     fn test_volume_regularization_zero_above_threshold() {
         // sigma = [2.0, 3.0, 1.5] => variance = [4.0, 9.0, 2.25]

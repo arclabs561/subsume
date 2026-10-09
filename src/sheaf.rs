@@ -7,7 +7,7 @@
 //! the graph, the Dirichlet energy is zero. Non-zero energy indicates inconsistency.
 //!
 //! This module provides the mathematical primitives (sheaf Laplacian, Euler-step
-//! diffusion) from Hansen & Ghrist (2019) and Bodnar et al. (ICLR 2022).
+//! diffusion) from Hansen & Ghrist (2019) and Bodnar et al. (NeurIPS 2022).
 //! It does **not** implement learnable restriction maps or neural architectures --
 //! those would be built on top of these primitives.
 //!
@@ -69,7 +69,7 @@
 //! # References
 //!
 //! - Hansen & Ghrist (2019): "Toward a spectral theory of cellular sheaves"
-//! - Bodnar et al. (2022): "Neural Sheaf Diffusion" (ICLR)
+//! - Bodnar et al. (2022): "Neural Sheaf Diffusion" (NeurIPS)
 //! - Barbero et al. (2022): "Sheaf Neural Networks with Connection Laplacians"
 //! - Bodnar (2023): "Topological Deep Learning: Graphs, Complexes, Sheaves"
 //!   (Cambridge PhD thesis) -- connects sheaf structure to asymptotic behavior of

@@ -11,9 +11,9 @@ geometries without calibration.
 | --- | --- | --- | --- |
 | `NdarrayBox` / `NdarrayGumbelBox` | Containment hierarchies, each dimension independent | No | Axis-aligned coordinates; Gumbel boxes add dense gradients |
 | Cone | Multi-hop queries requiring negation | Yes | Closed under complement; angular parameterization is harder to initialize |
-| Octagon | Rule-aware KG completion; tighter containment than boxes | No | Diagonal constraints add parameters |
+| Octagon | Tighter containment than boxes (diagonal bounds on adjacent dimensions) | No | Diagonal constraints add parameters |
 | Gaussian box | Taxonomy expansion with uncertainty | No | KL is asymmetric containment; Bhattacharyya is symmetric overlap |
-| Hyperbolic interval | Tree-like hierarchies with exponential branching | No | Low-dimensional capacity; numerical care near the Poincare boundary |
+| Hyperbolic point | Tree-like hierarchies with exponential branching | No | Low-dimensional capacity; numerical care near the Poincare boundary |
 | Ball | Spherical containment | No | Fewer parameters than boxes; analytical gradients available |
 | Spherical cap | Directional containment | No | May need more epochs than boxes |
 | Subspace | Linear-algebra experiments with span, approximate intersection, and orthogonal complements | Orthogonal complement | Not a closed Boolean/set algebra: zero-dimensional subspaces are unrepresentable; finite-difference gradients are slow at high dimension |

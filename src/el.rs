@@ -126,10 +126,12 @@ pub fn compose_roles(
 /// - center: `center_role + center_filler`
 /// - offset: `max(0, offset_filler - offset_role)`
 ///
-/// # Design note (Box2EL vs TransBox)
+/// # Design note (subtractive vs TransBox)
 ///
-/// This uses the **Box2EL** offset formula, which shrinks the filler box by
-/// subtracting the role offset. The intuition: the existential restricts the
+/// This uses a subtractive offset formula, which shrinks the filler box by
+/// subtracting the role offset. It is this crate's own construction: Box2EL
+/// (Jackermeier et al., WWW 2024) has no role-plus-filler existential box; it
+/// models NF3/NF4 with head and tail boxes plus bump vectors. The intuition: the existential restricts the
 /// concept to only those instances that have an r-successor in C, producing a
 /// narrower box.
 ///
@@ -137,7 +139,7 @@ pub fn compose_roles(
 /// `offset = offset_role + offset_filler`, which grows the box. That reflects
 /// a different compositional semantics where roles widen the reachable region.
 ///
-/// We chose the Box2EL (subtractive) formula because this module's primary use
+/// We chose the subtractive formula because this module's primary use
 /// case is EL++ ontology embeddings where existentials should restrict, not
 /// expand, the concept space. If additive semantics are needed, compose via
 /// [`compose_roles`] (which uses addition) followed by a containment check.
@@ -445,7 +447,7 @@ mod tests {
         }
     }
 
-    /// Box2EL subtractive offset produces smaller-or-equal box vs TransBox additive.
+    /// The subtractive offset produces a smaller-or-equal box vs TransBox additive.
     /// subtractive: max(0, filler_offset - role_offset) <= filler_offset + role_offset
     #[test]
     fn test_existential_box_documentation_choice() {

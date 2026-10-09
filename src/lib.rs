@@ -55,6 +55,11 @@
 // Core traits and geometry
 // ---------------------------------------------------------------------------
 
+// Compile and run the README's Rust examples as doctests.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeDoctests;
+
 /// Core [`HyperBox`] trait: containment probability, overlap, volume, and intersection.
 pub mod box_trait;
 pub mod region;

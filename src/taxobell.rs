@@ -11,8 +11,8 @@
 //! |-----------|---------|-----------------|
 //! | `L_sym`   | Sibling triplet loss (symmetric) | Bhattacharyya coefficient |
 //! | `L_asym`  | Parent-child containment (asymmetric) | KL divergence |
-//! | `L_reg`   | Volume regularization (Eq. 13) | Per-dim squared hinge floor on variance |
-//! | `L_clip`  | Variance ceiling (Eq. 14) | Per-dim linear hinge ceiling on variance |
+//! | `L_reg`   | Volume regularization (Eq. 11) | Per-dim squared hinge floor on variance |
+//! | `L_clip`  | Variance ceiling (Eq. 12) | Per-dim linear hinge ceiling on variance |
 //!
 //! # Usage
 //!
@@ -72,22 +72,22 @@ pub struct TaxoBellConfig {
 
     /// Margin for the symmetric triplet loss (used in triplet variant).
     pub symmetric_margin: f32,
-    /// Margin for the asymmetric alignment triplet loss (delta in paper Eq. 10).
+    /// Margin for the asymmetric alignment triplet loss (delta in paper Eq. 8).
     pub asymmetric_margin: f32,
-    /// Scale factor `C` for the diverge component (paper Eq. 11).
+    /// Scale factor `C` for the diverge component (paper Eq. 9).
     /// `L_diverge = max(0, C * D_rep - KL(parent || child))` where
     /// D_rep = logVol(parent) - logVol(child) is computed dynamically.
     /// Default 1.5 per paper. Set to 0.0 to disable L_diverge.
     pub asymmetric_diverge_c: f32,
-    /// Lambda weight for L_diverge in the asymmetric loss (paper Eq. 12).
+    /// Lambda weight for L_diverge in the asymmetric loss (paper Eq. 10).
     /// `L_asym = L_align + lambda * L_diverge`. Default 0.3 per paper.
     pub diverge_lambda: f32,
 
-    /// Minimum variance threshold for L_reg (paper Eq. 13, delta_var).
+    /// Minimum variance threshold for L_reg (paper Eq. 11, delta_var).
     /// Variances below this are penalized with a squared hinge.
     /// Reference code uses 0.25 (= 0.5^2, hinge on std).
     pub min_var: f32,
-    /// Maximum variance threshold for L_clip (paper Eq. 14, M_var).
+    /// Maximum variance threshold for L_clip (paper Eq. 12, M_var).
     /// Variances above this are penalized with a linear hinge.
     /// Reference code uses 10.0.
     pub max_var: f32,
@@ -127,7 +127,7 @@ impl TaxoBellLoss {
         Self { config }
     }
 
-    /// Symmetric loss using Bhattacharyya coefficient (paper Eq. 9, BCE form).
+    /// Symmetric loss using Bhattacharyya coefficient (paper Eq. 7, BCE form).
     ///
     /// ```text
     /// L_sym = -log(BC(anchor, positive)) - log(1 - BC(anchor, negative))
@@ -161,7 +161,7 @@ impl TaxoBellLoss {
     /// L_sym_triplet = max(0, margin + BC(anchor, negative) - BC(anchor, positive))
     /// ```
     ///
-    /// This is a simpler triplet-margin variant (not the paper's Eq. 9).
+    /// This is a simpler triplet-margin variant (not the paper's Eq. 7).
     /// Use [`symmetric_loss`](Self::symmetric_loss) for the paper-faithful BCE version.
     ///
     /// # Errors
@@ -178,7 +178,7 @@ impl TaxoBellLoss {
         Ok((self.config.symmetric_margin + bc_neg - bc_pos).max(0.0))
     }
 
-    /// Asymmetric containment loss using KL divergence (paper Eq. 10-12).
+    /// Asymmetric containment loss using KL divergence (paper Eq. 8-10).
     ///
     /// ```text
     /// L_align   = max(0, KL(child || parent) - delta)
@@ -188,7 +188,7 @@ impl TaxoBellLoss {
     /// ```
     ///
     /// - **L_align**: hinge ensuring child is "contained" (small forward KL).
-    /// - **L_diverge** (Eq. 11): ensures the parent is sufficiently "larger"
+    /// - **L_diverge** (Eq. 9): ensures the parent is sufficiently "larger"
     ///   than the child. D_rep is the log-volume gap, computed dynamically.
     ///
     /// When called without a negative (this 2-argument form), L_align uses a
@@ -216,7 +216,7 @@ impl TaxoBellLoss {
         Ok(l_align + self.config.diverge_lambda * l_diverge)
     }
 
-    /// Asymmetric containment loss with negative sample (paper Eq. 10-12).
+    /// Asymmetric containment loss with negative sample (paper Eq. 8-10).
     ///
     /// ```text
     /// L_align   = max(0, KL(child || parent) - KL(child || negative) + delta)
@@ -315,7 +315,7 @@ impl TaxoBellLoss {
             l_asym /= positives.len() as f32;
         }
 
-        // L_reg (Eq. 13) + L_clip (Eq. 14): regularization over all boxes
+        // L_reg (Eq. 11) + L_clip (Eq. 12): regularization over all boxes
         let mut l_reg = 0.0f32;
         let mut l_clip = 0.0f32;
         for &g in all_boxes {

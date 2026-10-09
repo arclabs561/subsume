@@ -55,7 +55,7 @@ This document summarizes the most recent developments in box embeddings and rela
 
 **Relevance to `subsume`**: **Indirect** - While not directly about box embeddings, this work demonstrates the value of conditional/multi-aspect representations. The same text can have different embeddings based on different conditions (e.g., "product category" vs "rating"). This concept could inspire **conditional box embeddings**, where the same concept could have different box representations based on different aspects or contexts. For example, "dog" might have different box embeddings when conditioned on "taxonomy" vs "behavior" vs "size". This could be useful for multi-faceted knowledge representation where entities have different hierarchical relationships depending on the aspect being considered.
 
-### RegD: Achieving Hyperbolic-Like Expressiveness with Arbitrary Euclidean Regions
+### RegD: Hierarchical Embeddings via Dissimilarity between Arbitrary Euclidean Regions
 **Yang & Chen (2025)** - arXiv:2501.17518
 
 **Key Contribution**: A flexible Euclidean framework that supports arbitrary geometric regions (boxes, balls) as embeddings while achieving hyperbolic-like expressiveness.
@@ -263,7 +263,7 @@ The max-stability property directly enables the analytical derivation of expecte
 
 ### Geometric Algebra Embeddings
 
-**Xu et al. (2020, 2022)** - arXiv:2010.00989, arXiv:2202.09464
+**Xu et al. (2020, 2022)** - arXiv:2010.00989, arXiv:2202.09464 (withdrawn by its authors)
 
 **Key Contribution**: Knowledge graph embeddings using geometric algebras (Clifford algebras), extending beyond quaternions to more general algebraic structures.
 
@@ -337,7 +337,7 @@ Boxes are **closed under intersection** but **not under union** in the classical
 
 2. Yamada, K., & Zhang, P. (2025). Out-of-the-Box Conditional Text Embeddings from Large Language Models. arXiv:2504.16411
 
-3. Yang, H., & Chen, J. (2025). Achieving Hyperbolic-Like Expressiveness with Arbitrary Euclidean Regions: A New Approach to Hierarchical Embeddings. arXiv:2501.17518
+3. Yang, H., & Chen, J. (2025). RegD: Hierarchical Embeddings via Dissimilarity between Arbitrary Euclidean Regions. arXiv:2501.17518 (earlier versions were titled "Achieving Hyperbolic-Like Expressiveness with Arbitrary Euclidean Regions: A New Approach to Hierarchical Embeddings")
 
 4. Yang, H., Chen, J., & Sattler, U. (2024). TransBox: EL++-closed Ontology Embedding. arXiv:2410.14571
 
@@ -357,7 +357,7 @@ Boxes are **closed under intersection** but **not under union** in the classical
 
 12. Xu, C., Nayyeri, M., Chen, Y.-Y., & Lehmann, J. (2020). Knowledge Graph Embeddings in Geometric Algebras. arXiv:2010.00989
 
-13. Xu, C., Nayyeri, M., Chen, Y.-Y., & Lehmann, J. (2022). Geometric Algebra based Embeddings for Static and Temporal Knowledge Graph Completion. arXiv:2202.09464
+13. Xu, C., Nayyeri, M., Chen, Y.-Y., & Lehmann, J. (2022). Geometric Algebra based Embeddings for Static and Temporal Knowledge Graph Completion. arXiv:2202.09464 (withdrawn by its authors: errors in the appendix theorems)
 
 14. Zhu, H., & Zeng, Y. (2025). Knowledge Graph Embeddings with Representing Relations as Annular Sectors. arXiv:2506.11099
 

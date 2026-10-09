@@ -4,10 +4,18 @@
 //! on adjacent dimension pairs (i, i+1). They are strictly more expressive
 //! than boxes while remaining closed under intersection.
 //!
+//! These are entity regions with bounds on `x_i ± x_{i+1}`, the octagon
+//! domain from program analysis. They are not the octagon embeddings of
+//! Charpenay & Schockaert, where each *relation* is an octagon in every
+//! (head_i, tail_i) plane and entities are points, so that paper's
+//! rule-capture and composition guarantees do not carry over. Containment
+//! compares raw bounds, which is exact only for octagons in closed form.
+//!
 //! # References
 //!
 //! - Charpenay & Schockaert (IJCAI 2024, arXiv:2401.16270),
 //!   "Capturing Knowledge Graphs and Rules with Octagon Embeddings"
+//!   (related work with the same name, not the method implemented here)
 
 use crate::octagon::OctagonError;
 use ndarray::Array1;
