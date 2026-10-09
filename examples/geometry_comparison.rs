@@ -345,7 +345,7 @@ fn main() {
     // Find best
     let best = all_results
         .iter()
-        .max_by(|a, b| a.mrr.partial_cmp(&b.mrr).unwrap())
+        .max_by(|a, b| a.mrr.total_cmp(&b.mrr))
         .unwrap();
     println!("\nBest MRR: {} ({:.4})", best.name, best.mrr);
 

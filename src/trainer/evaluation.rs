@@ -21,7 +21,7 @@ fn rank_stats(ranks: &[usize]) -> (f32, f32, f32, f32, f32) {
         / n;
 
     let mut sorted: Vec<f32> = ranks.iter().map(|&r| r as f32).collect();
-    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    sorted.sort_by(|a, b| a.total_cmp(b));
 
     let percentile = |p: f32| -> f32 {
         // Linear interpolation (same convention as numpy's percentile with method='linear').

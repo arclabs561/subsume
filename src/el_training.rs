@@ -1293,7 +1293,7 @@ pub fn evaluate_subsumption(result: &ElTrainingResult, axioms: &[Axiom]) -> (f32
                     (c, dist_sq.sqrt())
                 })
                 .collect();
-            scores.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+            scores.sort_by(|a, b| a.1.total_cmp(&b.1));
 
             let rank = scores
                 .iter()
@@ -1328,8 +1328,7 @@ pub fn evaluate_subsumption(result: &ElTrainingResult, axioms: &[Axiom]) -> (f32
                         .filter(|&c| c != *sub)
                         .map(|c| result.subsumption_score(*sub, c))
                         .collect();
-                    all_scores
-                        .sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                    all_scores.sort_by(|a, b| a.total_cmp(b));
                     let min_s = all_scores.first().copied().unwrap_or(0.0);
                     let median_s = all_scores.get(all_scores.len() / 2).copied().unwrap_or(0.0);
                     let max_s = all_scores.last().copied().unwrap_or(0.0);

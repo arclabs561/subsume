@@ -333,7 +333,7 @@ fn score_model<F: Fn(usize, usize) -> f32 + Sync>(
                 .filter(|&x| x != q.a && x != q.b)
                 .map(|x| (x, deg(q.a, x).min(deg(q.b, x)) * (-lambda * sizes[x]).exp()))
                 .collect();
-            scored.sort_by(|p, r| r.1.partial_cmp(&p.1).unwrap());
+            scored.sort_by(|p, r| r.1.total_cmp(&p.1));
             let rank = target_rank_pairs(q, &scored);
             (
                 1.0 / rank as f64,
@@ -407,7 +407,7 @@ fn score_join_contain(
                     (x, deg * (-lambda * size).exp())
                 })
                 .collect();
-            scored.sort_by(|p, r| r.1.partial_cmp(&p.1).unwrap());
+            scored.sort_by(|p, r| r.1.total_cmp(&p.1));
             let rank = target_rank_pairs(q, &scored);
             (
                 1.0 / rank as f64,
@@ -465,7 +465,7 @@ fn score_join(
                     (x, -d)
                 })
                 .collect();
-            scored.sort_by(|p, r| r.1.partial_cmp(&p.1).unwrap());
+            scored.sort_by(|p, r| r.1.total_cmp(&p.1));
             let rank = target_rank_pairs(q, &scored);
             (
                 1.0 / rank as f64,
@@ -535,7 +535,7 @@ fn score_join_gated(
                     (x, gate * proximity)
                 })
                 .collect();
-            scored.sort_by(|p, r| r.1.partial_cmp(&p.1).unwrap());
+            scored.sort_by(|p, r| r.1.total_cmp(&p.1));
             let rank = target_rank_pairs(q, &scored);
             (
                 1.0 / rank as f64,
@@ -647,7 +647,7 @@ fn top_k_by_score<F: Fn(usize) -> f32>(
         .filter(|&x| x != a && x != b)
         .map(|x| (x, score(x)))
         .collect();
-    scored.sort_by(|p, r| r.1.partial_cmp(&p.1).unwrap());
+    scored.sort_by(|p, r| r.1.total_cmp(&p.1));
     scored
         .into_iter()
         .take(k.min(n.saturating_sub(2)))
@@ -1115,7 +1115,7 @@ fn score_rank_fusion(
                 }
             }
             let mut scored: Vec<(usize, f32)> = fused.into_iter().collect();
-            scored.sort_by(|p, r| r.1.partial_cmp(&p.1).unwrap());
+            scored.sort_by(|p, r| r.1.total_cmp(&p.1));
             let rank = target_rank_pairs(q, &scored);
             (
                 1.0 / rank as f64,
@@ -1227,7 +1227,7 @@ fn score_common_pool_depth_gated(
                 .collect();
             scored.sort_by(|p, r| {
                 r.1.cmp(&p.1)
-                    .then_with(|| r.2.partial_cmp(&p.2).unwrap())
+                    .then_with(|| r.2.total_cmp(&p.2))
                     .then_with(|| p.0.cmp(&r.0))
             });
             let rank = 1 + scored.iter().position(|&(x, _, _)| q.is_target(x)).unwrap();
@@ -1536,7 +1536,7 @@ fn report_gated_conformal(queries: &[CQuery], clqa: &BoxClqa<'_>, tau: f32) {
             )
         })
         .collect();
-    cal_conf.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    cal_conf.sort_by(|a, b| a.0.total_cmp(&b.0));
     let cutoffs = [
         cal_conf[cal_conf.len() / 3].0,
         cal_conf[cal_conf.len() * 2 / 3].0,
@@ -1970,7 +1970,7 @@ fn main() {
     // everything and win every conjunctive query, tanking top1CA. A large
     // max/mean ratio is the offset-blowup signature.
     let mut sizes: Vec<f32> = (0..n).map(|c| offset_l1(&offsets, c, dim)).collect();
-    sizes.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    sizes.sort_by(|a, b| a.total_cmp(b));
     let smean = sizes.iter().sum::<f32>() / n as f32;
     let (smax, sp99) = (sizes[n - 1], sizes[(n * 99 / 100).min(n - 1)]);
     println!(

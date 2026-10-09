@@ -595,7 +595,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             })
             .collect();
 
-        scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        scores.sort_by(|a, b| b.1.total_cmp(&a.1));
 
         let rank = scores
             .iter()
@@ -678,7 +678,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Show top-5 largest and smallest volume entities for sanity check.
     println!("\n--- Volume Extremes ---\n");
-    vol_depth.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+    vol_depth.sort_by(|a, b| b.2.total_cmp(&a.2));
     println!("  Largest boxes (most general):");
     for &(name, d, lv) in vol_depth.iter().take(5) {
         println!("    {:<28} depth={} log_vol={:.2}", name, d, lv);
@@ -733,7 +733,7 @@ fn spearman_correlation(pairs: &[(f64, f64)]) -> f64 {
 fn compute_ranks(values: &[f64]) -> Vec<f64> {
     let n = values.len();
     let mut indexed: Vec<(usize, f64)> = values.iter().copied().enumerate().collect();
-    indexed.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+    indexed.sort_by(|a, b| a.1.total_cmp(&b.1));
 
     let mut ranks = vec![0.0; n];
     let mut i = 0;

@@ -510,7 +510,7 @@ pub fn evaluate_taxobell_burn<B: Backend>(
                 (cand, kl)
             })
             .collect();
-        scores.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        scores.sort_by(|a, b| a.1.total_cmp(&b.1));
         let rank = scores
             .iter()
             .position(|&(id, _)| id == parent_id)

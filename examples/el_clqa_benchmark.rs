@@ -83,7 +83,7 @@ fn score_model<F: Fn(usize, usize) -> f32>(
             .filter(|&x| x != q.a && x != q.b)
             .map(|x| (x, deg(q.a, x).min(deg(q.b, x))))
             .collect();
-        scored.sort_by(|p, r| r.1.partial_cmp(&p.1).unwrap());
+        scored.sort_by(|p, r| r.1.total_cmp(&p.1));
         let rank = 1 + scored.iter().position(|&(x, _)| x == q.lca).unwrap();
         rr += 1.0 / rank as f64;
         if rank <= 3 {

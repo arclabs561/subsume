@@ -442,7 +442,7 @@ impl ConeEmbeddingTrainer {
             / total;
         let (rank_p25, rank_p50, rank_p75, rank_p95) = {
             let mut sorted: Vec<f32> = all_ranks.iter().map(|&r| r as f32).collect();
-            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            sorted.sort_by(|a, b| a.total_cmp(b));
             let pct = |p: f32| -> f32 {
                 let idx = p / 100.0 * (sorted.len() as f32 - 1.0);
                 let lo = idx.floor() as usize;

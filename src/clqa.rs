@@ -175,11 +175,7 @@ impl<'a> BoxClqa<'a> {
         // not panic the sort. A NaN compares `Equal` and falls back to the id
         // tiebreak, so the whole list still sorts; behavior is unchanged for
         // all-finite scores.
-        scored.sort_by(|p, r| {
-            r.1.partial_cmp(&p.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| p.0.cmp(&r.0))
-        });
+        scored.sort_by(|p, r| r.1.total_cmp(&p.1).then_with(|| p.0.cmp(&r.0)));
         scored
     }
 }
