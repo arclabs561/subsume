@@ -8,6 +8,8 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
+  schedule:
+    - cron: "17 6 * * 1"
 
 env:
   CARGO_TERM_COLOR: always
@@ -148,7 +150,6 @@ jobs:
   deny:
     name: cargo-deny
     runs-on: ubuntu-latest
-    continue-on-error: true  # core2 0.4.0 yanked (burn -> rav1e transitive)
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -158,7 +159,6 @@ jobs:
   semver:
     name: cargo-semver-checks
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
