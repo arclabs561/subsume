@@ -396,9 +396,11 @@ impl HyperBox for NdarrayBox {
 
         let dim = self.dim();
 
-        let (intersection_vol, vol_a, vol_b) = if dim > 10 {
+        if dim > 10 {
+            // Log space: at high dimension each volume underflows f32 while
+            // the overlap ratio does not.
             let mut i = 0usize;
-            let (_, vol_a) = log_space_volume(std::iter::from_fn(|| {
+            let (log_a, _) = log_space_volume(std::iter::from_fn(|| {
                 if i >= dim {
                     return None;
                 }
@@ -408,7 +410,7 @@ impl HyperBox for NdarrayBox {
             }));
 
             let mut j = 0usize;
-            let (_, vol_b) = log_space_volume(std::iter::from_fn(|| {
+            let (log_b, _) = log_space_volume(std::iter::from_fn(|| {
                 if j >= dim {
                     return None;
                 }
@@ -418,7 +420,7 @@ impl HyperBox for NdarrayBox {
             }));
 
             let mut k = 0usize;
-            let (_, intersection_vol) = log_space_volume(std::iter::from_fn(|| {
+            let (log_inter, _) = log_space_volume(std::iter::from_fn(|| {
                 if k >= dim {
                     return None;
                 }
@@ -429,23 +431,23 @@ impl HyperBox for NdarrayBox {
                 Some(len)
             }));
 
-            (intersection_vol, vol_a, vol_b)
-        } else {
-            let mut intersection_vol = 1.0f32;
-            let mut vol_a = 1.0f32;
-            let mut vol_b = 1.0f32;
+            return Ok(crate::utils::overlap_from_log_volumes(
+                log_inter, log_a, log_b,
+            ));
+        }
 
-            for k in 0..dim {
-                vol_a *= (self.max[k] - self.min[k]).max(0.0);
-                vol_b *= (other.max[k] - other.min[k]).max(0.0);
+        let mut intersection_vol = 1.0f32;
+        let mut vol_a = 1.0f32;
+        let mut vol_b = 1.0f32;
 
-                let lo = self.min[k].max(other.min[k]);
-                let hi = self.max[k].min(other.max[k]);
-                intersection_vol *= (hi - lo).max(0.0);
-            }
+        for k in 0..dim {
+            vol_a *= (self.max[k] - self.min[k]).max(0.0);
+            vol_b *= (other.max[k] - other.min[k]).max(0.0);
 
-            (intersection_vol, vol_a, vol_b)
-        };
+            let lo = self.min[k].max(other.min[k]);
+            let hi = self.max[k].min(other.max[k]);
+            intersection_vol *= (hi - lo).max(0.0);
+        }
 
         let union_vol = vol_a + vol_b - intersection_vol;
         if union_vol <= 0.0 {
@@ -1038,6 +1040,69 @@ mod tests {
         .unwrap();
         let p = a.containment_prob(&b).unwrap();
         assert_eq!(p, 0.0);
+    }
+
+    /// `containment_prob` against a Monte Carlo estimate: the fraction of
+    /// uniform points in `other` that also fall in `self`.
+    #[test]
+    fn containment_prob_matches_monte_carlo_volume_fraction() {
+        // xorshift64*, seeded: no extra dependency, deterministic.
+        let mut state = 0x9E37_79B9_7F4A_7C15_u64;
+        let mut unit = move || {
+            state ^= state >> 12;
+            state ^= state << 25;
+            state ^= state >> 27;
+            (state.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 40) as f32 / (1u64 << 24) as f32
+        };
+        let parent = NdarrayBox::new(
+            Array1::from(vec![0.0, -1.0, 0.5]),
+            Array1::from(vec![2.0, 1.0, 1.5]),
+            1.0,
+        )
+        .unwrap();
+        let child = NdarrayBox::new(
+            Array1::from(vec![1.0, 0.0, 0.0]),
+            Array1::from(vec![3.0, 0.5, 1.0]),
+            1.0,
+        )
+        .unwrap();
+
+        let n = 40_000;
+        let mut inside = 0usize;
+        for _ in 0..n {
+            let x: Vec<f32> = (0..3)
+                .map(|k| child.min[k] + unit() * (child.max[k] - child.min[k]))
+                .collect();
+            if (0..3).all(|k| parent.min[k] <= x[k] && x[k] <= parent.max[k]) {
+                inside += 1;
+            }
+        }
+        let mc = inside as f32 / n as f32;
+        let exact = parent.containment_prob(&child).unwrap();
+        // Analytic value: (1/2) * 1 * (1/2) = 0.25.
+        assert!((exact - 0.25).abs() < 1e-6, "containment_prob = {exact}");
+        assert!((mc - exact).abs() < 0.01, "Monte Carlo {mc} vs {exact}");
+    }
+
+    #[test]
+    fn overlap_prob_does_not_underflow_in_high_dimension() {
+        // Vol = 0.2^128 underflows f32; Jaccard Vol(cap) / Vol(cup) does not.
+        let d = 128;
+        let a = NdarrayBox::new(Array1::from_elem(d, 0.4), Array1::from_elem(d, 0.6), 1.0).unwrap();
+        let p = a.overlap_prob(&a).unwrap();
+        assert!((p - 1.0).abs() < 1e-5, "identical boxes at d = {d}: {p}");
+
+        // Shift b by half a side in one dimension: cap = 0.5 Vol, cup = 1.5 Vol.
+        let mut lo = Array1::from_elem(d, 0.4);
+        let mut hi = Array1::from_elem(d, 0.6);
+        lo[0] = 0.5;
+        hi[0] = 0.7;
+        let b = NdarrayBox::new(lo, hi, 1.0).unwrap();
+        let p = a.overlap_prob(&b).unwrap();
+        assert!(
+            (p - 1.0 / 3.0).abs() < 1e-4,
+            "half-shifted boxes at d = {d}: {p}"
+        );
     }
 
     #[test]

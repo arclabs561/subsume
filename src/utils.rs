@@ -326,6 +326,23 @@ pub fn map_gumbel_to_bounds(gumbel: f32, min: f32, max: f32, temp: f32) -> f32 {
     min + (max - min) * t.clamp(0.0, 1.0)
 }
 
+/// Jaccard overlap `Vol(a ∩ b) / Vol(a ∪ b)` from log-volumes.
+///
+/// Written as `1 / (Vol(a)/Vol(∩) + Vol(b)/Vol(∩) - 1)` so no volume is
+/// exponentiated on its own: at high dimension each volume underflows `f32`
+/// while the ratio does not. Returns 0 when the intersection is empty
+/// (`log_inter == -inf`).
+pub(crate) fn overlap_from_log_volumes(log_inter: f32, log_a: f32, log_b: f32) -> f32 {
+    if log_inter == f32::NEG_INFINITY {
+        return 0.0;
+    }
+    let denom = (log_a - log_inter).exp() + (log_b - log_inter).exp() - 1.0;
+    if denom <= 1.0 {
+        return 1.0;
+    }
+    (1.0 / denom).clamp(0.0, 1.0)
+}
+
 /// Compute volume in log-space to avoid numerical underflow/overflow.
 ///
 /// ## The Problem

@@ -139,14 +139,16 @@ impl HyperBox for NdarrayGumbelBox {
     /// `P(self cap other != empty) = Vol(self cap other) / Vol(self cup other)`
     fn overlap_prob(&self, other: &Self) -> Result<f32, BoxError> {
         let inter = self.intersection(other)?;
-        let inter_vol = inter.volume()?;
-        let self_vol = self.volume()?;
-        let other_vol = other.volume()?;
-        let union_vol = self_vol + other_vol - inter_vol;
-        if union_vol <= 1e-30 {
-            return Ok(0.0);
-        }
-        Ok((inter_vol / union_vol).clamp(0.0, 1.0))
+        // Log-volumes, as in `containment_prob`: each volume underflows f32
+        // at high dimension while the ratio does not.
+        let t = self.inner.temperature;
+        let (log_inter, _) = bessel_log_volume(&inter.min(), &inter.max(), t, t);
+        let (log_self, _) = bessel_log_volume(&self.min(), &self.max(), t, t);
+        let t_other = other.inner.temperature;
+        let (log_other, _) = bessel_log_volume(&other.min(), &other.max(), t_other, t_other);
+        Ok(crate::utils::overlap_from_log_volumes(
+            log_inter, log_self, log_other,
+        ))
     }
 
     fn union(&self, other: &Self) -> Result<Self, BoxError> {
@@ -340,6 +342,28 @@ mod tests {
                 .unwrap();
         let p = parent.containment_prob(&child).unwrap();
         assert!(p > 0.99, "nested child at d = {d}: containment = {p}");
+    }
+
+    #[test]
+    fn overlap_of_identical_boxes_does_not_underflow_in_high_dimension() {
+        // Gumbel volumes factor over dimensions, so for a box with itself
+        // r = Vol(cap)/Vol(box) at d = 64 is (r at d = 4)^16, and the
+        // overlap is 1 / (2/r - 1). The d = 4 value has no underflow; at
+        // d = 64 each volume (~0.2^64) underflows f32 while the ratio does not.
+        let boxed = |d: usize| {
+            NdarrayGumbelBox::new(Array1::from_elem(d, 0.4), Array1::from_elem(d, 0.6), 0.001)
+                .unwrap()
+        };
+        let o4 = boxed(4).overlap_prob(&boxed(4)).unwrap() as f64;
+        let r4 = 2.0 / (1.0 / o4 + 1.0);
+        let predicted = 1.0 / (2.0 / r4.powi(16) - 1.0);
+        let b64 = boxed(64);
+        let o64 = b64.overlap_prob(&b64).unwrap() as f64;
+        assert!(predicted > 0.1, "predicted = {predicted}");
+        assert!(
+            (o64 - predicted).abs() < 1e-3,
+            "d = 64: overlap = {o64}, predicted from d = 4: {predicted}"
+        );
     }
 
     // ---- Temperature effects on Gumbel membership ----
