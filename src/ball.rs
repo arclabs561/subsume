@@ -509,16 +509,20 @@ pub fn regd_depth_dissimilarity(a: &Ball, b: &Ball, p: f32) -> Result<f32, BoxEr
     Ok((center_dist + radius_diff) / (a.radius * b.radius))
 }
 
-/// RegD boundary dissimilarity for balls (cone-based, RegD Eq. 6).
+/// RegD boundary dissimilarity for balls (cone-based, RegD Eq. 8).
 ///
 /// ```text
-/// d_bd(inner, outer) = arcsinh((||c_inner - c_outer|| - r_inner) / r_outer) + arcsinh(1)
+/// d_bd(outer, inner) = arcsinh((||c_outer - c_inner|| - r_outer) / r_inner) + arcsinh(1)
 /// ```
+///
+/// The paper writes this as `d_bd(reg1, reg2)` with `reg1` the outer
+/// (parent) ball; this function takes `(inner, outer)`.
 ///
 /// Measures the minimal translation cost to move the inner ball out of
 /// the outer ball. Zero when the inner ball is tangent to the outer
 /// boundary, positive when there is a gap, negative when the inner
-/// ball is strictly inside.
+/// ball is strictly inside. Shrinking the inner ball lowers the score
+/// (RegD Prop. 3).
 ///
 /// # Errors
 ///
@@ -531,8 +535,8 @@ pub fn regd_boundary_dissimilarity(inner: &Ball, outer: &Ball) -> Result<f32, Bo
         });
     }
     let dist = center_distance(inner, outer);
-    let gap = dist - inner.radius;
-    Ok((gap / outer.radius).asinh() + 1.0_f32.asinh())
+    let gap = dist - outer.radius;
+    Ok((gap / inner.radius).asinh() + 1.0_f32.asinh())
 }
 
 /// Combined RegD score for containment ranking.
@@ -878,13 +882,13 @@ mod tests {
     }
 
     #[test]
-    fn regd_boundary_tangent_is_asinh_one() {
-        // inner tangent to outer: ||c_i - c_o|| = r_o - r_i
+    fn regd_boundary_internally_tangent_is_zero() {
+        // RegD Prop. 3: d_bd = 0 iff internally tangent. ||c_i - c_o|| = r_o - r_i.
         let inner = Ball::new(vec![1.0, 0.0], 1.0).unwrap();
         let outer = Ball::new(vec![0.0, 0.0], 2.0).unwrap();
         let d = regd_boundary_dissimilarity(&inner, &outer).unwrap();
-        // gap = 1 - 1 = 0, so d = asinh(0/2) + asinh(1) = asinh(1)
-        assert!((d - 1.0_f32.asinh()).abs() < 1e-5);
+        // Eq. 8: asinh((1 - 2) / 1) + asinh(1) = 0
+        assert!(d.abs() < 1e-5, "tangent boundary dissimilarity = {d}");
     }
 
     #[test]
@@ -893,9 +897,21 @@ mod tests {
         let inner = Ball::new(vec![0.0, 0.0], 0.5).unwrap();
         let outer = Ball::new(vec![0.0, 0.0], 2.0).unwrap();
         let d = regd_boundary_dissimilarity(&inner, &outer).unwrap();
-        // gap = 0 - 0.5 = -0.5, so d = asinh(-0.5/2) + asinh(1)
-        let expected = (-0.25_f32).asinh() + 1.0_f32.asinh();
+        // Eq. 8: asinh((0 - 2) / 0.5) + asinh(1) = asinh(-4) + asinh(1) ≈ -1.213
+        let expected = (-4.0_f32).asinh() + 1.0_f32.asinh();
+        assert!(d < 0.0, "nested boundary dissimilarity = {d}");
         assert!((d - expected).abs() < 1e-5);
+    }
+
+    #[test]
+    fn regd_boundary_decreases_as_child_shrinks() {
+        // RegD Prop. 3(2): reg3 ⊆ reg2 ⊆ reg1 implies d_bd(reg1, reg3) <= d_bd(reg1, reg2).
+        let outer = Ball::new(vec![0.0, 0.0], 2.0).unwrap();
+        let mid = Ball::new(vec![0.5, 0.0], 1.0).unwrap();
+        let small = Ball::new(vec![0.5, 0.0], 0.1).unwrap();
+        let d_mid = regd_boundary_dissimilarity(&mid, &outer).unwrap();
+        let d_small = regd_boundary_dissimilarity(&small, &outer).unwrap();
+        assert!(d_small < d_mid, "d_small = {d_small}, d_mid = {d_mid}");
     }
 
     #[test]
