@@ -125,12 +125,13 @@ impl HyperBox for NdarrayGumbelBox {
     /// `P(other inside self) = Vol(self cap other) / Vol(other)`
     fn containment_prob(&self, other: &Self) -> Result<f32, BoxError> {
         let inter = self.intersection(other)?;
-        let inter_vol = inter.volume()?;
-        let other_vol = other.volume()?;
-        if other_vol <= 1e-30 {
-            return Ok(0.0);
-        }
-        Ok((inter_vol / other_vol).clamp(0.0, 1.0))
+        // Ratio of log-volumes: the volumes themselves underflow f32 at high
+        // dimension (e.g. 0.2^64), while their ratio stays in [0, 1].
+        let t = self.inner.temperature;
+        let (log_inter, _) = bessel_log_volume(&inter.min(), &inter.max(), t, t);
+        let t_other = other.inner.temperature;
+        let (log_other, _) = bessel_log_volume(&other.min(), &other.max(), t_other, t_other);
+        Ok((log_inter - log_other).exp().clamp(0.0, 1.0))
     }
 
     /// Overlap probability using Gumbel volume and LSE intersection.
@@ -323,6 +324,22 @@ mod tests {
             "At low T, containment should be ~1.0, got {}",
             p_sharp
         );
+    }
+
+    #[test]
+    fn containment_of_nested_box_stays_near_one_in_high_dimension() {
+        // P(child inside parent) = Vol(parent cap child) / Vol(child) is a ratio
+        // near 1 for a nested child at low temperature, regardless of dimension.
+        // At d = 64 the child volume (0.2^64 ~ 2e-45) underflows f32, so the
+        // ratio must be formed from log-volumes.
+        let d = 64;
+        let parent =
+            NdarrayGumbelBox::new(Array1::zeros(d), Array1::from_elem(d, 1.0), 0.001).unwrap();
+        let child =
+            NdarrayGumbelBox::new(Array1::from_elem(d, 0.4), Array1::from_elem(d, 0.6), 0.001)
+                .unwrap();
+        let p = parent.containment_prob(&child).unwrap();
+        assert!(p > 0.99, "nested child at d = {d}: containment = {p}");
     }
 
     // ---- Temperature effects on Gumbel membership ----

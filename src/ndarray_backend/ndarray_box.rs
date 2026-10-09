@@ -255,7 +255,7 @@ impl HyperBox for NdarrayBox {
 
         if dim > 10 {
             let mut i = 0usize;
-            let (_log_other, other_vol) = log_space_volume(std::iter::from_fn(|| {
+            let (log_other, _other_vol) = log_space_volume(std::iter::from_fn(|| {
                 if i >= dim {
                     return None;
                 }
@@ -264,12 +264,12 @@ impl HyperBox for NdarrayBox {
                 Some(len)
             }));
 
-            if other_vol <= 0.0 {
+            if log_other == f32::NEG_INFINITY {
                 return Err(BoxError::Internal("Box has zero or negative volume".into()));
             }
 
             let mut j = 0usize;
-            let (_log_intersection, intersection_vol) =
+            let (log_intersection, _intersection_vol) =
                 log_space_volume(std::iter::from_fn(|| {
                     if j >= dim {
                         return None;
@@ -281,7 +281,8 @@ impl HyperBox for NdarrayBox {
                     Some(len)
                 }));
 
-            Ok((intersection_vol / other_vol).clamp(0.0, 1.0))
+            // Ratio in log space: both volumes can underflow f32 at high dim.
+            Ok((log_intersection - log_other).exp().clamp(0.0, 1.0))
         } else {
             let mut intersection_vol = 1.0f32;
             let mut other_vol = 1.0f32;
@@ -326,7 +327,7 @@ impl HyperBox for NdarrayBox {
 
             let p = if dim > 10 {
                 let mut i = 0usize;
-                let (_log_other, other_vol) = log_space_volume(std::iter::from_fn(|| {
+                let (log_other, _other_vol) = log_space_volume(std::iter::from_fn(|| {
                     if i >= dim {
                         return None;
                     }
@@ -335,12 +336,12 @@ impl HyperBox for NdarrayBox {
                     Some(len)
                 }));
 
-                if other_vol <= 0.0 {
+                if log_other == f32::NEG_INFINITY {
                     return Err(BoxError::Internal("Box has zero or negative volume".into()));
                 }
 
                 let mut j = 0usize;
-                let (_log_intersection, intersection_vol) =
+                let (log_intersection, _intersection_vol) =
                     log_space_volume(std::iter::from_fn(|| {
                         if j >= dim {
                             return None;
@@ -352,7 +353,8 @@ impl HyperBox for NdarrayBox {
                         Some(len)
                     }));
 
-                (intersection_vol / other_vol).clamp(0.0, 1.0)
+                // Ratio in log space: both volumes can underflow f32 at high dim.
+                (log_intersection - log_other).exp().clamp(0.0, 1.0)
             } else {
                 let mut intersection_vol = 1.0f32;
                 let mut other_vol = 1.0f32;
@@ -543,6 +545,42 @@ mod tests {
     use super::*;
     use crate::HyperBox as BoxTrait;
     use ndarray::array;
+
+    // ---- High-dimensional containment ----
+
+    #[test]
+    fn containment_of_nested_box_is_one_in_high_dimension() {
+        // Vol(child) = 0.2^128 underflows f32; the ratio Vol(cap) / Vol(child)
+        // is exactly 1 for a nested child and must not depend on that underflow.
+        let d = 128;
+        let parent = NdarrayBox::new(Array1::zeros(d), Array1::from_elem(d, 1.0), 1.0).unwrap();
+        let child =
+            NdarrayBox::new(Array1::from_elem(d, 0.4), Array1::from_elem(d, 0.6), 1.0).unwrap();
+        let p = parent.containment_prob(&child).unwrap();
+        assert!((p - 1.0).abs() < 1e-5, "nested child at d = {d}: {p}");
+
+        let mut out = [0.0f32; 1];
+        parent
+            .containment_prob_many(std::slice::from_ref(&child), &mut out)
+            .unwrap();
+        assert!(
+            (out[0] - 1.0).abs() < 1e-5,
+            "batched at d = {d}: {}",
+            out[0]
+        );
+
+        // Half of the child sticks out in one dimension: ratio is 0.5.
+        let mut lo = Array1::from_elem(d, 0.4);
+        let mut hi = Array1::from_elem(d, 0.6);
+        lo[0] = 0.9;
+        hi[0] = 1.1;
+        let half_out = NdarrayBox::new(lo, hi, 1.0).unwrap();
+        let p_half = parent.containment_prob(&half_out).unwrap();
+        assert!(
+            (p_half - 0.5).abs() < 1e-4,
+            "half-out child at d = {d}: {p_half}"
+        );
+    }
 
     // ---- Intersection edge cases ----
 
