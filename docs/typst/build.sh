@@ -43,7 +43,7 @@ FILES=(
 echo -e "${GREEN}Generating PDFs...${NC}"
 for file in "${FILES[@]}"; do
     echo "  Building $file.pdf..."
-    typst compile "$SCRIPT_DIR/$file.typ" "$PDF_DIR/$file.pdf" 2>&1 | grep -v "^warning:" || true
+    typst compile "$SCRIPT_DIR/$file.typ" "$PDF_DIR/$file.pdf"
 done
 
 # Build HTML (using typst's HTML export)
