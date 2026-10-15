@@ -1,5 +1,14 @@
 # Changelog
 
+## Source history (unversioned)
+
+These source changes are listed without assigning them to a published release.
+
+### Maintenance
+
+- Propagate Typst PDF compilation failures through the document build script exit status instead of masking them in a warning-filter pipeline.
+  ([source change](https://github.com/arclabs561/subsume/commit/34de9545355ebdf8d50f7265e1e2b26f63628bb0))
+
 ## [Unreleased]
 
 ### Fixed
