@@ -30,7 +30,7 @@ For Gumbel boxes, this becomes:
 P(B \subseteq A) = \frac{\mathbb{E}[\text{Vol}(A \cap B)]}{\mathbb{E}[\text{Vol}(B)]}
 \]
 
-using the first-order Taylor approximation (see [`CONTAINMENT_PROBABILITY.md`](CONTAINMENT_PROBABILITY.md)).
+using the first-order Taylor approximation (see the [containment probability derivation](typst-output/pdf/containment-probability.pdf)).
 
 ## Interpretation
 
