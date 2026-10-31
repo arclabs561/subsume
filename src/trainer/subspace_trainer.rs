@@ -274,17 +274,17 @@ impl SubspaceTrainer {
                 head_basis: avg_head_basis,
                 tail_basis: avg_tail_basis,
             };
-            let head = &entities[head_idx];
-            let tail = &entities[tail_idx];
-
             let (bias1, bias2) = self.adam.tick();
 
-            // Update head basis
-            for j in 0..head.rank() {
-                for i in 0..head.dim() {
+            // Update head basis. `basis_mut` returns a copy, so the Adam steps
+            // land in that copy and `set_basis` installs it and
+            // re-orthonormalizes; writing through the copy alone changed nothing.
+            let mut head_basis = entities[head_idx].basis_mut();
+            for (j, row) in head_basis.iter_mut().enumerate() {
+                for (i, coefficient) in row.iter_mut().enumerate() {
                     self.adam.apply(
                         &format!("h{head_idx}_{j}_{i}"),
-                        &mut entities[head_idx].basis_mut()[j][i],
+                        coefficient,
                         grads.head_basis[j][i],
                         lr,
                         bias1,
@@ -292,13 +292,16 @@ impl SubspaceTrainer {
                     );
                 }
             }
+            // A degenerate all-zero update keeps the previous basis.
+            let _ = entities[head_idx].set_basis(head_basis);
 
             // Update tail basis
-            for j in 0..tail.rank() {
-                for i in 0..tail.dim() {
+            let mut tail_basis = entities[tail_idx].basis_mut();
+            for (j, row) in tail_basis.iter_mut().enumerate() {
+                for (i, coefficient) in row.iter_mut().enumerate() {
                     self.adam.apply(
                         &format!("t{tail_idx}_{j}_{i}"),
-                        &mut entities[tail_idx].basis_mut()[j][i],
+                        coefficient,
                         grads.tail_basis[j][i],
                         lr,
                         bias1,
@@ -306,6 +309,7 @@ impl SubspaceTrainer {
                     );
                 }
             }
+            let _ = entities[tail_idx].set_basis(tail_basis);
         }
 
         if count == 0 {
@@ -429,6 +433,48 @@ mod tests {
                 assert!(g.is_finite(), "head_basis[{j}][{i}] not finite: {g}");
             }
         }
+    }
+
+    // Bug hunt repro: `basis_mut` hands back a copy, so Adam updated a
+    // temporary and every entity kept the basis it was initialised with.
+    #[test]
+    fn training_changes_entity_bases() {
+        let mut trainer = SubspaceTrainer::new(7);
+        let mut entities = trainer.init_embeddings(6, 4, 2);
+        let triples = vec![
+            Triple {
+                head: "e0".to_string(),
+                relation: "r0".to_string(),
+                tail: "e1".to_string(),
+            },
+            Triple {
+                head: "e2".to_string(),
+                relation: "r0".to_string(),
+                tail: "e3".to_string(),
+            },
+        ];
+        let entity_map: HashMap<String, usize> =
+            (0..6).map(|index| (format!("e{index}"), index)).collect();
+        let config = CpuBoxTrainingConfig {
+            learning_rate: 0.01,
+            margin: 1.0,
+            negative_samples: 3,
+            ..Default::default()
+        };
+        let before: Vec<Vec<f32>> = entities
+            .iter()
+            .map(|entity| entity.basis().to_vec())
+            .collect();
+        for _ in 0..10 {
+            let loss = trainer.train_epoch(&mut entities, &triples, &config, &entity_map);
+            assert!(loss.is_finite(), "epoch loss not finite: {loss}");
+        }
+        let changed = before
+            .iter()
+            .zip(entities.iter())
+            .filter(|(previous, entity)| previous.as_slice() != entity.basis())
+            .count();
+        assert!(changed > 0, "no entity basis changed after 10 epochs");
     }
 
     #[test]
