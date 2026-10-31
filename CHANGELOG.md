@@ -18,6 +18,10 @@ These source changes are listed without assigning them to a published release.
 - Preserve calibrated score-gap boundary ties when constructing answer sets.
 - Keep invalid scores and unbounded thresholds out of finite threshold
   summaries; accumulate repeat statistics in `f64` to avoid overflow.
+- `SubspaceTrainer::train_epoch` now updates entity bases. It applied Adam to
+  the copy returned by `Subspace::basis_mut` and discarded it, so training
+  never changed an entity. The updated basis is now written back with
+  `Subspace::set_basis`, which re-orthonormalizes it.
 
 ### Changed
 

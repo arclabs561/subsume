@@ -274,17 +274,16 @@ impl SubspaceTrainer {
                 head_basis: avg_head_basis,
                 tail_basis: avg_tail_basis,
             };
-            let head = &entities[head_idx];
-            let tail = &entities[tail_idx];
-
             let (bias1, bias2) = self.adam.tick();
 
-            // Update head basis
-            for j in 0..head.rank() {
-                for i in 0..head.dim() {
+            // `Subspace::basis_mut` returns a copy, so update the copy and
+            // write it back with `set_basis`, which re-orthonormalizes.
+            let mut head_basis = entities[head_idx].basis_mut();
+            for (j, row) in head_basis.iter_mut().enumerate() {
+                for (i, x) in row.iter_mut().enumerate() {
                     self.adam.apply(
                         &format!("h{head_idx}_{j}_{i}"),
-                        &mut entities[head_idx].basis_mut()[j][i],
+                        x,
                         grads.head_basis[j][i],
                         lr,
                         bias1,
@@ -292,13 +291,15 @@ impl SubspaceTrainer {
                     );
                 }
             }
+            // An all-zero update is the only error; keep the previous basis.
+            let _ = entities[head_idx].set_basis(head_basis);
 
-            // Update tail basis
-            for j in 0..tail.rank() {
-                for i in 0..tail.dim() {
+            let mut tail_basis = entities[tail_idx].basis_mut();
+            for (j, row) in tail_basis.iter_mut().enumerate() {
+                for (i, x) in row.iter_mut().enumerate() {
                     self.adam.apply(
                         &format!("t{tail_idx}_{j}_{i}"),
-                        &mut entities[tail_idx].basis_mut()[j][i],
+                        x,
                         grads.tail_basis[j][i],
                         lr,
                         bias1,
@@ -306,6 +307,7 @@ impl SubspaceTrainer {
                     );
                 }
             }
+            let _ = entities[tail_idx].set_basis(tail_basis);
         }
 
         if count == 0 {
