@@ -1130,6 +1130,16 @@ pub fn evaluate_link_prediction_interned_with_transforms(
     )
 }
 
+/// Reject a NaN score, which would otherwise compare false against every score.
+fn not_nan(score: f32, which: &str) -> Result<f32, crate::BoxError> {
+    if score.is_nan() {
+        return Err(crate::BoxError::Internal(format!(
+            "NaN score encountered ({which})"
+        )));
+    }
+    Ok(score)
+}
+
 /// Generic link prediction evaluation using arbitrary scoring functions.
 ///
 /// This is the evaluation path for geometries that don't implement the `Box` trait
@@ -1142,6 +1152,12 @@ pub fn evaluate_link_prediction_interned_with_transforms(
 ///
 /// Both functions receive entity indices and should return scores in a consistent range.
 /// The evaluation ranks all candidates by score and computes MRR, Hits@k, Mean Rank.
+///
+/// # Errors
+///
+/// Returns [`crate::BoxError::Internal`] if a target or candidate score is NaN, as the
+/// string and interned evaluators do; a NaN compares false against every score and
+/// would otherwise rank first.
 pub fn evaluate_link_prediction_generic<FH, FT>(
     test_triples: &[crate::dataset::TripleIds],
     num_entities: usize,
@@ -1187,7 +1203,7 @@ where
         let t = triple.tail;
 
         // Tail prediction: rank t among all entities
-        let tail_score = score_tail(h, r, t);
+        let tail_score = not_nan(score_tail(h, r, t), "target")?;
         let mut tail_rank = 1;
         for candidate in 0..num_entities {
             if candidate == t {
@@ -1199,7 +1215,7 @@ where
                     continue;
                 }
             }
-            let cand_score = score_tail(h, r, candidate);
+            let cand_score = not_nan(score_tail(h, r, candidate), "candidate")?;
             if cand_score > tail_score || (cand_score == tail_score && candidate < t) {
                 tail_rank += 1;
             }
@@ -1208,7 +1224,7 @@ where
         all_ranks.push(tail_rank);
 
         // Head prediction: rank h among all entities
-        let head_score = score_head(h, r, t);
+        let head_score = not_nan(score_head(h, r, t), "target")?;
         let mut head_rank = 1;
         for candidate in 0..num_entities {
             if candidate == h {
@@ -1220,7 +1236,7 @@ where
                     continue;
                 }
             }
-            let cand_score = score_head(candidate, r, t);
+            let cand_score = not_nan(score_head(candidate, r, t), "candidate")?;
             if cand_score > head_score || (cand_score == head_score && candidate < h) {
                 head_rank += 1;
             }
@@ -1758,5 +1774,56 @@ mod tests {
         assert_eq!(r1.hits_at_3, r2.hits_at_3, "Hits@3 differs across runs");
         assert_eq!(r1.hits_at_10, r2.hits_at_10, "Hits@10 differs across runs");
         assert_eq!(r1.mean_rank, r2.mean_rank, "mean_rank differs across runs");
+    }
+
+    /// A diverged model that scores every triple NaN must not rank perfectly;
+    /// the string and interned evaluators reject NaN scores, and so does this one.
+    #[test]
+    fn generic_link_prediction_rejects_nan_scores() {
+        use crate::dataset::TripleIds;
+        let test = vec![
+            TripleIds {
+                head: 0,
+                relation: 0,
+                tail: 1,
+            },
+            TripleIds {
+                head: 2,
+                relation: 0,
+                tail: 3,
+            },
+        ];
+        let r = evaluate_link_prediction_generic(
+            &test,
+            50,
+            None,
+            |_, _, _| f32::NAN,
+            |_, _, _| f32::NAN,
+        );
+        match r {
+            Err(_) => {}
+            Ok(res) => panic!(
+                "all-NaN model evaluated as MRR = {}, Hits@1 = {}",
+                res.mrr, res.hits_at_1
+            ),
+        }
+    }
+
+    /// One NaN candidate is enough to make the ranking meaningless.
+    #[test]
+    fn generic_link_prediction_rejects_a_nan_candidate() {
+        use crate::dataset::TripleIds;
+        let test = vec![TripleIds {
+            head: 0,
+            relation: 0,
+            tail: 1,
+        }];
+        let score = |_: usize, _: usize, c: usize| if c == 7 { f32::NAN } else { -(c as f32) };
+        let r = evaluate_link_prediction_generic(&test, 10, None, score, score);
+        assert!(
+            r.is_err(),
+            "a NaN candidate score was ranked: {:?}",
+            r.map(|x| x.mrr)
+        );
     }
 }

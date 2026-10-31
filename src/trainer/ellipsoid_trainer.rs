@@ -85,18 +85,8 @@ impl EllipsoidTrainer {
 
         // Gradients w.r.t. head mu
         for i in 0..dim {
-            let mut mu = head.mu().to_vec();
-            mu[i] += eps;
-            let perturbed = Ellipsoid::from_log_diagonal(
-                mu.clone(),
-                head.cholesky()
-                    .iter()
-                    .enumerate()
-                    .filter(|(j, _)| j % (dim + 1) == 0)
-                    .map(|(_, &v)| v)
-                    .collect(),
-            )
-            .unwrap_or_else(|_| head.clone());
+            let mut perturbed = head.clone();
+            perturbed.mu_mut()[i] += eps;
             let pos_p = crate::ellipsoid::containment_prob(&perturbed, tail, k)
                 .unwrap_or(pos_prob)
                 .max(1e-10);
@@ -109,17 +99,10 @@ impl EllipsoidTrainer {
 
         // Gradients w.r.t. head log_diag
         for i in 0..dim {
-            let log_diag: Vec<f32> = (0..dim)
-                .map(|j| {
-                    if j == i {
-                        head.cholesky()[j * dim + j] + eps
-                    } else {
-                        head.cholesky()[j * dim + j]
-                    }
-                })
-                .collect();
-            let perturbed = Ellipsoid::from_log_diagonal(head.mu().to_vec(), log_diag)
-                .unwrap_or_else(|_| head.clone());
+            let mut perturbed = head.clone();
+            let mut log_diag = perturbed.log_diag();
+            log_diag[i] += eps;
+            perturbed.set_log_diag(&log_diag);
             let pos_p = crate::ellipsoid::containment_prob(&perturbed, tail, k)
                 .unwrap_or(pos_prob)
                 .max(1e-10);
@@ -132,18 +115,8 @@ impl EllipsoidTrainer {
 
         // Gradients w.r.t. tail mu
         for i in 0..dim {
-            let mut mu = tail.mu().to_vec();
-            mu[i] += eps;
-            let perturbed = Ellipsoid::from_log_diagonal(
-                mu,
-                tail.cholesky()
-                    .iter()
-                    .enumerate()
-                    .filter(|(j, _)| j % (dim + 1) == 0)
-                    .map(|(_, &v)| v)
-                    .collect(),
-            )
-            .unwrap_or_else(|_| tail.clone());
+            let mut perturbed = tail.clone();
+            perturbed.mu_mut()[i] += eps;
             let pos_p = crate::ellipsoid::containment_prob(head, &perturbed, k)
                 .unwrap_or(pos_prob)
                 .max(1e-10);
@@ -153,17 +126,10 @@ impl EllipsoidTrainer {
 
         // Gradients w.r.t. tail log_diag
         for i in 0..dim {
-            let log_diag: Vec<f32> = (0..dim)
-                .map(|j| {
-                    if j == i {
-                        tail.cholesky()[j * dim + j] + eps
-                    } else {
-                        tail.cholesky()[j * dim + j]
-                    }
-                })
-                .collect();
-            let perturbed = Ellipsoid::from_log_diagonal(tail.mu().to_vec(), log_diag)
-                .unwrap_or_else(|_| tail.clone());
+            let mut perturbed = tail.clone();
+            let mut log_diag = perturbed.log_diag();
+            log_diag[i] += eps;
+            perturbed.set_log_diag(&log_diag);
             let pos_p = crate::ellipsoid::containment_prob(head, &perturbed, k)
                 .unwrap_or(pos_prob)
                 .max(1e-10);
@@ -173,19 +139,8 @@ impl EllipsoidTrainer {
 
         // Gradients w.r.t. neg_tail mu
         for i in 0..dim {
-            let mut mu = neg_tail.mu().to_vec();
-            mu[i] += eps;
-            let perturbed = Ellipsoid::from_log_diagonal(
-                mu,
-                neg_tail
-                    .cholesky()
-                    .iter()
-                    .enumerate()
-                    .filter(|(j, _)| j % (dim + 1) == 0)
-                    .map(|(_, &v)| v)
-                    .collect(),
-            )
-            .unwrap_or_else(|_| neg_tail.clone());
+            let mut perturbed = neg_tail.clone();
+            perturbed.mu_mut()[i] += eps;
             let neg_p = crate::ellipsoid::containment_prob(head, &perturbed, k)
                 .unwrap_or(neg_prob)
                 .max(1e-10);
@@ -195,17 +150,10 @@ impl EllipsoidTrainer {
 
         // Gradients w.r.t. neg_tail log_diag
         for i in 0..dim {
-            let log_diag: Vec<f32> = (0..dim)
-                .map(|j| {
-                    if j == i {
-                        neg_tail.cholesky()[j * dim + j] + eps
-                    } else {
-                        neg_tail.cholesky()[j * dim + j]
-                    }
-                })
-                .collect();
-            let perturbed = Ellipsoid::from_log_diagonal(neg_tail.mu().to_vec(), log_diag)
-                .unwrap_or_else(|_| neg_tail.clone());
+            let mut perturbed = neg_tail.clone();
+            let mut log_diag = perturbed.log_diag();
+            log_diag[i] += eps;
+            perturbed.set_log_diag(&log_diag);
             let neg_p = crate::ellipsoid::containment_prob(head, &perturbed, k)
                 .unwrap_or(neg_prob)
                 .max(1e-10);
@@ -577,6 +525,65 @@ mod tests {
             results.mean_rank < 3.0,
             "Ellipsoid Mean rank = {}, expected < 3.0",
             results.mean_rank
+        );
+    }
+
+    fn pair_loss(h: &Ellipsoid, t: &Ellipsoid, n: &Ellipsoid) -> f64 {
+        EllipsoidTrainer::compute_pair_gradients(h, t, n, 5.0, 1.0).0 as f64
+    }
+
+    fn central_difference(
+        h: &Ellipsoid,
+        t: &Ellipsoid,
+        n: &Ellipsoid,
+        perturb: impl Fn(&mut Ellipsoid, f32),
+    ) -> f64 {
+        let e = 1e-3f32;
+        let mut hp = h.clone();
+        perturb(&mut hp, e);
+        let mut hm = h.clone();
+        perturb(&mut hm, -e);
+        (pair_loss(&hp, t, n) - pair_loss(&hm, t, n)) / (2.0 * e as f64)
+    }
+
+    #[test]
+    fn mu_gradient_matches_finite_difference_for_diagonal_head() {
+        let h = Ellipsoid::from_log_diagonal(vec![0.3, -0.2], vec![-0.5, -0.3]).unwrap();
+        let t = Ellipsoid::from_log_diagonal(vec![0.0, 0.1], vec![0.2, 0.0]).unwrap();
+        let n = Ellipsoid::from_log_diagonal(vec![1.0, 1.0], vec![-0.2, -0.1]).unwrap();
+        let (_, g) = EllipsoidTrainer::compute_pair_gradients(&h, &t, &n, 5.0, 1.0);
+        let fd = central_difference(&h, &t, &n, |x, e| x.mu_mut()[0] += e);
+        assert!(
+            (g.head_mu[0] as f64 - fd).abs() < 0.05 * fd.abs().max(0.1),
+            "{} vs {fd}",
+            g.head_mu[0]
+        );
+    }
+
+    /// A full-covariance head (off-diagonal Cholesky entry) keeps its
+    /// off-diagonal when perturbed, so the gradients match central differences.
+    #[test]
+    fn gradients_match_finite_difference_for_full_covariance_head() {
+        let h = Ellipsoid::new(vec![0.3, -0.2], vec![-0.5, 0.0, 0.4, -0.3]).unwrap();
+        let t = Ellipsoid::from_log_diagonal(vec![0.0, 0.1], vec![0.2, 0.0]).unwrap();
+        let n = Ellipsoid::from_log_diagonal(vec![1.0, 1.0], vec![-0.2, -0.1]).unwrap();
+        let (l0, g) = EllipsoidTrainer::compute_pair_gradients(&h, &t, &n, 5.0, 1.0);
+        assert!(l0 > 0.0);
+        let fd_mu = central_difference(&h, &t, &n, |x, e| x.mu_mut()[0] += e);
+        assert!(
+            (g.head_mu[0] as f64 - fd_mu).abs() < 0.05 * fd_mu.abs().max(0.1),
+            "head mu: analytic {} vs central difference {fd_mu}",
+            g.head_mu[0]
+        );
+        let fd_ld = central_difference(&h, &t, &n, |x, e| {
+            let mut ld = x.log_diag();
+            ld[1] += e;
+            x.set_log_diag(&ld);
+        });
+        assert!(
+            (g.head_log_diag[1] as f64 - fd_ld).abs() < 0.05 * fd_ld.abs().max(0.1),
+            "head log-diag: analytic {} vs central difference {fd_ld}",
+            g.head_log_diag[1]
         );
     }
 }

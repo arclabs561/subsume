@@ -426,9 +426,11 @@ pub fn subsumption_loss(
 
 /// Intersection of two concepts: `C ⊓ D`.
 ///
-/// Returns the smallest box containing the intersection:
-/// - `center = (center_C + center_D) / 2`
-/// - `offset = (offset_C + offset_D) / 2 - |center_C - center_D| / 2`
+/// Per dimension, the intersection of `[c_C - o_C, c_C + o_C]` and
+/// `[c_D - o_D, c_D + o_D]` is `[lo, hi]` with `lo = max` of the lower bounds and
+/// `hi = min` of the upper bounds, so `center = (lo + hi) / 2` and
+/// `offset = max(hi - lo, 0) / 2`. Disjoint concepts give offset 0 at the
+/// midpoint of the gap.
 ///
 /// # Errors
 ///
@@ -440,20 +442,17 @@ pub fn intersection(a: &TransBoxConcept, b: &TransBoxConcept) -> Result<TransBox
             actual: b.center.len(),
         });
     }
-    let center: Vec<f32> = a
+    let (center, offset): (Vec<f32>, Vec<f32>) = a
         .center
         .iter()
-        .zip(b.center.iter())
-        .map(|(&ca, &cb)| (ca + cb) / 2.0)
-        .collect();
-    let offset: Vec<f32> = a
-        .offset
-        .iter()
-        .zip(b.offset.iter())
-        .zip(a.center.iter())
-        .zip(b.center.iter())
-        .map(|(((&oa, &ob), &ca), &cb)| ((oa + ob) / 2.0 - (ca - cb).abs() / 2.0).max(0.0))
-        .collect();
+        .zip(a.offset.iter())
+        .zip(b.center.iter().zip(b.offset.iter()))
+        .map(|((&ca, &oa), (&cb, &ob))| {
+            let lo = (ca - oa).max(cb - ob);
+            let hi = (ca + oa).min(cb + ob);
+            ((lo + hi) / 2.0, ((hi - lo) / 2.0).max(0.0))
+        })
+        .unzip();
     TransBoxConcept::new(center, offset)
 }
 
@@ -686,5 +685,19 @@ mod tests {
         assert!((min[1] - 1.0).abs() < 1e-6);
         assert!((max[0] - 1.5).abs() < 1e-6);
         assert!((max[1] - 3.0).abs() < 1e-6);
+    }
+
+    /// The intersection of two boxes is exact for any offsets, not only for
+    /// equal ones: [-1, 1] ∩ [0.4, 0.6] = [0.4, 0.6].
+    #[test]
+    fn intersection_is_the_box_intersection_for_unequal_offsets() {
+        let a = TransBoxConcept::new(vec![0.0], vec![1.0]).unwrap();
+        let b = TransBoxConcept::new(vec![0.5], vec![0.1]).unwrap();
+        let i = intersection(&a, &b).unwrap();
+        let (lo, hi) = (i.center()[0] - i.offset()[0], i.center()[0] + i.offset()[0]);
+        assert!(
+            (lo - 0.4).abs() < 1e-5 && (hi - 0.6).abs() < 1e-5,
+            "intersection = [{lo}, {hi}], expected [0.4, 0.6]"
+        );
     }
 }
