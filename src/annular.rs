@@ -187,6 +187,14 @@ impl AnnularSector {
         span
     }
 
+    /// Angular midpoint in `[0, 2π)`, measured along the span from
+    /// `theta_start`, so it is correct for sectors that wrap past 0 or span
+    /// more than π.
+    fn mid_angle(&self) -> f32 {
+        let two_pi = 2.0 * std::f32::consts::PI;
+        (self.theta_start + self.angular_span() / 2.0).rem_euclid(two_pi)
+    }
+
     /// Radial width.
     #[must_use]
     pub fn radial_width(&self) -> f32 {
@@ -303,11 +311,10 @@ impl AnnularRelation {
         let new_r_inner = sector.r_inner * self.radial_scale;
         let new_r_outer = sector.r_outer * self.radial_scale;
 
-        // Scale angular span around the circular midpoint
-        // Use circular mean: mid = atan2(sin(start)+sin(end), cos(start)+cos(end))
-        let mid = (sector.theta_start.sin() + sector.theta_end.sin())
-            .atan2(sector.theta_start.cos() + sector.theta_end.cos())
-            .rem_euclid(two_pi);
+        // Scale the angular span around its midpoint. The chord mean of the
+        // endpoints points the wrong way for spans above π, so measure the
+        // midpoint along the span.
+        let mid = sector.mid_angle();
         let half_span = sector.angular_span() * self.angular_scale / 2.0;
         let new_theta_start = (mid - half_span).rem_euclid(two_pi);
         let new_theta_end = (mid + half_span).rem_euclid(two_pi);
@@ -408,92 +415,40 @@ pub fn containment_score(inner: &AnnularSector, outer: &AnnularSector) -> f32 {
     radial_score.min(angular_score)
 }
 
-/// Angular containment: is interval A contained in interval B (on the circle)?
+/// Angular containment: the fraction of arc A that lies in arc B (on the circle).
 fn angular_containment(a_start: f32, a_end: f32, b_start: f32, b_end: f32) -> f32 {
-    let two_pi = 2.0 * std::f32::consts::PI;
-
-    // Normalize all angles
-    let a_start = a_start.rem_euclid(two_pi);
-    let a_end = a_end.rem_euclid(two_pi);
-    let b_start = b_start.rem_euclid(two_pi);
-    let b_end = b_end.rem_euclid(two_pi);
-
-    let a_span = if a_end >= a_start {
-        a_end - a_start
-    } else {
-        a_end + two_pi - a_start
-    };
-    let b_span = if b_end >= b_start {
-        b_end - b_start
-    } else {
-        b_end + two_pi - b_start
-    };
-
-    if a_span <= b_span + 1e-6 {
-        // A could fit inside B angularly
-        // Check if A's start is within B's interval
-        let a_in_b = angle_in_interval(a_start, b_start, b_end);
-        if a_in_b {
-            // A's end should also be in B (since span fits)
-            let a_end_in_b = angle_in_interval(a_end, b_start, b_end);
-            if a_end_in_b {
-                return 1.0;
-            }
-        }
-    }
-
-    // Partial containment: ratio of overlap to A's span
-    let overlap = angular_overlap(a_start, a_end, b_start, b_end);
+    let a_span = arc_span(a_start, a_end);
     if a_span < 1e-6 {
+        return 1.0;
+    }
+    let overlap = angular_overlap(a_start, a_end, b_start, b_end);
+    if overlap >= a_span - 1e-6 {
         return 1.0;
     }
     (overlap / a_span).min(1.0)
 }
 
-/// Check if angle `a` is in the interval [start, end] (circular).
-fn angle_in_interval(a: f32, start: f32, end: f32) -> bool {
-    if end >= start {
-        a >= start - 1e-6 && a <= end + 1e-6
-    } else {
-        // Wraps around
-        a >= start - 1e-6 || a <= end + 1e-6
-    }
+/// Counter-clockwise span of the arc from `start` to `end`, in `[0, 2π)`.
+fn arc_span(start: f32, end: f32) -> f32 {
+    let two_pi = 2.0 * std::f32::consts::PI;
+    (end - start).rem_euclid(two_pi)
 }
 
-/// Compute angular overlap between two intervals.
+/// Exact length of the intersection of two arcs on the circle.
+///
+/// Each arc runs counter-clockwise from its start to its end. Arc B is
+/// compared with arc A at three 2π shifts, which covers every way two arcs
+/// shorter than a full turn can overlap, including overlaps at both ends.
 fn angular_overlap(a_start: f32, a_end: f32, b_start: f32, b_end: f32) -> f32 {
     let two_pi = 2.0 * std::f32::consts::PI;
-    let a_span = if a_end >= a_start {
-        a_end - a_start
-    } else {
-        a_end + two_pi - a_start
-    };
-    let b_span = if b_end >= b_start {
-        b_end - b_start
-    } else {
-        b_end + two_pi - b_start
-    };
-
-    // Simple approximation: min of spans if they could overlap
-    // For exact computation, we'd need to handle wraparound cases
-    if a_span < 1e-6 || b_span < 1e-6 {
-        return 0.0;
-    }
-
-    // Check if intervals overlap at all
-    let a_mid = (a_start + a_end) / 2.0;
-    let b_mid = (b_start + b_end) / 2.0;
-    let dist = (a_mid - b_mid).abs().min(two_pi - (a_mid - b_mid).abs());
-
-    if dist > (a_span + b_span) / 2.0 {
-        return 0.0;
-    }
-
-    // Approximate overlap
-    ((a_span + b_span) / 2.0 - dist)
-        .max(0.0)
-        .min(a_span)
-        .min(b_span)
+    let a0 = a_start.rem_euclid(two_pi);
+    let a1 = a0 + arc_span(a_start, a_end);
+    let b0 = b_start.rem_euclid(two_pi);
+    let b1 = b0 + arc_span(b_start, b_end);
+    [-two_pi, 0.0, two_pi]
+        .iter()
+        .map(|shift| (a1.min(b1 + shift) - a0.max(b0 + shift)).max(0.0))
+        .sum()
 }
 
 /// Surface distance between two annular sectors.
@@ -511,9 +466,8 @@ pub fn surface_distance(a: &AnnularSector, b: &AnnularSector) -> f32 {
 
     // Angular distance
     let two_pi = 2.0 * std::f32::consts::PI;
-    let a_mid = (a.theta_start + a.theta_end) / 2.0;
-    let b_mid = (b.theta_start + b.theta_end) / 2.0;
-    let angular_dist = (a_mid - b_mid).abs().min(two_pi - (a_mid - b_mid).abs());
+    let gap = (a.mid_angle() - b.mid_angle()).rem_euclid(two_pi);
+    let angular_dist = gap.min(two_pi - gap);
 
     // Center distance
     let center_dist =
@@ -720,6 +674,70 @@ mod tests {
     fn angular_containment_partial() {
         let score = angular_containment(0.0, PI, PI / 2.0, 1.5 * PI);
         assert!(score > 0.0 && score < 1.0, "partial containment = {score}");
+    }
+
+    fn deg(x: f32) -> f32 {
+        x * PI / 180.0
+    }
+
+    fn circular_gap(a: f32, b: f32) -> f32 {
+        let x = (a - b).rem_euclid(2.0 * PI);
+        x.min(2.0 * PI - x)
+    }
+
+    #[test]
+    fn relation_identity_preserves_sector_wider_than_pi() {
+        // [0°, 270°] spans 3π/2; the chord mean of its endpoints points the
+        // wrong way, so the midpoint must come from the span instead.
+        let s = AnnularSector::new(0.0, 0.0, 1.0, 2.0, 0.0, deg(270.0)).unwrap();
+        let t = AnnularRelation::identity().apply(&s);
+        assert!(
+            circular_gap(t.theta_start(), s.theta_start()) < 1e-4
+                && circular_gap(t.theta_end(), s.theta_end()) < 1e-4,
+            "identity moved [{}, {}] to [{}, {}]",
+            s.theta_start(),
+            s.theta_end(),
+            t.theta_start(),
+            t.theta_end()
+        );
+    }
+
+    #[test]
+    fn surface_distance_handles_sector_straddling_zero() {
+        // a = [350°, 10°] (midpoint 0°), b = [0°, 20°] (midpoint 10°).
+        let a = AnnularSector::new(0.0, 0.0, 1.0, 2.0, deg(350.0), deg(10.0)).unwrap();
+        let b = AnnularSector::new(0.0, 0.0, 1.0, 2.0, deg(0.0), deg(20.0)).unwrap();
+        let d = surface_distance(&a, &b);
+        assert!(
+            (d - deg(10.0)).abs() < 1e-3,
+            "surface_distance = {d}, expected {} (10 degrees)",
+            deg(10.0)
+        );
+    }
+
+    #[test]
+    fn containment_partial_overlap_across_zero() {
+        // inner [5°, 25°], outer [350°, 10°]: 5° of inner's 20° overlap.
+        let inner = AnnularSector::new(0.0, 0.0, 1.0, 2.0, deg(5.0), deg(25.0)).unwrap();
+        let outer = AnnularSector::new(0.0, 0.0, 1.0, 2.0, deg(350.0), deg(10.0)).unwrap();
+        let c = containment_score(&inner, &outer);
+        assert!(
+            (c - 0.25).abs() < 0.02,
+            "containment_score = {c}, expected 0.25"
+        );
+    }
+
+    #[test]
+    fn containment_rejects_sector_covering_outer_gap() {
+        // outer [0°, 300°]; inner [250°, 50°] wraps and covers (300°, 360°),
+        // which outer lacks, although both of inner's endpoints lie in outer.
+        let inner = AnnularSector::new(0.0, 0.0, 1.0, 2.0, deg(250.0), deg(50.0)).unwrap();
+        let outer = AnnularSector::new(0.0, 0.0, 1.0, 2.0, deg(0.0), deg(300.0)).unwrap();
+        let c = containment_score(&inner, &outer);
+        assert!(
+            (c - 100.0 / 160.0).abs() < 0.02,
+            "containment_score = {c}; 100° of inner's 160° lie in outer"
+        );
     }
 }
 

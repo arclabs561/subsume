@@ -23,8 +23,9 @@
 //! tail; entity apertures are unused — the child is treated as a point at its axis):
 //! - `distance_to_axis = |sin((child_axis − parent_axis)/2)|`
 //! - `distance_base     = |sin(parent_aperture/2)|`
-//! - inside (`distance_to_axis < distance_base`): contribute `cen · distance_to_axis`
-//! - outside: contribute `min(|sin((child_axis − (parent_axis − parent_aper))/2)|,
+//! - every dimension: contribute `cen · min(distance_to_axis, distance_base)`
+//! - outside (`distance_to_axis >= distance_base`): also contribute
+//!   `min(|sin((child_axis − (parent_axis − parent_aper))/2)|,
 //!   |sin((child_axis − (parent_axis + parent_aper))/2)|)`
 //! - `distance = Σ_d contribution_d`, `cen = 0.02` (ConE default).
 //!
@@ -469,7 +470,7 @@ fn cone_distance_batched<B: Backend>(
         .sin()
         .abs(); // [N, d]
     let d_base = q_aper.clone().mul_scalar(0.5).sin().abs(); // [N, d]
-    let inside = d_to_axis.clone().lower(d_base).float(); // 1.0 inside, 0.0 outside
+    let inside = d_to_axis.clone().lower(d_base.clone()).float(); // 1.0 inside, 0.0 outside
 
     // Outside distance: nearest of the two sector boundaries.
     let lower_edge = q_axes.clone() - q_aper.clone();
@@ -478,7 +479,8 @@ fn cone_distance_batched<B: Backend>(
     let d2 = (e_axes - upper_edge).mul_scalar(0.5).sin().abs();
     let d_out = d1.min_pair(d2); // [N, d]
 
-    let inside_term = d_to_axis.mul_scalar(cen) * inside.clone();
+    // The inside term applies in every dimension, saturating at `d_base`.
+    let inside_term = d_to_axis.min_pair(d_base).mul_scalar(cen);
     let outside_term = d_out * inside.neg().add_scalar(1.0); // × (1 − inside)
     (inside_term + outside_term).sum_dim(1) // [N, 1]
 }
@@ -508,9 +510,8 @@ fn cone_distance_cpu_rel(
         let e = axes[to + i] + tail_trans[ro + i];
         let d_to_axis = ((e - q_axis) / 2.0).sin().abs();
         let d_base = (q_aper / 2.0).sin().abs();
-        if d_to_axis < d_base {
-            dist_in += d_to_axis;
-        } else {
+        dist_in += d_to_axis.min(d_base);
+        if d_to_axis >= d_base {
             let d1 = ((e - (q_axis - q_aper)) / 2.0).sin().abs();
             let d2 = ((e - (q_axis + q_aper)) / 2.0).sin().abs();
             dist_out += d1.min(d2);
@@ -712,5 +713,30 @@ mod tests {
             ids
         );
         assert_eq!(ids, list_param_ids(&model.clone()));
+    }
+
+    /// The CPU and batched distances both add the inside term in every
+    /// dimension, so a child just inside the parent's sector scores below one
+    /// just outside, and the two implementations agree.
+    #[test]
+    fn cone_distance_is_continuous_at_the_sector_boundary() {
+        // Entity 0 is the parent (axis 0, aperture 1); 1 and 2 are children
+        // just inside and just outside the boundary at axis 1.
+        let axes = [0.0f32, 0.999, 1.001];
+        let apers = [1.0f32, 0.1, 0.1];
+        let zero = [0.0f32];
+        let cpu = |t| cone_distance_cpu_rel(&axes, &apers, &zero, &zero, 0, 0, t, 1, 0.02);
+        let (d_in, d_out) = (cpu(1), cpu(2));
+        assert!(d_in < d_out, "just inside {d_in} vs just outside {d_out}");
+
+        let device = Default::default();
+        let t = |v: &[f32]| Tensor::<NdArray, 1>::from_floats(v, &device).reshape([v.len(), 1]);
+        let batched =
+            cone_distance_batched(t(&[0.0, 0.0]), t(&[1.0, 1.0]), t(&[0.999, 1.001]), 0.02);
+        let b = batched.into_data().to_vec::<f32>().unwrap();
+        assert!(
+            (b[0] - d_in).abs() < 1e-6 && (b[1] - d_out).abs() < 1e-6,
+            "batched {b:?} vs cpu [{d_in}, {d_out}]"
+        );
     }
 }

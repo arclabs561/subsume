@@ -18,6 +18,24 @@ These source changes are listed without assigning them to a published release.
 - Preserve calibrated score-gap boundary ties when constructing answer sets.
 - Keep invalid scores and unbounded thresholds out of finite threshold
   summaries; accumulate repeat statistics in `f64` to avoid overflow.
+- Add the ConE inside distance in every dimension, as the reference
+  implementation does, so an entity just outside a cone no longer scores
+  better than one just inside (`NdarrayCone`, `DenseCone` and the Burn cone
+  trainer).
+- Weight the ball trainer's negatives by plausibility only when
+  `self_adversarial` is set; it used `-ln P` directly, which gave the easiest
+  negative the most weight, and applied the weighting even with the flag off.
+- Reject NaN scores in `evaluate_link_prediction_generic`, as the string and
+  interned evaluators do; an all-NaN model scored MRR 1.0.
+- Take annular sector midpoints along the angular span, so
+  `surface_distance` is right for sectors that wrap past 0 and the identity
+  relation keeps sectors wider than π in place; compute angular containment
+  from the exact arc overlap across the wrap.
+- Compute `transbox::intersection` exactly for unequal offsets.
+- Find `subspace::intersection` from the principal angles, so planes 20° apart
+  intersect in their shared line instead of a rank-2 subspace.
+- Keep a full-covariance ellipsoid's off-diagonal Cholesky entries when the
+  ellipsoid trainer perturbs it for finite-difference gradients.
 
 ### Changed
 

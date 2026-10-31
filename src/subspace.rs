@@ -409,9 +409,11 @@ pub fn subspace_distance(a: &Subspace, b: &Subspace) -> Result<f32, BoxError> {
 
 /// Intersection of two subspaces.
 ///
-/// Returns the subspace spanned by vectors in both A and B.
-/// Computed via SVD of the concatenated basis: find the null space
-/// of [A_basis | -B_basis].
+/// Returns the subspace spanned by vectors in both A and B: the principal
+/// vectors of A whose principal angle to B is zero (`cos²θ` within `1e-5` of
+/// 1, about 0.18°). With orthonormal bases, the eigenvalues of
+/// `S = (AᵀB)(AᵀB)ᵀ` are `cos²` of the principal angles, and `A u` is the
+/// principal vector for an eigenvector `u` of `S`.
 ///
 /// # Errors
 ///
@@ -424,35 +426,41 @@ pub fn intersection(a: &Subspace, b: &Subspace) -> Result<Subspace, BoxError> {
         });
     }
 
-    // To find the intersection of A and B, we find vectors that are
-    // simultaneously in both subspaces. Algorithm:
-    // 1. Project each basis vector of A onto B
-    // 2. Keep the projected vectors (which are in B by construction)
-    // 3. Check if they are also in A (by projecting back onto A)
-    // 4. Vectors that survive both projections with high fidelity are in A ∩ B
-    //
-    // More robust: iterate projection P_B * P_A until convergence.
-    // Each application filters out components not in both subspaces.
+    // M = Aᵀ B (rank_a × rank_b), accumulated in f64.
+    let mut m = vec![0.0f64; a.rank * b.rank];
+    for i in 0..a.rank {
+        for j in 0..b.rank {
+            m[i * b.rank + j] = (0..a.dim)
+                .map(|r| a.basis[r * a.rank + i] as f64 * b.basis[r * b.rank + j] as f64)
+                .sum();
+        }
+    }
+    // S = M Mᵀ (rank_a × rank_a, symmetric).
+    let n = a.rank;
+    let mut s = vec![0.0f64; n * n];
+    for i in 0..n {
+        for j in 0..n {
+            s[i * n + j] = (0..b.rank)
+                .map(|k| m[i * b.rank + k] * m[j * b.rank + k])
+                .sum();
+        }
+    }
+    let (eigenvalues, eigenvectors) = symmetric_eigen(s, n);
+
     let mut candidates: Vec<Vec<f32>> = Vec::new();
-
-    // Start with A's basis, repeatedly apply P_B then P_A
-    for j in 0..a.rank {
-        let mut v: Vec<f32> = (0..a.dim).map(|i| a.basis[i * a.rank + j]).collect();
-
-        // Iterate alternating projections (converges to intersection)
-        for _ in 0..10 {
-            v = project_onto_subspace(&v, b);
-            v = project_onto_subspace(&v, a);
+    for (col, &cos2) in eigenvalues.iter().enumerate() {
+        if cos2 < 1.0 - INTERSECTION_COS2_TOL {
+            continue;
         }
-
-        let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
-        if norm > 0.1 {
-            // Normalize
-            for x in &mut v {
-                *x /= norm;
-            }
-            candidates.push(v);
-        }
+        // Principal vector A u, with u the eigenvector in column `col`.
+        let v: Vec<f32> = (0..a.dim)
+            .map(|r| {
+                (0..n)
+                    .map(|j| a.basis[r * a.rank + j] as f64 * eigenvectors[j * n + col])
+                    .sum::<f64>() as f32
+            })
+            .collect();
+        candidates.push(v);
     }
 
     if candidates.is_empty() {
@@ -573,6 +581,61 @@ pub fn negation_score(a: &Subspace, b: &Subspace) -> Result<f32, BoxError> {
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
+
+/// Largest `1 - cos²θ` for which [`intersection`] treats a principal angle θ
+/// as zero (θ ≈ 0.18°). Bases are orthonormalized in `f32`, so exact shared
+/// directions come out with `cos²θ` within about `1e-6` of 1.
+const INTERSECTION_COS2_TOL: f64 = 1e-5;
+
+/// Eigen-decomposition of a symmetric `n × n` matrix (row-major) by cyclic
+/// Jacobi rotations. Returns the eigenvalues and the eigenvectors as the
+/// columns of a row-major `n × n` matrix.
+fn symmetric_eigen(mut a: Vec<f64>, n: usize) -> (Vec<f64>, Vec<f64>) {
+    let mut v = vec![0.0f64; n * n];
+    for i in 0..n {
+        v[i * n + i] = 1.0;
+    }
+    for _sweep in 0..100 {
+        let off: f64 = (0..n)
+            .flat_map(|i| (0..n).filter(move |&j| j != i).map(move |j| (i, j)))
+            .map(|(i, j)| a[i * n + j] * a[i * n + j])
+            .sum();
+        if off < 1e-30 {
+            break;
+        }
+        for p in 0..n {
+            for q in (p + 1)..n {
+                let apq = a[p * n + q];
+                if apq.abs() < 1e-300 {
+                    continue;
+                }
+                let theta = (a[q * n + q] - a[p * n + p]) / (2.0 * apq);
+                let t = theta.signum() / (theta.abs() + (theta * theta + 1.0).sqrt());
+                let c = 1.0 / (t * t + 1.0).sqrt();
+                let s = t * c;
+                for k in 0..n {
+                    let akp = a[k * n + p];
+                    let akq = a[k * n + q];
+                    a[k * n + p] = c * akp - s * akq;
+                    a[k * n + q] = s * akp + c * akq;
+                }
+                for k in 0..n {
+                    let apk = a[p * n + k];
+                    let aqk = a[q * n + k];
+                    a[p * n + k] = c * apk - s * aqk;
+                    a[q * n + k] = s * apk + c * aqk;
+                }
+                for k in 0..n {
+                    let vkp = v[k * n + p];
+                    let vkq = v[k * n + q];
+                    v[k * n + p] = c * vkp - s * vkq;
+                    v[k * n + q] = s * vkp + c * vkq;
+                }
+            }
+        }
+    }
+    ((0..n).map(|i| a[i * n + i]).collect(), v)
+}
 
 /// Project a vector onto a subspace.
 ///
@@ -814,6 +877,38 @@ mod tests {
     fn embedding_model_rejects_dim_mismatch() {
         let entities = vec![Subspace::new(vec![vec![1.0, 0.0]]).unwrap()];
         assert!(SubspaceEmbedding::new(entities, 3).is_err());
+    }
+
+    #[test]
+    fn intersection_of_planes_at_twenty_degrees_is_their_shared_line() {
+        // A = span(e1, e2), B = span(e1, cos20° e2 + sin20° e3): A ∩ B = span(e1).
+        let t = 20f32.to_radians();
+        let a = Subspace::new(vec![vec![1.0, 0.0, 0.0], vec![0.0, 1.0, 0.0]]).unwrap();
+        let b = Subspace::new(vec![vec![1.0, 0.0, 0.0], vec![0.0, t.cos(), t.sin()]]).unwrap();
+        let inter = intersection(&a, &b).unwrap();
+        assert_eq!(inter.rank(), 1, "A ∩ B should be span(e1)");
+        let e1 = inter.basis_vector(0);
+        assert!(
+            e1[0].abs() > 1.0 - 1e-5,
+            "A ∩ B spanned by {e1:?}, expected ±e1"
+        );
+    }
+
+    #[test]
+    fn intersection_of_shared_line_with_rotated_basis() {
+        // Same planes as above, but A's basis does not contain the shared line
+        // as a basis vector; the shared direction must still be found exactly.
+        let s = std::f32::consts::FRAC_1_SQRT_2;
+        let t = 50f32.to_radians();
+        let a = Subspace::new(vec![vec![s, s, 0.0], vec![-s, s, 0.0]]).unwrap();
+        let b = Subspace::new(vec![vec![1.0, 0.0, 0.0], vec![0.0, t.cos(), t.sin()]]).unwrap();
+        let inter = intersection(&a, &b).unwrap();
+        assert_eq!(inter.rank(), 1);
+        let v = inter.basis_vector(0);
+        assert!(
+            v[0].abs() > 1.0 - 1e-5,
+            "A ∩ B spanned by {v:?}, expected ±e1"
+        );
     }
 }
 
