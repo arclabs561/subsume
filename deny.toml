@@ -9,6 +9,16 @@ ignore = [
     # paste: unmaintained, transitive via burn/tranz dev paths. No replacement
     # available from this crate until those upstreams remove it.
     "RUSTSEC-2024-0436",
+    # zip 0.6.6 and its bundled zstd, transitive only through tch (the optional
+    # libtorch backend), which pins zip 0.6. Three advisories cover extracting
+    # archives to disk (symlink targets, permission bits), which tch does not
+    # do; the fourth is a legacy zstd frame decode path that an untrusted .pt
+    # file could reach, so load only trusted model files with that backend.
+    # subsume does not use zip directly. Remove once tch moves to zip >= 9.
+    "RUSTSEC-2026-0367",
+    "RUSTSEC-2026-0368",
+    "RUSTSEC-2026-0369",
+    "RUSTSEC-2026-0403",
 ]
 
 [licenses]
