@@ -72,10 +72,14 @@ pub fn apply_amsgrad_step(
 
     let t_f32 = *t as f32;
     let bias_correction = 1.0 - hyper.beta1.powf(t_f32);
+    // AMSGrad still bias-corrects the max second moment; without it the first
+    // step divides by sqrt(1 - beta2) and moves ~31.6x the learning rate.
+    let bias_correction2 = 1.0 - hyper.beta2.powf(t_f32);
 
     for i in 0..n {
         let m_hat = slices.m[i] / bias_correction;
-        let update = hyper.lr * m_hat / (slices.v_hat[i].sqrt() + hyper.epsilon);
+        let v_hat = slices.v_hat[i] / bias_correction2;
+        let update = hyper.lr * m_hat / (v_hat.sqrt() + hyper.epsilon);
         slices.params[i] -= update;
         clamp(&mut slices.params[i], i);
         if !slices.params[i].is_finite() {
@@ -360,5 +364,42 @@ mod tests {
             assert!(lr > 0.0, "LR must be positive at epoch {epoch}");
             assert!(lr.is_finite(), "LR must be finite at epoch {epoch}");
         }
+    }
+
+    /// Bug hunt repro: the max second moment was used without its bias
+    /// correction, so the first step moved ~31.6x the learning rate
+    /// (sqrt(1 - 0.999) = 0.0316); PyTorch moves 1x.
+    #[test]
+    fn amsgrad_first_step_moves_one_learning_rate() {
+        let lr = 0.1f32;
+        let mut params = vec![1.0f32];
+        let grads = vec![1.0f32];
+        let mut m = vec![0.0f32];
+        let mut v = vec![0.0f32];
+        let mut v_hat = vec![0.0f32];
+        let mut t = 0usize;
+        let hyper = AmsgradHyperparams {
+            lr,
+            beta1: 0.9,
+            beta2: 0.999,
+            epsilon: 1e-8,
+        };
+        apply_amsgrad_step(
+            AmsgradSlices {
+                params: &mut params,
+                grads: &grads,
+                m: &mut m,
+                v: &mut v,
+                v_hat: &mut v_hat,
+            },
+            &hyper,
+            &mut t,
+            |_, _| {},
+        );
+        let moved = 1.0 - params[0];
+        assert!(
+            (moved - lr).abs() < 1e-4,
+            "first step moved {moved}, expected about {lr}"
+        );
     }
 }

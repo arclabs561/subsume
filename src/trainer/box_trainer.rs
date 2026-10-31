@@ -1932,7 +1932,7 @@ mod tests {
             };
             let mut trainer = BoxEmbeddingTrainer::new(config, 4);
             let mut total_loss = 0.0;
-            for _ in 0..5 {
+            for _ in 0..50 {
                 total_loss = trainer.train_step(&triples).unwrap();
             }
             total_loss
