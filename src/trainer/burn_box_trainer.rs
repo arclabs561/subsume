@@ -563,8 +563,17 @@ fn box_logvols<B: Backend>(
     let hi = max_a.min_pair(max_b);
     let side = softplus_beta(hi - lo, beta);
     let log_vol_int = side.add_scalar(1e-30).log().sum_dim(1);
-    let log_vol_a = width_a.add_scalar(1e-30).log().sum_dim(1);
-    let log_vol_b = width_b.add_scalar(1e-30).log().sum_dim(1);
+    // Smooth the denominator the same way as the numerator: a hard width lets a
+    // thin disjoint child reach probability 1, which the CPU trainer no longer
+    // does (see `softplus_volume` in `box_trainer.rs`).
+    let log_vol_a = softplus_beta(width_a, beta)
+        .add_scalar(1e-30)
+        .log()
+        .sum_dim(1);
+    let log_vol_b = softplus_beta(width_b, beta)
+        .add_scalar(1e-30)
+        .log()
+        .sum_dim(1);
     (log_vol_int, log_vol_a, log_vol_b)
 }
 
@@ -599,7 +608,9 @@ fn box_containment_prob_rel(
         let hi = p_max.min(c_max);
         let side = crate::utils::softplus(hi - lo, beta);
         log_vol_int += (side + 1e-30).ln();
-        log_vol_child += (widths[to + i] + 1e-30).ln();
+        // Same smoothing as the numerator; a hard width is what made the CPU
+        // trainer score a disjoint thin child as fully contained.
+        log_vol_child += (crate::utils::softplus(widths[to + i], beta) + 1e-30).ln();
     }
     (log_vol_int - log_vol_child).exp().clamp(0.0, 1.0)
 }
@@ -802,5 +813,28 @@ mod tests {
             ids
         );
         assert_eq!(ids, list_param_ids(&model.clone()));
+    }
+
+    /// The CPU trainer had to smooth the containment denominator; the Burn copy
+    /// must agree, or a thin disjoint child still reads as fully contained.
+    #[test]
+    fn a_thin_disjoint_child_is_not_fully_contained() {
+        let device = burn_ndarray::NdArrayDevice::Cpu;
+        let parent_min = Tensor::<TestBackend, 2>::from_floats([[-0.5f32, -0.5]], &device);
+        let parent_width = Tensor::<TestBackend, 2>::from_floats([[1.0f32, 1.0]], &device);
+        let child_min = Tensor::<TestBackend, 2>::from_floats([[1.5f32, 1.5]], &device);
+        let child_width = Tensor::<TestBackend, 2>::from_floats([[1e-20f32, 1e-20]], &device);
+        let (log_intersection, _, log_child) = box_logvols(
+            parent_min,
+            parent_width,
+            child_min.clone(),
+            child_width.clone(),
+            10.0,
+        );
+        let log_containment: f32 = (log_intersection - log_child).into_scalar();
+        assert!(
+            log_containment < -5.0,
+            "disjoint thin child scored log containment {log_containment}"
+        );
     }
 }
