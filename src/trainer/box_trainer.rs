@@ -44,17 +44,23 @@ pub fn compute_pair_loss(
     // has gradient, unlike the hard max(0, hi-lo) per dimension.
     let beta = config.softplus_beta;
     let vol_int_soft = softplus_intersection_volume(&a, &b, beta);
+    // The denominator has to be smoothed the same way as the numerator. A hard
+    // `volume()` of a thin box is far smaller than the smoothed intersection of
+    // two disjoint boxes, so the ratio could reach 1 (loss 0) for a disjoint
+    // pair, which is the one case this loss must punish.
+    let vol_a_soft = softplus_volume(&a, beta);
+    let vol_b_soft = softplus_volume(&b, beta);
     let vol_a = a.volume().max(1e-30);
     let vol_b = b.volume().max(1e-30);
 
     if is_positive {
         let prob = if config.symmetric_loss {
-            let p_a_b = (vol_int_soft / vol_b).clamp(1e-8, 1.0);
-            let p_b_a = (vol_int_soft / vol_a).clamp(1e-8, 1.0);
+            let p_a_b = (vol_int_soft / vol_b_soft).clamp(1e-8, 1.0);
+            let p_b_a = (vol_int_soft / vol_a_soft).clamp(1e-8, 1.0);
             p_a_b.min(p_b_a)
         } else {
             // Directed: P(B ⊆ A) = Vol(A ∩ B) / Vol(B)
-            (vol_int_soft / vol_b).clamp(1e-8, 1.0)
+            (vol_int_soft / vol_b_soft).clamp(1e-8, 1.0)
         };
         // Cap at 10.0 to prevent explosion from near-zero probabilities.
         let neg_log_prob = (-prob.ln()).min(10.0);
@@ -63,8 +69,8 @@ pub fn compute_pair_loss(
 
         (neg_log_prob + reg).max(0.0)
     } else {
-        let p_a_b = (vol_int_soft / vol_b).clamp(0.0, 1.0);
-        let p_b_a = (vol_int_soft / vol_a).clamp(0.0, 1.0);
+        let p_a_b = (vol_int_soft / vol_b_soft).clamp(0.0, 1.0);
+        let p_b_a = (vol_int_soft / vol_a_soft).clamp(0.0, 1.0);
         let max_prob = p_a_b.max(p_b_a);
 
         let margin_loss = if max_prob > config.margin {
@@ -82,6 +88,19 @@ pub fn compute_pair_loss(
 /// Replaces the hard `max(0, hi - lo)` per dimension with
 /// `softplus(beta * (hi - lo), 1.0) / beta`, giving always-positive
 /// volume and always-nonzero gradients even for disjoint boxes.
+/// Soft volume of one box: the same per-dimension smoothing the intersection
+/// uses, so numerator and denominator live on the same scale.
+fn softplus_volume(b: &crate::trainable::DenseBox, beta: f32) -> f32 {
+    let mut vol = 1.0f32;
+    for (&lo, &hi) in b.min.iter().zip(b.max.iter()) {
+        vol *= crate::utils::softplus(hi - lo, beta);
+        if vol < 1e-30 {
+            return 1e-30;
+        }
+    }
+    vol.max(1e-30)
+}
+
 fn softplus_intersection_volume(
     a: &crate::trainable::DenseBox,
     b: &crate::trainable::DenseBox,
@@ -1913,7 +1932,7 @@ mod tests {
             };
             let mut trainer = BoxEmbeddingTrainer::new(config, 4);
             let mut total_loss = 0.0;
-            for _ in 0..5 {
+            for _ in 0..50 {
                 total_loss = trainer.train_step(&triples).unwrap();
             }
             total_loss
@@ -1970,5 +1989,38 @@ mod tests {
             max_weight_idx, min_score_idx,
             "hardest negative (lowest positive-side loss) should get highest weight"
         );
+    }
+
+    /// Bug hunt repro: the numerator is softplus-smoothed while the denominator
+    /// was the hard `volume()`. For a very thin box the hard volume is below
+    /// the numerator, so P(B subset A) clamps to 1 and a disjoint pair scores a
+    /// zero loss instead of the ~10 cap.
+    #[test]
+    fn a_disjoint_positive_pair_is_punished() {
+        let config = CpuBoxTrainingConfig {
+            regularization: 0.0,
+            ..Default::default()
+        };
+        let wide = TrainableBox::from_vector(&[0.0, 0.0], 1.0);
+        let thin = TrainableBox::new(vec![1.5, 1.5], vec![1e-20f32.ln(), 1e-20f32.ln()]).unwrap();
+        let loss = compute_pair_loss(&wide, &thin, true, &config);
+        assert!(
+            loss > 5.0,
+            "a disjoint positive pair must be punished, got loss {loss}"
+        );
+    }
+
+    /// The same boxes, nested instead of disjoint: the smoothed denominator
+    /// must not change the confidence of a genuine containment.
+    #[test]
+    fn a_nested_positive_pair_is_confident() {
+        let config = CpuBoxTrainingConfig {
+            regularization: 0.0,
+            ..Default::default()
+        };
+        let wide = TrainableBox::from_vector(&[0.0, 0.0], 1.0);
+        let inner = TrainableBox::from_vector(&[0.0, 0.0], 0.1);
+        let loss = compute_pair_loss(&wide, &inner, true, &config);
+        assert!(loss < 1.0, "a nested pair should be confident, got {loss}");
     }
 }
