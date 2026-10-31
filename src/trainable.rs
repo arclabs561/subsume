@@ -268,9 +268,10 @@ impl DenseCone {
             let distance_to_axis = ((e - q_axis) / 2.0).sin().abs();
             let distance_base = (q_aper / 2.0).sin().abs();
 
-            if distance_to_axis < distance_base {
-                dist_in += distance_to_axis.min(distance_base);
-            } else {
+            // Inside term in every dimension, as in ConE, saturating at
+            // `distance_base` outside the sector.
+            dist_in += distance_to_axis.min(distance_base);
+            if distance_to_axis >= distance_base {
                 let delta1 = e - (q_axis - q_aper);
                 let delta2 = e - (q_axis + q_aper);
                 let d1 = (delta1 / 2.0).sin().abs();
@@ -730,5 +731,21 @@ mod tests {
         let json = r#"{"raw_axes":[1.0,2.0,3.0],"raw_apertures":[1.0]}"#;
         let result: Result<TrainableCone, _> = serde_json::from_str(json);
         assert!(result.is_err(), "should reject mismatched lengths");
+    }
+
+    /// Same ConE convention as `NdarrayCone::cone_distance`: the inside term
+    /// is added in every dimension, so crossing the sector boundary never
+    /// lowers the distance.
+    #[test]
+    fn dense_cone_distance_inside_beats_just_outside() {
+        let query = DenseCone::new(vec![0.0], vec![1.0]);
+        let inside = DenseCone::new(vec![0.999], vec![0.0]);
+        let outside = DenseCone::new(vec![1.001], vec![0.0]);
+        let d_in = query.cone_distance(&inside, 0.02);
+        let d_out = query.cone_distance(&outside, 0.02);
+        assert!(
+            d_in < d_out,
+            "just-inside distance {d_in} should be below just-outside {d_out}"
+        );
     }
 }

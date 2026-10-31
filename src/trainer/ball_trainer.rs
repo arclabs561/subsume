@@ -198,6 +198,25 @@ impl BallTrainer {
         (loss, grads)
     }
 
+    /// Weights for averaging the losses of one positive triple's negatives.
+    ///
+    /// `neg_scores` are [`Self::score_triple`] values (`-ln P`, lower = more
+    /// plausible). With `config.self_adversarial`, the weights are RotatE's
+    /// self-adversarial softmax over plausibility (Sun et al. 2019), so the
+    /// hardest negative gets the most weight; otherwise they are uniform.
+    fn negative_weights(neg_scores: &[f32], config: &CpuBoxTrainingConfig) -> Vec<f32> {
+        if !config.self_adversarial {
+            let n = neg_scores.len().max(1);
+            return vec![1.0 / n as f32; neg_scores.len()];
+        }
+        // `self_adversarial_weights` expects higher = harder; negate `-ln P`.
+        let plausibility: Vec<f32> = neg_scores.iter().map(|&s| -s).collect();
+        crate::trainer::trainer_utils::self_adversarial_weights(
+            &plausibility,
+            config.adversarial_temperature,
+        )
+    }
+
     /// Train for one epoch.
     pub fn train_epoch(
         &mut self,
@@ -245,7 +264,6 @@ impl BallTrainer {
 
             // Generate multiple negatives
             let n_neg = config.negative_samples.max(1);
-            let adv_temp = config.adversarial_temperature;
 
             // Collect (neg_tail_idx, neg_score) pairs for self-adversarial weighting
             let neg_pairs: Vec<(usize, f32)> = (0..n_neg)
@@ -272,10 +290,8 @@ impl BallTrainer {
                 })
                 .collect();
 
-            // Self-adversarial weights: weight harder negatives more
             let neg_scores: Vec<f32> = neg_pairs.iter().map(|(_, s)| *s).collect();
-            let weights =
-                crate::trainer::trainer_utils::self_adversarial_weights(&neg_scores, adv_temp);
+            let weights = Self::negative_weights(&neg_scores, config);
 
             // Accumulate weighted gradients across negatives.
             // neg_tail updates are applied per-negative (each negative is a different entity).
@@ -1256,5 +1272,47 @@ mod tests {
             score_high_k < score_low_k,
             "Higher k should give lower score for contained pair: k=1 score={score_low_k:.4}, k=20 score={score_high_k:.4}"
         );
+    }
+
+    /// RotatE self-adversarial sampling (Sun et al. 2019, Eq. 5) puts the most
+    /// weight on the most plausible negative. `score_triple` is `-ln P`, so the
+    /// hard negative has the lower score.
+    #[test]
+    fn self_adversarial_weights_favor_hard_negatives() {
+        let head = Ball::new(vec![0.0, 0.0], 1.0).unwrap();
+        let rel = BallRelation::new(vec![0.0, 0.0], 1.0).unwrap();
+        let hard = Ball::new(vec![0.1, 0.0], 2.0).unwrap();
+        let easy = Ball::new(vec![10.0, 10.0], 0.5).unwrap();
+        let s_hard = BallTrainer::score_triple(&head, &rel, &hard, 10.0);
+        let s_easy = BallTrainer::score_triple(&head, &rel, &easy, 10.0);
+        assert!(
+            s_hard < s_easy,
+            "lower score = more plausible ({s_hard} vs {s_easy})"
+        );
+        let config = CpuBoxTrainingConfig {
+            self_adversarial: true,
+            ..CpuBoxTrainingConfig::default()
+        };
+        let w = BallTrainer::negative_weights(&[s_hard, s_easy], &config);
+        assert!(
+            w[0] > w[1],
+            "hard negative weight {} should exceed easy negative weight {}",
+            w[0],
+            w[1]
+        );
+    }
+
+    /// Without `self_adversarial`, every negative gets the same weight.
+    #[test]
+    fn negatives_are_weighted_uniformly_without_self_adversarial() {
+        let config = CpuBoxTrainingConfig::default();
+        assert!(!config.self_adversarial);
+        let w = BallTrainer::negative_weights(&[0.1, 3.0, 9.0], &config);
+        for x in &w {
+            assert!(
+                (x - 1.0 / 3.0).abs() < 1e-6,
+                "weights {w:?} are not uniform"
+            );
+        }
     }
 }

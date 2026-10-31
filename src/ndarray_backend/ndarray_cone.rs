@@ -214,8 +214,11 @@ impl NdarrayCone {
     /// distance_base[i]    = |sin(query_aperture[i] / 2)|
     /// ```
     ///
-    /// Points inside the sector contribute `cen * distance_in`; points outside
-    /// contribute `distance_out`. The total is summed across dimensions.
+    /// Every dimension contributes `cen * min(distance_to_axis, distance_base)`;
+    /// dimensions where the entity lies outside the sector also contribute
+    /// `distance_out`, the distance to the nearer sector boundary. The total is
+    /// summed across dimensions, so the score is continuous at the boundary
+    /// (as in the authors' reference implementation).
     ///
     /// Lower distance = better containment. The `cen` parameter (typically 0.02)
     /// weights the inside distance relative to outside distance.
@@ -244,11 +247,10 @@ impl NdarrayCone {
             let distance_to_axis = ((e - q_axis) / 2.0).sin().abs();
             let distance_base = (q_aper / 2.0).sin().abs();
 
-            if distance_to_axis < distance_base {
-                // Entity is inside the cone in this dimension.
-                let dist_in = distance_to_axis.min(distance_base);
-                dist_in_sum += dist_in;
-            } else {
+            // The inside term applies in every dimension; outside the sector it
+            // saturates at `distance_base`.
+            dist_in_sum += distance_to_axis.min(distance_base);
+            if distance_to_axis >= distance_base {
                 // Entity is outside the cone in this dimension.
                 // Distance to nearest boundary.
                 let delta1 = e - (q_axis - q_aper);
@@ -882,5 +884,40 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// ConE (Zhang & Wang 2021, official QE-ConE code) adds
+    /// `cen * min(d_to_axis, d_base)` in every dimension, so the score is
+    /// continuous at the sector boundary and a point just inside scores below
+    /// a point just outside.
+    #[test]
+    fn cone_distance_inside_beats_just_outside() {
+        let query = NdarrayCone::new(array![0.0], array![1.0]).unwrap();
+        let inside = NdarrayCone::point(array![0.999]);
+        let outside = NdarrayCone::point(array![1.001]);
+        let d_in = query.cone_distance(&inside, 0.02).unwrap();
+        let d_out = query.cone_distance(&outside, 0.02).unwrap();
+        assert!(
+            d_in < d_out,
+            "just-inside distance {d_in} should be below just-outside {d_out}"
+        );
+    }
+
+    /// Outside the sector the official formula still adds the inside term,
+    /// which saturates at `cen * |sin(aperture / 2)|`.
+    #[test]
+    fn cone_distance_matches_official_formula_outside() {
+        let query = NdarrayCone::new(array![0.0], array![1.0]).unwrap();
+        let e = NdarrayCone::point(array![2.0]);
+        let d = query.cone_distance(&e, 0.02).unwrap();
+        let d_out = ((2.0f32 - 1.0) / 2.0)
+            .sin()
+            .abs()
+            .min(((2.0f32 + 1.0) / 2.0).sin().abs());
+        let expected = d_out + 0.02 * (0.5f32).sin().abs();
+        assert!(
+            (d - expected).abs() < 1e-6,
+            "got {d}, official ConE gives {expected}"
+        );
     }
 }
