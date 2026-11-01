@@ -29,7 +29,7 @@ use crate::dataset::TripleIds;
 use crate::trainer::negative_sampling::{
     compute_relation_entity_pools, sample_excluding, RelationEntityPools,
 };
-use crate::trainer::trainer_utils::self_adversarial_weights;
+use crate::trainer::trainer_utils::self_adversarial_weights_from_loss;
 use crate::trainer::CpuBoxTrainingConfig;
 use burn::module::{Param, ParamId};
 use burn::optim::{GradientsParams, Optimizer};
@@ -416,10 +416,9 @@ impl<B: AutodiffBackend> BurnAnnularTrainer<B> {
             let slice = data.as_slice::<f32>().expect("neg_score f32");
             let mut weights: Vec<f32> = Vec::with_capacity(slice.len());
             for row in slice.chunks(n_neg) {
-                // Negate: higher distance = harder negative
-                let neg_scores: Vec<f32> = row.iter().map(|&x| -x).collect();
-                weights.extend(self_adversarial_weights(
-                    &neg_scores,
+                // `neg_score` is a loss: higher = further = easier negative.
+                weights.extend(self_adversarial_weights_from_loss(
+                    row,
                     config.adversarial_temperature,
                 ));
             }

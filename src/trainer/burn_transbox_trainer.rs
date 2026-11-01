@@ -13,7 +13,7 @@ use crate::dataset::TripleIds;
 use crate::trainer::negative_sampling::{
     compute_relation_entity_pools, sample_excluding, RelationEntityPools,
 };
-use crate::trainer::trainer_utils::self_adversarial_weights;
+use crate::trainer::trainer_utils::self_adversarial_weights_from_loss;
 use crate::trainer::CpuBoxTrainingConfig;
 use crate::transbox::{TransBoxConcept, TransBoxRole};
 use burn::module::{Param, ParamId};
@@ -318,10 +318,8 @@ impl<B: AutodiffBackend> BurnTransBoxTrainer<B> {
             // Self-adversarial weights: harder negatives (higher loss) get more weight.
             // Invert sign so high-loss negatives get high weight.
             for row in slice.chunks(n_neg) {
-                // Negate because self_adversarial_weights expects scores (higher = harder).
-                let neg_scores: Vec<f32> = row.iter().map(|&x| -x).collect();
-                weights.extend(self_adversarial_weights(
-                    &neg_scores,
+                weights.extend(self_adversarial_weights_from_loss(
+                    row,
                     config.adversarial_temperature,
                 ));
             }
