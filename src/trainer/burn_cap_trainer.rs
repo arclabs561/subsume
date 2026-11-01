@@ -26,7 +26,7 @@ use crate::spherical_cap::{SphericalCap, SphericalCapRelation};
 use crate::trainer::negative_sampling::{
     compute_relation_entity_pools, sample_excluding, RelationEntityPools,
 };
-use crate::trainer::trainer_utils::self_adversarial_weights;
+use crate::trainer::trainer_utils::self_adversarial_weights_from_loss;
 use crate::trainer::CpuBoxTrainingConfig;
 use burn::module::{Param, ParamId};
 use burn::optim::{GradientsParams, Optimizer};
@@ -380,7 +380,7 @@ impl<B: AutodiffBackend> BurnCapTrainer<B> {
         let slice = data.as_slice::<f32>().expect("neg_loss should be f32");
         let mut weights: Vec<f32> = Vec::with_capacity(slice.len());
         for row in slice.chunks(n_neg) {
-            weights.extend(self_adversarial_weights(row, adv_temp));
+            weights.extend(self_adversarial_weights_from_loss(row, adv_temp));
         }
         let w = Tensor::<B, 1>::from_data(weights.as_slice(), device).reshape([bs, n_neg]);
         (neg_loss * w).sum_dim(1).reshape([bs, 1])

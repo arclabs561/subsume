@@ -130,6 +130,19 @@ pub fn self_adversarial_weights(scores: &[f32], temperature: f32) -> Vec<f32> {
     exps.iter().map(|&e| e / sum).collect()
 }
 
+/// Self-adversarial weights for a row of negative *losses*.
+///
+/// Several trainers compute a per-negative loss (`-ln P`, a margin violation, or
+/// a squared distance) where a **lower** value means the negative is more
+/// plausible, i.e. harder. [`self_adversarial_weights`] expects the opposite
+/// convention, so this flips the sign once here instead of at each call site —
+/// feeding a loss straight in gives the easiest negative the most weight, which
+/// is the opposite of Sun et al. (2019) Eq. 5.
+pub fn self_adversarial_weights_from_loss(losses: &[f32], temperature: f32) -> Vec<f32> {
+    let plausibility: Vec<f32> = losses.iter().map(|&loss| -loss).collect();
+    self_adversarial_weights(&plausibility, temperature)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -196,5 +209,26 @@ mod tests {
     fn self_adversarial_empty_is_empty() {
         let weights = self_adversarial_weights(&[], 1.0);
         assert!(weights.is_empty());
+    }
+
+    #[test]
+    fn self_adversarial_from_loss_weights_harder_negatives_more() {
+        // Lower loss = more plausible = harder negative.
+        let weights = self_adversarial_weights_from_loss(&[0.1, 2.0], 1.0);
+        assert!(
+            weights[0] > weights[1],
+            "the harder (lower-loss) negative should get more weight: {weights:?}"
+        );
+    }
+
+    #[test]
+    fn self_adversarial_from_loss_is_the_negated_score_softmax() {
+        let losses = [0.3, 1.7, 0.05];
+        let from_loss = self_adversarial_weights_from_loss(&losses, 1.0);
+        let scores: Vec<f32> = losses.iter().map(|l| -l).collect();
+        let from_score = self_adversarial_weights(&scores, 1.0);
+        for (a, b) in from_loss.iter().zip(from_score.iter()) {
+            assert!((a - b).abs() < 1e-6, "{a} vs {b}");
+        }
     }
 }
