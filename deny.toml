@@ -9,16 +9,19 @@ ignore = [
     # paste: unmaintained, transitive via burn/tranz dev paths. No replacement
     # available from this crate until those upstreams remove it.
     "RUSTSEC-2024-0436",
-    # zip 0.6.6 and its bundled zstd, transitive only through tch (the optional
-    # libtorch backend), which pins zip 0.6. Three advisories cover extracting
-    # archives to disk (symlink targets, permission bits), which tch does not
-    # do; the fourth is a legacy zstd frame decode path that an untrusted .pt
-    # file could reach, so load only trusted model files with that backend.
-    # subsume does not use zip directly. Remove once tch moves to zip >= 9.
-    "RUSTSEC-2026-0367",
-    "RUSTSEC-2026-0368",
-    "RUSTSEC-2026-0369",
-    "RUSTSEC-2026-0403",
+    # zip 0.6.6 and its bundled zstd, reached only by the optional `burn-tch`
+    # feature via burn-tch -> tch ^0.22 -> {tch, torch-sys} -> zip ^0.6.
+    # subsume never depends on zip directly, and the advisories below are all
+    # patched in zip >= 9.0.0, which no parent can reach yet: 0.6.6 is the last
+    # 0.6.x release, and tch 0.26.0 and torch-sys 0.26.0 (latest as of
+    # 2026-10-31) still pin zip ^0.6. Each reason records which zip API the
+    # advisory needs and why that API is never reached here.
+    # Remove an entry once tch/torch-sys depend on zip >= 9; drop the whole
+    # block if the `burn-tch` feature is retired.
+    { id = "RUSTSEC-2026-0367", reason = "SUID/SGID bits are preserved by zip's ZipArchive::extract(). Neither parent calls extract(): torch-sys/build.rs unpacks libtorch itself with by_index() + io::copy() into fs::File::create(), and tch/src/tensor/npy.rs reads .npz entries with by_index() + read_to_end(). No unix_mode() bits are applied, and the only archive unpacked at build time is the first-party HTTPS download from download.pytorch.org or pypi.org (or a local LIBTORCH path)." },
+    { id = "RUSTSEC-2026-0368", reason = "Attacker-chosen symlink targets require ZipArchive::extract() to create the symlink. No reachable caller uses extract(); the two call sites (torch-sys/build.rs extract helper, tch/src/tensor/npy.rs read_npz) only iterate by_index() and copy entry bytes. torch-sys maps each entry through the traversal-safe mangled_name() before creating a regular file; tch only reads bytes into memory and creates no files at all." },
+    { id = "RUSTSEC-2026-0369", reason = "Applying Unix permissions through extracted symlinks requires ZipArchive::extract() or ZipStreamReader::extract(). Neither is called from tch or torch-sys, so no permissions are applied to extracted entries at all; see the 0367 and 0368 entries for the two byte-copy call sites." },
+    { id = "RUSTSEC-2026-0403", reason = "Uninitialized memory leaks through zstd::stream::write::Decoder on a corrupt legacy frame, which the advisory states does not affect zstd::stream::read::Decoder, decode_all, or the bulk API. zip 0.6.6 decompresses through zstd::stream::read::Decoder (src/read.rs) and only uses write::Encoder for compression, so the vulnerable decoder is never constructed. Loading only trusted model files with this backend remains the rule." },
 ]
 
 [licenses]
