@@ -36,6 +36,14 @@ These source changes are listed without assigning them to a published release.
   intersect in their shared line instead of a rank-2 subspace.
 - Keep a full-covariance ellipsoid's off-diagonal Cholesky entries when the
   ellipsoid trainer perturbs it for finite-difference gradients.
+- Compute `NdarrayBox::containment_prob` and `containment_prob_many` in up to
+  10 dimensions from per-dimension length ratios; dividing the two volumes
+  failed with "zero or negative volume" when a small box's volume underflowed
+  `f32` (side 1e-6 in 8 dimensions).
+- Compute `SphericalCap::area_fraction` exactly for `d >= 4` (it equals the
+  regularized incomplete beta form). The previous `sin(θ)^(d-1)` approximation
+  gave 1 for a hemisphere, 0 for the full sphere, and decreased as the cap grew
+  past π/2.
 
 ### Changed
 

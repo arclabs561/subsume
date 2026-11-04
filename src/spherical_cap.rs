@@ -184,29 +184,36 @@ impl SphericalCap {
     ///
     /// For d=2 (circle): fraction = theta / pi
     /// For d=3 (sphere): fraction = (1 - cos(theta)) / 2
-    /// For general d: uses regularized incomplete beta function approximation.
+    /// For general d: `J_{d-2}(theta) / J_{d-2}(pi)` with
+    /// `J_n(t) = ∫_0^t sin^n(s) ds`, which equals the regularized incomplete
+    /// beta form `(1/2) I_{sin²θ}((d-1)/2, 1/2)` for `theta <= pi/2`.
     #[must_use]
     pub fn area_fraction(&self) -> f32 {
         let d = self.center.len();
-        match d {
-            2 => self.angular_radius / std::f32::consts::PI,
-            3 => (1.0 - self.angular_radius.cos()) / 2.0,
-            _ => {
-                // Approximation using the dominant term for high dimensions
-                // Area fraction ~ (sin(theta))^(d-1) / B((d-1)/2, 1/2)
-                let sin_theta = self.angular_radius.sin();
-                if sin_theta < 1e-12 {
-                    return 0.0;
-                }
-                let log_sin = (d as f32 - 1.0) * sin_theta.ln();
-                // Clamp to avoid overflow
-                if log_sin < -50.0 {
-                    0.0
-                } else {
-                    log_sin.exp().min(1.0)
-                }
-            }
+        if d < 2 {
+            return 0.0;
         }
+        let theta = f64::from(self.angular_radius).clamp(0.0, std::f64::consts::PI);
+        // J_n(t) = -sin^{n-1}(t) cos(t) / n + (n-1)/n J_{n-2}(t),
+        // J_0(t) = t, J_1(t) = 1 - cos(t). The recurrence damps rounding
+        // error by (n-1)/n per step.
+        let sin_power_integral = |t: f64, n: usize| -> f64 {
+            let (s, c) = t.sin_cos();
+            let (mut j, mut k) = if n.is_multiple_of(2) {
+                (t, 0)
+            } else {
+                (1.0 - c, 1)
+            };
+            while k < n {
+                k += 2;
+                let kf = k as f64;
+                j = -s.powi(k as i32 - 1) * c / kf + (kf - 1.0) / kf * j;
+            }
+            j
+        };
+        let n = d - 2;
+        let fraction = sin_power_integral(theta, n) / sin_power_integral(std::f64::consts::PI, n);
+        fraction.clamp(0.0, 1.0) as f32
     }
 
     /// Mutable access to center (for training).

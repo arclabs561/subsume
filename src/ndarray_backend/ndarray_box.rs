@@ -284,23 +284,23 @@ impl HyperBox for NdarrayBox {
             // Ratio in log space: both volumes can underflow f32 at high dim.
             Ok((log_intersection - log_other).exp().clamp(0.0, 1.0))
         } else {
-            let mut intersection_vol = 1.0f32;
-            let mut other_vol = 1.0f32;
+            // Multiply per-dimension ratios (each in [0, 1]) rather than
+            // dividing two volumes: a small box's volume underflows f32
+            // (side 1e-6 in 8 dims is 1e-48) even though the ratio is exact.
+            let mut ratio = 1.0f32;
 
             for k in 0..dim {
                 let other_len = other.max[k] - other.min[k];
-                other_vol *= other_len.max(0.0);
+                if other_len <= 0.0 {
+                    return Err(BoxError::Internal("Box has zero or negative volume".into()));
+                }
 
                 let lo = self.min[k].max(other.min[k]);
                 let hi = self.max[k].min(other.max[k]);
-                intersection_vol *= (hi - lo).max(0.0);
+                ratio *= (hi - lo).max(0.0) / other_len;
             }
 
-            if other_vol <= 0.0 {
-                return Err(BoxError::Internal("Box has zero or negative volume".into()));
-            }
-
-            Ok((intersection_vol / other_vol).clamp(0.0, 1.0))
+            Ok(ratio.clamp(0.0, 1.0))
         }
     }
 
@@ -356,23 +356,21 @@ impl HyperBox for NdarrayBox {
                 // Ratio in log space: both volumes can underflow f32 at high dim.
                 (log_intersection - log_other).exp().clamp(0.0, 1.0)
             } else {
-                let mut intersection_vol = 1.0f32;
-                let mut other_vol = 1.0f32;
+                // Per-dimension ratios, as in `containment_prob`.
+                let mut ratio = 1.0f32;
 
                 for k in 0..dim {
                     let other_len = other.max[k] - other.min[k];
-                    other_vol *= other_len.max(0.0);
+                    if other_len <= 0.0 {
+                        return Err(BoxError::Internal("Box has zero or negative volume".into()));
+                    }
 
                     let lo = self.min[k].max(other.min[k]);
                     let hi = self.max[k].min(other.max[k]);
-                    intersection_vol *= (hi - lo).max(0.0);
+                    ratio *= (hi - lo).max(0.0) / other_len;
                 }
 
-                if other_vol <= 0.0 {
-                    return Err(BoxError::Internal("Box has zero or negative volume".into()));
-                }
-
-                (intersection_vol / other_vol).clamp(0.0, 1.0)
+                ratio.clamp(0.0, 1.0)
             };
 
             out[idx] = p;
