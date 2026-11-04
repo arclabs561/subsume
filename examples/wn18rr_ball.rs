@@ -21,10 +21,10 @@ use subsume::trainer::{CpuBoxTrainingConfig, FilteredTripleIndexIds};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let data_path = Path::new("data/WN18RR");
     if !data_path.exists() {
-        eprintln!("WN18RR data not found at data/WN18RR/");
+        eprintln!("skipping: WN18RR data not found at data/WN18RR/");
         eprintln!("Run: python3 scripts/download_wn18rr.py");
         eprintln!("Expected files: train.txt, valid.txt, test.txt (tab-separated)");
-        std::process::exit(1);
+        return Ok(());
     }
 
     println!("=== WN18RR Ball Embedding Training ===\n");

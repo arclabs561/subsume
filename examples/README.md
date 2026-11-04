@@ -1,5 +1,61 @@
 # subsume examples
 
+The examples are demonstrations and small training runs, not benchmark
+evidence. Metrics they print depend on epochs, dimension, seed, and backend;
+short default budgets do not reproduce published numbers.
+
+## Where to start
+
+| I want to... | Run |
+|---|---|
+| See box containment, overlap, and volume by hand | `containment_hierarchy` |
+| See Gumbel soft containment and temperature | `gumbel_box_exploration` |
+| Train boxes on a small taxonomy | `box_training` |
+| Train cones on a small taxonomy | `cone_training` |
+| Answer multi-hop queries with box intersection | `query2box` |
+| Load, train, and evaluate a triple dataset end to end | `dataset_training` |
+| Compare region geometries on one small hierarchy | `geometry_comparison` |
+| Train EL++ box embeddings on an ontology | `el_training` |
+| Bring graph data in from petgraph | `petgraph_adapter` (feature `petgraph`) |
+
+```bash
+cargo run -p subsume --example containment_hierarchy
+cargo run -p subsume --example gumbel_box_exploration
+cargo run -p subsume --example box_training --release
+cargo run -p subsume --example cone_training --release
+cargo run -p subsume --example query2box
+cargo run -p subsume --example dataset_training --release
+cargo run -p subsume --example geometry_comparison --release
+cargo run -p subsume --example el_training --release
+cargo run -p subsume --features petgraph --example petgraph_adapter
+```
+
+## Feature-gated examples
+
+`ndarray-backend` and `kge` are default features. Each example below is
+registered in `Cargo.toml` with these `required-features`.
+
+| Feature | Examples |
+|---|---|
+| `kge` (default) | `dataset_training`, `geometry_comparison`, `imagenet_hierarchy`, `lattix_bridge`, `save_checkpoint`, `wn18rr_ball`, `wn18rr_training` |
+| `burn-ndarray` (or `burn-wgpu`, which implies it) | `el_benchmark_burn`, `el_clqa_benchmark`, `el_clqa_galen`, `el_clqa_trained` |
+| `burn-ndarray` + `kge` | `taxobell_box_uncertainty`, `taxobell_precinct`, `wn18rr_ball_burn`, `wn18rr_box_burn`, `wn18rr_cone_burn`, `wn18rr_geometry_comparison_burn`, `wn18rr_transbox_burn` |
+| `hyperbolic` | `hyperbolic_demo` |
+| `density` + `rand` | `density_el_demo` |
+| `petgraph` | `petgraph_adapter` |
+
+## Data-gated examples
+
+These read datasets that are not committed. Without the data they print what to
+fetch and exit 0.
+
+| Data | Examples | Fetch |
+|---|---|---|
+| `data/WN18RR/` | `wn18rr_ball`, `wn18rr_ball_burn`, `wn18rr_box_burn`, `wn18rr_cone_burn`, `wn18rr_geometry_comparison_burn` (or `DATA=<dir>`), `wn18rr_training`, `wn18rr_transbox_burn` | `python3 scripts/download_wn18rr.py` |
+| `data/GALEN/` (Box2EL) | `el_benchmark`, `el_benchmark_burn`, `el_clqa_galen` | `uv run scripts/convert_box2el.py` |
+
+`gene_ontology` reads the committed `data/go_subset/go_normalized.tsv`.
+
 ## Examples
 
 | Example | What it demonstrates |

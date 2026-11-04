@@ -67,8 +67,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let data_dir = std::env::var("DATA").unwrap_or_else(|_| "data/WN18RR".to_string());
     let data_path = Path::new(&data_dir);
     if !data_path.exists() {
-        eprintln!("Dataset not found at {data_dir}/ (set DATA=<path>)");
-        std::process::exit(1);
+        eprintln!("skipping: dataset not found at {data_dir}/ (set DATA=<path>)");
+        return Ok(());
     }
     println!("Dataset dir: {data_dir}");
 

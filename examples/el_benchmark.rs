@@ -27,6 +27,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nth(1)
         .unwrap_or_else(|| "data/GALEN".to_string());
     let data_path = Path::new(&data_dir);
+    if !data_path.join("train.tsv").exists() {
+        eprintln!(
+            "skipping: {data_dir}/train.tsv not found.\n\
+             Convert Box2EL data with: uv run scripts/convert_box2el.py"
+        );
+        return Ok(());
+    }
 
     let dim: usize = env_or("DIM", 200);
     let epochs: usize = env_or("EPOCHS", 300);

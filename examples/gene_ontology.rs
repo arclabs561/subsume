@@ -21,9 +21,9 @@ use subsume::{
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = "data/go_subset/go_normalized.tsv";
     if !std::path::Path::new(path).exists() {
-        eprintln!("GO subset not found at {path}");
+        eprintln!("skipping: GO subset not found at {path}");
         eprintln!("Expected file: data/go_subset/go_normalized.tsv");
-        std::process::exit(1);
+        return Ok(());
     }
 
     println!("=== Gene Ontology Box Embedding Training ===\n");
