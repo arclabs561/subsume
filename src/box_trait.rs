@@ -400,6 +400,11 @@ pub enum BoxError {
         reason: &'static str,
     },
 
+    /// The intersection contains only the zero vector, which no rank-1 or
+    /// larger subspace can represent.
+    #[error("Empty intersection: the subspaces share only the zero vector")]
+    EmptyIntersection,
+
     /// Internal error from tensor/array operations.
     #[error("Internal error: {0}")]
     Internal(String),

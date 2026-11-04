@@ -244,8 +244,13 @@ impl SphericalEmbedding {
 /// defined (the perpendicular subspace is `(d-1)`-dimensional). This
 /// function falls back to rotation in the 2D plane spanned by `v_perp`
 /// and `k`, where `v_perp = v - k*(k.v)`. This is well-defined in any
-/// dimension and preserves the key KGE properties: identity relation
-/// gives zero score, and the rotation is an isometry on the sphere.
+/// dimension, and angle 0 is the identity, so the identity relation gives
+/// zero score.
+///
+/// For `d != 3` the map is not an isometry: each point turns in its own
+/// plane, so two points perpendicular to `k` with inner product `c` map to
+/// points with inner product `sin²(a) + cos²(a)·c`. Distances between
+/// rotated heads are not preserved for `a != 0`.
 ///
 /// The result is re-normalized to stay on the unit sphere (handles
 /// accumulated floating-point drift).
