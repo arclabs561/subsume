@@ -43,6 +43,9 @@ jobs:
       - name: Test
         run: cargo test --features "ndarray-backend,rand,sheaf,rankops,petgraph,kge,density"
 
+      - name: Test (hyperbolic)
+        run: cargo test --features hyperbolic --lib hyperbolic
+
       - name: Doc
         run: RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps
 
