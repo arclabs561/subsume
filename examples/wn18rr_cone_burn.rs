@@ -56,9 +56,9 @@ fn env_parse<T: std::str::FromStr>(key: &str, default: T) -> T {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let data_path = Path::new("data/WN18RR");
     if !data_path.exists() {
-        eprintln!("WN18RR data not found at data/WN18RR/");
+        eprintln!("skipping: WN18RR data not found at data/WN18RR/");
         eprintln!("Run: python3 scripts/download_wn18rr.py");
-        std::process::exit(1);
+        return Ok(());
     }
 
     println!("=== WN18RR relation-aware Cone Embedding Training (Burn) ===\n");

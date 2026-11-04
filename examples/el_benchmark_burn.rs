@@ -59,10 +59,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let train_path = data_path.join("train.tsv");
     if !train_path.exists() {
         eprintln!(
-            "ERROR: {train_path:?} not found.\n\
+            "skipping: {train_path:?} not found.\n\
              Convert Box2EL data with: uv run scripts/convert_box2el.py"
         );
-        std::process::exit(1);
+        return Ok(());
     }
     let train_ds = load_el_axioms(&train_path)?;
     println!(
