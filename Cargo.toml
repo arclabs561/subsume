@@ -45,7 +45,7 @@ rankops = { version = "0.1.4", optional = true }
 lattix = { version = "0.6", default-features = false, features = [
   "kge",
 ], optional = true }
-burn = { version = "0.20", features = ["autodiff"], optional = true }
+burn = { version = "0.21", features = ["autodiff"], optional = true }
 burn-ndarray = { version = "0.20", features = ["rayon"], optional = true }
 burn-wgpu = { version = "0.20", optional = true }
 burn-tch = { version = "0.20", optional = true }
