@@ -11,7 +11,16 @@ These source changes are listed without assigning them to a published release.
 
 ## [Unreleased]
 
+### Changed
+
+- `subspace::intersection` returns `BoxError::EmptyIntersection` when the
+  subspaces share only the zero vector; it returned the first coordinate
+  axis, which is not in either subspace.
+
 ### Fixed
+
+- `spherical::rotate` docs no longer claim the rotation is an isometry for
+  `d != 3`; the plane rotation used there does not preserve distances.
 
 - Calibrate learned candidate sets on supported queries and report retrieval
   misses separately from conditional and end-to-end answer coverage.

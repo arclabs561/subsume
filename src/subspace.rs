@@ -417,7 +417,9 @@ pub fn subspace_distance(a: &Subspace, b: &Subspace) -> Result<f32, BoxError> {
 ///
 /// # Errors
 ///
-/// Returns [`BoxError::DimensionMismatch`] if the subspaces differ in ambient dimension.
+/// Returns [`BoxError::DimensionMismatch`] if the subspaces differ in ambient
+/// dimension, and [`BoxError::EmptyIntersection`] if they share only the zero
+/// vector, since a [`Subspace`] has rank at least 1.
 pub fn intersection(a: &Subspace, b: &Subspace) -> Result<Subspace, BoxError> {
     if a.dim != b.dim {
         return Err(BoxError::DimensionMismatch {
@@ -464,11 +466,7 @@ pub fn intersection(a: &Subspace, b: &Subspace) -> Result<Subspace, BoxError> {
     }
 
     if candidates.is_empty() {
-        // Trivial intersection — return a minimal 1D subspace as a sentinel.
-        // A proper implementation would support 0-dimensional subspaces.
-        let mut v = vec![0.0; a.dim];
-        v[0] = 1.0;
-        return Subspace::new(vec![v]);
+        return Err(BoxError::EmptyIntersection);
     }
 
     Subspace::new(candidates)
@@ -796,9 +794,11 @@ mod tests {
     fn intersection_of_orthogonal_is_trivial() {
         let a = Subspace::new(vec![vec![1.0, 0.0, 0.0]]).unwrap();
         let b = Subspace::new(vec![vec![0.0, 0.0, 1.0]]).unwrap();
-        let inter = intersection(&a, &b).unwrap();
-        // Orthogonal subspaces have trivial intersection
-        assert_eq!(inter.rank(), 1); // degenerate 1D
+        // Orthogonal subspaces share only the zero vector.
+        assert!(matches!(
+            intersection(&a, &b),
+            Err(BoxError::EmptyIntersection)
+        ));
     }
 
     #[test]
