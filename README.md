@@ -21,7 +21,7 @@ boxes replace a hard boundary with a temperature-controlled one.
 
 ```toml
 [dependencies]
-subsume = "0.17.1"
+subsume = "0.18"
 ndarray = "0.16"
 ```
 
