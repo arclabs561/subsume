@@ -147,14 +147,20 @@ impl PoincareBallPoint {
 
     /// Create a new point, projecting if necessary.
     ///
-    /// Returns error if any coordinate is NaN.
+    /// Uses `hyperball`'s clamp, whose margin is relative to the ball radius
+    /// (`(1/sqrt(c)) * (1 - sqrt(eps))`), so the result stays inside for any
+    /// curvature. Returns an error if any coordinate is NaN or infinite.
     pub fn new_projected(coords: Vec<f64>, curvature: Curvature) -> Result<Self, HyperbolicError> {
-        if coords.iter().any(|c| c.is_nan()) {
-            return Err(HyperbolicError::OutsideBall { norm: f64::NAN });
+        match hyperball::core::BallPoint::try_project(-curvature.value(), &coords) {
+            Ok(point) => Ok(Self {
+                coords: point.coords().to_vec(),
+                curvature,
+            }),
+            Err(_) => {
+                let norm = coords.iter().map(|x| x * x).sum::<f64>().sqrt();
+                Err(HyperbolicError::OutsideBall { norm })
+            }
         }
-        let mut point = Self { coords, curvature };
-        point = point.project(1e-5);
-        Ok(point)
     }
 
     /// Create the origin point.
@@ -451,6 +457,31 @@ mod tests {
 
         assert!(point.is_valid());
         assert!(point.norm_squared() < 1.0);
+    }
+
+    #[test]
+    fn new_projected_rejects_infinite_coords() {
+        for coords in [vec![f64::INFINITY, 0.0], vec![0.1, f64::NEG_INFINITY]] {
+            assert!(
+                PoincareBallPoint::new_projected(coords.clone(), Curvature::STANDARD).is_err(),
+                "{coords:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn new_projected_lands_inside_small_and_large_balls() {
+        // Ball radius is 1/sqrt(|K|): 1e3 for K = -1e-6, 1e-6 for K = -1e12.
+        for k in [-1e-6, -1.0, -1e6, -1e12] {
+            let curvature = Curvature::new(k).unwrap();
+            let radius = (1.0 / -k).sqrt();
+            let point =
+                PoincareBallPoint::new_projected(vec![3.0 * radius, -4.0 * radius], curvature)
+                    .unwrap();
+            assert!(point.is_valid(), "K={k}: {:?}", point.coords());
+            // Projection keeps the direction: both signs survive.
+            assert!(point.coords()[0] > 0.0 && point.coords()[1] < 0.0, "K={k}");
+        }
     }
 
     #[test]
