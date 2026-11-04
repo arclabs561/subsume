@@ -11,6 +11,8 @@ These source changes are listed without assigning them to a published release.
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-11-04
+
 ### Changed
 
 - `subspace::intersection` returns `BoxError::EmptyIntersection` when the
