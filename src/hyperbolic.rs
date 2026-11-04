@@ -337,11 +337,24 @@ impl PoincareBallPoint {
         Ok(res.to_vec())
     }
 
-    /// Project to the Poincare ball if outside. Clips norm to < 1 - epsilon.
+    /// Project to the Poincare ball if outside: clips the norm to
+    /// `1/sqrt(|K|) - epsilon`.
+    ///
+    /// `epsilon` must lie in `(0, 1/sqrt(|K|))`. Outside that range (negative,
+    /// NaN, or at least the ball radius) an absolute margin would put the
+    /// point on or outside the boundary, so `hyperball`'s radius-relative clamp
+    /// is used instead.
     pub fn project(&self, epsilon: f64) -> Self {
         let norm_sq = self.norm_squared();
         let c = -self.curvature.value();
-        let max_norm = (1.0 / c).sqrt() - epsilon;
+        let radius = (1.0 / c).sqrt();
+        if !(epsilon > 0.0 && epsilon < radius) {
+            return Self {
+                coords: hyperball::core::PoincareBallCore::new(c).project(&self.coords),
+                curvature: self.curvature,
+            };
+        }
+        let max_norm = radius - epsilon;
 
         if norm_sq < max_norm * max_norm {
             return self.clone();
@@ -457,6 +470,28 @@ mod tests {
 
         assert!(point.is_valid());
         assert!(point.norm_squared() < 1.0);
+    }
+
+    #[test]
+    fn project_stays_inside_for_any_epsilon() {
+        // Radius 1e-3 for K = -1e6; epsilons below, at, and above it, plus
+        // negative and NaN, which would otherwise put the margin outside.
+        let curvature = Curvature::new(-1e6).unwrap();
+        let outside = PoincareBallPoint {
+            coords: vec![3e-3, -4e-3],
+            curvature,
+        };
+        for epsilon in [1e-5, 1e-3, 5e-3, -1e-3, f64::NAN] {
+            let p = outside.project(epsilon);
+            assert!(p.is_valid(), "epsilon={epsilon}: {:?}", p.coords());
+            assert!(
+                p.coords()[0] > 0.0 && p.coords()[1] < 0.0,
+                "epsilon={epsilon}"
+            );
+        }
+        // A valid epsilon still sets the norm to radius - epsilon.
+        let p = outside.project(1e-5);
+        assert!((p.norm_squared().sqrt() - (1e-3 - 1e-5)).abs() < 1e-15);
     }
 
     #[test]
