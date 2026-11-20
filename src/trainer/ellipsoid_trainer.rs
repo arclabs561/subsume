@@ -84,6 +84,7 @@ impl EllipsoidTrainer {
         let _d_neg = 1.0 / neg_prob;
 
         // Gradients w.r.t. head mu
+        #[allow(clippy::needless_range_loop)]
         for i in 0..dim {
             let mut perturbed = head.clone();
             perturbed.mu_mut()[i] += eps;
@@ -114,6 +115,7 @@ impl EllipsoidTrainer {
         }
 
         // Gradients w.r.t. tail mu
+        #[allow(clippy::needless_range_loop)]
         for i in 0..dim {
             let mut perturbed = tail.clone();
             perturbed.mu_mut()[i] += eps;
@@ -138,6 +140,7 @@ impl EllipsoidTrainer {
         }
 
         // Gradients w.r.t. neg_tail mu
+        #[allow(clippy::needless_range_loop)]
         for i in 0..dim {
             let mut perturbed = neg_tail.clone();
             perturbed.mu_mut()[i] += eps;

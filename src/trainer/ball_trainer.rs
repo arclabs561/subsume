@@ -434,6 +434,7 @@ impl BallTrainer {
 
             // Apply per-negative-entity gradients with the same entity-scoped keys.
             for (neg_idx, neg_g) in neg_updates {
+                #[allow(clippy::needless_range_loop)]
                 for i in 0..head.dim() {
                     apply_adam(
                         &mut self.adam_m,

@@ -1198,7 +1198,9 @@ pub fn train_el_embeddings(ontology: &Ontology, config: &ElTrainingConfig) -> El
                 config.learning_rate,
                 config.warmup_epochs,
             );
+            #[allow(clippy::needless_range_loop)]
             for i in 0..nc {
+                #[allow(clippy::needless_range_loop)]
                 for j in 0..dim {
                     let o = concepts.offsets[i][j];
                     // Gradient of reg_factor * ||offset||_2 w.r.t. offset[j]
