@@ -104,6 +104,7 @@ impl SubspaceTrainer {
         let eps = 1e-4f32;
 
         // Gradients w.r.t. head basis
+        #[allow(clippy::needless_range_loop)]
         for j in 0..head_rank {
             for i in 0..dim {
                 let mut v = head.basis_vector(j);
@@ -133,6 +134,7 @@ impl SubspaceTrainer {
         }
 
         // Gradients w.r.t. tail basis
+        #[allow(clippy::needless_range_loop)]
         for j in 0..tail_rank {
             for i in 0..dim {
                 let mut v = tail.basis_vector(j);
@@ -159,6 +161,7 @@ impl SubspaceTrainer {
         }
 
         // Gradients w.r.t. neg_tail basis
+        #[allow(clippy::needless_range_loop)]
         for j in 0..neg_tail_rank {
             for i in 0..dim {
                 let mut v = neg_tail.basis_vector(j);
