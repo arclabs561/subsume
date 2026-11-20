@@ -501,14 +501,19 @@ impl BoxEmbeddingTrainer {
     ///
     /// Creates a small box centered at a dimension-offset position so that
     /// different entities start with slightly different embeddings.
+    /// The box an entity starts with before any update touches it.
+    fn initial_box(dim: usize, id: usize) -> TrainableBox {
+        let mut init_vec = vec![0.0f32; dim];
+        if dim > 0 {
+            // Give each entity a slightly different initial position.
+            init_vec[id % dim] = 1.0;
+        }
+        TrainableBox::from_vector(&init_vec, 0.5)
+    }
+
     pub fn ensure_entity(&mut self, id: usize) {
         if !self.boxes.contains_key(&id) {
-            let mut init_vec = vec![0.0f32; self.dim];
-            if self.dim > 0 {
-                // Give each entity a slightly different initial position.
-                init_vec[id % self.dim] = 1.0;
-            }
-            let b = TrainableBox::from_vector(&init_vec, 0.5);
+            let b = Self::initial_box(self.dim, id);
             let n_params = b.num_parameters();
             self.boxes.insert(id, b);
             self.optimizer_states
@@ -1206,12 +1211,19 @@ impl BoxEmbeddingTrainer {
                     BoxError::Internal(format!("Failed to convert entity {id}: {e}"))
                 })?
             } else {
-                // Default zero-volume box for entities not in the trainer.
-                crate::ndarray_backend::NdarrayBox::new(
-                    ndarray::Array1::zeros(self.dim),
-                    ndarray::Array1::zeros(self.dim),
-                    1.0,
-                )?
+                // An entity in the vocabulary that no training triple mentioned
+                // (common in validation and test splits). Use the box it would
+                // have been initialised with. A zero-width placeholder made
+                // containment fail with "zero or negative volume" as soon as
+                // the entity was ranked as a candidate, which aborted the
+                // whole evaluation.
+                Self::initial_box(self.dim, id)
+                    .to_ndarray_box()
+                    .map_err(|e| {
+                        BoxError::Internal(format!(
+                            "Failed to build a box for unseen entity {id}: {e}"
+                        ))
+                    })?
             };
             entity_vec.push(nb);
         }
@@ -1392,6 +1404,31 @@ mod tests {
     use super::*;
     use crate::optimizer::AMSGradState;
     use proptest::prelude::*;
+
+    #[cfg(all(feature = "ndarray-backend", feature = "kge"))]
+    #[test]
+    fn evaluation_ranks_entities_that_training_never_saw() {
+        // Entity 4 appears only in the validation split, as is usual for
+        // knowledge-graph benchmarks.
+        let train = vec![(0usize, 0usize, 1usize), (0, 0, 2), (1, 0, 3)];
+        let valid = vec![(0usize, 0usize, 3usize), (2, 0, 4)];
+        let dataset = crate::dataset::InternedDataset::from_arrays(&train, &valid, &[], 5, 1);
+
+        let config = CpuBoxTrainingConfig {
+            epochs: 3,
+            early_stopping_patience: None,
+            ..Default::default()
+        };
+        let mut trainer = BoxEmbeddingTrainer::new(config, 4);
+        trainer
+            .fit(&train, Some((&dataset.valid, &dataset.entities)), None)
+            .expect("fit with an entity that is absent from the training triples");
+
+        let results = trainer
+            .evaluate(&dataset.valid, &dataset.entities, None)
+            .expect("evaluate with an unseen entity among the candidates");
+        assert!(results.mrr.is_finite() && results.mrr > 0.0 && results.mrr <= 1.0);
+    }
 
     #[test]
     fn compute_pair_loss_positive_prefers_containment_over_disjoint() {
