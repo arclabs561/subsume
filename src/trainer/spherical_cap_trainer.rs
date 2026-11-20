@@ -125,6 +125,7 @@ impl SphericalCapTrainer {
 
         // Gradients w.r.t. transformed head center
         if pos_dist > 1e-8 {
+            #[allow(clippy::needless_range_loop)]
             for i in 0..dim {
                 let diff = pos_transformed.center()[i] - tail.center()[i];
                 let d_dist = diff / pos_dist;
@@ -132,6 +133,7 @@ impl SphericalCapTrainer {
             }
         }
         if neg_dist > 1e-8 {
+            #[allow(clippy::needless_range_loop)]
             for i in 0..dim {
                 let diff = neg_transformed.center()[i] - neg_tail.center()[i];
                 let d_dist = diff / neg_dist;
@@ -146,6 +148,7 @@ impl SphericalCapTrainer {
 
         // Gradients w.r.t. tail center
         if pos_dist > 1e-8 {
+            #[allow(clippy::needless_range_loop)]
             for i in 0..dim {
                 let diff = tail.center()[i] - pos_transformed.center()[i];
                 let d_dist = diff / pos_dist;
@@ -153,6 +156,7 @@ impl SphericalCapTrainer {
             }
         }
         if neg_dist > 1e-8 {
+            #[allow(clippy::needless_range_loop)]
             for i in 0..dim {
                 let diff = neg_tail.center()[i] - neg_transformed.center()[i];
                 let d_dist = diff / neg_dist;
