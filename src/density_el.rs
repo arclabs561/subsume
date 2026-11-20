@@ -231,10 +231,15 @@ impl DensityStore {
         }
 
         let bias_correction = 1.0 - opt.beta1.powf(t);
+        // Bias-correct the max second moment as well (as `apply_amsgrad_step`
+        // and PyTorch's `Adam(amsgrad=True)` do). With m corrected and v_hat
+        // not, the first step is lr / sqrt(1 - beta2), about 31.6x lr.
+        let bias_correction2 = 1.0 - opt.beta2.powf(t);
         let params = &mut self.params[idx];
         for i in 0..n {
             let m_hat = opt.m[i] / bias_correction;
-            let update = opt.lr * m_hat / (opt.v_hat[i].sqrt() + opt.epsilon);
+            let v_hat = opt.v_hat[i] / bias_correction2;
+            let update = opt.lr * m_hat / (v_hat.sqrt() + opt.epsilon);
             params[i] -= update;
             if !params[i].is_finite() {
                 params[i] = 0.01;
@@ -310,10 +315,15 @@ impl RoleStore {
         }
 
         let bias_correction = 1.0 - opt.beta1.powf(t);
+        // Bias-correct the max second moment as well (as `apply_amsgrad_step`
+        // and PyTorch's `Adam(amsgrad=True)` do). With m corrected and v_hat
+        // not, the first step is lr / sqrt(1 - beta2), about 31.6x lr.
+        let bias_correction2 = 1.0 - opt.beta2.powf(t);
         let params = &mut self.params[idx];
         for i in 0..n {
             let m_hat = opt.m[i] / bias_correction;
-            let update = opt.lr * m_hat / (opt.v_hat[i].sqrt() + opt.epsilon);
+            let v_hat = opt.v_hat[i] / bias_correction2;
+            let update = opt.lr * m_hat / (v_hat.sqrt() + opt.epsilon);
             params[i] -= update;
             if !params[i].is_finite() {
                 params[i] = 0.0;
@@ -680,6 +690,40 @@ mod tests {
     use super::*;
     use crate::density::DensityRegion;
     use crate::el_training::Ontology;
+
+    /// The first AMSGrad step moves each parameter by about `lr`, whatever
+    /// the gradient's scale. Without bias-correcting the max second moment it
+    /// was `lr / sqrt(1 - beta2)`, about 31.6 times larger.
+    #[test]
+    fn first_optimizer_step_is_about_one_learning_rate() {
+        let mut rng = rand::rngs::SmallRng::seed_from_u64(0);
+        let lr = 0.01f32;
+        for grad_scale in [1e-3f32, 1.0, 50.0] {
+            let mut entities = DensityStore::new(1, 3, lr, &mut rng);
+            let before = entities.params[0].clone();
+            let grad = vec![grad_scale; before.len()];
+            entities.apply_grad(0, &grad, 1.0);
+            for (b, a) in before.iter().zip(&entities.params[0]) {
+                let step = (b - a).abs();
+                assert!(
+                    (step - lr).abs() < 1e-3 * lr + 1e-6,
+                    "entity step {step} for gradient {grad_scale}, expected about {lr}"
+                );
+            }
+
+            let mut roles = RoleStore::new(1, 2, lr, &mut rng);
+            let before = roles.params[0].clone();
+            let grad = vec![-grad_scale; before.len()];
+            roles.apply_grad(0, &grad, 1.0);
+            for (b, a) in before.iter().zip(&roles.params[0]) {
+                let step = a - b;
+                assert!(
+                    (step - lr).abs() < 1e-3 * lr + 1e-6,
+                    "role step {step} for gradient {grad_scale}, expected about {lr}"
+                );
+            }
+        }
+    }
 
     fn make_real(v: &[f32]) -> DensityRegion {
         let mut params = Vec::with_capacity(v.len() * 2);
