@@ -11,6 +11,17 @@ These source changes are listed without assigning them to a published release.
 
 ## [Unreleased]
 
+### Changed
+
+- `BoxEmbeddingTrainer` reads its negative-pair margin from the new
+  `containment_margin` field (default `0.1`, must be in `[0, 1)`) instead of
+  `margin`. `margin` defaults to `1.0`, and a containment probability never
+  exceeds 1, so with default settings negatives contributed no loss and no
+  gradient. **If you set `margin` for the box trainer, set
+  `containment_margin` to that value instead**; `margin` is still read by the
+  other trainers and as the InfoNCE temperature. Configs serialized before
+  this change deserialize with `containment_margin = 0.1`.
+
 ## [0.18.0] - 2026-11-04
 
 ### Changed

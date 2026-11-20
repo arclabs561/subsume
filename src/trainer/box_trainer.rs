@@ -30,7 +30,8 @@ use crate::trainer::evaluation::{evaluate_link_prediction_interned_inner, Filter
 /// `min(P(B ⊆ A), P(A ⊆ B))` instead. This is appropriate for datasets
 /// with symmetric relations.
 ///
-/// For **negative** examples: `w_neg * max(0, max(P(A|B), P(B|A)) - margin)^2`.
+/// For **negative** examples:
+/// `w_neg * max(0, max(P(A|B), P(B|A)) - containment_margin)^2`.
 pub fn compute_pair_loss(
     box_a: &TrainableBox,
     box_b: &TrainableBox,
@@ -73,8 +74,8 @@ pub fn compute_pair_loss(
         let p_b_a = (vol_int_soft / vol_a_soft).clamp(0.0, 1.0);
         let max_prob = p_a_b.max(p_b_a);
 
-        let margin_loss = if max_prob > config.margin {
-            (max_prob - config.margin).powi(2)
+        let margin_loss = if max_prob > config.containment_margin {
+            (max_prob - config.containment_margin).powi(2)
         } else {
             0.0
         };
@@ -130,7 +131,8 @@ fn softplus_intersection_volume(
 /// For **positive** pairs (directed, default): the loss is `-ln P(B ⊆ A) + reg * (Vol_A + Vol_B)`
 /// where `P(B ⊆ A) = Vol(A ∩ B) / Vol(B)`. When `config.symmetric_loss` is true,
 /// uses `min(P(A|B), P(B|A))` instead.
-/// For **negative** pairs, the loss is `w_neg * max(0, max(P(A|B), P(B|A)) - margin)^2`.
+/// For **negative** pairs, the loss is
+/// `w_neg * max(0, max(P(A|B), P(B|A)) - containment_margin)^2`.
 ///
 /// Intersection volume uses softplus smoothing (`config.softplus_beta`), so
 /// `d(side)/d(bound) = sigmoid(beta * (hi - lo))` rather than the hard 0/1
@@ -323,7 +325,7 @@ pub fn compute_analytical_gradients(
         let p_ba = (vol_int / soft_vol_a).clamp(0.0, 1.0);
         let max_p = p_ab.max(p_ba);
 
-        if max_p <= config.margin || vol_int < 1e-30 {
+        if max_p <= config.containment_margin || vol_int < 1e-30 {
             // No loss, no gradient.
             return (grad_mu_a, grad_delta_a, grad_mu_b, grad_delta_b);
         }
@@ -332,7 +334,7 @@ pub fn compute_analytical_gradients(
         let p = if use_ab { p_ab } else { p_ba };
 
         // dL/dP = w_neg * 2 * (P - margin)
-        let dl_dp = config.negative_weight * 2.0 * (p - config.margin);
+        let dl_dp = config.negative_weight * 2.0 * (p - config.containment_margin);
         let vol_denom = if use_ab { soft_vol_b } else { soft_vol_a };
         let dl_dvol_int = dl_dp / vol_denom;
         let dl_dvol_denom = dl_dp * (-vol_int / (vol_denom * vol_denom));
@@ -1434,7 +1436,7 @@ mod tests {
     #[test]
     fn compute_pair_loss_negative_penalizes_overlap_above_margin() {
         let cfg = CpuBoxTrainingConfig {
-            margin: 0.2,
+            containment_margin: 0.2,
             negative_weight: 1.0,
             ..Default::default()
         };
@@ -1469,6 +1471,47 @@ mod tests {
         assert!(cfg.negative_samples > 0);
         assert!(cfg.margin > 0.0);
         assert!(cfg.negative_weight > 0.0);
+        assert!((0.0..1.0).contains(&cfg.containment_margin));
+        assert!(cfg.validate().is_ok());
+    }
+
+    /// With the default config a contained negative pair is penalised and
+    /// gets a gradient. The shared `margin` default of 1.0 used to be read
+    /// here as a probability margin, which no probability can exceed, so
+    /// negatives contributed nothing.
+    #[test]
+    fn default_config_penalises_contained_negative_pair() {
+        let cfg = CpuBoxTrainingConfig::default();
+        let outer = TrainableBox::new(vec![0.0, 0.0], vec![0.0, 0.0]).unwrap();
+        let inner = TrainableBox::new(vec![0.0, 0.0], vec![-1.0, -1.0]).unwrap();
+        let loss = compute_pair_loss(&outer, &inner, false, &cfg);
+        assert!(loss > 0.5, "loss {loss}");
+        let (g_mu_a, g_delta_a, g_mu_b, g_delta_b) =
+            compute_analytical_gradients(&outer, &inner, false, &cfg);
+        let norm: f32 = [g_mu_a, g_delta_a, g_mu_b, g_delta_b]
+            .iter()
+            .flatten()
+            .map(|g| g * g)
+            .sum();
+        assert!(norm > 0.0, "negative pair has no gradient");
+    }
+
+    #[test]
+    fn validate_rejects_containment_margin_outside_unit_interval() {
+        for bad in [1.0, 1.5, -0.1, f32::NAN] {
+            let cfg = CpuBoxTrainingConfig {
+                containment_margin: bad,
+                ..Default::default()
+            };
+            assert!(cfg.validate().is_err(), "accepted {bad}");
+        }
+        for ok in [0.0, 0.1, 0.99] {
+            let cfg = CpuBoxTrainingConfig {
+                containment_margin: ok,
+                ..Default::default()
+            };
+            assert!(cfg.validate().is_ok(), "rejected {ok}");
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -1570,12 +1613,12 @@ mod tests {
     fn compute_pair_loss_negative_weight_scales_loss() {
         let cfg_w1 = CpuBoxTrainingConfig {
             negative_weight: 1.0,
-            margin: 0.01,
+            containment_margin: 0.01,
             ..Default::default()
         };
         let cfg_w2 = CpuBoxTrainingConfig {
             negative_weight: 2.0,
-            margin: 0.01,
+            containment_margin: 0.01,
             ..Default::default()
         };
         // Two overlapping boxes.
@@ -1729,7 +1772,7 @@ mod tests {
             regularization: 0.001,
             max_grad_norm: f32::MAX,
             softplus_beta: 10.0,
-            margin: 0.2,
+            containment_margin: 0.2,
             negative_weight: 1.0,
             ..Default::default()
         };
@@ -1838,7 +1881,7 @@ mod tests {
             regularization: 0.0,
             max_grad_norm: f32::MAX,
             softplus_beta: 10.0,
-            margin: 0.2,
+            containment_margin: 0.2,
             negative_weight: 1.0,
             ..Default::default()
         };
@@ -1995,11 +2038,13 @@ mod tests {
             is_positive in any::<bool>(),
             regularization in 0.0f32..1.0,
             margin in 0.0f32..2.0,
+            containment_margin in 0.0f32..1.0,
             negative_weight in 0.1f32..5.0,
         ) {
             let config = CpuBoxTrainingConfig {
                 regularization,
                 margin,
+                containment_margin,
                 negative_weight,
                 ..Default::default()
             };
