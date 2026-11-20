@@ -497,10 +497,6 @@ impl BoxEmbeddingTrainer {
         }
     }
 
-    /// Ensure an entity exists in the trainer; initialize with defaults if missing.
-    ///
-    /// Creates a small box centered at a dimension-offset position so that
-    /// different entities start with slightly different embeddings.
     /// The box an entity starts with before any update touches it.
     fn initial_box(dim: usize, id: usize) -> TrainableBox {
         let mut init_vec = vec![0.0f32; dim];
@@ -511,6 +507,10 @@ impl BoxEmbeddingTrainer {
         TrainableBox::from_vector(&init_vec, 0.5)
     }
 
+    /// Ensure an entity exists in the trainer; initialize with defaults if missing.
+    ///
+    /// Creates a small box centered at a dimension-offset position so that
+    /// different entities start with slightly different embeddings.
     pub fn ensure_entity(&mut self, id: usize) {
         if !self.boxes.contains_key(&id) {
             let b = Self::initial_box(self.dim, id);
