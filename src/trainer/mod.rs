@@ -392,8 +392,24 @@ pub struct CpuBoxTrainingConfig {
     pub negative_samples: usize,
     /// Negative sampling strategy (default: CorruptTail)
     pub negative_strategy: NegativeSamplingStrategy,
-    /// Margin for ranking loss (default: 1.0)
+    /// Margin for ranking loss (default: 1.0).
+    ///
+    /// A distance or score margin for the trainers that rank a positive
+    /// against a negative. The CPU box trainer does not read it for its
+    /// negative loss (see [`containment_margin`](Self::containment_margin));
+    /// with `use_infonce` it is the temperature.
     pub margin: f32,
+    /// Probability margin for negative pairs in the CPU box trainer
+    /// ([`BoxEmbeddingTrainer`]): a negative pair is penalised by
+    /// `negative_weight * max(0, P - containment_margin)^2`, where `P` is the
+    /// larger of the two containment probabilities.
+    ///
+    /// Must be in `[0, 1)`. `P` never exceeds 1, so a value of 1 or more
+    /// would remove negatives from training altogether.
+    ///
+    /// Default: `0.1`.
+    #[serde(default = "default_containment_margin")]
+    pub containment_margin: f32,
     /// Early stopping patience (default: Some(10))
     pub early_stopping_patience: Option<usize>,
     /// Minimum improvement for early stopping (relative)
@@ -525,6 +541,10 @@ fn default_sigmoid_k() -> f32 {
     2.0
 }
 
+fn default_containment_margin() -> f32 {
+    0.1
+}
+
 impl Default for CpuBoxTrainingConfig {
     fn default() -> Self {
         Self {
@@ -533,7 +553,8 @@ impl Default for CpuBoxTrainingConfig {
             batch_size: 512, // Paper range: 512-4096
             negative_samples: 1,
             negative_strategy: NegativeSamplingStrategy::CorruptTail,
-            margin: 1.0,                       // Margin for ranking loss
+            margin: 1.0, // Margin for ranking loss
+            containment_margin: default_containment_margin(),
             early_stopping_patience: Some(10), // Early stopping after 10 epochs without improvement
             early_stopping_min_delta: 0.001,
             regularization: 0.0001,
@@ -576,6 +597,13 @@ impl CpuBoxTrainingConfig {
             return Err(BoxError::Internal(format!(
                 "margin must be non-negative and finite, got {}",
                 self.margin
+            )));
+        }
+        if !(0.0..1.0).contains(&self.containment_margin) {
+            return Err(BoxError::Internal(format!(
+                "containment_margin must be in [0, 1), got {}; a containment \
+                 probability never exceeds 1, so a margin of 1 or more disables negatives",
+                self.containment_margin
             )));
         }
         if !self.softplus_beta.is_finite() || self.softplus_beta <= 0.0 {

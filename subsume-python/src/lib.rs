@@ -225,6 +225,8 @@ struct PyTrainingConfig {
     #[pyo3(get)]
     margin: f32,
     #[pyo3(get)]
+    containment_margin: f32,
+    #[pyo3(get)]
     negative_samples: usize,
     #[pyo3(get)]
     negative_weight: f32,
@@ -255,7 +257,11 @@ impl PyTrainingConfig {
     ///     learning_rate: Optimizer step size (default: 0.001).
     ///     epochs: Number of training epochs for fit() (default: 100).
     ///     batch_size: Triples per batch (default: 512).
-    ///     margin: Negative margin (default: 1.0).
+    ///     margin: Not read by the box trainer's negative loss; kept so existing
+    ///         calls keep working (default: 1.0). Use containment_margin.
+    ///     containment_margin: Probability margin for negative pairs, in [0, 1)
+    ///         (default: 0.1). A negative is penalised when its containment
+    ///         probability exceeds this.
     ///     negative_samples: Negatives per positive (default: 1).
     ///     negative_weight: Weight on negative loss term (default: 1.0).
     ///     regularization: Volume regularization weight (default: 0.0001).
@@ -267,7 +273,7 @@ impl PyTrainingConfig {
     ///     self_adversarial: Weight negatives by softmax of model score (default: False).
     ///     adversarial_temperature: Temperature for self-adversarial weighting (default: 1.0).
     #[new]
-    #[pyo3(signature = (dim, learning_rate=0.001, epochs=100, batch_size=512, margin=1.0, negative_samples=1, negative_weight=1.0, regularization=0.0001, softplus_beta=10.0, softplus_beta_final=50.0, warmup_epochs=10, early_stopping_patience=Some(10), symmetric_loss=false, self_adversarial=false, adversarial_temperature=1.0))]
+    #[pyo3(signature = (dim, learning_rate=0.001, epochs=100, batch_size=512, margin=1.0, negative_samples=1, negative_weight=1.0, regularization=0.0001, softplus_beta=10.0, softplus_beta_final=50.0, warmup_epochs=10, early_stopping_patience=Some(10), symmetric_loss=false, self_adversarial=false, adversarial_temperature=1.0, containment_margin=0.1))]
     #[allow(clippy::too_many_arguments)]
     fn new(
         dim: usize,
@@ -285,9 +291,15 @@ impl PyTrainingConfig {
         symmetric_loss: bool,
         self_adversarial: bool,
         adversarial_temperature: f32,
+        containment_margin: f32,
     ) -> PyResult<Self> {
         if dim == 0 {
             return Err(pyo3::exceptions::PyValueError::new_err("dim must be > 0"));
+        }
+        if !(0.0..1.0).contains(&containment_margin) {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "containment_margin must be in [0, 1)",
+            ));
         }
         if learning_rate <= 0.0 {
             return Err(pyo3::exceptions::PyValueError::new_err(
@@ -309,6 +321,7 @@ impl PyTrainingConfig {
             epochs,
             batch_size,
             margin,
+            containment_margin,
             negative_samples,
             negative_weight,
             regularization,
@@ -328,6 +341,7 @@ impl PyTrainingConfig {
             epochs,
             batch_size,
             margin,
+            containment_margin,
             negative_samples,
             negative_weight,
             regularization,

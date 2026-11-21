@@ -30,7 +30,8 @@ use crate::trainer::evaluation::{evaluate_link_prediction_interned_inner, Filter
 /// `min(P(B ⊆ A), P(A ⊆ B))` instead. This is appropriate for datasets
 /// with symmetric relations.
 ///
-/// For **negative** examples: `w_neg * max(0, max(P(A|B), P(B|A)) - margin)^2`.
+/// For **negative** examples:
+/// `w_neg * max(0, max(P(A|B), P(B|A)) - containment_margin)^2`.
 pub fn compute_pair_loss(
     box_a: &TrainableBox,
     box_b: &TrainableBox,
@@ -73,8 +74,8 @@ pub fn compute_pair_loss(
         let p_b_a = (vol_int_soft / vol_a_soft).clamp(0.0, 1.0);
         let max_prob = p_a_b.max(p_b_a);
 
-        let margin_loss = if max_prob > config.margin {
-            (max_prob - config.margin).powi(2)
+        let margin_loss = if max_prob > config.containment_margin {
+            (max_prob - config.containment_margin).powi(2)
         } else {
             0.0
         };
@@ -130,7 +131,8 @@ fn softplus_intersection_volume(
 /// For **positive** pairs (directed, default): the loss is `-ln P(B ⊆ A) + reg * (Vol_A + Vol_B)`
 /// where `P(B ⊆ A) = Vol(A ∩ B) / Vol(B)`. When `config.symmetric_loss` is true,
 /// uses `min(P(A|B), P(B|A))` instead.
-/// For **negative** pairs, the loss is `w_neg * max(0, max(P(A|B), P(B|A)) - margin)^2`.
+/// For **negative** pairs, the loss is
+/// `w_neg * max(0, max(P(A|B), P(B|A)) - containment_margin)^2`.
 ///
 /// Intersection volume uses softplus smoothing (`config.softplus_beta`), so
 /// `d(side)/d(bound) = sigmoid(beta * (hi - lo))` rather than the hard 0/1
@@ -190,6 +192,32 @@ pub fn compute_analytical_gradients(
     let half_width_a: Vec<f32> = box_a.delta.iter().map(|d| d.exp() / 2.0).collect();
     let half_width_b: Vec<f32> = box_b.delta.iter().map(|d| d.exp() / 2.0).collect();
 
+    // The probabilities in `compute_pair_loss` divide by the softplus-smoothed
+    // volume S = prod_i softplus(w_i), w_i = exp(delta_i), not by the hard
+    // volume prod_i w_i. Its derivative is
+    //   dS/d(delta_i) = S * sigmoid(beta * w_i) * w_i / softplus(w_i),
+    // which equals S (the hard-volume derivative) only when beta * w_i is
+    // large. At the width floor (0.05) with beta = 10 the factor is about
+    // 0.33, so the hard-volume form overstated the pull on thin boxes.
+    let soft_vol_a = softplus_volume(&a, beta);
+    let soft_vol_b = softplus_volume(&b, beta);
+    let soft_vol_dlog = |half_width: &[f32]| -> Vec<f32> {
+        half_width
+            .iter()
+            .map(|&h| {
+                let w = 2.0 * h;
+                let sp = crate::utils::softplus(w, beta);
+                if sp > 0.0 {
+                    crate::utils::stable_sigmoid(beta * w) * w / sp
+                } else {
+                    0.0
+                }
+            })
+            .collect()
+    };
+    let dlog_soft_vol_a = soft_vol_dlog(&half_width_a);
+    let dlog_soft_vol_b = soft_vol_dlog(&half_width_b);
+
     if is_positive {
         // Positive loss (directed): L = -ln P(B ⊆ A) + reg * (Vol_A + Vol_B)
         // where P(B ⊆ A) = Vol_int / Vol_B.
@@ -209,8 +237,8 @@ pub fn compute_analytical_gradients(
             return (grad_mu_a, grad_delta_a, grad_mu_b, grad_delta_b);
         }
 
-        let p_ab = (vol_int / vol_b).clamp(1e-8, 1.0);
-        let p_ba = (vol_int / vol_a).clamp(1e-8, 1.0);
+        let p_ab = (vol_int / soft_vol_b).clamp(1e-8, 1.0);
+        let p_ba = (vol_int / soft_vol_a).clamp(1e-8, 1.0);
 
         // Directed: always use P(B ⊆ A) = Vol_int / Vol_B.
         // Symmetric: use min(P_AB, P_BA).
@@ -229,14 +257,9 @@ pub fn compute_analytical_gradients(
 
         // dP/d(Vol_int): P = Vol_int / Vol_denom
         // dP/d(Vol_denom): P = Vol_int / Vol_denom => dP/d(Vol_denom) = -Vol_int / Vol_denom^2
-        let (vol_denom, dl_dvol_int, dl_dvol_denom) = if use_ab {
-            // P = Vol_int / Vol_B
-            (vol_b, dl_dp / vol_b, dl_dp * (-vol_int / (vol_b * vol_b)))
-        } else {
-            // P = Vol_int / Vol_A
-            (vol_a, dl_dp / vol_a, dl_dp * (-vol_int / (vol_a * vol_a)))
-        };
-        let _ = vol_denom; // suppress unused warning
+        let vol_denom = if use_ab { soft_vol_b } else { soft_vol_a };
+        let dl_dvol_int = dl_dp / vol_denom;
+        let dl_dvol_denom = dl_dp * (-vol_int / (vol_denom * vol_denom));
 
         // Gradient of Vol_int w.r.t. each bound.
         // Vol_int = prod_j sides[j]. d(Vol_int)/d(sides[i]) = Vol_int / sides[i].
@@ -274,19 +297,15 @@ pub fn compute_analytical_gradients(
             }
         }
 
-        // Gradient of denom volume w.r.t. parameters.
-        // Vol = prod_j exp(delta_j). d(Vol)/d(delta_i) = Vol * 1 = Vol (since d(exp(d))/d(d) = exp(d))
-        // But Vol = prod exp(delta), so d(Vol)/d(delta_i) = Vol (each factor contributes exp(delta_i)).
+        // Gradient of the smoothed denominator volume (see `soft_vol_dlog`).
+        let denom_grad = dl_dvol_denom * vol_denom;
         if use_ab {
-            // Denom = Vol_B. d(Vol_B)/d(delta_b_i) = Vol_B.
-            let denom_grad = dl_dvol_denom * vol_b;
-            for g in grad_delta_b.iter_mut().take(dim) {
-                *g += denom_grad;
+            for (g, r) in grad_delta_b.iter_mut().zip(&dlog_soft_vol_b) {
+                *g += denom_grad * r;
             }
         } else {
-            let denom_grad = dl_dvol_denom * vol_a;
-            for g in grad_delta_a.iter_mut().take(dim) {
-                *g += denom_grad;
+            for (g, r) in grad_delta_a.iter_mut().zip(&dlog_soft_vol_a) {
+                *g += denom_grad * r;
             }
         }
 
@@ -302,11 +321,11 @@ pub fn compute_analytical_gradients(
         }
     } else {
         // Negative loss: L = w_neg * max(0, max(P_AB, P_BA) - margin)^2
-        let p_ab = (vol_int / vol_b).clamp(0.0, 1.0);
-        let p_ba = (vol_int / vol_a).clamp(0.0, 1.0);
+        let p_ab = (vol_int / soft_vol_b).clamp(0.0, 1.0);
+        let p_ba = (vol_int / soft_vol_a).clamp(0.0, 1.0);
         let max_p = p_ab.max(p_ba);
 
-        if max_p <= config.margin || vol_int < 1e-30 {
+        if max_p <= config.containment_margin || vol_int < 1e-30 {
             // No loss, no gradient.
             return (grad_mu_a, grad_delta_a, grad_mu_b, grad_delta_b);
         }
@@ -315,8 +334,8 @@ pub fn compute_analytical_gradients(
         let p = if use_ab { p_ab } else { p_ba };
 
         // dL/dP = w_neg * 2 * (P - margin)
-        let dl_dp = config.negative_weight * 2.0 * (p - config.margin);
-        let vol_denom = if use_ab { vol_b } else { vol_a };
+        let dl_dp = config.negative_weight * 2.0 * (p - config.containment_margin);
+        let vol_denom = if use_ab { soft_vol_b } else { soft_vol_a };
         let dl_dvol_int = dl_dp / vol_denom;
         let dl_dvol_denom = dl_dp * (-vol_int / (vol_denom * vol_denom));
 
@@ -349,15 +368,14 @@ pub fn compute_analytical_gradients(
             }
         }
 
+        let denom_grad = dl_dvol_denom * vol_denom;
         if use_ab {
-            let denom_grad = dl_dvol_denom * vol_b;
-            for g in grad_delta_b.iter_mut().take(dim) {
-                *g += denom_grad;
+            for (g, r) in grad_delta_b.iter_mut().zip(&dlog_soft_vol_b) {
+                *g += denom_grad * r;
             }
         } else {
-            let denom_grad = dl_dvol_denom * vol_a;
-            for g in grad_delta_a.iter_mut().take(dim) {
-                *g += denom_grad;
+            for (g, r) in grad_delta_a.iter_mut().zip(&dlog_soft_vol_a) {
+                *g += denom_grad * r;
             }
         }
     }
@@ -1455,7 +1473,7 @@ mod tests {
     #[test]
     fn compute_pair_loss_negative_penalizes_overlap_above_margin() {
         let cfg = CpuBoxTrainingConfig {
-            margin: 0.2,
+            containment_margin: 0.2,
             negative_weight: 1.0,
             ..Default::default()
         };
@@ -1490,6 +1508,47 @@ mod tests {
         assert!(cfg.negative_samples > 0);
         assert!(cfg.margin > 0.0);
         assert!(cfg.negative_weight > 0.0);
+        assert!((0.0..1.0).contains(&cfg.containment_margin));
+        assert!(cfg.validate().is_ok());
+    }
+
+    /// With the default config a contained negative pair is penalised and
+    /// gets a gradient. The shared `margin` default of 1.0 used to be read
+    /// here as a probability margin, which no probability can exceed, so
+    /// negatives contributed nothing.
+    #[test]
+    fn default_config_penalises_contained_negative_pair() {
+        let cfg = CpuBoxTrainingConfig::default();
+        let outer = TrainableBox::new(vec![0.0, 0.0], vec![0.0, 0.0]).unwrap();
+        let inner = TrainableBox::new(vec![0.0, 0.0], vec![-1.0, -1.0]).unwrap();
+        let loss = compute_pair_loss(&outer, &inner, false, &cfg);
+        assert!(loss > 0.5, "loss {loss}");
+        let (g_mu_a, g_delta_a, g_mu_b, g_delta_b) =
+            compute_analytical_gradients(&outer, &inner, false, &cfg);
+        let norm: f32 = [g_mu_a, g_delta_a, g_mu_b, g_delta_b]
+            .iter()
+            .flatten()
+            .map(|g| g * g)
+            .sum();
+        assert!(norm > 0.0, "negative pair has no gradient");
+    }
+
+    #[test]
+    fn validate_rejects_containment_margin_outside_unit_interval() {
+        for bad in [1.0, 1.5, -0.1, f32::NAN] {
+            let cfg = CpuBoxTrainingConfig {
+                containment_margin: bad,
+                ..Default::default()
+            };
+            assert!(cfg.validate().is_err(), "accepted {bad}");
+        }
+        for ok in [0.0, 0.1, 0.99] {
+            let cfg = CpuBoxTrainingConfig {
+                containment_margin: ok,
+                ..Default::default()
+            };
+            assert!(cfg.validate().is_ok(), "rejected {ok}");
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -1591,12 +1650,12 @@ mod tests {
     fn compute_pair_loss_negative_weight_scales_loss() {
         let cfg_w1 = CpuBoxTrainingConfig {
             negative_weight: 1.0,
-            margin: 0.01,
+            containment_margin: 0.01,
             ..Default::default()
         };
         let cfg_w2 = CpuBoxTrainingConfig {
             negative_weight: 2.0,
-            margin: 0.01,
+            containment_margin: 0.01,
             ..Default::default()
         };
         // Two overlapping boxes.
@@ -1750,7 +1809,7 @@ mod tests {
             regularization: 0.001,
             max_grad_norm: f32::MAX,
             softplus_beta: 10.0,
-            margin: 0.2,
+            containment_margin: 0.2,
             negative_weight: 1.0,
             ..Default::default()
         };
@@ -1847,6 +1906,113 @@ mod tests {
         );
     }
 
+    /// Finite-difference check where widths are comparable to `1 / beta`,
+    /// down to the width floor (`delta = ln 0.05`). There the softplus volume
+    /// differs from the hard volume, and a gradient derived from the hard
+    /// volume does not match the loss. The check above uses widths >= 1.6,
+    /// where the two coincide.
+    #[test]
+    fn gradcheck_thin_boxes_match_finite_difference() {
+        let thin = 0.05_f32.ln();
+        let base = CpuBoxTrainingConfig {
+            regularization: 0.0,
+            max_grad_norm: f32::MAX,
+            softplus_beta: 10.0,
+            containment_margin: 0.2,
+            negative_weight: 1.0,
+            ..Default::default()
+        };
+        let symmetric = CpuBoxTrainingConfig {
+            symmetric_loss: true,
+            ..base.clone()
+        };
+
+        // (name, positive?, config, head, tail). Offsets keep every case away
+        // from the max/min kinks and from the clamp at probability 1.
+        let b = |mu: &[f32], delta: &[f32]| TrainableBox::new(mu.to_vec(), delta.to_vec()).unwrap();
+        let cases = vec![
+            (
+                "positive, thin tail partly outside head",
+                true,
+                &base,
+                b(&[0.0, 0.0, 0.1], &[0.0, -0.5, -1.0]),
+                b(&[0.48, 0.3, 0.25], &[thin, -2.0, -1.5]),
+            ),
+            (
+                "positive, both thin",
+                true,
+                &base,
+                b(&[0.0, 0.0, 0.0], &[-2.0, -2.3, thin]),
+                b(&[0.05, -0.04, 0.02], &[-2.5, thin, -2.2]),
+            ),
+            (
+                "symmetric positive, thin head",
+                true,
+                &symmetric,
+                b(&[0.0, 0.0, 0.0], &[thin, -2.5, -2.0]),
+                b(&[0.03, 0.05, -0.04], &[-1.0, -0.5, -0.8]),
+            ),
+            (
+                "negative, thin tail overlapping head",
+                false,
+                &base,
+                b(&[0.0, 0.0, 0.0], &[0.0, -0.3, -0.6]),
+                b(&[0.45, 0.2, 0.3], &[thin, -2.0, -1.8]),
+            ),
+            (
+                "negative, thin head inside tail",
+                false,
+                &base,
+                b(&[0.1, 0.0, -0.1], &[-2.4, thin, -2.0]),
+                b(&[0.0, 0.05, 0.0], &[-0.5, -0.7, -0.2]),
+            ),
+        ];
+
+        let eps = 2e-3_f32;
+        let mut checked = 0usize;
+        for (name, is_pos, cfg, head, tail) in &cases {
+            let loss = compute_pair_loss(head, tail, *is_pos, cfg);
+            assert!(
+                loss > 1e-3 && loss < 9.0,
+                "{name}: loss {loss} is in a flat or capped region; pick another case"
+            );
+            let (g_mu_h, g_delta_h, g_mu_t, g_delta_t) =
+                compute_analytical_gradients(head, tail, *is_pos, cfg);
+            let groups: [(&str, &[f32]); 4] = [
+                ("mu_h", &g_mu_h),
+                ("delta_h", &g_delta_h),
+                ("mu_t", &g_mu_t),
+                ("delta_t", &g_delta_t),
+            ];
+            for (group, analytical) in groups {
+                for (i, &a) in analytical.iter().enumerate() {
+                    let at = |sign: f32| {
+                        let mut h = head.clone();
+                        let mut t = tail.clone();
+                        match group {
+                            "mu_h" => h.mu[i] += sign * eps,
+                            "delta_h" => h.delta[i] += sign * eps,
+                            "mu_t" => t.mu[i] += sign * eps,
+                            _ => t.delta[i] += sign * eps,
+                        }
+                        compute_pair_loss(&h, &t, *is_pos, cfg) as f64
+                    };
+                    let numerical = ((at(1.0) - at(-1.0)) / (2.0 * eps as f64)) as f32;
+                    let scale = a.abs().max(numerical.abs());
+                    if scale < 5e-3 {
+                        continue;
+                    }
+                    checked += 1;
+                    assert!(
+                        (a - numerical).abs() <= 0.03 * scale + 5e-3,
+                        "{name}: {group}[{i}] analytical={a:.5} numerical={numerical:.5}"
+                    );
+                }
+            }
+        }
+        assert!(checked >= 20, "only {checked} components compared");
+    }
+
     fn arb_box(dim: usize) -> impl Strategy<Value = TrainableBox> {
         let mu_strat = prop::collection::vec(-10.0f32..10.0, dim);
         let delta_strat = prop::collection::vec(-5.0f32..2.0, dim);
@@ -1909,11 +2075,13 @@ mod tests {
             is_positive in any::<bool>(),
             regularization in 0.0f32..1.0,
             margin in 0.0f32..2.0,
+            containment_margin in 0.0f32..1.0,
             negative_weight in 0.1f32..5.0,
         ) {
             let config = CpuBoxTrainingConfig {
                 regularization,
                 margin,
+                containment_margin,
                 negative_weight,
                 ..Default::default()
             };
