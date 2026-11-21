@@ -46,7 +46,7 @@ lattix = { version = "0.6", default-features = false, features = [
   "kge",
 ], optional = true }
 burn = { version = "0.20", features = ["autodiff"], optional = true }
-burn-ndarray = { version = "0.20", features = ["rayon"], optional = true }
+burn-ndarray = { version = "0.21", features = ["rayon"], optional = true }
 burn-wgpu = { version = "0.20", optional = true }
 burn-tch = { version = "0.20", optional = true }
 burn-autodiff = { version = "0.20", optional = true }
