@@ -108,7 +108,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     write!(valid_file, "{VALID_DATA}")?;
     write!(test_file, "{TEST_DATA}")?;
 
-    let dataset = load_dataset(dir.path())?;
+    let mut dataset = load_dataset(dir.path())?;
+    // WordNet supplies (child, _hypernym, parent). The trainer scores how
+    // much of the tail lies inside the head, so orient all splits alike.
+    for triple in dataset
+        .train
+        .iter_mut()
+        .chain(&mut dataset.valid)
+        .chain(&mut dataset.test)
+    {
+        std::mem::swap(&mut triple.head, &mut triple.tail);
+        "has_hyponym".clone_into(&mut triple.relation);
+    }
+    let first = &dataset.train[0];
+    println!(
+        "First training example: {} contains {}",
+        first.head, first.tail
+    );
     println!(
         "Dataset: {} entities, {} relations, {} train / {} valid / {} test triples",
         dataset.entities().len(),

@@ -67,7 +67,7 @@ fetch and exit 0.
 | `query2box` | Query2Box-style compositional query answering: multi-hop KG queries via box intersection, containment ranking, and alpha-weighted distance scoring |
 | `octagon_demo` | Octagon embeddings: diagonal constraints, point containment, intersection (closure), volume comparison, soft containment/overlap |
 | `taxobell_demo` | TaxoBell Gaussian box losses on a mini taxonomy (no training, loss inspection only) |
-| `dataset_training` | Full pipeline: load WN18RR-format dataset, train box embeddings, evaluate with MRR/Hits@k |
+| `dataset_training` | Load a WordNet subset, orient hypernyms as parent contains child, evaluate filtered MRR/Hits@k, and round-trip a checkpoint |
 | `save_checkpoint` | Generate the pretrained WordNet subset checkpoint (writes `pretrained/wordnet_subset.json`) |
 | `imagenet_hierarchy` | Real-scale training on 252 Tiny ImageNet WordNet synsets; volume-depth correlation (Spearman) |
 | `hyperbolic_demo` | Poincare ball embeddings: norm-depth correlation, hierarchy preservation, exponential capacity |
@@ -703,38 +703,33 @@ Notes:
 <summary><b>dataset_training</b> -- WN18RR-format pipeline with MRR/Hits@k</summary>
 
 ```text
-=== Dataset-Driven Box Embedding Training ===
+=== Dataset-Driven Box Embedding Training (BoxEmbeddingTrainer) ===
 
+First training example: canine.n.02 contains dog.n.01
 Dataset: 47 entities, 1 relations, 46 train / 7 valid / 7 test triples
 
-Training 200 epochs (dim=12, 46 containment pairs, 74 negative pairs)...
+Training up to 200 epochs (dim=12, 46 train triples, early stopping patience=30)...
 
-  epoch   0: total_violation = 108.1936
-  epoch  40: total_violation = 32.6241
-  epoch  80: total_violation = 23.4292
-  epoch 120: total_violation = 16.3861
-  epoch 160: total_violation = 10.2297
-  epoch 199: total_violation = 6.4860
+  Trained 87 epochs (best epoch: 56)
+  Loss: 4.8090 -> 0.0444
+  Val MRR: 0.1586 -> 0.7436
 
---- Evaluation (test set) ---
+--- Evaluation (test set, filtered) ---
 
-  fox.n.01 -> carnivore.n.01: rank 8 / 47
-  lion.n.01 -> carnivore.n.01: rank 2 / 47
-  tiger.n.01 -> carnivore.n.01: rank 8 / 47
-  trout.n.01 -> vertebrate.n.01: rank 7 / 47
-  pine.n.01 -> plant.n.02: rank 4 / 47
-  tulip.n.01 -> plant.n.02: rank 4 / 47
-  truck.n.01 -> artifact.n.01: rank 1 / 47
-
---- Link Prediction Metrics ---
-
-  MRR:       0.3418
-  Hits@1:    0.1429
-  Hits@3:    0.2857
+  MRR:       0.8571
+  Hits@1:    0.7143
+  Hits@3:    1.0000
   Hits@10:   1.0000
-  Mean Rank: 4.9
+  Mean Rank: 1.3
 
-  (7 test triples, 47 candidate entities)
+  (7 test triples, 47 entities, filtered ranking)
+
+--- Per-Relation Breakdown ---
+
+  has_hyponym: MRR=0.8571, Hits@10=1.0000 (7 triples)
+
+Checkpoint: 62490 bytes (serialized 47 entity boxes + optimizer state)
+Checkpoint round-trip: OK (47 entities restored)
 ```
 
 </details>
@@ -813,33 +808,49 @@ Ontology: 15 concepts, 4 roles, 21 axioms
 
 Training with dim=30, epochs=500...
 
-epoch 50/500: avg_loss = 0.054586, lr = 0.004960
-epoch 100/500: avg_loss = 0.003529, lr = 0.004706
-epoch 150/500: avg_loss = 0.000357, lr = 0.004245
-epoch 200/500: avg_loss = 0.000117, lr = 0.003625
-epoch 250/500: avg_loss = 0.000000, lr = 0.002912
-epoch 300/500: avg_loss = 0.000000, lr = 0.002182
-epoch 350/500: avg_loss = 0.000000, lr = 0.001512
-epoch 400/500: avg_loss = 0.000000, lr = 0.000974
-epoch 450/500: avg_loss = 0.000000, lr = 0.000624
-epoch 500/500: avg_loss = 0.000000, lr = 0.000500
+epoch 50/500: avg_loss = 1.946908, lr = 0.004960, |c|=0.433, o_avg=0.348, o_range=[0.010, 1.331]
+epoch 100/500: avg_loss = 0.959389, lr = 0.004706, |c|=0.381, o_avg=0.269, o_range=[0.010, 1.345]
+epoch 150/500: avg_loss = 0.685724, lr = 0.004245, |c|=0.358, o_avg=0.239, o_range=[0.010, 1.345]
+epoch 200/500: avg_loss = 0.807297, lr = 0.003625, |c|=0.348, o_avg=0.221, o_range=[0.010, 1.345]
+epoch 250/500: avg_loss = 0.565984, lr = 0.002912, |c|=0.343, o_avg=0.213, o_range=[0.010, 1.345]
+epoch 300/500: avg_loss = 0.632636, lr = 0.002182, |c|=0.338, o_avg=0.208, o_range=[0.010, 1.345]
+epoch 350/500: avg_loss = 0.625155, lr = 0.001512, |c|=0.336, o_avg=0.206, o_range=[0.010, 1.345]
+epoch 400/500: avg_loss = 0.574665, lr = 0.000974, |c|=0.334, o_avg=0.206, o_range=[0.010, 1.345]
+epoch 450/500: avg_loss = 0.602590, lr = 0.000624, |c|=0.334, o_avg=0.206, o_range=[0.010, 1.345]
+epoch 500/500: avg_loss = 0.578887, lr = 0.000500, |c|=0.333, o_avg=0.205, o_range=[0.010, 1.345]
 
-Loss: 4.5574 (epoch 1) -> 0.0000 (epoch 500)
+Loss: 5.2844 (epoch 1) -> 0.5789 (epoch 500)
+  eval sample: sub=0 sup=1 correct_score=0.7561 min=0.7561 median=2.0532 max=2.3169
+  eval sample: sub=2 sup=1 correct_score=0.7365 min=0.7365 median=2.7294 max=3.7536
+  eval sample: sub=3 sup=1 correct_score=0.6522 min=0.6522 median=2.4338 max=3.4445
 
 Subsumption prediction (on training axioms):
-  Hits@1:  0.85
+  Hits@1:  0.31
   Hits@10: 1.00
-  MRR:     0.9231
+  MRR:     0.5591
 
 --- Spot checks (lower = better containment) ---
-  Dog ⊑ Mammal: 0.0637  (SHOULD be low)
-  Dog ⊑ Animal: 0.0847  (SHOULD be low)
-  Dog ⊑ LivingThing: 0.1179  (SHOULD be low)
-  Dog ⊑ Cat: 2.4659  (SHOULD be high)
-  Mammal ⊑ Fish: 4.6036  (SHOULD be high)
-  Animal ⊑ Plant: 6.8601  (SHOULD be high)
-  Eagle ⊑ Bird: 0.0840  (SHOULD be low)
-  Salmon ⊑ Fish: 0.1320  (SHOULD be low)
+  Dog ⊑ Mammal: 0.7561  (SHOULD be low)
+  Dog ⊑ Animal: 1.8465  (SHOULD be low)
+  Dog ⊑ LivingThing: 1.9577  (SHOULD be low)
+  Dog ⊑ Cat: 1.2252  (SHOULD be high)
+  Mammal ⊑ Fish: 3.8667  (SHOULD be high)
+  Animal ⊑ Plant: 5.5494  (SHOULD be high)
+  Eagle ⊑ Bird: 0.2841  (SHOULD be low)
+  Salmon ⊑ Fish: 0.2483  (SHOULD be low)
+
+Saved TrainedElModel to /tmp/subsume_el_demo.json (30.7 KB)
+Loaded: 15 concepts, 4 roles, dim=30
+
+--- Name-based lookup (via TrainedElModel) ---
+  Dog ⊑ Mammal: 0.7561
+  Dog ⊑ Animal: 1.8465
+  Dog ⊑ LivingThing: 1.9577
+  Dog ⊑ Cat: 1.2252
+  Mammal ⊑ Fish: 3.8667
+  Animal ⊑ Plant: 5.5494
+  Eagle ⊑ Bird: 0.2841
+  Salmon ⊑ Fish: 0.2483
 ```
 
 </details>
