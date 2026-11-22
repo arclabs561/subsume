@@ -11,6 +11,12 @@ These source changes are listed without assigning them to a published release.
 
 ## [Unreleased]
 
+## 0.19.0
+
+### Fixed
+
+- Early stopping filters validation candidates using train and validation triples. Held-out test answers enter the filter only during final evaluation. Hard-box overlap also preserves unit-axis and coordinate-scale invariance.
+
 ### Changed
 
 - `BoxEmbeddingTrainer` reads its negative-pair margin from the new
