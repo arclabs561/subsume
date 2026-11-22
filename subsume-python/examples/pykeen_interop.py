@@ -91,8 +91,6 @@ def train_pykeen_boxe(training, testing) -> dict:
         model_kwargs={"embedding_dim": 32},
         training_kwargs={"num_epochs": 100, "batch_size": 128},
         optimizer_kwargs={"lr": 0.01},
-        # The subsumer call above also ranks against all entities without filtering.
-        evaluator_kwargs={"filtered": False},
         evaluation_kwargs={"batch_size": 128},
         random_seed=42,
     )
@@ -138,7 +136,8 @@ def main():
     print("\n--- PyKEEN BoxE (PyTorch) ---")
     pykeen_results = train_pykeen_boxe(dataset.training, dataset.testing)
 
-    print("\nHeld-out Nations triples, unfiltered head and tail ranks")
+    print("\nHeld-out Nations triples, head and tail ranks")
+    print("subsumer uses unfiltered ranks. PyKEEN filters other known positives.")
     print(f"{'Metric':<12} {'subsumer':>10} {'PyKEEN BoxE':>12}")
     for key in ["mrr", "hits_at_1", "hits_at_3", "hits_at_10", "mean_rank", "train_time_s"]:
         print(f"{key:<12} {subsumer_results[key]:>10.4f} {pykeen_results[key]:>12.4f}")
