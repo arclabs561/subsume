@@ -161,11 +161,11 @@ impl NdarrayBox {
 
 impl HyperBox for NdarrayBox {
     fn min(&self) -> Vec<f32> {
-        self.min.as_slice().unwrap_or(&[]).to_vec()
+        self.min.to_vec()
     }
 
     fn max(&self) -> Vec<f32> {
-        self.max.as_slice().unwrap_or(&[]).to_vec()
+        self.max.to_vec()
     }
 
     fn dim(&self) -> usize {
@@ -235,13 +235,6 @@ impl HyperBox for NdarrayBox {
     }
 
     fn containment_prob(&self, other: &Self) -> Result<f32, BoxError> {
-        // Containment probability: P(other ⊆ self) = Vol(self ∩ other) / Vol(other).
-        //
-        // IMPORTANT: this is a hot path (training + evaluation). Constructing an explicit
-        // intersection box allocates and is avoidable. We compute the intersection volume
-        // directly in one pass over dimensions, with the same numerical strategy as `volume()`:
-        // use log-space for higher dimensions to avoid underflow/overflow.
-
         if self.dim() != other.dim() {
             return Err(BoxError::DimensionMismatch {
                 expected: self.dim(),
@@ -249,134 +242,20 @@ impl HyperBox for NdarrayBox {
             });
         }
 
-        use crate::utils::log_space_volume;
-
-        let dim = self.dim();
-
-        if dim > 10 {
-            let mut i = 0usize;
-            let (log_other, _other_vol) = log_space_volume(std::iter::from_fn(|| {
-                if i >= dim {
-                    return None;
-                }
-                let len = (other.max[i] - other.min[i]).max(0.0);
-                i += 1;
-                Some(len)
-            }));
-
-            if log_other == f32::NEG_INFINITY {
+        // Each axis contributes a fraction in [0, 1]. Widen before subtracting:
+        // two finite f32 endpoints can span more than f32::MAX.
+        let mut ratio = 1.0_f64;
+        for k in 0..self.dim() {
+            let width = f64::from(other.max[k]) - f64::from(other.min[k]);
+            if width <= 0.0 {
                 return Err(BoxError::Internal("Box has zero or negative volume".into()));
             }
 
-            let mut j = 0usize;
-            let (log_intersection, _intersection_vol) =
-                log_space_volume(std::iter::from_fn(|| {
-                    if j >= dim {
-                        return None;
-                    }
-                    let lo = self.min[j].max(other.min[j]);
-                    let hi = self.max[j].min(other.max[j]);
-                    let len = (hi - lo).max(0.0);
-                    j += 1;
-                    Some(len)
-                }));
-
-            // Ratio in log space: both volumes can underflow f32 at high dim.
-            Ok((log_intersection - log_other).exp().clamp(0.0, 1.0))
-        } else {
-            // Multiply per-dimension ratios (each in [0, 1]) rather than
-            // dividing two volumes: a small box's volume underflows f32
-            // (side 1e-6 in 8 dims is 1e-48) even though the ratio is exact.
-            let mut ratio = 1.0f32;
-
-            for k in 0..dim {
-                let other_len = other.max[k] - other.min[k];
-                if other_len <= 0.0 {
-                    return Err(BoxError::Internal("Box has zero or negative volume".into()));
-                }
-
-                let lo = self.min[k].max(other.min[k]);
-                let hi = self.max[k].min(other.max[k]);
-                ratio *= (hi - lo).max(0.0) / other_len;
-            }
-
-            Ok(ratio.clamp(0.0, 1.0))
+            let lo = self.min[k].max(other.min[k]);
+            let hi = self.max[k].min(other.max[k]);
+            ratio *= (f64::from(hi) - f64::from(lo)).max(0.0) / width;
         }
-    }
-
-    fn containment_prob_many(&self, others: &[Self], out: &mut [f32]) -> Result<(), BoxError> {
-        if out.len() < others.len() {
-            return Err(BoxError::Internal(format!(
-                "output buffer too small: need {}, got {}",
-                others.len(),
-                out.len()
-            )));
-        }
-
-        use crate::utils::log_space_volume;
-
-        let dim = self.dim();
-
-        for (idx, other) in others.iter().enumerate() {
-            if dim != other.dim() {
-                return Err(BoxError::DimensionMismatch {
-                    expected: dim,
-                    actual: other.dim(),
-                });
-            }
-
-            let p = if dim > 10 {
-                let mut i = 0usize;
-                let (log_other, _other_vol) = log_space_volume(std::iter::from_fn(|| {
-                    if i >= dim {
-                        return None;
-                    }
-                    let len = (other.max[i] - other.min[i]).max(0.0);
-                    i += 1;
-                    Some(len)
-                }));
-
-                if log_other == f32::NEG_INFINITY {
-                    return Err(BoxError::Internal("Box has zero or negative volume".into()));
-                }
-
-                let mut j = 0usize;
-                let (log_intersection, _intersection_vol) =
-                    log_space_volume(std::iter::from_fn(|| {
-                        if j >= dim {
-                            return None;
-                        }
-                        let lo = self.min[j].max(other.min[j]);
-                        let hi = self.max[j].min(other.max[j]);
-                        let len = (hi - lo).max(0.0);
-                        j += 1;
-                        Some(len)
-                    }));
-
-                // Ratio in log space: both volumes can underflow f32 at high dim.
-                (log_intersection - log_other).exp().clamp(0.0, 1.0)
-            } else {
-                // Per-dimension ratios, as in `containment_prob`.
-                let mut ratio = 1.0f32;
-
-                for k in 0..dim {
-                    let other_len = other.max[k] - other.min[k];
-                    if other_len <= 0.0 {
-                        return Err(BoxError::Internal("Box has zero or negative volume".into()));
-                    }
-
-                    let lo = self.min[k].max(other.min[k]);
-                    let hi = self.max[k].min(other.max[k]);
-                    ratio *= (hi - lo).max(0.0) / other_len;
-                }
-
-                ratio.clamp(0.0, 1.0)
-            };
-
-            out[idx] = p;
-        }
-
-        Ok(())
+        Ok(ratio as f32)
     }
 
     fn overlap_prob(&self, other: &Self) -> Result<f32, BoxError> {
@@ -545,6 +424,33 @@ mod tests {
     use super::*;
     use crate::HyperBox as BoxTrait;
     use ndarray::array;
+
+    #[test]
+    fn bounds_preserve_logical_order_for_strided_arrays() {
+        let min = array![1.0, 2.0, 3.0].slice_move(ndarray::s![..;-1]);
+        let max = array![4.0, 0.0, 5.0, 0.0, 6.0].slice_move(ndarray::s![..;2]);
+        let region = NdarrayBox::new(min, max, 1.0).unwrap();
+
+        assert_eq!(region.min(), vec![3.0, 2.0, 1.0]);
+        assert_eq!(region.max(), vec![4.0, 5.0, 6.0]);
+    }
+
+    #[test]
+    fn containment_is_scale_invariant_for_positive_widths() {
+        for &(dim, radius) in &[(1, f32::MAX), (11, 1e-12)] {
+            let min = Array1::from_elem(dim, -radius);
+            let max = Array1::from_elem(dim, radius);
+            let child = NdarrayBox::new(min.clone(), max.clone(), 1.0).unwrap();
+            let mut half_max = max;
+            half_max[0] = 0.0;
+            let parent = NdarrayBox::new(min, half_max, 1.0).unwrap();
+
+            assert_eq!(parent.containment_prob(&child).unwrap(), 0.5);
+            let mut out = [0.0];
+            parent.containment_prob_many(&[child], &mut out).unwrap();
+            assert_eq!(out, [0.5]);
+        }
+    }
 
     // ---- High-dimensional containment ----
 
