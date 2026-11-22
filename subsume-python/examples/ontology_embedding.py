@@ -75,7 +75,7 @@ def main() -> None:
     # (head_contains_tail) ordering, i.e. (parent, rel, child). Setting
     # reverse=True swaps head and tail internally.
     config = subsumer.TrainingConfig(
-        dim=16,
+        dim=2,
         learning_rate=0.01,
         epochs=600,
         batch_size=5,
@@ -127,27 +127,19 @@ def main() -> None:
         prob = parent_box.containment_prob(child_box)
         print(f"  P({child} in {parent}) = {prob:.3f}")
 
-    # -- 5. Ontology completion -------------------------------------------
-    # Predict whether a new subClassOf relation holds by checking containment.
-    # A high P(candidate_child inside candidate_parent) suggests a missing
-    # subClassOf edge.
-    print("\nOntology completion -- rank candidate parents for 'Dog':")
+    # Score the reversed training relation: candidate parent contains Dog.
+    # predict applies the learned relation translation to the candidate box.
+    print("\nCandidate parents for Dog (known ancestors marked):")
     dog_id = name_to_id["Dog"]
-    dog_box = trainer.get_box(dog_id)
-
-    candidates = []
-    for name, eid in name_to_id.items():
-        if name == "Dog":
-            continue
-        candidate_box = trainer.get_box(eid)
-        prob = candidate_box.containment_prob(dog_box)
-        candidates.append((name, prob))
-
-    candidates.sort(key=lambda x: x[1], reverse=True)
-    print("  Candidate parent     P(Dog inside candidate)")
-    for name, prob in candidates:
-        marker = "<--" if name in ("Mammal", "Animal") else ""
-        print(f"  {name:<20s} {prob:.3f}  {marker}")
+    relation_id = trainer.relation_names.index("subClassOf")
+    candidates = [
+        (trainer.predict(eid, relation_id, dog_id), name)
+        for name, eid in name_to_id.items()
+        if name != "Dog"
+    ]
+    for score, name in sorted(candidates, key=lambda item: (-item[0], item[1])):
+        marker = " (known ancestor)" if name in ("Mammal", "Animal") else ""
+        print(f"  {name:<20s} {score:.3f}{marker}")
 
 
 if __name__ == "__main__":
