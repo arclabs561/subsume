@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["subsumer>=0.7.1", "rdflib>=7.0"]
+# dependencies = ["subsumer>=0.9.0", "rdflib>=7.0"]
 # ///
 """Embed an OWL-like ontology built with rdflib into box embeddings.
 
@@ -8,11 +8,11 @@ Demonstrates the biomedical/ontology use case:
   1. Build a small taxonomy using rdflib with rdfs:subClassOf triples
   2. Extract triples from the RDF graph
   3. Train box embeddings with subsumer
-  4. Verify learned containment matches the ontology hierarchy
-  5. Predict new subClassOf relations (ontology completion)
+  4. Inspect learned containment for known ancestors and unrelated classes
+  5. Rank candidate parents for a class
 """
 
-from rdflib import Graph, Namespace, RDF, RDFS, URIRef
+from rdflib import Graph, Namespace, RDF, RDFS
 
 import subsumer
 
@@ -81,8 +81,8 @@ def main() -> None:
         batch_size=5,
         margin=1.0,
         negative_samples=3,
-        gumbel_beta=3.0,
-        gumbel_beta_final=15.0,
+        softplus_beta=3.0,
+        softplus_beta_final=15.0,
         warmup_epochs=30,
         early_stopping_patience=None,
         regularization=0.0001,
@@ -95,9 +95,9 @@ def main() -> None:
     final_loss = result["loss_history"][-1]
     print(f"\nTraining complete (final loss: {final_loss:.4f})")
 
-    # -- 4. Verify containment -------------------------------------------
+    # -- 4. Inspect containment -------------------------------------------
     # Build a name -> id map from the entity list
-    entity_names = trainer.entity_names()
+    entity_names = trainer.entity_names
     name_to_id = {name: i for i, name in enumerate(entity_names)}
 
     print("\nContainment probabilities (P(child inside parent)):")

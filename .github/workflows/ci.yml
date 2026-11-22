@@ -131,6 +131,10 @@ jobs:
           print('OK')
           "
 
+      - name: Run the RDF example against the local Python bindings
+        working-directory: subsume-python
+        run: uv run --with 'rdflib>=7.0' python examples/ontology_embedding.py
+
   msrv:
     runs-on: ubuntu-latest
     steps:

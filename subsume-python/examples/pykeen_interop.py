@@ -1,10 +1,10 @@
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["subsumer>=0.7.1", "pykeen>=1.10", "torch"]
+# dependencies = ["subsumer>=0.9.0", "pykeen>=1.10", "torch"]
 # ///
 """PyKEEN interop: train subsumer box embeddings on a PyKEEN dataset.
 
-Loads the Nations dataset (~200 triples) from PyKEEN, trains box embeddings
+Loads the Nations dataset from PyKEEN, trains box embeddings
 with subsumer, then trains PyKEEN's BoxE on the same data for comparison.
 Also demonstrates exporting trained embeddings as numpy arrays.
 
@@ -22,7 +22,7 @@ def extract_triples_from_pykeen(
 ) -> list[tuple[str, str, str]]:
     """Extract (head, relation, tail) string triples from a PyKEEN TriplesFactory."""
     triples = []
-    for row in triples_factory.triples:
+    for row in triples_factory.label_triples(triples_factory.mapped_triples):
         h, r, t = row[0], row[1], row[2]
         triples.append((str(h), str(r), str(t)))
     return triples
@@ -48,8 +48,8 @@ def train_subsumer(
         batch_size=128,
         margin=2.0,
         negative_samples=5,
-        gumbel_beta=10.0,
-        gumbel_beta_final=50.0,
+        softplus_beta=10.0,
+        softplus_beta_final=50.0,
         warmup_epochs=5,
         early_stopping_patience=20,
     )
@@ -84,7 +84,6 @@ def train_pykeen_boxe(training, testing) -> dict:
     """Train PyKEEN BoxE and evaluate."""
     from pykeen.pipeline import pipeline
 
-    t0 = time.time()
     result = pipeline(
         training=training,
         testing=testing,
@@ -92,11 +91,11 @@ def train_pykeen_boxe(training, testing) -> dict:
         model_kwargs={"embedding_dim": 32},
         training_kwargs={"num_epochs": 100, "batch_size": 128},
         optimizer_kwargs={"lr": 0.01},
+        # The subsumer call above also ranks against all entities without filtering.
+        evaluator_kwargs={"filtered": False},
         evaluation_kwargs={"batch_size": 128},
         random_seed=42,
     )
-    train_time = time.time() - t0
-
     # Extract metrics via get_metric (stable across PyKEEN versions).
     mr = result.metric_results
     return {
@@ -105,7 +104,7 @@ def train_pykeen_boxe(training, testing) -> dict:
         "hits_at_3": mr.get_metric("both.realistic.hits_at_3"),
         "hits_at_10": mr.get_metric("both.realistic.hits_at_10"),
         "mean_rank": mr.get_metric("both.realistic.arithmetic_mean_rank"),
-        "train_time_s": train_time,
+        "train_time_s": result.train_seconds,
     }
 
 
@@ -136,44 +135,13 @@ def main():
     # -- Train subsumer --
     print("\n--- subsumer (Rust box embeddings) ---")
     subsumer_results, trainer = train_subsumer(train_triples, test_triples)
-    print(f"  MRR:       {subsumer_results['mrr']:.4f}")
-    print(f"  Hits@1:    {subsumer_results['hits_at_1']:.4f}")
-    print(f"  Hits@3:    {subsumer_results['hits_at_3']:.4f}")
-    print(f"  Hits@10:   {subsumer_results['hits_at_10']:.4f}")
-    print(f"  Mean Rank: {subsumer_results['mean_rank']:.1f}")
-    print(f"  Time:      {subsumer_results['train_time_s']:.2f}s")
-
-    # -- Train PyKEEN BoxE --
     print("\n--- PyKEEN BoxE (PyTorch) ---")
-    try:
-        pykeen_results = train_pykeen_boxe(dataset.training, dataset.testing)
-        print(f"  MRR:       {pykeen_results['mrr']:.4f}")
-        print(f"  Hits@1:    {pykeen_results['hits_at_1']:.4f}")
-        print(f"  Hits@3:    {pykeen_results['hits_at_3']:.4f}")
-        print(f"  Hits@10:   {pykeen_results['hits_at_10']:.4f}")
-        print(f"  Mean Rank: {pykeen_results['mean_rank']:.1f}")
-        print(f"  Time:      {pykeen_results['train_time_s']:.2f}s")
-    except Exception as e:
-        print(f"  PyKEEN training failed: {e}")
-        pykeen_results = None
+    pykeen_results = train_pykeen_boxe(dataset.training, dataset.testing)
 
-    # -- Side-by-side comparison --
-    if pykeen_results:
-        print("\n--- Comparison ---")
-        print(f"{'Metric':<12} {'subsumer':>10} {'PyKEEN BoxE':>12}")
-        print("-" * 36)
-        for key in ["mrr", "hits_at_1", "hits_at_3", "hits_at_10"]:
-            s = subsumer_results[key]
-            p = pykeen_results[key]
-            print(f"{key:<12} {s:>10.4f} {p:>12.4f}")
-        print(
-            f"{'mean_rank':<12} {subsumer_results['mean_rank']:>10.1f} "
-            f"{pykeen_results['mean_rank']:>12.1f}"
-        )
-        print(
-            f"{'time (s)':<12} {subsumer_results['train_time_s']:>10.2f} "
-            f"{pykeen_results['train_time_s']:>12.2f}"
-        )
+    print("\nHeld-out Nations triples, unfiltered head and tail ranks")
+    print(f"{'Metric':<12} {'subsumer':>10} {'PyKEEN BoxE':>12}")
+    for key in ["mrr", "hits_at_1", "hits_at_3", "hits_at_10", "mean_rank", "train_time_s"]:
+        print(f"{key:<12} {subsumer_results[key]:>10.4f} {pykeen_results[key]:>12.4f}")
 
     # -- Export embeddings as numpy arrays --
     show_numpy_export(trainer)
