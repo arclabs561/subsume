@@ -274,56 +274,16 @@ pub trait HyperBox: Sized {
         Ok(())
     }
 
-    /// Compute the probability that two boxes overlap (non-empty intersection).
+    /// Compute geometric overlap as intersection over union (IoU).
     ///
-    /// ## Paradigm Problem: Related but Distinct Entities
+    /// For hard boxes with positive union volume, this is the probability that
+    /// a point sampled uniformly from their union lies in both boxes. For example, the intervals `[0, 1]` and `[0, 2]` have
+    /// overlap 0.5 in both directions, while the larger interval has
+    /// containment score 1.0 for the smaller one.
     ///
-    /// Consider "dog" and "cat". They're both animals, both mammals, both pets—so they're
-    /// related. But they're distinct species—a dog is not a cat. How do we measure this
-    /// relationship?
-    ///
-    /// **The answer**: Overlap probability. If the "dog" box and "cat" box overlap significantly,
-    /// they share many properties (high overlap = related). If they barely overlap, they're
-    /// more distinct (low overlap = less related).
-    ///
-    /// **Visual intuition**: Imagine two boxes in space. If they overlap a lot, they share
-    /// much of the same "conceptual space". If they're far apart or barely touch, they're
-    /// more distinct. Overlap probability quantifies this geometric relationship.
-    ///
-    /// **Step-by-step computation**:
-    /// 1. Compute intersection: What region do both boxes share?
-    /// 2. Compute union: What region does either box cover?
-    /// 3. Ratio: Intersection volume / Union volume gives overlap probability
-    ///    - If boxes are identical: overlap = 1.0 (completely related)
-    ///    - If boxes are disjoint: overlap = 0.0 (completely distinct)
-    ///    - If boxes partially overlap: 0.0 < overlap < 1.0 (related but distinct)
-    ///
-    /// ## Mathematical Definition
-    ///
-    /// Using the inclusion-exclusion principle:
-    ///
-    ///
-    /// $$
-    /// P(\text{self} \cap \text{other} \neq \emptyset) = \frac{\text{Vol}(\text{self} \cap \text{other})}{\text{Vol}(\text{self} \cup \text{other})}
-    /// $$
-    ///
-    /// Where the union volume is computed as:
-    ///
-    /// $$
-    /// \text{Vol}(\text{self} \cup \text{other}) = \text{Vol}(\text{self}) + \text{Vol}(\text{other}) - \text{Vol}(\text{self} \cap \text{other})
-    /// $$
-    ///
-    /// ## Interpretation
-    ///
-    /// - **1.0**: Complete overlap (boxes are identical or one contains the other)
-    /// - **0.0**: Complete disjointness (boxes don't intersect)
-    /// - **0.5**: Partial overlap (half the union is intersection)
-    ///
-    /// ## Use Cases
-    ///
-    /// - **Entity resolution**: High overlap probability suggests two boxes represent the same entity
-    /// - **Relatedness**: Moderate overlap suggests related but distinct concepts
-    /// - **Disjointness**: Low overlap suggests mutually exclusive concepts
+    /// A positive-volume box has overlap 1.0 with itself. Touching or
+    /// disjoint hard boxes have overlap 0.0, as do zero-volume hard boxes.
+    /// Gumbel boxes use a smooth intersection and expected box volumes.
     ///
     /// # Errors
     ///
