@@ -717,25 +717,31 @@ Dataset: 47 entities, 1 relations, 46 train / 7 valid / 7 test triples
 
 Training up to 200 epochs (dim=12, 46 train triples, early stopping patience=30)...
 
-  Trained 87 epochs (best epoch: 56)
-  Loss: 4.8090 -> 0.0444
-  Val MRR: 0.1586 -> 0.7436
+Early stopping filters other answers observed in train or validation.
+  Trained 81 epochs (best epoch: 50)
+  Loss: 4.8178 -> 0.0339
+  Val MRR: 0.1585 -> 0.6071
 
 --- Evaluation (test set, filtered) ---
 
-  MRR:       0.8571
-  Hits@1:    0.7143
-  Hits@3:    1.0000
+  MRR:       0.7321
+  Head MRR:  0.9286
+  Tail MRR:  0.5357
+  Hits@1:    0.5714
+  Hits@3:    0.7857
   Hits@10:   1.0000
-  Mean Rank: 1.3
+  Mean Rank: 1.9
 
-  (7 test triples, 47 entities, filtered ranking)
+  Rank each head and tail against the 47-entity vocabulary (14 ranks).
+  Higher scores mean more of the tail lies inside the relation-translated head.
+  Exact ties rank by ascending entity name.
+  Test filtering removes other answers observed in train, validation or test.
 
 --- Per-Relation Breakdown ---
 
-  has_hyponym: MRR=0.8571, Hits@10=1.0000 (7 triples)
+  has_hyponym: MRR=0.7321, Hits@10=1.0000 (7 triples)
 
-Checkpoint: 62490 bytes (serialized 47 entity boxes + optimizer state)
+Checkpoint: 62467 bytes (serialized 47 entity boxes + optimizer state)
 Checkpoint round-trip: OK (47 entities restored)
 ```
 

@@ -88,8 +88,11 @@ cargo run --example region_generic
 ```
 
 The first example prints containment and overlap scores for a small hierarchy.
-The second ranks boxes and balls using the same Rust function. The [example guide](examples/README.md) covers training, ontology,
-query, and data-gated benchmarks.
+The second ranks three hand-built candidates per geometry. To train boxes and
+evaluate held-out links, run `cargo run --release --example dataset_training`.
+It reports head and tail MRR separately and identifies the known answers
+removed at validation and test time. The [example guide](examples/README.md)
+also covers ontology, query, and data-gated benchmarks.
 
 Python bindings are published as `subsumer`; see
 [`subsume-python/README.md`](subsume-python/README.md).
