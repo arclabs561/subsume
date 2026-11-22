@@ -173,24 +173,18 @@ impl HyperBox for NdarrayBox {
     }
 
     fn volume(&self) -> Result<f32, BoxError> {
-        use crate::utils::log_space_volume;
+        let widths = self
+            .min
+            .iter()
+            .zip(&self.max)
+            .map(|(&lo, &hi)| f64::from(hi) - f64::from(lo));
 
-        // Hard box volume: product of side lengths (Vilnis et al., 2018).
-        // NdarrayGumbelBox overrides this with the Bessel/softplus volume
-        // from Dasgupta et al. (2020).
-
-        // For high-dimensional boxes, use log-space computation to avoid underflow/overflow
-        let diff = &self.max - &self.min;
-        let dim = self.dim();
-
-        if dim > 10 {
-            // High-dimensional: use log-space
-            let (_, volume) = log_space_volume(diff.iter().copied());
-            Ok(volume.max(0.0))
+        // Up to seven finite f32 spans fit in a direct f64 product, even at
+        // their largest. For longer products, sum logs before rounding to f32.
+        if self.dim() <= 7 {
+            Ok(widths.product::<f64>() as f32)
         } else {
-            // Low-dimensional: direct multiplication is fine
-            let volume = diff.iter().product::<f32>();
-            Ok(volume.max(0.0))
+            Ok(crate::utils::log_space_volume_f64(widths).1)
         }
     }
 
@@ -712,6 +706,24 @@ mod tests {
         assert_eq!(point.overlap_prob(&point).unwrap(), 0.0);
         let touching = NdarrayBox::new(array![1., 0.], array![2., 100.], 1.).unwrap();
         assert_eq!(tall.overlap_prob(&touching).unwrap(), 0.0);
+    }
+
+    #[test]
+    fn volume_preserves_representable_products_across_axes() {
+        for dim in [2, 10, 11, 32] {
+            let mut upper = Array1::ones(dim);
+            upper[0] = 1e-12;
+            let thin = NdarrayBox::new(Array1::zeros(dim), upper, 1.0).unwrap();
+            assert_eq!(thin.volume().unwrap(), 1e-12);
+
+            let mut lo = Array1::zeros(dim);
+            let mut hi = Array1::ones(dim);
+            lo[0] = -f32::MAX;
+            hi[0] = f32::MAX;
+            hi[1] = 0.25;
+            let wide = NdarrayBox::new(lo, hi, 1.0).unwrap();
+            assert_eq!(wide.volume().unwrap(), f32::MAX / 2.0);
+        }
     }
 
     #[test]
