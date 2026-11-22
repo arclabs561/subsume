@@ -259,11 +259,6 @@ impl HyperBox for NdarrayBox {
     }
 
     fn overlap_prob(&self, other: &Self) -> Result<f32, BoxError> {
-        // Overlap probability: Vol(self ∩ other) / Vol(self ∪ other).
-        //
-        // Same optimization as `containment_prob`: avoid allocating an intersection box.
-        use crate::utils::log_space_volume;
-
         if self.dim() != other.dim() {
             return Err(BoxError::DimensionMismatch {
                 expected: self.dim(),
@@ -271,67 +266,25 @@ impl HyperBox for NdarrayBox {
             });
         }
 
-        let dim = self.dim();
-
-        if dim > 10 {
-            // Log space: at high dimension each volume underflows f32 while
-            // the overlap ratio does not.
-            let mut i = 0usize;
-            let (log_a, _) = log_space_volume(std::iter::from_fn(|| {
-                if i >= dim {
-                    return None;
-                }
-                let len = (self.max[i] - self.min[i]).max(0.0);
-                i += 1;
-                Some(len)
-            }));
-
-            let mut j = 0usize;
-            let (log_b, _) = log_space_volume(std::iter::from_fn(|| {
-                if j >= dim {
-                    return None;
-                }
-                let len = (other.max[j] - other.min[j]).max(0.0);
-                j += 1;
-                Some(len)
-            }));
-
-            let mut k = 0usize;
-            let (log_inter, _) = log_space_volume(std::iter::from_fn(|| {
-                if k >= dim {
-                    return None;
-                }
-                let lo = self.min[k].max(other.min[k]);
-                let hi = self.max[k].min(other.max[k]);
-                let len = (hi - lo).max(0.0);
-                k += 1;
-                Some(len)
-            }));
-
-            return Ok(crate::utils::overlap_from_log_volumes(
-                log_inter, log_a, log_b,
-            ));
-        }
-
-        let mut intersection_vol = 1.0f32;
-        let mut vol_a = 1.0f32;
-        let mut vol_b = 1.0f32;
-
-        for k in 0..dim {
-            vol_a *= (self.max[k] - self.min[k]).max(0.0);
-            vol_b *= (other.max[k] - other.min[k]).max(0.0);
-
+        // Let I be intersection volume and A, B the individual volumes.
+        // I / (A + B - I) = 1 / (1/(I/A) + 1/(I/B) - 1). Each coverage
+        // fraction is a product of per-axis ratios bounded by one.
+        let mut coverage_a = 1.0_f64;
+        let mut coverage_b = 1.0_f64;
+        for k in 0..self.dim() {
             let lo = self.min[k].max(other.min[k]);
             let hi = self.max[k].min(other.max[k]);
-            intersection_vol *= (hi - lo).max(0.0);
+            if hi <= lo {
+                return Ok(0.0);
+            }
+
+            // A span between finite f32 coordinates can exceed f32::MAX.
+            let common_width = f64::from(hi) - f64::from(lo);
+            coverage_a *= common_width / (f64::from(self.max[k]) - f64::from(self.min[k]));
+            coverage_b *= common_width / (f64::from(other.max[k]) - f64::from(other.min[k]));
         }
 
-        let union_vol = vol_a + vol_b - intersection_vol;
-        if union_vol <= 0.0 {
-            return Ok(0.0);
-        }
-
-        Ok((intersection_vol / union_vol).clamp(0.0, 1.0))
+        Ok((coverage_a.recip() + coverage_b.recip() - 1.0).recip() as f32)
     }
 
     fn union(&self, other: &Self) -> Result<Self, BoxError> {
@@ -726,6 +679,39 @@ mod tests {
             "Full containment should give prob ~1.0, got {}",
             p
         );
+    }
+
+    #[test]
+    fn overlap_is_scale_invariant_for_positive_widths() {
+        for &(dim, radius) in &[(2, 1.0), (8, 1e-8), (32, 1e-12), (2, f32::MAX)] {
+            let left_min = Array1::from_elem(dim, -radius);
+            let mut left_max = Array1::from_elem(dim, radius);
+            let mut right_min = left_min.clone();
+            let right_max = left_max.clone();
+            left_max[0] = radius / 2.0;
+            right_min[0] = -radius / 2.0;
+
+            let left = NdarrayBox::new(left_min, left_max, 1.0).unwrap();
+            let right = NdarrayBox::new(right_min, right_max, 1.0).unwrap();
+            // First axis: intersection width r, union width 2r. The other
+            // axes match, so their widths cancel at every scale.
+            assert_eq!(left.overlap_prob(&right).unwrap(), 0.5);
+            assert_eq!(right.overlap_prob(&left).unwrap(), 0.5);
+            assert_eq!(left.overlap_prob(&left).unwrap(), 1.0);
+        }
+    }
+
+    #[test]
+    fn overlap_uses_each_whole_box_volume() {
+        // The rectangles cross at a unit square. Each has area 100.
+        let tall = NdarrayBox::new(array![0., 0.], array![1., 100.], 1.).unwrap();
+        let wide = NdarrayBox::new(array![0., 0.], array![100., 1.], 1.).unwrap();
+        assert_eq!(tall.overlap_prob(&wide).unwrap(), 1.0 / 199.0);
+
+        let point = NdarrayBox::new(array![0., 0.], array![0., 0.], 1.).unwrap();
+        assert_eq!(point.overlap_prob(&point).unwrap(), 0.0);
+        let touching = NdarrayBox::new(array![1., 0.], array![2., 100.], 1.).unwrap();
+        assert_eq!(tall.overlap_prob(&touching).unwrap(), 0.0);
     }
 
     #[test]
