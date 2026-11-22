@@ -15,7 +15,7 @@
 //!   MARGIN=0.1 NEG_DIST=2.0 REG=0.5
 //!
 //! Expects data/{DATASET}/train.tsv and data/{DATASET}/test.tsv in Box2EL TSV format.
-//! Convert from Box2EL numpy with: uv run scripts/convert_box2el.py
+//! See docs/CLQA_EVAL.md (Data) for the GALEN download and conversion commands.
 
 use std::path::Path;
 use std::time::Instant;
@@ -60,7 +60,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if !train_path.exists() {
         eprintln!(
             "skipping: {train_path:?} not found.\n\
-             Convert Box2EL data with: uv run scripts/convert_box2el.py"
+             For GALEN download and conversion commands, see docs/CLQA_EVAL.md (Data)."
         );
         return Ok(());
     }

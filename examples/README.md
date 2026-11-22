@@ -49,10 +49,10 @@ registered in `Cargo.toml` with these `required-features`.
 These read datasets that are not committed. Without the data they print what to
 fetch and exit 0.
 
-| Data | Examples | Fetch |
+| Data | Examples | Setup |
 |---|---|---|
 | `data/WN18RR/` | `wn18rr_ball`, `wn18rr_ball_burn`, `wn18rr_box_burn`, `wn18rr_cone_burn`, `wn18rr_geometry_comparison_burn` (or `DATA=<dir>`), `wn18rr_training`, `wn18rr_transbox_burn` | `python3 scripts/download_wn18rr.py` |
-| `data/GALEN/` (Box2EL) | `el_benchmark`, `el_benchmark_burn`, `el_clqa_galen` | `uv run scripts/convert_box2el.py` |
+| `data/GALEN/` (Box2EL) | `el_benchmark`, `el_benchmark_burn`, `el_clqa_galen` | [GALEN download and conversion commands](../docs/CLQA_EVAL.md#data) |
 
 `gene_ontology` reads the committed `data/go_subset/go_normalized.tsv`.
 

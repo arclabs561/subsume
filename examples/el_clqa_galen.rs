@@ -1665,7 +1665,7 @@ fn main() {
     if !train_path.exists() {
         println!(
             "data/{dataset}/train.tsv not found; skipping real-ontology eval (data-gated).\n\
-             Fetch the Box2EL EL++ datasets to run this (see el_benchmark examples)."
+             For GALEN download and conversion commands, see docs/CLQA_EVAL.md (Data)."
         );
         return;
     }
