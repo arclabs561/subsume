@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["subsumer>=0.7.1", "rdflib>=7.0"]
+# dependencies = ["subsumer>=0.9.0", "rdflib>=7.0"]
 # ///
 """Embed an OWL-like ontology built with rdflib into box embeddings.
 
@@ -8,11 +8,11 @@ Demonstrates the biomedical/ontology use case:
   1. Build a small taxonomy using rdflib with rdfs:subClassOf triples
   2. Extract triples from the RDF graph
   3. Train box embeddings with subsumer
-  4. Verify learned containment matches the ontology hierarchy
-  5. Predict new subClassOf relations (ontology completion)
+  4. Inspect learned containment for known ancestors and unrelated classes
+  5. Rank candidate parents for a class
 """
 
-from rdflib import Graph, Namespace, RDF, RDFS, URIRef
+from rdflib import Graph, Namespace, RDF, RDFS
 
 import subsumer
 
@@ -75,14 +75,14 @@ def main() -> None:
     # (head_contains_tail) ordering, i.e. (parent, rel, child). Setting
     # reverse=True swaps head and tail internally.
     config = subsumer.TrainingConfig(
-        dim=16,
+        dim=2,
         learning_rate=0.01,
         epochs=600,
         batch_size=5,
         margin=1.0,
         negative_samples=3,
-        gumbel_beta=3.0,
-        gumbel_beta_final=15.0,
+        softplus_beta=3.0,
+        softplus_beta_final=15.0,
         warmup_epochs=30,
         early_stopping_patience=None,
         regularization=0.0001,
@@ -95,9 +95,9 @@ def main() -> None:
     final_loss = result["loss_history"][-1]
     print(f"\nTraining complete (final loss: {final_loss:.4f})")
 
-    # -- 4. Verify containment -------------------------------------------
+    # -- 4. Inspect containment -------------------------------------------
     # Build a name -> id map from the entity list
-    entity_names = trainer.entity_names()
+    entity_names = trainer.entity_names
     name_to_id = {name: i for i, name in enumerate(entity_names)}
 
     print("\nContainment probabilities (P(child inside parent)):")
@@ -127,27 +127,19 @@ def main() -> None:
         prob = parent_box.containment_prob(child_box)
         print(f"  P({child} in {parent}) = {prob:.3f}")
 
-    # -- 5. Ontology completion -------------------------------------------
-    # Predict whether a new subClassOf relation holds by checking containment.
-    # A high P(candidate_child inside candidate_parent) suggests a missing
-    # subClassOf edge.
-    print("\nOntology completion -- rank candidate parents for 'Dog':")
+    # Score the reversed training relation: candidate parent contains Dog.
+    # predict applies the learned relation translation to the candidate box.
+    print("\nCandidate parents for Dog (known ancestors marked):")
     dog_id = name_to_id["Dog"]
-    dog_box = trainer.get_box(dog_id)
-
-    candidates = []
-    for name, eid in name_to_id.items():
-        if name == "Dog":
-            continue
-        candidate_box = trainer.get_box(eid)
-        prob = candidate_box.containment_prob(dog_box)
-        candidates.append((name, prob))
-
-    candidates.sort(key=lambda x: x[1], reverse=True)
-    print("  Candidate parent     P(Dog inside candidate)")
-    for name, prob in candidates:
-        marker = "<--" if name in ("Mammal", "Animal") else ""
-        print(f"  {name:<20s} {prob:.3f}  {marker}")
+    relation_id = trainer.relation_names.index("subClassOf")
+    candidates = [
+        (trainer.predict(eid, relation_id, dog_id), name)
+        for name, eid in name_to_id.items()
+        if name != "Dog"
+    ]
+    for score, name in sorted(candidates, key=lambda item: (-item[0], item[1])):
+        marker = " (known ancestor)" if name in ("Mammal", "Animal") else ""
+        print(f"  {name:<20s} {score:.3f}{marker}")
 
 
 if __name__ == "__main__":
