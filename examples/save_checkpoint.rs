@@ -106,7 +106,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .iter()
         .map(|t| (t.head, t.relation, t.tail))
         .collect();
-    let filter = FilteredTripleIndexIds::from_dataset(&interned);
+    let validation_filter =
+        FilteredTripleIndexIds::from_triples(interned.train.iter().chain(&interned.valid));
 
     // --- Configure and train ---
     let config = TrainingConfig {
@@ -133,7 +134,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let result = trainer.fit(
         &train_triples,
         Some((&interned.valid, &interned.entities)),
-        Some(&filter),
+        Some(&validation_filter),
     )?;
 
     let actual_epochs = result.loss_history.len();
@@ -148,7 +149,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // --- Evaluate on test set (filtered) ---
     println!("\n--- Test Set Evaluation (filtered) ---\n");
 
-    let test_results = trainer.evaluate(&interned.test, &interned.entities, Some(&filter))?;
+    let test_filter = FilteredTripleIndexIds::from_dataset(&interned);
+    let test_results = trainer.evaluate(&interned.test, &interned.entities, Some(&test_filter))?;
 
     println!("  MRR:       {:.4}", test_results.mrr);
     println!("  Hits@1:    {:.4}", test_results.hits_at_1);

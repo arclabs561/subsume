@@ -103,6 +103,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.epochs, config.batch_size
     );
 
+    let validation_filter =
+        FilteredTripleIndexIds::from_triples(interned.train.iter().chain(&interned.valid));
+
     // Train in batches.
     let _n_batches = train_triples.len().div_ceil(config.batch_size);
     for epoch in 0..config.epochs {
@@ -130,11 +133,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if (epoch + 1) % 10 == 0 {
             let sample_size = 50.min(interned.valid.len());
             let val_sample = &interned.valid[..sample_size];
-            let filter = FilteredTripleIndexIds::from_dataset(&interned);
-            match trainer.evaluate(val_sample, entities, Some(&filter)) {
+            match trainer.evaluate(val_sample, entities, Some(&validation_filter)) {
                 Ok(results) => {
                     println!(
-                        "    val (sample {sample_size}): MRR={:.4}, H@10={:.4}, MR={:.1}",
+                        "    val (sample {sample_size}, train+valid filter): MRR={:.4}, H@10={:.4}, MR={:.1}",
                         results.mrr, results.hits_at_10, results.mean_rank
                     );
                 }

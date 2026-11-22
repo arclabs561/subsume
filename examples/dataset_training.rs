@@ -142,8 +142,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(|t| (t.head, t.relation, t.tail))
         .collect();
 
-    // Build filtered index for evaluation (excludes known-true triples).
-    let filter = FilteredTripleIndexIds::from_dataset(&interned);
+    let validation_filter =
+        FilteredTripleIndexIds::from_triples(interned.train.iter().chain(&interned.valid));
 
     // --- Step 3: Configure and create trainer ---
     let config = TrainingConfig {
@@ -167,11 +167,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         train_triples.len()
     );
 
+    println!("Early stopping filters other answers observed in train or validation.");
     // --- Step 4: Train with fit() -- handles epochs, LR warmup, early stopping ---
     let result = trainer.fit(
         &train_triples,
         Some((&interned.valid, &interned.entities)),
-        Some(&filter),
+        Some(&validation_filter),
     )?;
 
     let actual_epochs = result.loss_history.len();
@@ -192,18 +193,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // --- Step 5: Evaluate on test set ---
     println!("\n--- Evaluation (test set, filtered) ---\n");
 
-    let test_results = trainer.evaluate(&interned.test, &interned.entities, Some(&filter))?;
+    let test_filter = FilteredTripleIndexIds::from_dataset(&interned);
+    let test_results = trainer.evaluate(&interned.test, &interned.entities, Some(&test_filter))?;
 
     println!("  MRR:       {:.4}", test_results.mrr);
+    println!("  Head MRR:  {:.4}", test_results.head_mrr);
+    println!("  Tail MRR:  {:.4}", test_results.tail_mrr);
     println!("  Hits@1:    {:.4}", test_results.hits_at_1);
     println!("  Hits@3:    {:.4}", test_results.hits_at_3);
     println!("  Hits@10:   {:.4}", test_results.hits_at_10);
     println!("  Mean Rank: {:.1}", test_results.mean_rank);
     println!(
-        "\n  ({} test triples, {} entities, filtered ranking)",
-        interned.test.len(),
-        interned.entities.len()
+        "\n  Rank each head and tail against the {}-entity vocabulary ({} ranks).",
+        interned.entities.len(),
+        2 * interned.test.len()
     );
+    println!("  Higher scores mean more of the tail lies inside the relation-translated head.");
+    println!("  Exact ties rank by ascending entity name.");
+    println!("  Test filtering removes other answers observed in train, validation or test.");
 
     // --- Step 6: Show per-relation breakdown ---
     if !test_results.per_relation.is_empty() {
