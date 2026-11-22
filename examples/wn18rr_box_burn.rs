@@ -15,10 +15,10 @@
 //!   DIM, EPOCHS, LR, MARGIN, NEG, BATCH, ADV_TEMP, K, REG, INFONCE,
 //!   TRAIN_LIMIT, REPORT_EVERY
 //!
-//! Box embeddings score containment `P(tail ⊆ head)` after per-relation
-//! translations; WN18RR is a general link-prediction benchmark, so containment
-//! geometry is competitive on the hierarchical relations (`_hypernym`,
-//! `_member_meronym`) and weaker on the symmetric ones.
+//! The benchmark preserves WN18RR triple order. For `_hypernym`, the child
+//! is the head and the parent is the tail. The scorer translates each box
+//! using the relation, then scores coverage of the translated tail by the
+//! translated head. Use the filtered ranks to assess link prediction.
 
 use burn::backend::Autodiff;
 use burn::optim::AdamConfig;
