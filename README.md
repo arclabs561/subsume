@@ -19,6 +19,8 @@ boxes replace a hard boundary with a temperature-controlled one.
 
 ## Install
 
+Add these dependencies to your Rust project’s `Cargo.toml`.
+
 ```toml
 [dependencies]
 subsume = "0.18"
@@ -31,6 +33,8 @@ for a WGPU device.
 
 ## Usage
 
+Save this as `src/main.rs` and run `cargo run`.
+
 ```rust
 use ndarray::array;
 use subsume::{ndarray_backend::NdarrayBox, BoxError, HyperBox};
@@ -42,17 +46,20 @@ fn main() -> Result<(), BoxError> {
 
     let probability = general.containment_prob(&specific)?;
     println!("P(specific in general) = {probability:.1}");
+    let reverse = specific.containment_prob(&general)?;
+    println!("P(general in specific) = {reverse:.3}");
     Ok(())
 }
 ```
 
 ```text
 P(specific in general) = 1.0
+P(general in specific) = 0.216
 ```
 
-For hard boxes, this is the fraction of the specific box's volume that lies in
-the general box. It is a geometric score, not calibrated probability for an
-observed label. The triple convention is `head contains tail`; reverse datasets
+For hard boxes, the denominator is the volume of the argument. The smaller
+box lies entirely inside the larger one and covers 0.6³ = 0.216 of its volume.
+Using these geometric scores as probabilities of observed labels requires calibration. The triple convention is `head contains tail`; reverse datasets
 that instead store `(child, hypernym, parent)`.
 
 ## Choose a geometry
@@ -67,16 +74,21 @@ that instead store `(child, hypernym, parent)`.
 
 The full geometry table is in [`docs/geometries.md`](docs/geometries.md).
 Scores are meaningful within one geometry, but are not calibrated across
-geometries. See `cargo run --example region_generic`.
+geometries. The `region_generic` example ranks candidates within each geometry.
 
 ## Examples
 
+Run the bundled examples from a repository checkout.
+
 ```bash
+git clone https://github.com/arclabs561/subsume.git
+cd subsume
 cargo run --example containment_hierarchy
+cargo run --example region_generic
 ```
 
-This self-contained example prints containment and overlap scores for a small
-hierarchy. The [example guide](examples/README.md) covers training, ontology,
+The first example prints containment and overlap scores for a small hierarchy.
+The second ranks boxes and balls using the same Rust function. The [example guide](examples/README.md) covers training, ontology,
 query, and data-gated benchmarks.
 
 Python bindings are published as `subsumer`; see

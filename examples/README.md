@@ -215,7 +215,7 @@ Each example below shows actual output from a single run.
        cat     1.000     1.000     0.000     1.000     0.000
       fish     1.000     0.000     0.000     0.000     1.000
 
---- Overlap P(row intersects col) ---
+--- Overlap (intersection volume / union volume) ---
 
               animal    mammal       dog       cat      fish
     animal     1.000     0.729     0.027     0.048     0.005
@@ -241,8 +241,8 @@ Each example below shows actual output from a single run.
   P(fish in mammal) = 0.0000, P(fish in animal) = 1.0000
   -> Fish is inside animal but outside mammal (different sub-hierarchy)
 
-  volume(animal) = 1.0000, volume(dog) = 0.0270, ratio = 37.0x
-  -> More general concepts have larger volume (animal is 37x bigger than dog)
+  P(animal in dog) = 0.0270
+  -> The dog box covers 2.7% of the animal box.
 ```
 
 </details>
@@ -403,12 +403,12 @@ Q4: Alpha-weighted distance scoring (Ren et al., 2020)
 
     1:     Lyon dist=0.0188 <-- answer
     2:    Paris dist=0.0424 <-- answer
-    3:   London dist=8.0370
+    3:   London dist=8.0970
 
   Q2 re-scored: languages in France (by distance, ascending)
 
     1:   French dist=0.0212
-    2:  English dist=8.9310
+    2:  English dist=8.9910
 
   Alpha sensitivity: distance for Paris across alpha values
 
@@ -848,7 +848,7 @@ Subsumption prediction (on training axioms):
 
 The `scripts/` directory contains Python plotting scripts (PEP 723, run with `uv run`):
 
-- `scripts/plot_box_concept.py` -- generates `docs/box_concepts.png` (containment, Gumbel soft boundary, octagon vs box)
+- `scripts/plot_box_concept.py` -- generates `docs/box_concepts.png` (containment and the Gumbel soft boundary)
 - `scripts/plot_training.py` -- generates `docs/training_convergence.png` (loss curve + containment probability convergence)
 - `scripts/plot_gumbel_robustness.py` -- generates `docs/gumbel_robustness.png` (gradient landscape: Gumbel membership + gradient magnitude at box boundary)
 - `scripts/plot_temperature_sensitivity.py` -- generates `docs/temperature_sensitivity.png` (containment probability vs Gumbel temperature)

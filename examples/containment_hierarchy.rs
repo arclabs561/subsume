@@ -65,7 +65,7 @@ fn main() -> Result<(), subsume::BoxError> {
     }
 
     // --- Part 3: Overlap probabilities ---
-    println!("\n--- Overlap P(row intersects col) ---\n");
+    println!("\n--- Overlap (intersection volume / union volume) ---\n");
     print!("{:>10}", "");
     for (name, _) in &entities {
         print!("{:>10}", name);
@@ -101,14 +101,10 @@ fn main() -> Result<(), subsume::BoxError> {
     );
     println!("  -> Transitive containment: dog inside mammal inside animal");
 
-    // Proof of correctness: transitivity. dog is contained in mammal and mammal
-    // in animal, so the transitive closure requires dog contained in animal too.
-    // P(dog in animal) must be at least as high as the weaker of the two links.
-    assert!(
-        p_dog_animal >= p_dog_mammal.min(p_mammal_animal),
-        "transitive containment violated: P(dog in animal)={p_dog_animal:.4} \
-         must be >= min(P(dog in mammal)={p_dog_mammal:.4}, P(mammal in animal)={p_mammal_animal:.4})"
-    );
+    // Each box in this nested chain lies entirely inside its ancestor.
+    assert_eq!(p_dog_mammal, 1.0);
+    assert_eq!(p_mammal_animal, 1.0);
+    assert_eq!(p_dog_animal, 1.0);
 
     let p_dog_cat = dog.overlap_prob(&cat)?;
     let p_cat_dog = cat.overlap_prob(&dog)?;
@@ -126,22 +122,13 @@ fn main() -> Result<(), subsume::BoxError> {
     );
     println!("  -> Fish is inside animal but outside mammal (different sub-hierarchy)");
 
-    // For hard boxes (NdarrayBox), containment is binary: 1.0 if fully inside, 0.0 otherwise.
-    // Temperature smoothing only affects Gumbel boxes (see gumbel_box_exploration example).
-    // Hard boxes give binary containment: P(dog|animal) = 1.0 when dog is inside animal
-    // because hard containment is exact. For probabilistic soft boundaries, use GumbelBox.
-    let v_animal = animal.volume()?;
-    let v_dog = dog.volume()?;
+    let p_animal_dog = dog.containment_prob(&animal)?;
+    println!("\n  P(animal in dog) = {p_animal_dog:.4}");
     println!(
-        "\n  volume(animal) = {:.4}, volume(dog) = {:.4}, ratio = {:.1}x",
-        v_animal,
-        v_dog,
-        v_animal / v_dog
+        "  -> The dog box covers {:.1}% of the animal box.",
+        100.0 * p_animal_dog
     );
-    println!(
-        "  -> More general concepts have larger volume (animal is {:.0}x bigger than dog)",
-        v_animal / v_dog
-    );
+    assert!((p_animal_dog - vol_dog / vol_animal).abs() < 1e-6);
 
     // See scripts/plot_box_concept.py for a visualization of box containment, overlap,
     // and Gumbel soft boundaries.
