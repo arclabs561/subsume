@@ -343,91 +343,42 @@ pub(crate) fn overlap_from_log_volumes(log_inter: f32, log_a: f32, log_b: f32) -
     (1.0 / denom).clamp(0.0, 1.0)
 }
 
-/// Compute volume in log-space to avoid numerical underflow/overflow.
+/// Compute the log-volume and volume of a box from its side lengths.
+/// Summing log-lengths avoids underflow and overflow in intermediate products.
+/// Both results are rounded to `f32`. A positive mathematical volume smaller
+/// than the representable range may round to zero while its logarithm is finite.
 ///
-/// ## The Problem
-///
-/// For high-dimensional boxes, direct volume computation can fail:
-///
-/// ```rust,ignore
-/// // This can underflow in high dimensions!
-/// let side_lengths = vec![0.5; 20]; // 20 dimensions
-/// let volume = side_lengths.iter().product::<f32>();
-/// // For 20 dimensions with side length 0.5: 0.5^20 ≈ 9.5×10^-7
-/// // This can underflow to 0.0 in f32!
-/// ```
-///
-/// ## The Solution
-///
-/// Compute volume in log-space, then exponentiate:
-///
-/// ```text
-/// log(Vol) = Σᵢ log(side[i])
-/// ```
-///
-/// ```text
-/// Vol = exp(Σᵢ log(side[i]))
-/// ```
-///
-/// This is numerically stable because:
-/// - Log of small numbers is a large negative number (no underflow)
-/// - Sum of logs is stable (no intermediate products)
-/// - Exp of the sum recovers the volume
-///
-/// ## When to Use
-///
-/// Use this function when:
-/// - Dimension > 10 (high-dimensional boxes)
-/// - Side lengths < 1.0 (small boxes in unit hypercube)
-/// - Computing many volumes in a loop (accumulated numerical error)
-///
-/// # Parameters
-///
-/// - `side_lengths`: Iterator over side lengths (max\[i\] - min\[i\]) for each dimension
-///
-/// # Returns
-///
-/// `(log_volume, volume)` where `volume = exp(log_volume)`.
-/// If any side length is ≤ 0, returns `(f32::NEG_INFINITY, 0.0)`.
+/// If any side length is zero or negative, returns `(f32::NEG_INFINITY, 0.0)`.
 ///
 /// # Example
 ///
 /// ```rust
 /// use subsume::utils::log_space_volume;
 ///
-/// // Low-dimensional: both methods work
-/// let side_lengths = vec![1.0, 2.0, 0.5, 0.1];
-/// let (log_vol, vol) = log_space_volume(side_lengths.iter().copied());
-/// assert!((vol - 0.1).abs() < 1e-6); // 1.0 * 2.0 * 0.5 * 0.1 = 0.1
-///
-/// // High-dimensional: log-space is essential
-/// let many_small = vec![0.5; 20];
-/// let (log_vol_hd, vol_hd) = log_space_volume(many_small.iter().copied());
-/// assert!(vol_hd > 0.0); // Would underflow with direct multiplication!
+/// let small = 2.0_f32.powi(-80);
+/// let large = 2.0_f32.powi(80);
+/// let widths = [small, small, large, large];
+/// // The first two factors alone are too small for f32; the full product is one.
+/// assert_eq!(widths.iter().product::<f32>(), 0.0);
+/// let (_, volume) = log_space_volume(widths.into_iter());
+/// assert_eq!(volume, 1.0);
 /// ```
 pub fn log_space_volume<I>(side_lengths: I) -> (f32, f32)
 where
     I: Iterator<Item = f32>,
 {
-    const EPSILON: f32 = 1e-10;
+    log_space_volume_f64(side_lengths.map(f64::from))
+}
 
-    let mut log_sum = 0.0;
-    let mut has_zero = false;
-
-    for side_len in side_lengths {
-        if side_len <= EPSILON {
-            has_zero = true;
-            break;
+pub(crate) fn log_space_volume_f64(side_lengths: impl Iterator<Item = f64>) -> (f32, f32) {
+    let mut log_volume = 0.0;
+    for width in side_lengths {
+        if width <= 0.0 {
+            return (f32::NEG_INFINITY, 0.0);
         }
-        log_sum += side_len.ln();
+        log_volume += width.ln();
     }
-
-    if has_zero {
-        (f32::NEG_INFINITY, 0.0)
-    } else {
-        let volume = log_sum.exp();
-        (log_sum, volume)
-    }
+    (log_volume as f32, log_volume.exp() as f32)
 }
 
 #[cfg(test)]
