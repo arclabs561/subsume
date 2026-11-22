@@ -161,11 +161,11 @@ impl NdarrayBox {
 
 impl HyperBox for NdarrayBox {
     fn min(&self) -> Vec<f32> {
-        self.min.as_slice().unwrap_or(&[]).to_vec()
+        self.min.to_vec()
     }
 
     fn max(&self) -> Vec<f32> {
-        self.max.as_slice().unwrap_or(&[]).to_vec()
+        self.max.to_vec()
     }
 
     fn dim(&self) -> usize {
@@ -545,6 +545,16 @@ mod tests {
     use super::*;
     use crate::HyperBox as BoxTrait;
     use ndarray::array;
+
+    #[test]
+    fn bounds_preserve_logical_order_for_strided_arrays() {
+        let min = array![1.0, 2.0, 3.0].slice_move(ndarray::s![..;-1]);
+        let max = array![4.0, 0.0, 5.0, 0.0, 6.0].slice_move(ndarray::s![..;2]);
+        let region = NdarrayBox::new(min, max, 1.0).unwrap();
+
+        assert_eq!(region.min(), vec![3.0, 2.0, 1.0]);
+        assert_eq!(region.max(), vec![4.0, 5.0, 6.0]);
+    }
 
     // ---- High-dimensional containment ----
 
