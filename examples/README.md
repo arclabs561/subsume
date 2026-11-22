@@ -54,6 +54,13 @@ fetch and exit 0.
 | `data/WN18RR/` | `wn18rr_ball`, `wn18rr_ball_burn`, `wn18rr_box_burn`, `wn18rr_cone_burn`, `wn18rr_geometry_comparison_burn` (or `DATA=<dir>`), `wn18rr_training`, `wn18rr_transbox_burn` | `python3 scripts/download_wn18rr.py` |
 | `data/GALEN/` (Box2EL) | `el_benchmark`, `el_benchmark_burn`, `el_clqa_galen` | [GALEN download and conversion commands](../docs/CLQA_EVAL.md#data) |
 
+The full WN18RR examples use the published head and tail order for filtered
+link prediction across all 11 relations. For `_hypernym`, that order is
+(child, relation, parent). The standalone `dataset_training` example reverses
+its hypernym-only subset to train a taxonomy where parent boxes contain child
+boxes. The `save_checkpoint` and `geometry_comparison` examples keep their
+WordNet subsets in the original link-prediction order.
+
 `gene_ontology` reads the committed `data/go_subset/go_normalized.tsv`.
 
 ## Examples
