@@ -23,7 +23,7 @@ Add these dependencies to your Rust project’s `Cargo.toml`.
 
 ```toml
 [dependencies]
-subsume = "0.18"
+subsume = "0.19"
 ndarray = "0.16"
 ```
 
